@@ -9,58 +9,58 @@ export function Login() {
     const [loading, setLoading] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setErrorMsg(null);
+    const handleLogin = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        setErrorMsg(null);
 
-    try {
-      // 1. Tenta logar
-      const { data: { user }, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+        try {
+            // 1. Tenta logar
+            const { data: { user }, error } = await supabase.auth.signInWithPassword({
+                email,
+                password,
+            });
 
-      if (error) {
-        throw error; // Joga para o 'catch' lá embaixo
-      }
+            if (error) {
+                throw error; // Joga para o 'catch' lá embaixo
+            }
 
-      if (user) {
-        console.log("Login Auth SUCESSO. Buscando perfil...");
+            if (user) {
+                console.log("Login Auth SUCESSO. Buscando perfil...");
 
-        // 2. Busca o perfil
-        const { data: profileData, error: profileError } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', user.id)
-          .single();
+                // 2. Busca o perfil
+                const { data: profileData, error: profileError } = await supabase
+                    .from('profiles')
+                    .select('role')
+                    .eq('id', user.id)
+                    .single();
 
-        if (profileError) {
-          console.error("Erro ao buscar perfil:", profileError);
-          setErrorMsg("Usuário sem perfil cadastrado no sistema.");
-          setLoading(false);
-          return;
+                if (profileError) {
+                    console.error("Erro ao buscar perfil:", profileError);
+                    setErrorMsg("Usuário sem perfil cadastrado no sistema.");
+                    setLoading(false);
+                    return;
+                }
+
+                // Força a tipagem
+                const profile = profileData as { role: string } | null;
+
+                if (profile?.role === 'regional_admin') {
+                    navigate('/painel-regional');
+                } else if (profile?.role === 'school_manager') {
+                    navigate('/painel-escola');
+                } else {
+                    // Se não tiver role definida
+                    setErrorMsg("Seu usuário não tem permissão de acesso (Role indefinida).");
+                    setLoading(false);
+                }
+            }
+        } catch (error: any) {
+            console.error("Erro no login:", error);
+            setErrorMsg(error.message || 'Erro ao conectar com o servidor.');
+            setLoading(false);
         }
-
-        // Força a tipagem
-        const profile = profileData as { role: string } | null;
-
-        if (profile?.role === 'regional_admin') {
-          navigate('/painel-regional');
-        } else if (profile?.role === 'school_manager') {
-          navigate('/painel-escola');
-        } else {
-          // Se não tiver role definida
-          setErrorMsg("Seu usuário não tem permissão de acesso (Role indefinida).");
-          setLoading(false); 
-        }
-      }
-    } catch (error: any) {
-      console.error("Erro no login:", error);
-      setErrorMsg(error.message || 'Erro ao conectar com o servidor.');
-      setLoading(false);
-    }
-  };
+    };
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 font-sans p-4">

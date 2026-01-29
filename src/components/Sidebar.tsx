@@ -1,81 +1,147 @@
-import { BookOpen, Home, LayoutDashboard, Settings, Users, Building2, LogOut } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { 
+  Home, 
+  LayoutDashboard, 
+  Settings, 
+  LogOut, 
+  Droplets, 
+  Hammer, 
+  Package, 
+  Bell, 
+  Wrench,
+  BookOpen
+} from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 
 interface SidebarProps {
-  userRole: 'regional_admin' | 'school_manager' | undefined;
+  userRole: 'regional_admin' | 'school_manager' | undefined | string;
 }
 
 export function Sidebar({ userRole }: SidebarProps) {
   const navigate = useNavigate();
+  const location = useLocation(); // Hook para saber em qual URL estamos
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate('/');
   };
 
+  // Função auxiliar para verificar se o item é o ativo
+  const isActive = (path: string) => location.pathname === path;
+
   return (
     <aside className="w-64 bg-slate-900 text-white h-screen fixed left-0 top-0 flex flex-col shadow-xl z-50">
+      
       {/* Logo Area */}
       <div className="p-6 flex items-center gap-3 border-b border-slate-700">
-        <div className="bg-blue-600 p-2 rounded-lg">
+        <div className="bg-blue-600 p-2 rounded-lg shadow-lg shadow-blue-900/50">
           <BookOpen className="w-6 h-6 text-white" />
         </div>
         <div>
-          <h1 className="font-bold text-lg tracking-tight">SGE-GSU</h1>
-          <p className="text-xs text-slate-400">Sistema de Gestão</p>
+          <h1 className="font-bold text-lg tracking-tight leading-tight">SGE-GSU</h1>
+          <p className="text-[10px] text-slate-400 uppercase tracking-widest">Sistema Integrado</p>
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+      <nav className="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">
         
-        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 px-2">Principal</p>
+        <SectionTitle title="Visão Geral" />
         
-        <NavItem icon={<Home size={20} />} label="Início" active />
-        
-        {userRole === 'regional_admin' && (
-          <>
-            <NavItem icon={<Building2 size={20} />} label="Minhas Escolas" />
-            <NavItem icon={<LayoutDashboard size={20} />} label="Relatórios Regionais" />
-          </>
-        )}
+        {/* O Dashboard tem URLs diferentes dependendo do usuario, checamos ambas */}
+        <NavItem 
+          icon={<Home size={20} />} 
+          label="Início" 
+          active={isActive('/painel-escola') || isActive('/painel-regional') || isActive('/dashboard')}
+          onClick={() => navigate(userRole === 'regional_admin' ? '/painel-regional' : '/painel-escola')} 
+        />
 
-        {userRole === 'school_manager' && (
-          <>
-            <NavItem icon={<Users size={20} />} label="Alunos & Turmas" />
-            <NavItem icon={<BookOpen size={20} />} label="Diário de Classe" />
-          </>
-        )}
+        <SectionTitle title="Gestão Operacional" />
 
-        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mt-6 mb-2 px-2">Configurações</p>
-        <NavItem icon={<Settings size={20} />} label="Ajustes do Sistema" />
+        <NavItem 
+          icon={<Wrench size={20} />} 
+          label="Zeladoria" 
+          active={isActive('/zeladoria')}
+          onClick={() => navigate('/zeladoria')} 
+        />
+        
+        <NavItem 
+          icon={<Droplets size={20} />} 
+          label="Consumo de Água" 
+          active={isActive('/consumo-agua')}
+          onClick={() => navigate('/consumo-agua')} 
+        />
+        
+        <NavItem 
+          icon={<Package size={20} />} 
+          label="Patrimônio" 
+          active={isActive('/patrimonio')}
+          onClick={() => navigate('/patrimonio')} 
+        />
+
+        {/* Item exclusivo para Regional ou visível para todos? Deixei para todos verem por enquanto */}
+        <NavItem 
+          icon={<Hammer size={20} />} 
+          label="Obras e Reformas" 
+          active={isActive('/obras')}
+          onClick={() => navigate('/obras')} 
+        />
+
+        <SectionTitle title="Comunicação" />
+        
+        <NavItem 
+          icon={<Bell size={20} />} 
+          label="Notificações" 
+          active={isActive('/notificacoes')}
+          onClick={() => navigate('/notificacoes')} 
+        />
+
+        <SectionTitle title="Sistema" />
+        <NavItem 
+          icon={<Settings size={20} />} 
+          label="Configurações" 
+          active={isActive('/configuracoes')}
+          onClick={() => {}} 
+        />
+
       </nav>
 
       {/* Footer / Logout */}
-      <div className="p-4 border-t border-slate-800">
+      <div className="p-4 border-t border-slate-800 bg-slate-900">
         <button 
           onClick={handleLogout}
-          className="flex items-center gap-3 text-slate-400 hover:text-white hover:bg-slate-800 w-full p-3 rounded-lg transition-colors"
+          className="flex items-center gap-3 text-slate-400 hover:text-red-400 hover:bg-slate-800 w-full p-3 rounded-lg transition-all group"
         >
-          <LogOut size={20} />
-          <span>Sair do Sistema</span>
+          <LogOut size={20} className="group-hover:-translate-x-1 transition-transform" />
+          <span className="font-medium">Sair do Sistema</span>
         </button>
       </div>
     </aside>
   );
 }
 
-// Pequeno componente auxiliar para os itens do menu
-function NavItem({ icon, label, active = false }: { icon: any, label: string, active?: boolean }) {
+// Componentes Auxiliares para deixar o código limpo
+
+function SectionTitle({ title }: { title: string }) {
   return (
-    <a href="#" className={`flex items-center gap-3 p-3 rounded-lg transition-all ${
-      active 
-        ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' 
-        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-    }`}>
+    <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 mt-6 px-3">
+      {title}
+    </p>
+  );
+}
+
+function NavItem({ icon, label, active = false, onClick }: any) {
+  return (
+    <div 
+      onClick={onClick} 
+      className={`flex items-center gap-3 p-3 rounded-lg transition-all cursor-pointer select-none ${
+        active 
+          ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20 translate-x-1' 
+          : 'text-slate-400 hover:bg-slate-800 hover:text-white hover:translate-x-1'
+      }`}
+    >
       {icon}
       <span className="font-medium text-sm">{label}</span>
-    </a>
+    </div>
   );
 }
