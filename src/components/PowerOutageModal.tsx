@@ -2,18 +2,12 @@ import { useState } from 'react';
 import { X, Zap, CheckCircle, AlertTriangle, ArrowRight, Building2, MapPin } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-interface PowerOutageModalProps {
-    isOpen: boolean;
-    onClose: () => void;
-    schoolName: string;
-    userName: string;
-}
 
 // Tipos para os passos do Wizard
 type Step = 1 | 2 | 3 | 4 | 5;
 
-export function PowerOutageModal({ isOpen, onClose, _schoolName, _userName }: any) {
-        const [step, setStep] = useState<Step>(1);
+export function PowerOutageModal({ isOpen, onClose }: any) {
+    const [step, setStep] = useState(1);
     const [scope, setScope] = useState<'school' | 'region' | null>(null);
     const [description, setDescription] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -66,11 +60,11 @@ export function PowerOutageModal({ isOpen, onClose, _schoolName, _userName }: an
 
         try {
             // 2. Envia para o Supabase (Isso acontece "nos bastidores")
-            const { error } = await supabase
-                .from('maintenance_tickets')
+            const { error } = await (supabase.from('maintenance_tickets') as any) // <--- Adicione o 'as any' aqui
                 .insert([ticketData]);
 
             if (error) throw error;
+            
 
             // 3. Sucesso! Avança para a tela final
             setStep(5);

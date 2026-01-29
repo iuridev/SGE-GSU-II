@@ -1,6 +1,5 @@
 import { 
-  Home, 
-  LayoutDashboard, 
+  Home,  
   Settings, 
   LogOut, 
   Droplets, 

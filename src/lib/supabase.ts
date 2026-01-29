@@ -1,6 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Definição completa do Banco de Dados
 export type Database = {
   public: {
     Tables: {
@@ -24,7 +23,7 @@ export type Database = {
           school_id?: string | null;
         };
       };
-      // AQUI ESTÁ A TABELA QUE ESTAVA FALTANDO
+      // ESTA É A PARTE QUE ESTAVA FALTANDO OU ERRADA:
       maintenance_tickets: {
         Row: {
           id: string;
@@ -40,8 +39,8 @@ export type Database = {
           school_id?: string | null;
           title: string;
           description?: string | null;
-          status?: string;   // Aceita string (o banco valida se é 'pendente')
-          priority?: string; // Aceita string (o banco valida se é 'urgente')
+          status?: string;
+          priority?: string;
           created_at?: string;
         };
         Update: {
@@ -51,7 +50,6 @@ export type Database = {
           priority?: string;
         };
       };
-      // Tabelas futuras (já deixamos o espaço reservado para evitar erros depois)
       water_consumption: {
         Row: {
           id: string;
@@ -75,9 +73,7 @@ export type Database = {
   };
 };
 
-// Pega as chaves do arquivo .env
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Cria o cliente usando a tipagem <Database>
 export const supabase = createClient<Database>(supabaseUrl, supabaseKey);

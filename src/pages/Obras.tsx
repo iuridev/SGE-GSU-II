@@ -1,6 +1,6 @@
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
-import { Hammer, Clock, CheckCircle, MoreHorizontal } from 'lucide-react';
+import { Hammer, Clock, MoreHorizontal } from 'lucide-react';
 
 export function Obras() {
   const obras = [
