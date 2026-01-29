@@ -2,9 +2,7 @@ import { useState } from 'react';
 import { X, Zap, CheckCircle, AlertTriangle, ArrowRight, Building2, MapPin } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-
-
-export function PowerOutageModal({ isOpen, onClose }: any) {
+export function PowerOutageModal({ isOpen, onClose, schoolName, userName }: any) {
     const [step, setStep] = useState(1);
     const [scope, setScope] = useState<'school' | 'region' | null>(null);
     const [description, setDescription] = useState('');
@@ -21,13 +19,13 @@ export function PowerOutageModal({ isOpen, onClose }: any) {
         onClose();
     };
 
-    // Lógica de Navegação (O Coração do Fluxo)
+    // Lógica de Navegação
     const handleNext = () => {
         if (step === 1) {
             if (scope === 'region') {
-                setStep(4); // PULA para Detalhes se for Região
+                setStep(4);
             } else {
-                setStep(2); // Vai para Check 1 se for Escola
+                setStep(2);
             }
         } else if (step === 2) {
             setStep(3);
@@ -40,8 +38,7 @@ export function PowerOutageModal({ isOpen, onClose }: any) {
     const handleSubmit = async () => {
         setIsSubmitting(true);
 
-        // 1. Prepara os dados para salvar no Banco de Dados
-        // Vamos usar a tabela 'maintenance_tickets' que já criamos para registrar isso como um chamado urgente
+        // 1. Prepara os dados
         const ticketData = {
             title: `[QUEDA DE ENERGIA] - ${scope === 'school' ? 'Local' : 'Regional'}`,
             description: `
@@ -51,29 +48,52 @@ export function PowerOutageModal({ isOpen, onClose }: any) {
         Verificação Disjuntor: ${scope === 'region' ? 'N/A' : 'Realizada'}
         Relato do Usuário: ${description}
       `.trim(),
-            // ADICIONE O "as const" AQUI NESTAS DUAS LINHAS:
             priority: 'urgente' as const,
             status: 'pendente' as const,
         };
 
         try {
-            // 2. Envia para o Supabase (Isso acontece "nos bastidores")
-            const { error } = await (supabase.from('maintenance_tickets') as any) // <--- Adicione o 'as any' aqui
+            // 2. Envia para o Banco de Dados (Com 'as any' para evitar erro de tipo)
+            const { error: dbError } = await (supabase.from('maintenance_tickets') as any)
                 .insert([ticketData]);
 
-            if (error) throw error;
-            
+            if (dbError) throw dbError;
 
-            // 3. Sucesso! Avança para a tela final
+            // 3. Chama a Edge Function para enviar o E-mail
+            console.log("Tentando enviar e-mail via Edge Function...");
+            
+            const { data, error: emailError } = await supabase.functions.invoke('send-outage-email', {
+                body: {
+                    schoolName: schoolName || "Escola (Nome não carregado)",
+                    userName: userName || "Usuário (Nome não carregado)",
+                    scope: scope,
+                    description: description
+                }
+            });
+
+            // --- BLOCO DE DIAGNÓSTICO DE ERRO (Alertas na tela) ---
+            if (emailError) {
+                console.error("Erro na conexão com Edge Function:", emailError);
+                alert("O chamado foi salvo no banco, mas houve um erro ao conectar com o servidor de e-mail.\n\nDetalhe: " + JSON.stringify(emailError));
+            } else if (data?.error) {
+                console.error("O Resend recusou o envio:", data.error);
+                alert("O chamado foi salvo, mas o e-mail não foi enviado.\n\nMotivo: " + JSON.stringify(data.error));
+            } else {
+                console.log("Sucesso no envio de e-mail:", data);
+            }
+            // -------------------------------------------------------
+
+            // 4. Sucesso! Avança para a tela final
             setStep(5);
 
         } catch (error) {
-            console.error("Erro ao abrir chamado:", error);
-            alert("Houve um erro ao registrar o chamado no sistema. Por favor, tente novamente ou ligue para a central.");
+            console.error("Erro crítico:", error);
+            alert("Houve um erro ao registrar o chamado no sistema. Por favor, tente novamente.");
         } finally {
             setIsSubmitting(false);
         }
     };
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
@@ -118,7 +138,7 @@ export function PowerOutageModal({ isOpen, onClose }: any) {
                         </div>
                     )}
 
-                    {/* FASE 2: VERIFICAÇÃO TÉCNICA (SÓ ESCOLA) */}
+                    {/* FASE 2: VERIFICAÇÃO TÉCNICA */}
                     {step === 2 && (
                         <div className="space-y-6 text-center">
                             <div className="w-16 h-16 bg-yellow-100 text-yellow-600 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -134,7 +154,7 @@ export function PowerOutageModal({ isOpen, onClose }: any) {
                         </div>
                     )}
 
-                    {/* FASE 3: PREVENÇÃO (SÓ ESCOLA) */}
+                    {/* FASE 3: PREVENÇÃO */}
                     {step === 3 && (
                         <div className="space-y-6 text-center">
                             <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -177,7 +197,7 @@ export function PowerOutageModal({ isOpen, onClose }: any) {
                             </div>
                             <h3 className="text-2xl font-bold text-slate-800 mb-2">Chamado Aberto!</h3>
                             <p className="text-slate-600 mb-6">
-                                O cliente de e-mail foi aberto com os dados. Verifique sua caixa de saída.<br />
+                                O alerta foi registrado e enviado por e-mail automaticamente.<br />
                                 As equipes de infraestrutura foram notificadas.
                             </p>
                             <button onClick={handleClose} className="text-blue-600 font-bold hover:underline">
@@ -191,22 +211,21 @@ export function PowerOutageModal({ isOpen, onClose }: any) {
                 {step < 5 && (
                     <div className="p-4 border-t border-slate-200 bg-slate-50 flex flex-col gap-3">
 
-                        {/* Botão Principal de Avanço */}
                         <button
                             onClick={step === 4 ? handleSubmit : handleNext}
-                            disabled={(step === 1 && !scope) || (step === 4 && !description)}
+                            disabled={(step === 1 && !scope) || (step === 4 && !description) || isSubmitting}
                             className="w-full bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-colors"
                         >
                             {step === 1 && "Continuar"}
                             {step === 2 && "Já verifiquei e o problema persiste"}
                             {step === 3 && "Tudo verificado, prosseguir"}
-                            {step === 4 && (isSubmitting ? "Enviando..." : "Confirmar e Enviar Chamado")}
+                            {step === 4 && (isSubmitting ? "Enviando e-mail..." : "Confirmar e Enviar Chamado")}
                             {step !== 4 && <ArrowRight size={18} />}
                         </button>
 
-                        {/* Botão de Cancelamento / Resolução Antecipada */}
                         <button
                             onClick={handleClose}
+                            disabled={isSubmitting}
                             className="w-full py-2 text-green-700 font-semibold hover:bg-green-50 rounded-lg transition-colors text-sm flex items-center justify-center gap-2"
                         >
                             <CheckCircle size={16} />
