@@ -12,8 +12,8 @@ interface PowerOutageModalProps {
 // Tipos para os passos do Wizard
 type Step = 1 | 2 | 3 | 4 | 5;
 
-export function PowerOutageModal({ isOpen, onClose, schoolName, userName }: PowerOutageModalProps) {
-    const [step, setStep] = useState<Step>(1);
+export function PowerOutageModal({ isOpen, onClose, _schoolName, _userName }: any) {
+        const [step, setStep] = useState<Step>(1);
     const [scope, setScope] = useState<'school' | 'region' | null>(null);
     const [description, setDescription] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
