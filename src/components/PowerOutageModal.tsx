@@ -3,8 +3,6 @@ import { X, Zap, CheckCircle, AlertTriangle, ArrowRight, Building2, MapPin } fro
 import { supabase } from '../lib/supabase';
 
 
-// Tipos para os passos do Wizard
-type Step = 1 | 2 | 3 | 4 | 5;
 
 export function PowerOutageModal({ isOpen, onClose }: any) {
     const [step, setStep] = useState(1);
