@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Search, Filter, AlertTriangle, CheckCircle, Clock, Home } from 'lucide-react';
+import { Search, CheckCircle, Clock, Home } from 'lucide-react';
 
 export function Zeladoria() {
   const [zeladorias, setZeladorias] = useState<any[]>([]);
