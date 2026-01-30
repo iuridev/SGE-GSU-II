@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Search, Filter, AlertTriangle, CheckCircle, Clock, Home } from 'lucide-react';
 
-export function ZeladoriaPage() {
+export function Zeladoria() {
   const [zeladorias, setZeladorias] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState('');

@@ -1,7 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
-import { ZeladoriaPage } from './pages/Zeladoria';
+import { Zeladoria } from './pages/Zeladoria';
 import { ConsumoAgua } from './pages/ConsumoAgua';
 import { Patrimonio } from './pages/Patrimonio';
 import { Obras } from './pages/Obras';
@@ -20,7 +20,7 @@ function App() {
         <Route path="/painel-escola" element={<Dashboard />} />
         
         {/* Rotas dos Módulos (As páginas novas) */}
-        <Route path="/zeladoria" element={<ZeladoriaPage />} />
+        <Route path="/zeladoria" element={<Zeladoria />} />
         <Route path="/consumo-agua" element={<ConsumoAgua />} />
         <Route path="/patrimonio" element={<Patrimonio />} />
         <Route path="/obras" element={<Obras />} />
