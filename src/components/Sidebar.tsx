@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Home, Users, LogOut, ChevronLeft, FileText, Menu } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom'; // Para redirecionar após sair
+import { supabase } from '../lib/supabase'; // Para encerrar a sessão no Supabase
 
 interface SidebarProps {
   userRole: string;
@@ -16,6 +18,13 @@ interface NavItemProps {
 
 export function Sidebar({ userRole }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  const navigate = useNavigate();
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    navigate('/');
+  }
 
   return (
     <aside 
@@ -45,7 +54,10 @@ export function Sidebar({ userRole }: SidebarProps) {
 
       {/* Rodapé */}
       <div className="p-4 border-t border-slate-800">
-        <button className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} w-full text-slate-400 hover:text-red-400 hover:bg-slate-800 p-2 rounded transition-colors`}>
+        <button 
+          onClick={handleLogout} // Adicione esta linha
+          className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} w-full text-slate-400 hover:text-red-400 hover:bg-slate-800 p-2 rounded transition-colors`}
+        >
           <LogOut size={20} />
           {!isCollapsed && <span className="font-medium">Sair</span>}
         </button>
