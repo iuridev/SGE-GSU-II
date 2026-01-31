@@ -226,7 +226,8 @@ export function Usuario() {
 
         // Chama a função SQL 'create_user_admin' que criamos
         // CORREÇÃO: Usando (supabase as any).rpc para evitar erro de tipagem estrita
-        const { data, error: rpcError } = await (supabase as any).rpc('create_user_admin', {
+        // Removi a desestruturação de 'data' pois não é usada
+        const { error: rpcError } = await (supabase as any).rpc('create_user_admin', {
           email: formData.email,
           password: formData.password,
           full_name: formData.full_name,
