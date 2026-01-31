@@ -39,32 +39,44 @@ const COLORS = {
   background: '#f3f4f6'
 };
 
+// Mapeamento de cores baseado nos valores da coluna 'ocupada' do CSV
 const STATUS_COLORS: Record<string, string> = {
-  "CIÊNCIA VALOR": "#10b981",
-  "CASA CIVIL": "#f59e0b",
-  "PGE": "#ef4444",
-  "CECIG-PGE": "#eab308",
-  "NÃO POSSUI": "#9ca3af",
-  "OCUPADO": "#10b981", 
-  "VAGO": "#9ca3af"
+  "CIÊNCIA VALOR": "#10b981", // Verde
+  "CASA CIVIL": "#f59e0b",    // Laranja
+  "PGE": "#ef4444",           // Vermelho
+  "CECIG-PGE": "#eab308",     // Amarelo
+  "NÃO POSSUI": "#9ca3af",    // Cinza
+  "SIM": "#10b981",           // Verde (Caso genérico)
+  "NÃO": "#9ca3af"            // Cinza (Caso genérico)
 };
 
-// --- INTERFACES ---
+// --- INTERFACES (Adaptadas ao CSV exportado) ---
 interface UserProfile {
   role: string;
   school_id: string | null;
 }
 
+// Interface refletindo as colunas reais do banco de dados (CSV)
 interface ZeladoriaRecord {
-  id: string;
-  ue: string;
-  status: string;
-  zelador_nome: string;
-  zelador_rg: string;
-  processo_sei: string;
-  validade_zeladoria: string;
-  status_dare: string;
-  school_id: string;
+  id: number | string;
+  ue: number | string;   // No CSV aparece como ID da unidade (1, 2...)
+  nome: string;          // Nome da escola (ex: "AGOSTINHO CANO")
+  sei_numero: string;    // Número do processo
+  ocupada: string;       // Status (ex: "CIÊNCIA VALOR")
+  zelador: string;       // Nome do zelador
+  rg: string;            // RG
+  cargo: string;
+  autorizacao: string;
+  ate: string;
+  validade: string;      // Data de validade
+  perto_de_vencer: string;
+  obs_sefisc: string;
+  apelido_zelador: string;
+  emails: string;
+  dare: string;          // Status do DARE (ex: "Não Insento(a)")
+  created_at: string;
+  school_id: string | null;
+  // Propriedade opcional caso o join funcione
   schools?: {
     name: string;
   };
@@ -87,12 +99,13 @@ const StatCard = ({ title, value, subtext, icon: Icon, trendUp }: any) => (
 );
 
 const StatusBadge = ({ status }: { status: string }) => {
-  const s = status ? String(status).toUpperCase() : "N/A";
+  const s = status ? String(status).toUpperCase().trim() : "N/A";
   
   let colorClass = "bg-gray-100 text-gray-800";
-  if (s.includes("CIÊNCIA") || s.includes("ISENTO") || s === "OCUPADO") colorClass = "bg-green-100 text-green-800 border border-green-200";
+  
+  if (s.includes("CIÊNCIA") || s === "ISENTO" || s === "SIM") colorClass = "bg-green-100 text-green-800 border border-green-200";
   else if (s.includes("CASA CIVIL") || s.includes("CECIG")) colorClass = "bg-yellow-100 text-yellow-800 border border-yellow-200";
-  else if (s.includes("PGE") || s.includes("NÃO ISENTO") || s.includes("VENCIDO")) colorClass = "bg-red-100 text-red-800 border border-red-200";
+  else if (s.includes("PGE") || s.includes("NÃO INSENTO") || s.includes("NÃO ISENTO")) colorClass = "bg-red-100 text-red-800 border border-red-200";
   else if (s.includes("NÃO POSSUI") || s === "VAGO") colorClass = "bg-gray-100 text-gray-500 border border-gray-200";
 
   return (
@@ -122,6 +135,7 @@ export function Zeladoria() {
       setLoading(true);
       setError(null);
       
+      // 1. Autenticação
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       
       if (authError || !user) {
@@ -134,6 +148,7 @@ export function Zeladoria() {
       const name = user.user_metadata?.full_name || user.email?.split('@')[0] || "Usuário";
       setUserName(name);
 
+      // 2. Perfil
       const { data: profileData, error: profileError } = await supabase
         .from('profiles') 
         .select('role, school_id') 
@@ -148,16 +163,20 @@ export function Zeladoria() {
       const role = profile?.role || 'school_manager';
       setUserRole(role);
 
-      // Query segura
+      // 3. Query (Ajustada para a estrutura real do banco)
+      // Tenta buscar o nome da escola via JOIN, mas temos fallback para a coluna 'nome'
       let query = supabase
         .from('zeladorias')
         .select(`*, schools:school_id (name)`);
 
+      // 4. Filtros de Role
       if (role === 'school_manager') {
           if (profile?.school_id) {
             query = query.eq('school_id', profile.school_id);
           } else {
             console.warn('Gestor sem escola vinculada.');
+            // Se o gestor não tem escola, mas é gestor, talvez deva ver vazio ou erro
+            // Vou deixar vazio por segurança
             setDados([]);
             setLoading(false);
             return;
@@ -170,9 +189,12 @@ export function Zeladoria() {
       
       const rawData = (data || []) as ZeladoriaRecord[];
       
+      // Mapeamento inteligente
+      // Prioridade: schools.name (do join) -> item.nome (da tabela zeladorias) -> "Sem Nome"
       const dadosMapeados = rawData.map(item => ({
         ...item,
-        ue: item.schools?.name || item.ue || "Nome Indisponível"
+        // Garante que usamos o nome correto da escola
+        displayName: item.schools?.name || item.nome || `Unidade ${item.ue}`
       }));
 
       setDados(dadosMapeados);
@@ -185,7 +207,7 @@ export function Zeladoria() {
     }
   }
 
-  // Cálculos protegidos com useMemo
+  // --- CÁLCULOS ---
   const stats = useMemo(() => {
     if (!dados || dados.length === 0) {
       return { 
@@ -196,18 +218,20 @@ export function Zeladoria() {
 
     const total = dados.length;
     
+    // Filtro baseado na coluna 'ocupada'
     const comZeladoria = dados.filter(i => 
-      i.status && 
-      !String(i.status).toUpperCase().includes("NÃO POSSUI") && 
-      !String(i.status).toUpperCase().includes("VAGO")
+      i.ocupada && 
+      !String(i.ocupada).toUpperCase().includes("NÃO POSSUI") && 
+      !String(i.ocupada).toUpperCase().includes("VAGO")
     ).length;
     
     const semZeladoria = total - comZeladoria;
     const ocupacao = total > 0 ? ((comZeladoria / total) * 100).toFixed(0) : "0";
     
+    // Gráfico de Pizza (Status)
     const statusCount: Record<string, number> = {};
     dados.forEach(item => {
-      const s = item.status || "Indefinido";
+      const s = item.ocupada || "Indefinido";
       statusCount[s] = (statusCount[s] || 0) + 1;
     });
     
@@ -216,11 +240,16 @@ export function Zeladoria() {
       value: statusCount[key]
     })).sort((a, b) => b.value - a.value);
 
+    // Gráfico DARE
     const dareCount = { "Isento": 0, "Não Isento": 0 };
     dados.forEach(item => {
-      const d = item.status_dare ? String(item.status_dare).toUpperCase() : "";
-      if (d.includes("ISENTO") && !d.includes("NÃO")) dareCount["Isento"]++;
-      else dareCount["Não Isento"]++;
+      const d = item.dare ? String(item.dare).toUpperCase() : "";
+      // Ajuste para pegar variações como "Não Insento(a)"
+      if ((d.includes("ISENTO") && !d.includes("NÃO")) || d === "SIM") {
+        dareCount["Isento"]++;
+      } else {
+        dareCount["Não Isento"]++;
+      }
     });
     
     const barData = [
@@ -228,27 +257,31 @@ export function Zeladoria() {
       { name: 'Pendentes', value: dareCount["Não Isento"] }
     ];
 
+    // Vencimentos (usando coluna 'validade')
     const hoje = new Date();
     const trintaDias = new Date();
     trintaDias.setDate(hoje.getDate() + 30);
     
     const vencendo = dados.filter(item => {
-      if (!item.validade_zeladoria) return false;
-      const validade = new Date(item.validade_zeladoria);
+      if (!item.validade) return false;
+      // Converter DD/MM/YYYY ou YYYY-MM-DD para Date
+      const validade = new Date(item.validade);
+      // Verifica se a data é válida antes de comparar
+      if (isNaN(validade.getTime())) return false;
       return validade >= hoje && validade <= trintaDias;
     }).length;
 
     return { total, comZeladoria, semZeladoria, ocupacao, pieData, barData, vencendo };
   }, [dados]);
 
+  // Filtro de busca na tabela
   const filteredData = dados.filter(item => {
     const term = searchTerm.toLowerCase();
-    const ue = item.ue ? item.ue.toLowerCase() : "";
-    const zelador = item.zelador_nome ? item.zelador_nome.toLowerCase() : "";
-    return ue.includes(term) || zelador.includes(term);
+    const nomeEscola = (item as any).displayName ? (item as any).displayName.toLowerCase() : "";
+    const zelador = item.zelador ? item.zelador.toLowerCase() : "";
+    return nomeEscola.includes(term) || zelador.includes(term);
   });
 
-  // Se houver erro crítico, mostra mensagem amigável em vez de tela branca
   if (error) {
     return (
       <div className="flex min-h-screen bg-gray-50 items-center justify-center">
@@ -329,7 +362,7 @@ export function Zeladoria() {
                 />
               </div>
 
-              {/* Seção de Gráficos com proteção contra dados vazios */}
+              {/* Seção de Gráficos */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 col-span-1 lg:col-span-2">
@@ -403,7 +436,7 @@ export function Zeladoria() {
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-gray-50 text-xs font-semibold tracking-wide text-gray-500 uppercase border-b border-gray-200">
-                        <th className="px-6 py-4">UE / Unidade</th>
+                        <th className="px-6 py-4">ID / Escola</th>
                         <th className="px-6 py-4">Status</th>
                         <th className="px-6 py-4">Zelador (Ocupante)</th>
                         <th className="px-6 py-4">Processo SEI</th>
@@ -418,28 +451,29 @@ export function Zeladoria() {
                             <td className="px-6 py-4">
                               <div className="flex items-center">
                                 <div className="w-10 h-8 rounded bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs mr-3 shrink-0">
-                                  {/* CORREÇÃO AQUI: Garante que item.id é convertido para string antes do slice */}
-                                  {item.id ? String(item.id).slice(0, 4) : '#'}
+                                  {item.id ? String(item.id) : '#'}
                                 </div>
-                                <span className="font-medium text-gray-900 line-clamp-2">{item.ue}</span>
+                                <span className="font-medium text-gray-900 line-clamp-2">
+                                  {(item as any).displayName}
+                                </span>
                               </div>
                             </td>
                             <td className="px-6 py-4">
-                              <StatusBadge status={item.status} />
+                              <StatusBadge status={item.ocupada} />
                             </td>
                             <td className="px-6 py-4">
-                              <p className="text-sm font-medium text-gray-800 line-clamp-1">{item.zelador_nome || "-"}</p>
-                              {item.zelador_rg && (
-                                <p className="text-xs text-gray-400 mt-0.5">RG: {item.zelador_rg}</p>
+                              <p className="text-sm font-medium text-gray-800 line-clamp-1">{item.zelador || "-"}</p>
+                              {item.rg && (
+                                <p className="text-xs text-gray-400 mt-0.5">RG: {item.rg}</p>
                               )}
                             </td>
                             <td className="px-6 py-4">
-                              {item.processo_sei ? (
+                              {item.sei_numero ? (
                                 <div className="flex flex-col">
-                                  <span className="text-sm text-gray-600 font-mono bg-gray-100 px-2 py-0.5 rounded w-fit">{item.processo_sei}</span>
-                                  {item.validade_zeladoria && (
-                                    <span className={`text-xs mt-1 font-medium ${new Date(item.validade_zeladoria) < new Date() ? 'text-red-500' : 'text-green-600'}`}>
-                                      Val: {new Date(item.validade_zeladoria).toLocaleDateString('pt-BR')}
+                                  <span className="text-sm text-gray-600 font-mono bg-gray-100 px-2 py-0.5 rounded w-fit">{item.sei_numero}</span>
+                                  {item.validade && (
+                                    <span className={`text-xs mt-1 font-medium ${new Date(item.validade) < new Date() ? 'text-red-500' : 'text-green-600'}`}>
+                                      Val: {new Date(item.validade).toLocaleDateString('pt-BR')}
                                     </span>
                                   )}
                                 </div>
@@ -448,7 +482,7 @@ export function Zeladoria() {
                               )}
                             </td>
                             <td className="px-6 py-4">
-                              <StatusBadge status={item.status_dare} />
+                              <StatusBadge status={item.dare} />
                             </td>
                             <td className="px-6 py-4 text-center">
                               <button className="text-gray-400 hover:text-blue-600 p-1 rounded-full hover:bg-blue-100 transition-colors">
