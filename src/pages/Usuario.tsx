@@ -14,7 +14,9 @@ import {
   School,
   CheckCircle,
   AlertTriangle,
-  User
+  User,
+  Mail,
+  Lock
 } from 'lucide-react';
 
 // Interfaces
@@ -24,6 +26,7 @@ interface UserProfile {
   role: 'regional_admin' | 'school_manager';
   school_id: string | null;
   created_at: string;
+  email?: string; // Opcional apenas para visualização se fizermos join
   schools?: {
     name: string;
   };
@@ -57,6 +60,8 @@ export function Usuario() {
   const initialFormState = {
     id: '',
     full_name: '',
+    email: '',
+    password: '',
     role: 'school_manager', // Padrão
     school_id: ''
   };
@@ -74,7 +79,6 @@ export function Usuario() {
     try {
       setLoading(true);
       
-      // 1. Verificar Autenticação
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         setAccessDenied(true);
@@ -84,7 +88,6 @@ export function Usuario() {
 
       setCurrentUserName(user.user_metadata?.full_name || user.email?.split('@')[0] || "Usuário");
 
-      // 2. Verificar Role do Usuário Logado
       const { data: profile } = await supabase
         .from('profiles')
         .select('role')
@@ -94,11 +97,9 @@ export function Usuario() {
       const role = (profile as any)?.role || '';
       setCurrentUserRole(role);
 
-      // 3. Bloquear se não for Admin Regional
       if (role !== 'regional_admin') {
         setAccessDenied(true);
       } else {
-        // Carregar dados iniciais
         await Promise.all([fetchUsers(), fetchSchools()]);
       }
 
@@ -112,7 +113,6 @@ export function Usuario() {
 
   async function fetchUsers() {
     try {
-      // Busca usuários e faz o join com a tabela de escolas para mostrar o nome da escola
       const { data, error } = await (supabase
         .from('profiles') as any)
         .select('*, schools:school_id (name)')
@@ -150,9 +150,12 @@ export function Usuario() {
   };
 
   const handleEditUser = (user: UserProfile) => {
+    // Ao editar, não permitimos mudar email/senha por aqui por segurança simples, apenas dados do perfil
     setFormData({
       id: user.id,
       full_name: user.full_name,
+      email: '', // Não carregamos o email na edição simples
+      password: '', // Senha nunca é carregada
       role: user.role,
       school_id: user.school_id || ''
     });
@@ -162,11 +165,12 @@ export function Usuario() {
   };
 
   const handleDeleteUser = async (id: string) => {
-    if (!window.confirm("Tem certeza que deseja excluir este usuário do sistema?")) return;
+    if (!window.confirm("Atenção: Isso excluirá o acesso do usuário. Deseja continuar?")) return;
 
     try {
       setLoading(true);
-      // Cast 'as any' aplicado aqui para corrigir o erro de tipo no delete
+      // Remove o perfil (o usuário Auth ficará órfão ou deve ser removido via admin, 
+      // mas para este app, remover o perfil já bloqueia o acesso aos dados)
       const { error } = await (supabase
         .from('profiles') as any)
         .delete()
@@ -174,11 +178,11 @@ export function Usuario() {
 
       if (error) throw error;
 
-      setMessage({ type: 'success', text: 'Usuário removido com sucesso!' });
+      setMessage({ type: 'success', text: 'Perfil de usuário removido com sucesso!' });
       fetchUsers();
     } catch (err: any) {
       console.error(err);
-      setMessage({ type: 'error', text: "Erro ao excluir. Verifique se o usuário tem dependências." });
+      setMessage({ type: 'error', text: "Erro ao excluir." });
     } finally {
       setLoading(false);
     }
@@ -195,45 +199,52 @@ export function Usuario() {
         throw new Error("Um Gestor Escolar deve estar vinculado a uma escola.");
       }
 
-      // Preparar payload
-      const payload: any = {
-        full_name: formData.full_name,
-        role: formData.role,
-        school_id: formData.role === 'school_manager' ? formData.school_id : null // Admin não tem escola fixa geralmente
-      };
+      if (isEditing) {
+        // --- ATUALIZAÇÃO (Apenas Perfil) ---
+        const payload: any = {
+          full_name: formData.full_name,
+          role: formData.role,
+          school_id: formData.role === 'school_manager' ? formData.school_id : null
+        };
 
-      let error;
-
-      if (isEditing && formData.id) {
-        // Atualizar perfil existente - Cast 'as any' aplicado
         const { error: updateError } = await (supabase
           .from('profiles') as any)
           .update(payload)
           .eq('id', formData.id);
-        error = updateError;
+
+        if (updateError) throw updateError;
+        setMessage({ type: 'success', text: 'Dados do usuário atualizados!' });
+
       } else {
-        // Criar novo perfil - Cast 'as any' aplicado
-        // NOTA: Em produção com Supabase Auth, o perfil é criado automaticamente via trigger ao registrar o Auth.
-        // Aqui estamos simulando a criação direta na tabela profiles para fins de gestão de dados.
-        const { error: insertError } = await (supabase
-          .from('profiles') as any)
-          .insert([payload]);
-        error = insertError;
+        // --- CRIAÇÃO (Auth + Perfil via RPC) ---
+        if (!formData.email || !formData.password) {
+          throw new Error("E-mail e Senha são obrigatórios para novos usuários.");
+        }
+        if (formData.password.length < 6) {
+          throw new Error("A senha deve ter pelo menos 6 caracteres.");
+        }
+
+        // Chama a função SQL 'create_user_admin' que criamos
+        // CORREÇÃO: Usando (supabase as any).rpc para evitar erro de tipagem estrita
+        const { data, error: rpcError } = await (supabase as any).rpc('create_user_admin', {
+          email: formData.email,
+          password: formData.password,
+          full_name: formData.full_name,
+          role_name: formData.role,
+          school_id: formData.role === 'school_manager' ? formData.school_id : null
+        });
+
+        if (rpcError) throw rpcError;
+
+        setMessage({ type: 'success', text: 'Usuário criado e liberado para login!' });
+        setFormData(initialFormState); // Limpa o formulário
       }
-
-      if (error) throw error;
-
-      setMessage({ type: 'success', text: `Usuário ${isEditing ? 'atualizado' : 'cadastrado'} com sucesso!` });
-      if (!isEditing) setFormData(initialFormState);
       
-      // Opcional: voltar para lista
-      // setView('list');
-      // fetchUsers();
       window.scrollTo(0, 0);
 
     } catch (err: any) {
       console.error(err);
-      setMessage({ type: 'error', text: err.message || "Erro ao salvar usuário." });
+      setMessage({ type: 'error', text: err.message || "Erro ao processar." });
     } finally {
       setSubmitting(false);
     }
@@ -241,7 +252,6 @@ export function Usuario() {
 
   // --- Renderização ---
 
-  // Filtro
   const filteredUsers = users.filter(user => 
     user.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (user.role === 'regional_admin' ? 'administrador' : 'gestor').includes(searchTerm.toLowerCase()) ||
@@ -413,15 +423,53 @@ export function Usuario() {
                     {/* Nome */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
-                      <input
-                        type="text"
-                        required
-                        value={formData.full_name}
-                        onChange={(e) => setFormData({...formData, full_name: e.target.value})}
-                        className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                        placeholder="Ex: João da Silva"
-                      />
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                        <input
+                          type="text"
+                          required
+                          value={formData.full_name}
+                          onChange={(e) => setFormData({...formData, full_name: e.target.value})}
+                          className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                          placeholder="Ex: João da Silva"
+                        />
+                      </div>
                     </div>
+
+                    {/* CAMPOS EXCLUSIVOS PARA NOVO USUÁRIO */}
+                    {!isEditing && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">E-mail de Acesso</label>
+                          <div className="relative">
+                            <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                            <input
+                              type="email"
+                              required
+                              value={formData.email}
+                              onChange={(e) => setFormData({...formData, email: e.target.value})}
+                              className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                              placeholder="joao@escola.sp.gov.br"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Senha Provisória</label>
+                          <div className="relative">
+                            <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                            <input
+                              type="password"
+                              required
+                              minLength={6}
+                              value={formData.password}
+                              onChange={(e) => setFormData({...formData, password: e.target.value})}
+                              className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                              placeholder="Mínimo 6 caracteres"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Role */}
                     <div>
