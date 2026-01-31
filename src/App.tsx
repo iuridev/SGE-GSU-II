@@ -22,7 +22,7 @@ function App() {
         <Route path="/painel-regional" element={<Dashboard />} />
         <Route path="/painel-escola" element={<Dashboard />} />
 
-        <Route path="/escola" element={<Escola />} />
+        <Route path="/Escola" element={<Escola />} />
 {/*        <Route path="/usuarios" element={<Usuarios />} />*/}
 
         
