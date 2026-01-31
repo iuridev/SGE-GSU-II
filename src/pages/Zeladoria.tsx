@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
@@ -27,6 +27,11 @@ import {
   Legend, 
   ResponsiveContainer 
 } from 'recharts';
+
+// Bibliotecas para PDF
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import html2canvas from 'html2canvas';
 
 // --- CONFIGURAÇÃO DE CORES ---
 const COLORS = {
@@ -60,24 +65,23 @@ interface UserProfile {
 // Interface refletindo as colunas reais do banco de dados (CSV)
 interface ZeladoriaRecord {
   id: number | string;
-  ue: number | string;   // No CSV aparece como ID da unidade (1, 2...)
-  nome: string;          // Nome da escola (ex: "AGOSTINHO CANO")
-  sei_numero: string;    // Número do processo
-  ocupada: string;       // Status (ex: "CIÊNCIA VALOR")
-  zelador: string;       // Nome do zelador
-  rg: string;            // RG
+  ue: number | string;   
+  nome: string;          
+  sei_numero: string;    
+  ocupada: string;       
+  zelador: string;       
+  rg: string;            
   cargo: string;
   autorizacao: string;
   ate: string;
-  validade: string;      // Data de validade
+  validade: string;      
   perto_de_vencer: string;
   obs_sefisc: string;
   apelido_zelador: string;
   emails: string;
-  dare: string;          // Status do DARE (ex: "Não Insento(a)")
+  dare: string;          
   created_at: string;
   school_id: string | null;
-  // Propriedade opcional caso o join funcione
   schools?: {
     name: string;
   };
@@ -123,9 +127,14 @@ export function Zeladoria() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   
   const [userRole, setUserRole] = useState<string>("");
   const [userName, setUserName] = useState<string>("Usuário");
+
+  // Refs para captura de tela (PDF)
+  const kpiRef = useRef<HTMLDivElement>(null);
+  const chartsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchZeladorias();
@@ -164,8 +173,7 @@ export function Zeladoria() {
       const role = profile?.role || 'school_manager';
       setUserRole(role);
 
-      // 3. Query (Ajustada para a estrutura real do banco)
-      // Tenta buscar o nome da escola via JOIN, mas temos fallback para a coluna 'nome'
+      // 3. Query
       let query = supabase
         .from('zeladorias')
         .select(`*, schools:school_id (name)`);
@@ -176,8 +184,6 @@ export function Zeladoria() {
             query = query.eq('school_id', profile.school_id);
           } else {
             console.warn('Gestor sem escola vinculada.');
-            // Se o gestor não tem escola, mas é gestor, talvez deva ver vazio ou erro
-            // Vou deixar vazio por segurança
             setDados([]);
             setLoading(false);
             return;
@@ -190,11 +196,9 @@ export function Zeladoria() {
       
       const rawData = (data || []) as ZeladoriaRecord[];
       
-      // Mapeamento inteligente
-      // Prioridade: schools.name (do join) -> item.nome (da tabela zeladorias) -> "Sem Nome"
+      // Mapeamento
       const dadosMapeados = rawData.map(item => ({
         ...item,
-        // Garante que usamos o nome correto da escola
         displayName: item.schools?.name || item.nome || `Unidade ${item.ue}`
       }));
 
@@ -208,9 +212,119 @@ export function Zeladoria() {
     }
   }
 
+  // --- FUNÇÃO DE EXPORTAÇÃO PDF ---
+  const handleExportPDF = async () => {
+    setExporting(true);
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 14;
+
+    try {
+      // 1. Cabeçalho
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "normal");
+      doc.text("Unidade Regional de Ensino Guarulhos Sul", pageWidth / 2, 20, { align: "center" });
+      
+      doc.setFontSize(11);
+      doc.text("Serviço de Obras e Manuntenção Escolar - SEOM", pageWidth / 2, 27, { align: "center" });
+      doc.text("Seção de Fiscalização - SEFISC", pageWidth / 2, 34, { align: "center" });
+      
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.text("Relatório de processos de Zeladoria", pageWidth / 2, 45, { align: "center" });
+
+      // Cursor vertical inicial
+      let currentY = 55;
+
+      // 2. Captura dos KPIs (Cards)
+      if (kpiRef.current) {
+        const kpiCanvas = await html2canvas(kpiRef.current, { scale: 2, backgroundColor: '#f9fafb' });
+        const kpiImg = kpiCanvas.toDataURL('image/png');
+        const kpiProps = doc.getImageProperties(kpiImg);
+        const kpiHeight = (kpiProps.height * (pageWidth - margin * 2)) / kpiProps.width;
+        
+        doc.addImage(kpiImg, 'PNG', margin, currentY, pageWidth - margin * 2, kpiHeight);
+        currentY += kpiHeight + 10;
+      }
+
+      // 3. Captura dos Gráficos
+      if (chartsRef.current) {
+        // Verifica se cabe na página atual
+        if (currentY + 60 > pageHeight) {
+           doc.addPage();
+           currentY = 20;
+        }
+
+        const chartsCanvas = await html2canvas(chartsRef.current, { scale: 2, backgroundColor: '#ffffff' });
+        const chartsImg = chartsCanvas.toDataURL('image/png');
+        const chartsProps = doc.getImageProperties(chartsImg);
+        const chartsHeight = (chartsProps.height * (pageWidth - margin * 2)) / chartsProps.width;
+        
+        doc.addImage(chartsImg, 'PNG', margin, currentY, pageWidth - margin * 2, chartsHeight);
+        currentY += chartsHeight + 10;
+      }
+
+      // 4. Tabela de Dados
+      // Preparar dados para o autotable
+      const tableRows = filteredData.map(item => [
+        item.ue || item.id,
+        (item as any).displayName,
+        item.ocupada,
+        item.zelador || '-',
+        item.sei_numero || '-',
+        item.validade ? new Date(item.validade).toLocaleDateString('pt-BR') : '-',
+        item.dare
+      ]);
+
+      const tableHead = [['ID', 'Escola', 'Status', 'Zelador', 'Processo SEI', 'Validade', 'DARE']];
+
+      // Gera a tabela
+      autoTable(doc, {
+        head: tableHead,
+        body: tableRows,
+        startY: currentY + 5,
+        theme: 'grid',
+        headStyles: { fillColor: [30, 58, 138] }, // Azul do cabeçalho
+        styles: { fontSize: 8 },
+        margin: { top: 20 },
+        // Adiciona rodapé com data em cada página gerada pela tabela
+        didDrawPage: (data) => {
+          const date = new Date().toLocaleDateString('pt-BR');
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "italic");
+          doc.text(
+            `Gerado em: ${date}`, 
+            data.settings.margin.left, 
+            doc.internal.pageSize.getHeight() - 10
+          );
+          
+          // Adiciona paginação se desejar
+          const str = 'Página ' + (doc as any).internal.getNumberOfPages();
+          doc.text(str, doc.internal.pageSize.getWidth() - data.settings.margin.right - 20, doc.internal.pageSize.getHeight() - 10);
+        }
+      });
+
+      // Se a tabela não foi gerada (ex: lista vazia), garantimos que o rodapé apareça na primeira página
+      if (tableRows.length === 0) {
+          const date = new Date().toLocaleDateString('pt-BR');
+          doc.setFontSize(8);
+          doc.text(`Gerado em: ${date}`, margin, pageHeight - 10);
+      }
+
+      // Salva o arquivo
+      doc.save(`Relatorio_Zeladoria_${new Date().toISOString().split('T')[0]}.pdf`);
+
+    } catch (err) {
+      console.error("Erro ao gerar PDF:", err);
+      alert("Erro ao gerar o PDF. Verifique o console.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   // --- CÁLCULOS ---
   const stats = useMemo(() => {
-    // 1. Filtro inicial para os cálculos: Remover "NÃO POSSUI" e "NÃO HABITÁVEL"
     const dadosConsiderados = dados.filter(i => {
       const status = i.ocupada ? String(i.ocupada).toUpperCase().trim() : "";
       return status !== "NÃO HABITÁVEL" && status !== "NÃO POSSUI";
@@ -225,8 +339,6 @@ export function Zeladoria() {
 
     const total = dadosConsiderados.length;
     
-    // 2. Contagem de Ocupação (baseado apenas nos dados considerados)
-    // Se não é VAGO nem NÃO (vazio), consideramos ocupado
     const comZeladoria = dadosConsiderados.filter(i => {
       const s = String(i.ocupada).toUpperCase().trim();
       return !s.includes("VAGO") && s !== "NÃO";
@@ -235,7 +347,6 @@ export function Zeladoria() {
     const semZeladoria = total - comZeladoria;
     const ocupacao = total > 0 ? ((comZeladoria / total) * 100).toFixed(0) : "0";
     
-    // 3. Gráfico de Pizza (Status)
     const statusCount: Record<string, number> = {};
     dadosConsiderados.forEach(item => {
       const s = item.ocupada || "Indefinido";
@@ -247,11 +358,9 @@ export function Zeladoria() {
       value: statusCount[key]
     })).sort((a, b) => b.value - a.value);
 
-    // 4. Gráfico DARE
     const dareCount = { "Isento": 0, "Não Isento": 0 };
     dadosConsiderados.forEach(item => {
       const d = item.dare ? String(item.dare).toUpperCase() : "";
-      // Ajuste para pegar variações como "Não Insento(a)"
       if ((d.includes("ISENTO") && !d.includes("NÃO")) || d === "SIM") {
         dareCount["Isento"]++;
       } else {
@@ -264,16 +373,13 @@ export function Zeladoria() {
       { name: 'Pendentes', value: dareCount["Não Isento"] }
     ];
 
-    // 5. Vencimentos (usando coluna 'validade')
     const hoje = new Date();
     const trintaDias = new Date();
     trintaDias.setDate(hoje.getDate() + 30);
     
     const vencendo = dadosConsiderados.filter(item => {
       if (!item.validade) return false;
-      // Converter DD/MM/YYYY ou YYYY-MM-DD para Date
       const validade = new Date(item.validade);
-      // Verifica se a data é válida antes de comparar
       if (isNaN(validade.getTime())) return false;
       return validade >= hoje && validade <= trintaDias;
     }).length;
@@ -281,7 +387,6 @@ export function Zeladoria() {
     return { total, comZeladoria, semZeladoria, ocupacao, pieData, barData, vencendo };
   }, [dados]);
 
-  // Filtro de busca na tabela (Mantém a busca em TODOS os dados, incluindo os ignorados nos gráficos)
   const filteredData = dados.filter(item => {
     const term = searchTerm.toLowerCase();
     const nomeEscola = (item as any).displayName ? (item as any).displayName.toLowerCase() : "";
@@ -328,8 +433,17 @@ export function Zeladoria() {
                <button className="flex items-center px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg shadow-sm hover:bg-gray-50 text-sm font-medium">
                 <Filter size={16} className="mr-2" /> Filtros
               </button>
-              <button className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 transition-colors text-sm font-medium">
-                <Download size={16} className="mr-2" /> Exportar
+              <button 
+                onClick={handleExportPDF}
+                disabled={exporting || loading}
+                className={`flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 transition-colors text-sm font-medium ${exporting ? 'opacity-70 cursor-not-allowed' : ''}`}
+              >
+                {exporting ? (
+                  <Loader2 size={16} className="mr-2 animate-spin" />
+                ) : (
+                  <Download size={16} className="mr-2" />
+                )}
+                {exporting ? 'Gerando PDF...' : 'Exportar PDF'}
               </button>
             </div>
           </div>
@@ -340,7 +454,8 @@ export function Zeladoria() {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* KPIs com REF para captura */}
+              <div ref={kpiRef} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 bg-gray-50 p-1">
                 <StatCard 
                   title="Unidades Habitáveis" 
                   value={stats.total} 
@@ -369,8 +484,8 @@ export function Zeladoria() {
                 />
               </div>
 
-              {/* Seção de Gráficos */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Seção de Gráficos com REF para captura */}
+              <div ref={chartsRef} className="grid grid-cols-1 lg:grid-cols-3 gap-6 bg-gray-50 p-1">
                 
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 col-span-1 lg:col-span-2">
                   <h3 className="text-lg font-bold text-gray-800 mb-4">Status dos Processos (Habitáveis)</h3>
