@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Home, Users, Settings, LogOut, ChevronLeft, ChevronRight, FileText, Menu } from 'lucide-react';
+import { Home, Users, LogOut, ChevronLeft, FileText, Menu } from 'lucide-react';
 
 interface SidebarProps {
   userRole: string;

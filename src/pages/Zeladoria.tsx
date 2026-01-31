@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Search, Home, Filter, AlertTriangle, CheckCircle, Clock, FileText, Download, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Home, AlertTriangle, CheckCircle, FileText, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -11,7 +11,7 @@ export function Zeladoria() {
   const [zeladorias, setZeladorias] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState('');
-  const [filtroStatus, setFiltroStatus] = useState('TODOS');
+//  const [filtroStatus, setFiltroStatus] = useState('TODOS');
   const [paginaAtual, setPaginaAtual] = useState(1);
   const itensPorPagina = 100;
 
@@ -42,12 +42,7 @@ export function Zeladoria() {
       item.zelador?.toLowerCase().includes(termo) ||
       item.ue?.toLowerCase().includes(termo);
 
-    if (filtroStatus === 'TODOS') return matchTexto;
-    if (filtroStatus === 'VENCIDOS') {
-        const dataVencida = item.validade && new Date(item.validade) < new Date();
-        const statusVencido = item.ocupada?.toUpperCase().includes('VENCIDO');
-        return matchTexto && (dataVencida || statusVencido);
-    }
+    
     return matchTexto;
   });
 
