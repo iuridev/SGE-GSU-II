@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
@@ -418,7 +418,8 @@ export function Zeladoria() {
                             <td className="px-6 py-4">
                               <div className="flex items-center">
                                 <div className="w-10 h-8 rounded bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs mr-3 shrink-0">
-                                  {item.id ? item.id.slice(0, 4) : '#'}
+                                  {/* CORREÇÃO AQUI: Garante que item.id é convertido para string antes do slice */}
+                                  {item.id ? String(item.id).slice(0, 4) : '#'}
                                 </div>
                                 <span className="font-medium text-gray-900 line-clamp-2">{item.ue}</span>
                               </div>
