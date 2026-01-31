@@ -443,6 +443,25 @@ export function Zeladoria() {
     return nomeEscola.includes(term);
   });
 
+  // ADICIONADO: Tratamento de erro na renderização
+  if (error) {
+    return (
+      <div className="flex min-h-screen bg-gray-50 items-center justify-center">
+        <div className="text-center p-8 bg-white rounded-lg shadow-lg">
+          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-gray-800 mb-2">Ops! Algo deu errado.</h2>
+          <p className="text-gray-600 mb-4">{error}</p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            Tentar Novamente
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen bg-gray-50 font-sans">
       <Sidebar userRole={userRole} />
