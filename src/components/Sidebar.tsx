@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { Home, Users, LogOut, ChevronLeft, FileText, Menu } from 'lucide-react';
-import { Link } from 'react-router-dom';
-import { useNavigate } from 'react-router-dom'; // Para redirecionar após sair
-import { supabase } from '../lib/supabase'; // Para encerrar a sessão no Supabase
+import { Home, Users, LogOut, ChevronLeft, FileText, Menu, GraduationCap } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 
 interface SidebarProps {
   userRole: string;
@@ -12,19 +11,22 @@ interface NavItemProps {
   icon: React.ReactNode;
   label: string;
   collapsed: boolean;
-  to: string; // Define que 'to' deve ser sempre um texto (URL)
+  to: string;
   active?: boolean;
 }
 
 export function Sidebar({ userRole }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
-
   const navigate = useNavigate();
+  const location = useLocation(); // Hook para saber em qual página estamos
 
   async function handleLogout() {
     await supabase.auth.signOut();
     navigate('/');
   }
+
+  // Função para verificar se o link é o atual
+  const isActive = (path: string) => location.pathname === path;
 
   return (
     <aside 
@@ -44,18 +46,46 @@ export function Sidebar({ userRole }: SidebarProps) {
       {/* Menu de Navegação */}
       <nav className="flex-1 py-6 flex flex-col gap-2 px-3">
         
-        <NavItem to="/painel-regional" icon={<Home size={20} />} label="Início" collapsed={isCollapsed} active />
-        <NavItem to="/zeladoria" icon={<FileText size={20} />} label="Zeladoria" collapsed={isCollapsed} />
+        <NavItem 
+          to="/painel-regional" 
+          icon={<Home size={20} />} 
+          label="Início" 
+          collapsed={isCollapsed} 
+          active={isActive('/painel-regional')} 
+        />
         
-        {userRole === 'admin' && (
-          <NavItem to="usuarios" icon={<Users size={20} />} label="Usuários" collapsed={isCollapsed} />
+        <NavItem 
+          to="/zeladoria" 
+          icon={<FileText size={20} />} 
+          label="Zeladoria" 
+          collapsed={isCollapsed} 
+          active={isActive('/zeladoria')}
+        />
+        
+        <NavItem 
+          to="/escola" 
+          icon={<GraduationCap size={20} />} 
+          label="Escolas" 
+          collapsed={isCollapsed} 
+          active={isActive('/escola')}
+        />
+
+        {/* Exibe apenas para Admin Regional (Ajustado para bater com a página Escola) */}
+        {userRole === 'regional_admin' && (
+          <NavItem 
+            to="/usuarios" 
+            icon={<Users size={20} />} 
+            label="Usuários" 
+            collapsed={isCollapsed} 
+            active={isActive('/usuarios')}
+          />
         )}
       </nav>
 
       {/* Rodapé */}
       <div className="p-4 border-t border-slate-800">
         <button 
-          onClick={handleLogout} // Adicione esta linha
+          onClick={handleLogout}
           className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} w-full text-slate-400 hover:text-red-400 hover:bg-slate-800 p-2 rounded transition-colors`}
         >
           <LogOut size={20} />
@@ -66,14 +96,12 @@ export function Sidebar({ userRole }: SidebarProps) {
   );
 }
 
-
-
 // Componente auxiliar de item de menu
 function NavItem({ icon, label, collapsed, to, active = false }: NavItemProps) {
   return (
     <Link 
       to={to} 
-      className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-3 rounded-lg transition-colors ${active ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+      className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-3 rounded-lg transition-colors ${active ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
     >
       {icon}
       {!collapsed && <span className="font-medium whitespace-nowrap">{label}</span>}
