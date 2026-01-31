@@ -1,8 +1,17 @@
 import { useState } from 'react';
 import { Home, Users, LogOut, ChevronLeft, FileText, Menu } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 interface SidebarProps {
   userRole: string;
+}
+
+interface NavItemProps {
+  icon: React.ReactNode;
+  label: string;
+  collapsed: boolean;
+  to: string; // Define que 'to' deve ser sempre um texto (URL)
+  active?: boolean;
 }
 
 export function Sidebar({ userRole }: SidebarProps) {
@@ -25,11 +34,12 @@ export function Sidebar({ userRole }: SidebarProps) {
 
       {/* Menu de Navegação */}
       <nav className="flex-1 py-6 flex flex-col gap-2 px-3">
-        <NavItem icon={<Home size={20} />} label="Início" collapsed={isCollapsed} active />
-        <NavItem icon={<FileText size={20} />} label="Zeladoria" collapsed={isCollapsed} />
+        
+        <NavItem to="/Dashboard" icon={<Home size={20} />} label="Início" collapsed={isCollapsed} active />
+        <NavItem to="/zeladoria" icon={<FileText size={20} />} label="Zeladoria" collapsed={isCollapsed} />
         
         {userRole === 'admin' && (
-          <NavItem icon={<Users size={20} />} label="Usuários" collapsed={isCollapsed} />
+          <NavItem to="usuarios" icon={<Users size={20} />} label="Usuários" collapsed={isCollapsed} />
         )}
       </nav>
 
@@ -44,12 +54,17 @@ export function Sidebar({ userRole }: SidebarProps) {
   );
 }
 
+
+
 // Componente auxiliar de item de menu
-function NavItem({ icon, label, collapsed, active = false }: any) {
+function NavItem({ icon, label, collapsed, to, active = false }: NavItemProps) {
   return (
-    <a href="#" className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-3 rounded-lg transition-colors ${active ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+    <Link 
+      to={to} 
+      className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-3 rounded-lg transition-colors ${active ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+    >
       {icon}
       {!collapsed && <span className="font-medium whitespace-nowrap">{label}</span>}
-    </a>
+    </Link>
   );
 }
