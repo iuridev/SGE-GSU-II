@@ -6,6 +6,9 @@ import { ConsumoAgua } from './pages/ConsumoAgua';
 import { Patrimonio } from './pages/Patrimonio';
 import { Obras } from './pages/Obras';
 import { Notificacoes } from './pages/Notificacoes';
+import { Escola } from './pages/escola';
+//import { Usuarios } from './pages/usuarios';
+
 
 function App() {
   return (
@@ -18,6 +21,10 @@ function App() {
         {/* Redirecionamos os painéis específicos para o Dashboard geral por enquanto */}
         <Route path="/painel-regional" element={<Dashboard />} />
         <Route path="/painel-escola" element={<Dashboard />} />
+
+        <Route path="/escola" element={<Escola />} />
+{/*        <Route path="/usuarios" element={<Usuarios />} />*/}
+
         
         {/* Rotas dos Módulos (As páginas novas) */}
         <Route path="/zeladoria" element={<Zeladoria />} />
