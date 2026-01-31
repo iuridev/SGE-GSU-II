@@ -7,6 +7,7 @@ import { Patrimonio } from './pages/Patrimonio';
 import { Obras } from './pages/Obras';
 import { Notificacoes } from './pages/Notificacoes';
 import { Escola } from './pages/escola';
+import { Usuario } from './pages/Usuario';
 //import { Usuarios } from './pages/usuarios';
 
 
@@ -24,6 +25,7 @@ function App() {
 
         <Route path="/Escola" element={<Escola />} />
 {/*        <Route path="/usuarios" element={<Usuarios />} />*/}
+        <Route path="/usuarios" element={<Usuario />} />
 
         
         {/* Rotas dos Módulos (As páginas novas) */}
