@@ -46,6 +46,7 @@ const STATUS_COLORS: Record<string, string> = {
   "PGE": "#ef4444",           // Vermelho
   "CECIG-PGE": "#eab308",     // Amarelo
   "NÃO POSSUI": "#9ca3af",    // Cinza
+  "NÃO HABITÁVEL": "#6b7280", // Cinza Escuro
   "SIM": "#10b981",           // Verde (Caso genérico)
   "NÃO": "#9ca3af"            // Cinza (Caso genérico)
 };
@@ -106,7 +107,7 @@ const StatusBadge = ({ status }: { status: string }) => {
   if (s.includes("CIÊNCIA") || s === "ISENTO" || s === "SIM") colorClass = "bg-green-100 text-green-800 border border-green-200";
   else if (s.includes("CASA CIVIL") || s.includes("CECIG")) colorClass = "bg-yellow-100 text-yellow-800 border border-yellow-200";
   else if (s.includes("PGE") || s.includes("NÃO INSENTO") || s.includes("NÃO ISENTO")) colorClass = "bg-red-100 text-red-800 border border-red-200";
-  else if (s.includes("NÃO POSSUI") || s === "VAGO") colorClass = "bg-gray-100 text-gray-500 border border-gray-200";
+  else if (s.includes("NÃO POSSUI") || s === "VAGO" || s.includes("NÃO HABITÁVEL")) colorClass = "bg-gray-100 text-gray-500 border border-gray-200";
 
   return (
     <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${colorClass}`}>
@@ -209,28 +210,34 @@ export function Zeladoria() {
 
   // --- CÁLCULOS ---
   const stats = useMemo(() => {
-    if (!dados || dados.length === 0) {
+    // 1. Filtro inicial para os cálculos: Remover "NÃO POSSUI" e "NÃO HABITÁVEL"
+    const dadosConsiderados = dados.filter(i => {
+      const status = i.ocupada ? String(i.ocupada).toUpperCase().trim() : "";
+      return status !== "NÃO HABITÁVEL" && status !== "NÃO POSSUI";
+    });
+
+    if (!dadosConsiderados || dadosConsiderados.length === 0) {
       return { 
         total: 0, comZeladoria: 0, semZeladoria: 0, ocupacao: "0", 
         pieData: [], barData: [], vencendo: 0 
       };
     }
 
-    const total = dados.length;
+    const total = dadosConsiderados.length;
     
-    // Filtro baseado na coluna 'ocupada'
-    const comZeladoria = dados.filter(i => 
-      i.ocupada && 
-      !String(i.ocupada).toUpperCase().includes("NÃO POSSUI") && 
-      !String(i.ocupada).toUpperCase().includes("VAGO")
-    ).length;
+    // 2. Contagem de Ocupação (baseado apenas nos dados considerados)
+    // Se não é VAGO nem NÃO (vazio), consideramos ocupado
+    const comZeladoria = dadosConsiderados.filter(i => {
+      const s = String(i.ocupada).toUpperCase().trim();
+      return !s.includes("VAGO") && s !== "NÃO";
+    }).length;
     
     const semZeladoria = total - comZeladoria;
     const ocupacao = total > 0 ? ((comZeladoria / total) * 100).toFixed(0) : "0";
     
-    // Gráfico de Pizza (Status)
+    // 3. Gráfico de Pizza (Status)
     const statusCount: Record<string, number> = {};
-    dados.forEach(item => {
+    dadosConsiderados.forEach(item => {
       const s = item.ocupada || "Indefinido";
       statusCount[s] = (statusCount[s] || 0) + 1;
     });
@@ -240,9 +247,9 @@ export function Zeladoria() {
       value: statusCount[key]
     })).sort((a, b) => b.value - a.value);
 
-    // Gráfico DARE
+    // 4. Gráfico DARE
     const dareCount = { "Isento": 0, "Não Isento": 0 };
-    dados.forEach(item => {
+    dadosConsiderados.forEach(item => {
       const d = item.dare ? String(item.dare).toUpperCase() : "";
       // Ajuste para pegar variações como "Não Insento(a)"
       if ((d.includes("ISENTO") && !d.includes("NÃO")) || d === "SIM") {
@@ -257,12 +264,12 @@ export function Zeladoria() {
       { name: 'Pendentes', value: dareCount["Não Isento"] }
     ];
 
-    // Vencimentos (usando coluna 'validade')
+    // 5. Vencimentos (usando coluna 'validade')
     const hoje = new Date();
     const trintaDias = new Date();
     trintaDias.setDate(hoje.getDate() + 30);
     
-    const vencendo = dados.filter(item => {
+    const vencendo = dadosConsiderados.filter(item => {
       if (!item.validade) return false;
       // Converter DD/MM/YYYY ou YYYY-MM-DD para Date
       const validade = new Date(item.validade);
@@ -274,7 +281,7 @@ export function Zeladoria() {
     return { total, comZeladoria, semZeladoria, ocupacao, pieData, barData, vencendo };
   }, [dados]);
 
-  // Filtro de busca na tabela
+  // Filtro de busca na tabela (Mantém a busca em TODOS os dados, incluindo os ignorados nos gráficos)
   const filteredData = dados.filter(item => {
     const term = searchTerm.toLowerCase();
     const nomeEscola = (item as any).displayName ? (item as any).displayName.toLowerCase() : "";
@@ -335,9 +342,9 @@ export function Zeladoria() {
             <>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard 
-                  title="Total de Unidades" 
+                  title="Unidades Habitáveis" 
                   value={stats.total} 
-                  subtext="Escolas monitoradas" 
+                  subtext="Escolas c/ Zeladoria" 
                   icon={School} 
                 />
                 <StatCard 
@@ -366,7 +373,7 @@ export function Zeladoria() {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 col-span-1 lg:col-span-2">
-                  <h3 className="text-lg font-bold text-gray-800 mb-4">Status dos Processos</h3>
+                  <h3 className="text-lg font-bold text-gray-800 mb-4">Status dos Processos (Habitáveis)</h3>
                   <div className="h-64">
                     {stats.pieData.length > 0 ? (
                       <ResponsiveContainer width="100%" height="100%">
