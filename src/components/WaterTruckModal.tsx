@@ -1,6 +1,5 @@
-import { useState } from 'react';
-// CORREÇÃO: Removido 'Droplet' que não estava a ser usado
-import { X, CheckCircle, Truck, ArrowRight } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, Droplets, Send, Loader2, CheckCircle2, ClipboardCheck } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface WaterTruckModalProps {
@@ -8,264 +7,193 @@ interface WaterTruckModalProps {
   onClose: () => void;
   schoolName: string;
   userName: string;
-  sabespId?: string;
+  sabespCode: string;
 }
 
-export function WaterTruckModal({ isOpen, onClose, schoolName, userName, sabespId }: WaterTruckModalProps) {
-  const [step, setStep] = useState(1);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Estado do Formulário
+export function WaterTruckModal({ isOpen, onClose, schoolName, userName, sabespCode }: WaterTruckModalProps) {
+  // Estado para as 7 perguntas técnicas obrigatórias do protocolo
   const [formData, setFormData] = useState({
-    registroFechado: '',
-    reservatorioVazio: '',
-    engateAbastecimento: '',
-    distanciaCaminhao: '',
-    alturaReservatorio: '',
-    capacidadeReservatorio: '',
-    nomeFuncionario: ''
+    q1_registro: '',
+    q2_reservatorio: '',
+    q3_engate: '',
+    q4_distancia: '',
+    q5_altura: '',
+    q6_capacidade: '',
+    q7_funcionario: ''
   });
+
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleClose = () => {
-    setStep(1);
-    setFormData({
-      registroFechado: '',
-      reservatorioVazio: '',
-      engateAbastecimento: '',
-      distanciaCaminhao: '',
-      alturaReservatorio: '',
-      capacidadeReservatorio: '',
-      nomeFuncionario: ''
-    });
-    setIsSubmitting(false);
-    onClose();
+  // Formatação do relatório para o corpo do e-mail
+  const formatReport = () => {
+    return `1 - Verificou se tem registro fechado? ${formData.q1_registro}
+2 - Olhou no reservatório se realmente está sem água? ${formData.q2_reservatorio}
+3 - A Caixa d'água tem engate de abastecimento? ${formData.q3_engate}
+4 - Qual a distância entre o caminhão e o reservatório? ${formData.q4_distancia}
+5 - Qual a altura do reservatório? ${formData.q5_altura}
+6 - Qual a capacidade do reservatório? ${formData.q6_capacidade}
+7 - Qual o nome do funcionário para auxiliar o motorista no abastecimento? ${formData.q7_funcionario}`;
   };
 
-  const handleNext = () => {
-    // Validação simples antes de avançar
-    if (step === 1) {
-      if (!formData.registroFechado || !formData.reservatorioVazio || !formData.engateAbastecimento) {
-        alert("Por favor, responda a todas as perguntas de verificação.");
-        return;
-      }
-    }
-    setStep(prev => prev + 1);
-  };
-
-  const handleSubmit = async () => {
-    // Validação final
-    if (!formData.distanciaCaminhao || !formData.alturaReservatorio || !formData.capacidadeReservatorio || !formData.nomeFuncionario) {
-      alert("Por favor, preencha todas as informações técnicas e o nome do responsável.");
+  const handleAutomaticSolicitation = async () => {
+    // Validação de preenchimento obrigatório
+    const isFormIncomplete = Object.values(formData).some(value => value.trim() === '');
+    if (isFormIncomplete) {
+      alert("Por favor, responda todas as 7 perguntas do checklist técnico antes de enviar.");
       return;
     }
-
-    setIsSubmitting(true);
-
+    
+    setLoading(true);
     try {
-      console.log("A enviar solicitação de caminhão cisterna...");
-
-      // Chama a Edge Function
+      // Invocação da Edge Function
       const { data, error } = await supabase.functions.invoke('send-outage-email', {
-        body: {
-          type: 'water_truck', // IMPORTANTE: Define o tipo para o email correto
-          schoolName: schoolName || "Escola não identificada",
-          userName: userName || "Utilizador não identificado",
-          sabespId: sabespId || "Não informado",
-          details: formData,
-          requesterName: userName,
-          timestamp: new Date().toISOString()
+        body: { 
+          type: 'WATER_TRUCK',
+          schoolName,
+          userName,
+          data: { 
+            notes: formatReport(),
+            sabespCode 
+          }
         }
       });
 
-      if (error) throw error;
-
-      if (data?.error) {
-        throw new Error(data.error);
+      // Tratamento de erro detalhado vindo do servidor
+      if (error) {
+        let errorMsg = error.message;
+        // Tenta extrair a mensagem de erro que a nossa função enviou no JSON (ex: domínio não verificado)
+        try {
+          if (data && data.error) errorMsg = data.error;
+        } catch (e) {
+          // Mantém o erro original se falhar ao processar JSON
+        }
+        throw new Error(errorMsg);
       }
 
-      console.log("Sucesso no envio:", data);
-      setStep(3); // Tela de Sucesso
-
+      setSent(true);
+      setTimeout(onClose, 3000);
     } catch (error: any) {
-      console.error("Erro ao enviar solicitação:", error);
-      alert("Erro ao enviar a solicitação. Por favor, tente novamente.\n\nDetalhe: " + error.message);
+      console.error("Erro no envio:", error);
+      alert("FALHA NO ENVIO:\n" + error.message);
     } finally {
-      setIsSubmitting(false);
+      setLoading(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-        
-        {/* Header */}
-        <div className="bg-blue-50 p-4 border-b border-blue-100 flex justify-between items-center">
-          <div className="flex items-center gap-2 text-blue-700 font-bold">
-            <Truck size={24} />
-            <span>Solicitar Caminhão Cisterna</span>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-[2.5rem] w-full max-w-2xl shadow-2xl overflow-hidden border border-white animate-in zoom-in-95 duration-200">
+        <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-blue-50/50">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
+              <Droplets size={24} />
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Solicitar Caminhão Pipa</h2>
+              <p className="text-xs text-blue-600 font-bold uppercase tracking-widest">Protocolo GSU-SEOM</p>
+            </div>
           </div>
-          <button onClick={handleClose} className="text-slate-400 hover:text-slate-600">
-            <X size={24} />
-          </button>
+          <button onClick={onClose} className="p-2 hover:bg-white rounded-full text-slate-400 transition-colors"><X size={24} /></button>
         </div>
 
-        {/* Corpo */}
-        <div className="p-6 overflow-y-auto">
-          
-          {/* PASSO 1: VERIFICAÇÕES INICIAIS */}
-          {step === 1 && (
-            <div className="space-y-6">
-              <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg text-sm text-yellow-800">
-                <strong>Atenção!</strong> Antes de solicitar, verifique os itens abaixo para evitar deslocações desnecessárias.
+        <div className="p-8 space-y-6 max-h-[75vh] overflow-y-auto custom-scrollbar">
+          {sent ? (
+            <div className="py-12 text-center space-y-4 animate-in fade-in">
+              <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto animate-bounce">
+                <CheckCircle2 size={40} />
+              </div>
+              <h3 className="text-2xl font-black text-slate-800 tracking-tight">Solicitação Protocolada!</h3>
+              <p className="text-slate-500 font-medium px-10">O checklist técnico e o código Sabesp foram enviados para <strong>gsu.seom@educacao.sp.gov.br</strong>.</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-col md:flex-row gap-4">
+                <div className="flex-1 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Unidade Escolar</p>
+                  <p className="text-[13px] font-bold text-slate-700 truncate">{schoolName}</p>
+                </div>
+                <div className="w-full md:w-48 bg-blue-50/50 p-4 rounded-2xl border border-blue-100">
+                  <p className="text-[10px] font-black text-blue-400 uppercase mb-1">Cód. Sabesp</p>
+                  <p className="text-[13px] font-bold text-blue-700">{sabespCode}</p>
+                </div>
               </div>
 
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">1. Verificou se tem registo fechado?</label>
-                  <div className="flex gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" name="registroFechado" value="Sim" checked={formData.registroFechado === 'Sim'} onChange={(e) => setFormData({...formData, registroFechado: e.target.value})} className="text-blue-600 focus:ring-blue-500" />
-                      <span>Sim</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" name="registroFechado" value="Não" checked={formData.registroFechado === 'Não'} onChange={(e) => setFormData({...formData, registroFechado: e.target.value})} className="text-blue-600 focus:ring-blue-500" />
-                      <span>Não</span>
-                    </label>
-                  </div>
+                <div className="flex items-center gap-2 text-slate-800 font-black uppercase text-xs tracking-widest mb-2">
+                  <ClipboardCheck size={16} className="text-blue-600" /> Checklist Técnico de Verificação
                 </div>
 
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">2. Olhou no reservatório se realmente está sem água?</label>
-                  <div className="flex gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" name="reservatorioVazio" value="Sim" checked={formData.reservatorioVazio === 'Sim'} onChange={(e) => setFormData({...formData, reservatorioVazio: e.target.value})} className="text-blue-600 focus:ring-blue-500" />
-                      <span>Sim</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" name="reservatorioVazio" value="Não" checked={formData.reservatorioVazio === 'Não'} onChange={(e) => setFormData({...formData, reservatorioVazio: e.target.value})} className="text-blue-600 focus:ring-blue-500" />
-                      <span>Não</span>
-                    </label>
-                  </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <QuestionSelect label="1 - Registro fechado?" value={formData.q1_registro} onChange={(v) => setFormData({...formData, q1_registro: v})} />
+                  <QuestionSelect label="2 - Reservatório sem água?" value={formData.q2_reservatorio} onChange={(v) => setFormData({...formData, q2_reservatorio: v})} />
+                  <QuestionSelect label="3 - Tem engate de abastec.?" value={formData.q3_engate} onChange={(v) => setFormData({...formData, q3_engate: v})} />
+                  <QuestionInput label="4 - Distância (Caminhão x Caixa)" placeholder="Ex: 15 metros" value={formData.q4_distancia} onChange={(v) => setFormData({...formData, q4_distancia: v})} />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">3. A Caixa d'água tem engate de abastecimento?</label>
-                  <div className="flex gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" name="engateAbastecimento" value="Sim" checked={formData.engateAbastecimento === 'Sim'} onChange={(e) => setFormData({...formData, engateAbastecimento: e.target.value})} className="text-blue-600 focus:ring-blue-500" />
-                      <span>Sim</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" name="engateAbastecimento" value="Não" checked={formData.engateAbastecimento === 'Não'} onChange={(e) => setFormData({...formData, engateAbastecimento: e.target.value})} className="text-blue-600 focus:ring-blue-500" />
-                      <span>Não</span>
-                    </label>
-                  </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <QuestionInput label="5 - Altura do Reservatório" placeholder="Ex: 10 metros" value={formData.q5_altura} onChange={(v) => setFormData({...formData, q5_altura: v})} />
+                  <QuestionInput label="6 - Capacidade (Litros)" placeholder="Ex: 20.000 L" value={formData.q6_capacidade} onChange={(v) => setFormData({...formData, q6_capacidade: v})} />
                 </div>
+
+                <QuestionInput label="7 - Funcionário para auxiliar" placeholder="Nome completo do responsável na unidade" value={formData.q7_funcionario} onChange={(v) => setFormData({...formData, q7_funcionario: v})} />
               </div>
-            </div>
+
+              <div className="pt-6">
+                <button 
+                  onClick={handleAutomaticSolicitation} 
+                  disabled={loading} 
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-200 hover:bg-blue-700 flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-50"
+                >
+                  {loading ? <><Loader2 className="animate-spin" size={20} /> ENVIANDO...</> : <><Send size={20} /> ENVIAR SOLICITAÇÃO POR E-MAIL</>}
+                </button>
+              </div>
+            </>
           )}
-
-          {/* PASSO 2: DADOS TÉCNICOS */}
-          {step === 2 && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-bold text-slate-800 mb-4">Dados Técnicos para Abastecimento</h3>
-              
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">4. Distância entre camião e reservatório (m)</label>
-                <input 
-                  type="text" 
-                  value={formData.distanciaCaminhao}
-                  onChange={(e) => setFormData({...formData, distanciaCaminhao: e.target.value})}
-                  placeholder="Ex: 15 metros"
-                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">5. Altura do reservatório (m)</label>
-                <input 
-                  type="text" 
-                  value={formData.alturaReservatorio}
-                  onChange={(e) => setFormData({...formData, alturaReservatorio: e.target.value})}
-                  placeholder="Ex: 5 metros"
-                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">6. Capacidade do reservatório (L)</label>
-                <input 
-                  type="text" 
-                  value={formData.capacidadeReservatorio}
-                  onChange={(e) => setFormData({...formData, capacidadeReservatorio: e.target.value})}
-                  placeholder="Ex: 10.000 litros"
-                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">7. Nome do funcionário responsável no local</label>
-                <input 
-                  type="text" 
-                  value={formData.nomeFuncionario}
-                  onChange={(e) => setFormData({...formData, nomeFuncionario: e.target.value})}
-                  placeholder="Quem receberá o motorista?"
-                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* PASSO 3: SUCESSO */}
-          {step === 3 && (
-            <div className="text-center py-8">
-              <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6 animate-bounce">
-                <CheckCircle size={40} />
-              </div>
-              <h3 className="text-2xl font-bold text-slate-800 mb-2">Solicitação Enviada!</h3>
-              <p className="text-slate-600 mb-6">
-                O pedido de caminhão cisterna foi registado e a equipa do SEOM notificada.<br/>
-                Código SABESP da escola: <strong>{sabespId || "N/A"}</strong>
-              </p>
-              <button onClick={handleClose} className="text-blue-600 font-bold hover:underline">
-                Fechar Janela
-              </button>
-            </div>
-          )}
-
         </div>
-
-        {/* Footer */}
-        {step < 3 && (
-          <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
-            {step === 2 && (
-              <button 
-                onClick={() => setStep(1)} 
-                className="px-4 py-2 text-slate-600 font-semibold hover:bg-slate-200 rounded-lg transition-colors"
-              >
-                Voltar
-              </button>
-            )}
-            <button
-              onClick={step === 1 ? handleNext : handleSubmit}
-              disabled={isSubmitting}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg font-bold flex items-center gap-2 transition-colors shadow-sm"
-            >
-              {isSubmitting ? (
-                <>A enviar...</>
-              ) : (
-                <>
-                  {step === 1 ? "Próximo" : "Confirmar Solicitação"}
-                  <ArrowRight size={18} />
-                </>
-              )}
-            </button>
-          </div>
-        )}
-
       </div>
+    </div>
+  );
+}
+
+// Componentes Auxiliares com Tipagem Correta
+interface QuestionProps {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}
+
+function QuestionSelect({ label, value, onChange }: QuestionProps) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-[10px] font-black text-slate-500 uppercase ml-1">{label}</label>
+      <select 
+        className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-blue-500 outline-none text-sm font-bold text-slate-700 transition-all cursor-pointer"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">Selecione...</option>
+        <option value="SIM">SIM</option>
+        <option value="NÃO">NÃO</option>
+      </select>
+    </div>
+  );
+}
+
+function QuestionInput({ label, value, placeholder, onChange }: QuestionProps) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-[10px] font-black text-slate-500 uppercase ml-1">{label}</label>
+      <input 
+        type="text"
+        placeholder={placeholder}
+        className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-blue-500 outline-none text-sm font-bold text-slate-700 transition-all"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </div>
   );
 }

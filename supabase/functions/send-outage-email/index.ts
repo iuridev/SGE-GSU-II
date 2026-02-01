@@ -1,107 +1,103 @@
-// Usando a versão padrão do Deno para servidor HTTP
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
-
-interface EmailRequest {
-  type?: string; // 'power_outage' | 'water_truck'
-  schoolName: string;
-  requesterName: string;
-  timestamp: string;
-  details: any;
-  sabespId?: string; // Específico para caminhão pipa
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-serve(async (req) => {
-  // Handle CORS preflight requests
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+serve(async (req: Request) => {
+  // 1. Tratamento de CORS para chamadas do navegador
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const { type, schoolName, requesterName, timestamp, details, sabespId }: EmailRequest = await req.json();
-
-    console.log(`[LOG] Recebendo solicitação de email tipo: ${type}`); 
-
-    let subject = "";
-    let htmlContent = "";
-
-    // Lógica para diferenciar os tipos de solicitação
-    if (type === 'water_truck') {
-      // --- CASO 1: CAMINHÃO PIPA ---
-      subject = `[URGENTE] Solicitação de Caminhão Pipa - ${schoolName}`;
-      htmlContent = `
-        <div style="font-family: Arial, sans-serif; color: #333;">
-          <h2 style="color: #2563eb;">Nova Solicitação de Abastecimento (Caminhão Pipa)</h2>
-          <p><strong>Escola:</strong> ${schoolName}</p>
-          <p><strong>Código SABESP:</strong> ${sabespId || "Não informado"}</p>
-          <p><strong>Solicitante:</strong> ${requesterName}</p>
-          <p><strong>Data/Hora:</strong> ${new Date(timestamp).toLocaleString("pt-BR")}</p>
-          <hr style="border: 1px solid #eee;" />
-          
-          <h3 style="color: #444;">Detalhes da Solicitação:</h3>
-          <ul style="list-style-type: none; padding: 0;">
-            <li style="margin-bottom: 8px;">✅ <strong>Registro Fechado?</strong> ${details.registroFechado}</li>
-            <li style="margin-bottom: 8px;">✅ <strong>Reservatório Vazio?</strong> ${details.reservatorioVazio}</li>
-            <li style="margin-bottom: 8px;">✅ <strong>Possui Engate?</strong> ${details.engateAbastecimento}</li>
-            <li style="margin-bottom: 8px;">📏 <strong>Distância Caminhão-Reservatório:</strong> ${details.distanciaCaminhao}</li>
-            <li style="margin-bottom: 8px;">📏 <strong>Altura do Reservatório:</strong> ${details.alturaReservatorio}</li>
-            <li style="margin-bottom: 8px;">💧 <strong>Capacidade:</strong> ${details.capacidadeReservatorio}</li>
-            <li style="margin-bottom: 8px;">👷 <strong>Responsável no Local:</strong> ${details.nomeFuncionario}</li>
-          </ul>
-        </div>
-      `;
-    } else {
-      // --- CASO 2: QUEDA DE ENERGIA (Padrão) ---
-      // Se não vier type, assume power_outage para compatibilidade
-      subject = `[ALERTA] Queda de Energia - ${schoolName}`;
-      htmlContent = `
-        <div style="font-family: Arial, sans-serif; color: #333;">
-          <h2 style="color: #dc2626;">Relato de Queda de Energia</h2>
-          <p><strong>Escola:</strong> ${schoolName}</p>
-          <p><strong>Solicitante:</strong> ${requesterName}</p>
-          <p><strong>Data/Hora:</strong> ${new Date(timestamp).toLocaleString("pt-BR")}</p>
-          <p><strong>Abrangência:</strong> ${details.scope === 'school' ? 'Apenas na Escola' : 'Toda a Região'}</p>
-          <hr style="border: 1px solid #eee;" />
-          
-          <h3 style="color: #444;">Detalhes do Relato:</h3>
-          <p style="background-color: #f8fafc; padding: 10px; border-left: 4px solid #dc2626;">
-            "${details.description}"
-          </p>
-        </div>
-      `;
+    // Busca a chave configurada nos Secrets do Supabase (dentro do handler para evitar EarlyDrop)
+    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
+    
+    if (!RESEND_API_KEY) {
+      console.error("[ERRO] RESEND_API_KEY não configurada no Supabase.");
+      return new Response(JSON.stringify({ error: "Configuração de API pendente no servidor." }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 500,
+      })
     }
 
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
+    const body = await req.json()
+    const { type, schoolName, data, userName } = body
+    const normalizedType = type?.toUpperCase()
+
+    console.log(`[LOG] Iniciando envio: ${normalizedType} para ${schoolName}`)
+
+    let subject = ""
+    let htmlContent = ""
+
+    if (normalizedType === 'WATER_TRUCK') {
+      subject = `💧 SOLICITAÇÃO CAMINHÃO PIPA: ${schoolName}`
+      htmlContent = `
+        <div style="font-family: sans-serif; color: #334155; line-height: 1.6; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+          <div style="background-color: #2563eb; padding: 20px; text-align: center;">
+            <h2 style="color: #ffffff; margin: 0;">Solicitação de Abastecimento</h2>
+          </div>
+          <div style="padding: 30px; background-color: #ffffff;">
+            <p><strong>Unidade:</strong> ${schoolName}</p>
+            <p><strong>Cód. Sabesp:</strong> ${data?.sabespCode || 'N/A'}</p>
+            <p><strong>Solicitante:</strong> ${userName}</p>
+            <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+            <h3 style="font-size: 14px; text-transform: uppercase; color: #64748b;">Checklist de Verificação:</h3>
+            <pre style="white-space: pre-wrap; background: #f8fafc; padding: 15px; border-radius: 8px; font-size: 13px; border: 1px solid #cbd5e1;">${data?.notes || 'Sem observações.'}</pre>
+          </div>
+          <div style="background-color: #f1f5f9; padding: 15px; text-align: center; font-size: 11px; color: #94a3b8;">
+            Enviado via SGE-GSU Intelligence • Notificação Automática
+          </div>
+        </div>
+      `
+    } else {
+      subject = `⚠️ QUEDA DE ENERGIA: ${schoolName}`
+      htmlContent = `<div style="font-family: sans-serif;"><h2>Interrupção de Energia</h2><p>${data?.notes}</p></div>`
+    }
+
+    // Chamada para a API do Resend
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: "SGE-GSU <onboarding@resend.dev>", // Certifique-se que este remetente é válido no seu Resend
-        to: ["gsu.seom@educacao.sp.gov.br"],
+        from: 'notificacoes@gse.ia.br', 
+        to: ['gsu.seom@educacao.sp.gov.br'],
         subject: subject,
         html: htmlContent,
       }),
-    });
+    })
 
-    const data = await res.json();
+    const resData = await res.json()
 
-    return new Response(JSON.stringify(data), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // Se o Resend retornar erro (ex: 401, 403, 422), repassamos o erro REAL
+    if (!res.ok) {
+      console.error("[ERRO RESEND]", resData)
+      return new Response(JSON.stringify({ 
+        error: resData.message || "O Resend recusou o envio.",
+        details: resData 
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: res.status, // Retorna o status de erro real (ex: 403)
+      })
+    }
+
+    return new Response(JSON.stringify({ success: true, id: resData.id }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
-    });
-  } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 500,
-    });
+    })
+
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error("[ERRO CRÍTICO NA FUNÇÃO]", errorMessage)
+    
+    return new Response(JSON.stringify({ error: errorMessage }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 400,
+    })
   }
-});
+})
