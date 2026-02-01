@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { X, Droplet, CheckCircle, Truck, ArrowRight } from 'lucide-react';
+// CORREÇÃO: Removido 'Droplet' que não estava a ser usado
+import { X, CheckCircle, Truck, ArrowRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface WaterTruckModalProps {
@@ -46,7 +47,7 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, userName, sabespI
     // Validação simples antes de avançar
     if (step === 1) {
       if (!formData.registroFechado || !formData.reservatorioVazio || !formData.engateAbastecimento) {
-        alert("Por favor, responda todas as perguntas de verificação.");
+        alert("Por favor, responda a todas as perguntas de verificação.");
         return;
       }
     }
@@ -63,14 +64,14 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, userName, sabespI
     setIsSubmitting(true);
 
     try {
-      console.log("Enviando solicitação de caminhão pipa...");
+      console.log("A enviar solicitação de caminhão cisterna...");
 
       // Chama a Edge Function
       const { data, error } = await supabase.functions.invoke('send-outage-email', {
         body: {
           type: 'water_truck', // IMPORTANTE: Define o tipo para o email correto
           schoolName: schoolName || "Escola não identificada",
-          userName: userName || "Usuário não identificado",
+          userName: userName || "Utilizador não identificado",
           sabespId: sabespId || "Não informado",
           details: formData,
           requesterName: userName,
@@ -103,7 +104,7 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, userName, sabespI
         <div className="bg-blue-50 p-4 border-b border-blue-100 flex justify-between items-center">
           <div className="flex items-center gap-2 text-blue-700 font-bold">
             <Truck size={24} />
-            <span>Solicitar Caminhão Pipa</span>
+            <span>Solicitar Caminhão Cisterna</span>
           </div>
           <button onClick={handleClose} className="text-slate-400 hover:text-slate-600">
             <X size={24} />
@@ -117,12 +118,12 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, userName, sabespI
           {step === 1 && (
             <div className="space-y-6">
               <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg text-sm text-yellow-800">
-                <strong>Atenção!</strong> Antes de solicitar, verifique os itens abaixo para evitar deslocamentos desnecessários.
+                <strong>Atenção!</strong> Antes de solicitar, verifique os itens abaixo para evitar deslocações desnecessárias.
               </div>
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">1. Verificou se tem registro fechado?</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">1. Verificou se tem registo fechado?</label>
                   <div className="flex gap-4">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input type="radio" name="registroFechado" value="Sim" checked={formData.registroFechado === 'Sim'} onChange={(e) => setFormData({...formData, registroFechado: e.target.value})} className="text-blue-600 focus:ring-blue-500" />
@@ -172,7 +173,7 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, userName, sabespI
               <h3 className="text-lg font-bold text-slate-800 mb-4">Dados Técnicos para Abastecimento</h3>
               
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">4. Distância entre caminhão e reservatório (m)</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">4. Distância entre camião e reservatório (m)</label>
                 <input 
                   type="text" 
                   value={formData.distanciaCaminhao}
@@ -225,7 +226,7 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, userName, sabespI
               </div>
               <h3 className="text-2xl font-bold text-slate-800 mb-2">Solicitação Enviada!</h3>
               <p className="text-slate-600 mb-6">
-                O pedido de caminhão pipa foi registrado e a equipe do SEOM notificada.<br/>
+                O pedido de caminhão cisterna foi registado e a equipa do SEOM notificada.<br/>
                 Código SABESP da escola: <strong>{sabespId || "N/A"}</strong>
               </p>
               <button onClick={handleClose} className="text-blue-600 font-bold hover:underline">
@@ -253,7 +254,7 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, userName, sabespI
               className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg font-bold flex items-center gap-2 transition-colors shadow-sm"
             >
               {isSubmitting ? (
-                <>Enviando...</>
+                <>A enviar...</>
               ) : (
                 <>
                   {step === 1 ? "Próximo" : "Confirmar Solicitação"}

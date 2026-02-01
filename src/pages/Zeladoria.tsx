@@ -1,11 +1,10 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
 import { 
   School, 
   Search, 
-  MoreVertical, 
   Download, 
   Filter,
   CheckCircle,
@@ -16,12 +15,10 @@ import {
   X,
   Save,
   History,
-  Check,
-  ChevronRight,
   FileText,
-  Plus, // Importado o ícone Plus
-  Trash2, // Importado o ícone Trash2 para lixeira
-  Flag // Novo ícone para Concluído
+  Plus, 
+  Trash2, 
+  Flag 
 } from 'lucide-react';
 // Importação segura do Recharts
 import { 
@@ -657,7 +654,7 @@ export function Zeladoria() {
             </div>
           ) : (
             <>
-              {/* KPIs - Ajuste no grid para 5 colunas se couber, ou responsivo */}
+              {/* KPIs */}
               <div ref={kpiRef} className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 bg-gray-50 p-1">
                 <StatCard title="Unidades Habitáveis" value={stats.total} subtext="Escolas c/ Zeladoria" icon={School} />
                 <StatCard title="Ocupação" value={`${stats.ocupacao}%`} subtext={`${stats.comZeladoria} ativas`} icon={CheckCircle} trendUp={true} />

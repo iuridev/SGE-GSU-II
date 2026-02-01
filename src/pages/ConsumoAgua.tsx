@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
@@ -297,7 +297,7 @@ export function ConsumoAgua() {
         headStyles: { fillColor: [37, 99, 235] },
         styles: { fontSize: 8 },
         didParseCell: (data) => {
-          // Correção de Tipo: Forçar 'any' para evitar erro de índice
+          // Fix TS error: data.row.raw might not be array typed by default
           const rawRow = data.row.raw as any[];
           if (data.section === 'body' && rawRow[4] === 'EXCEDIDO') {
             data.cell.styles.textColor = [220, 38, 38];
@@ -318,7 +318,7 @@ export function ConsumoAgua() {
   // --- LÓGICA DO MODAL ---
   const handleDayClick = async (date: Date) => {
     if (isAfter(date, new Date()) && !isSameDay(date, new Date())) {
-      alert("Não é possível registrar consumo futuro.");
+      alert("Não é possível registar consumo futuro.");
       return;
     }
 
@@ -397,7 +397,7 @@ export function ConsumoAgua() {
       alert("Salvo com sucesso!");
       setIsModalOpen(false);
       fetchMonthlyRecords();
-      if (userRole === 'regional_admin') fetchGeneralMonthStats(); // Atualiza média geral se for admin
+      if (userRole === 'regional_admin') fetchGeneralMonthStats();
 
     } catch (err: any) {
       alert("Erro ao salvar: " + err.message);
@@ -422,7 +422,7 @@ export function ConsumoAgua() {
                   <Droplet className="text-blue-600" />
                   Consumo de Água
                 </h1>
-                <p className="text-gray-500 mt-1">Gestão e monitoramento diário</p>
+                <p className="text-gray-500 mt-1">Gestão e monitorização diária</p>
               </div>
 
               {userRole === 'regional_admin' && (
@@ -477,7 +477,7 @@ export function ConsumoAgua() {
                       colorClass="bg-blue-50 text-blue-600" 
                     />
                     <InfoCard 
-                      title="Dias com Estouro" 
+                      title="Dias com Excesso" 
                       value={`${selectedSchoolStats.exceededDays} dias`}
                       subtext="Acima do limite no mês"
                       icon={AlertTriangle} 
@@ -504,7 +504,7 @@ export function ConsumoAgua() {
                       colorClass="bg-blue-50 text-blue-600" 
                     />
                     <InfoCard 
-                      title="Dias com Estouro" 
+                      title="Dias com Excesso" 
                       value={`${selectedSchoolStats.exceededDays} dias`}
                       subtext="Atenção necessária"
                       icon={AlertTriangle} 
@@ -587,7 +587,7 @@ export function ConsumoAgua() {
                   </div>
 
                   <div className="bg-gray-50 p-4 border-t border-gray-100 flex gap-6 text-xs text-gray-600 justify-center">
-                    <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-green-500"></div> Registro OK</div>
+                    <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-green-500"></div> Registo OK</div>
                     <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-yellow-500"></div> Limite Excedido</div>
                     <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-red-500"></div> Pendente</div>
                     <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-gray-300"></div> Futuro</div>
@@ -597,14 +597,14 @@ export function ConsumoAgua() {
             )}
           </div>
 
-          {/* MODAL DE REGISTRO (Mantido igual) */}
+          {/* MODAL DE REGISTRO */}
           {isModalOpen && selectedDate && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
               <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-fadeIn">
                 <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-blue-600 text-white">
                   <div className="flex items-center gap-2">
                     <CalendarIcon size={20} />
-                    <h3 className="font-bold">Registro: {format(selectedDate, "dd 'de' MMMM", { locale: ptBR })}</h3>
+                    <h3 className="font-bold">Registo: {format(selectedDate, "dd 'de' MMMM", { locale: ptBR })}</h3>
                   </div>
                   <button onClick={() => setIsModalOpen(false)} className="text-blue-100 hover:text-white"><X size={20} /></button>
                 </div>
@@ -612,7 +612,7 @@ export function ConsumoAgua() {
                 <div className="p-6 space-y-6">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="col-span-2">
-                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Leitura do Hidrômetro (m³)</label>
+                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Leitura do Hidrómetro (m³)</label>
                       <div className="relative">
                         <input 
                           type="number" 
@@ -669,7 +669,7 @@ export function ConsumoAgua() {
 
                 <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
                   <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-200 rounded-lg font-medium">Cancelar</button>
-                  <button onClick={handleSave} disabled={saving} className={`px-6 py-2 text-sm text-white rounded-lg font-medium flex items-center gap-2 shadow-sm transition-colors ${isExceeded ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>{saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Salvar Registro</button>
+                  <button onClick={handleSave} disabled={saving} className={`px-6 py-2 text-sm text-white rounded-lg font-medium flex items-center gap-2 shadow-sm transition-colors ${isExceeded ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>{saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Salvar Registo</button>
                 </div>
               </div>
             </div>

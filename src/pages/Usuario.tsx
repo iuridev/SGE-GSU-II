@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
@@ -313,12 +313,18 @@ export function Usuario() {
               </div>
               
               {view === 'list' ? (
-                <button onClick={handleNewUser} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow-sm flex items-center gap-2 transition-colors">
+                <button 
+                  onClick={handleNewUser}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow-sm flex items-center gap-2 transition-colors"
+                >
                   <Plus size={20} /> Novo Usuário
                 </button>
               ) : (
-                <button onClick={() => { setView('list'); fetchUsers(); }} className="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg shadow-sm flex items-center gap-2 transition-colors">
-                  <ArrowLeft size={20} /> Voltar
+                <button 
+                  onClick={() => { setView('list'); fetchUsers(); }}
+                  className="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg shadow-sm flex items-center gap-2 transition-colors"
+                >
+                  <ArrowLeft size={20} /> Voltar para Lista
                 </button>
               )}
             </div>
@@ -339,7 +345,7 @@ export function Usuario() {
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
                     <input 
                       type="text" 
-                      placeholder="Buscar..." 
+                      placeholder="Buscar usuário..." 
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -352,87 +358,206 @@ export function Usuario() {
                     <thead>
                       <tr className="bg-gray-50 text-xs font-semibold tracking-wide text-gray-500 uppercase border-b border-gray-200">
                         <th className="px-6 py-4">Usuário</th>
-                        <th className="px-6 py-4">Perfil</th>
-                        <th className="px-6 py-4">Escola</th>
+                        <th className="px-6 py-4">Perfil (Role)</th>
+                        <th className="px-6 py-4">Vínculo (Escola)</th>
                         <th className="px-6 py-4 text-center">Ações</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {filteredUsers.map((user) => (
-                        <tr key={user.id} className="hover:bg-blue-50/50 transition-colors">
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs">
-                                {user.full_name?.charAt(0) || 'U'}
+                      {filteredUsers.length > 0 ? (
+                        filteredUsers.map((user) => (
+                          <tr key={user.id} className="hover:bg-blue-50/50 transition-colors">
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs">
+                                  {user.full_name?.charAt(0) || 'U'}
+                                </div>
+                                <span className="font-medium text-gray-900">{user.full_name}</span>
                               </div>
-                              <span className="font-medium text-gray-900">{user.full_name}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            {user.role === 'regional_admin' ? 
-                              <span className="text-xs font-medium bg-purple-100 text-purple-800 px-2 py-0.5 rounded">Admin</span> : 
-                              <span className="text-xs font-medium bg-blue-100 text-blue-800 px-2 py-0.5 rounded">Gestor</span>}
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-600">
-                            {user.schools?.name || '-'}
-                          </td>
-                          <td className="px-6 py-4 text-center flex justify-center gap-2">
-                            <button onClick={() => handleEditUser(user)} className="p-2 text-gray-400 hover:text-blue-600"><Edit size={18} /></button>
-                            <button onClick={() => handleDeleteUser(user.id)} className="p-2 text-gray-400 hover:text-red-600"><Trash2 size={18} /></button>
+                            </td>
+                            <td className="px-6 py-4">
+                              {user.role === 'regional_admin' ? (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                  <Shield size={12} className="mr-1" /> Admin Regional
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                  <User size={12} className="mr-1" /> Gestor Escolar
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-600">
+                              {user.schools?.name || (user.role === 'regional_admin' ? 'Acesso Total' : '-')}
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                <button 
+                                  onClick={() => handleEditUser(user)}
+                                  className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                                >
+                                  <Edit size={18} />
+                                </button>
+                                <button 
+                                  onClick={() => handleDeleteUser(user.id)}
+                                  className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"
+                                >
+                                  <Trash2 size={18} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={4} className="px-6 py-12 text-center text-gray-500">
+                            Nenhum usuário encontrado.
                           </td>
                         </tr>
-                      ))}
+                      )}
                     </tbody>
                   </table>
                 </div>
               </div>
             ) : (
+              // --- FORMULÁRIO ---
               <form onSubmit={handleSubmit} className="space-y-6 max-w-2xl mx-auto">
-                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
-                    <input type="text" required value={formData.full_name} onChange={(e) => setFormData({...formData, full_name: e.target.value})} className="w-full p-2.5 border rounded-lg" />
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                  <div className="bg-gray-50 px-6 py-4 border-b border-gray-100">
+                    <h3 className="font-semibold text-gray-800">
+                      {isEditing ? 'Editar Usuário' : 'Novo Usuário'}
+                    </h3>
                   </div>
-
-                  {!isEditing && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
-                        <input type="email" required value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} className="w-full p-2.5 border rounded-lg" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Senha</label>
-                        <input type="password" required minLength={6} value={formData.password} onChange={(e) => setFormData({...formData, password: e.target.value})} className="w-full p-2.5 border rounded-lg" />
-                      </div>
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Perfil</label>
-                    <div className="flex gap-4">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" checked={formData.role === 'regional_admin'} onChange={() => setFormData({...formData, role: 'regional_admin', school_id: ''})} /> Admin Regional
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" checked={formData.role === 'school_manager'} onChange={() => setFormData({...formData, role: 'school_manager'})} /> Gestor Escolar
-                      </label>
-                    </div>
-                  </div>
-
-                  {formData.role === 'school_manager' && (
+                  
+                  <div className="p-6 space-y-6">
+                    {/* Nome */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Escola</label>
-                      <select required value={formData.school_id} onChange={(e) => setFormData({...formData, school_id: e.target.value})} className="w-full p-2.5 border rounded-lg bg-white">
-                        <option value="">Selecione...</option>
-                        {schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                      </select>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                        <input
+                          type="text"
+                          required
+                          value={formData.full_name}
+                          onChange={(e) => setFormData({...formData, full_name: e.target.value})}
+                          className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                          placeholder="Ex: João da Silva"
+                        />
+                      </div>
                     </div>
-                  )}
 
-                  <div className="flex justify-end gap-3 pt-4">
-                    <button type="button" onClick={() => setView('list')} className="px-4 py-2 border rounded-lg">Cancelar</button>
-                    <button type="submit" disabled={submitting} className="px-6 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2">
-                      {submitting && <Loader2 size={16} className="animate-spin" />} Salvar
+                    {/* CAMPOS EXCLUSIVOS PARA NOVO USUÁRIO */}
+                    {!isEditing && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">E-mail de Acesso</label>
+                          <div className="relative">
+                            <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                            <input
+                              type="email"
+                              required
+                              value={formData.email}
+                              onChange={(e) => setFormData({...formData, email: e.target.value})}
+                              className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                              placeholder="joao@escola.sp.gov.br"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Senha Provisória</label>
+                          <div className="relative">
+                            <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                            <input
+                              type="password"
+                              required
+                              minLength={6}
+                              value={formData.password}
+                              onChange={(e) => setFormData({...formData, password: e.target.value})}
+                              className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                              placeholder="Mínimo 6 caracteres"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Role */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Perfil de Acesso</label>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div 
+                          onClick={() => setFormData({...formData, role: 'regional_admin', school_id: ''})}
+                          className={`cursor-pointer border rounded-lg p-4 flex items-center gap-3 transition-all ${
+                            formData.role === 'regional_admin' ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-gray-200 hover:border-blue-300'
+                          }`}
+                        >
+                          <div className={`p-2 rounded-full ${formData.role === 'regional_admin' ? 'bg-blue-200 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
+                            <Shield size={20} />
+                          </div>
+                          <div>
+                            <p className="font-medium text-sm text-gray-900">Admin Regional</p>
+                            <p className="text-xs text-gray-500">Acesso total ao sistema</p>
+                          </div>
+                        </div>
+
+                        <div 
+                          onClick={() => setFormData({...formData, role: 'school_manager'})}
+                          className={`cursor-pointer border rounded-lg p-4 flex items-center gap-3 transition-all ${
+                            formData.role === 'school_manager' ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-gray-200 hover:border-blue-300'
+                          }`}
+                        >
+                          <div className={`p-2 rounded-full ${formData.role === 'school_manager' ? 'bg-blue-200 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
+                            <User size={20} />
+                          </div>
+                          <div>
+                            <p className="font-medium text-sm text-gray-900">Gestor Escolar</p>
+                            <p className="text-xs text-gray-500">Restrito à sua escola</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Escola (Apenas se for Gestor) */}
+                    {formData.role === 'school_manager' && (
+                      <div className="animate-fadeIn">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Vincular Escola</label>
+                        <div className="relative">
+                          <School className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                          <select
+                            required
+                            value={formData.school_id}
+                            onChange={(e) => setFormData({...formData, school_id: e.target.value})}
+                            className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none appearance-none bg-white"
+                          >
+                            <option value="">Selecione uma escola...</option>
+                            {schools.map(school => (
+                              <option key={school.id} value={school.id}>
+                                {school.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          O usuário só poderá visualizar e editar dados desta unidade.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setView('list')}
+                      className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-200 rounded-lg font-medium"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={submitting}
+                      className="px-6 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-medium shadow-sm flex items-center gap-2 disabled:opacity-70"
+                    >
+                      {submitting && <Loader2 size={16} className="animate-spin" />}
+                      Salvar Usuário
                     </button>
                   </div>
                 </div>

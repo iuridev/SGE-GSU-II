@@ -1,20 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
 import { 
   Zap, 
-  Droplet, 
-  Truck // Ícone para o caminhão pipa
+  Truck
 } from 'lucide-react';
+// CORREÇÃO: Removido 'Droplet', 'AlertTriangle', 'CheckCircle', 'Clock', 'MoreVertical', 'Search'
 import { PowerOutageModal } from '../components/PowerOutageModal';
-import { WaterTruckModal } from '../components/WaterTruckModal'; // Importando o novo modal
+import { WaterTruckModal } from '../components/WaterTruckModal';
 
 // --- INTERFACES ---
 interface School {
   id: string;
   name: string;
-  sabesp_supply_id?: string; // Código SABESP
+  sabesp_supply_id?: string;
 }
 
 export function Dashboard() {
@@ -122,15 +122,15 @@ export function Dashboard() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                 <h3 className="font-bold text-gray-700 mb-2">Processos Ativos</h3>
-                <p className="text-3xl font-bold text-blue-600">12</p>
+                {loading ? <div className="animate-pulse bg-gray-200 h-8 w-12 rounded"></div> : <p className="text-3xl font-bold text-blue-600">12</p>}
               </div>
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                 <h3 className="font-bold text-gray-700 mb-2">Vistorias Pendentes</h3>
-                <p className="text-3xl font-bold text-orange-500">3</p>
+                {loading ? <div className="animate-pulse bg-gray-200 h-8 w-12 rounded"></div> : <p className="text-3xl font-bold text-orange-500">3</p>}
               </div>
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                 <h3 className="font-bold text-gray-700 mb-2">Obras em Andamento</h3>
-                <p className="text-3xl font-bold text-green-600">1</p>
+                {loading ? <div className="animate-pulse bg-gray-200 h-8 w-12 rounded"></div> : <p className="text-3xl font-bold text-green-600">1</p>}
               </div>
             </div>
 
