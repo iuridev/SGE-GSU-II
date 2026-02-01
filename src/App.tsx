@@ -6,7 +6,7 @@ import { ConsumoAgua } from './pages/ConsumoAgua';
 import { Patrimonio } from './pages/Patrimonio';
 import { Obras } from './pages/Obras';
 import { Notificacoes } from './pages/Notificacoes';
-import { Escola } from './pages/escola';
+import { Escola } from './pages/Escola';
 import { Usuario } from './pages/Usuario';
 //import { Usuarios } from './pages/usuarios';
 
@@ -30,7 +30,7 @@ function App() {
         
         {/* Rotas dos Módulos (As páginas novas) */}
         <Route path="/zeladoria" element={<Zeladoria />} />
-        <Route path="/consumo-agua" element={<ConsumoAgua />} />
+        <Route path="/ConsumoAgua" element={<ConsumoAgua />} />
         <Route path="/patrimonio" element={<Patrimonio />} />
         <Route path="/obras" element={<Obras />} />
         <Route path="/notificacoes" element={<Notificacoes />} />

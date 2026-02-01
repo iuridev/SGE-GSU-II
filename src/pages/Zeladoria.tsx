@@ -1,10 +1,11 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
 import { 
   School, 
   Search, 
+  MoreVertical, 
   Download, 
   Filter,
   CheckCircle,
@@ -15,7 +16,12 @@ import {
   X,
   Save,
   History,
-  FileText
+  Check,
+  ChevronRight,
+  FileText,
+  Plus, // Importado o ícone Plus
+  Trash2, // Importado o ícone Trash2 para lixeira
+  Flag // Novo ícone para Concluído
 } from 'lucide-react';
 // Importação segura do Recharts
 import { 
@@ -112,16 +118,22 @@ interface ZeladoriaRecord {
   [key: string]: any; 
 }
 
+// Interface para a lista de escolas (para o dropdown)
+interface SchoolOption {
+  id: string;
+  name: string;
+}
+
 // --- COMPONENTES VISUAIS ---
 
-const StatCard = ({ title, value, subtext, icon: Icon, trendUp }: any) => (
+const StatCard = ({ title, value, subtext, icon: Icon, trendUp, colorClass }: any) => (
   <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-start justify-between">
     <div>
       <p className="text-sm font-semibold text-gray-500 uppercase tracking-wider">{title}</p>
       <h3 className="text-3xl font-bold text-gray-800 mt-2">{value}</h3>
       <p className="text-xs text-gray-400 mt-1">{subtext}</p>
     </div>
-    <div className={`p-3 rounded-lg ${trendUp ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
+    <div className={`p-3 rounded-lg ${colorClass ? colorClass : (trendUp ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600')}`}>
       <Icon size={24} />
     </div>
   </div>
@@ -157,17 +169,21 @@ export function Zeladoria() {
   const [userName, setUserName] = useState<string>("Usuário");
   const [userId, setUserId] = useState<string>("");
 
-  // Estado para Edição
+  // Estado para Edição/Criação
   const [selectedZeladoria, setSelectedZeladoria] = useState<ZeladoriaRecord | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [timeline, setTimeline] = useState<TimelineRecord[]>([]);
   const [loadingTimeline, setLoadingTimeline] = useState(false);
+  
+  // Lista de Escolas para vinculação (apenas Admin)
+  const [schoolList, setSchoolList] = useState<SchoolOption[]>([]);
 
   // Form States
   const [editStatus, setEditStatus] = useState("");
   const [editZelador, setEditZelador] = useState("");
   const [editProcesso, setEditProcesso] = useState("");
   const [editObs, setEditObs] = useState("");
+  const [editSchoolId, setEditSchoolId] = useState(""); // Novo estado para vincular escola
 
   // Refs para PDF
   const kpiRef = useRef<HTMLDivElement>(null);
@@ -217,7 +233,10 @@ export function Zeladoria() {
             setLoading(false);
             return;
           }
-      } 
+      } else if (role === 'regional_admin') {
+        // Se for admin, carregamos também a lista de todas as escolas para o dropdown de edição
+        fetchSchoolsList();
+      }
 
       const { data, error: dataError } = await query;
 
@@ -239,11 +258,24 @@ export function Zeladoria() {
     }
   }
 
+  // Função auxiliar para carregar lista de escolas (apenas para Admin)
+  async function fetchSchoolsList() {
+    try {
+      const { data } = await (supabase.from('schools') as any)
+        .select('id, name')
+        .order('name');
+      if (data) {
+        setSchoolList(data);
+      }
+    } catch (e) {
+      console.error("Erro ao buscar lista de escolas", e);
+    }
+  }
+
   // Buscar histórico quando abrir modal
   const fetchTimeline = async (zeladoriaId: string | number) => {
     setLoadingTimeline(true);
     try {
-      // Usando 'as any' para evitar erro de tipo na seleção da tabela nova
       const { data, error } = await (supabase
         .from('zeladoria_timeline') as any)
         .select('*')
@@ -268,9 +300,63 @@ export function Zeladoria() {
     setEditZelador(item.zelador || "");
     setEditProcesso(item.sei_numero || "");
     setEditObs(item.obs_sefisc || "");
+    setEditSchoolId(item.school_id || ""); // Carrega a escola atual
     
     fetchTimeline(item.id);
     setIsEditModalOpen(true);
+  };
+
+  // Função para preparar modal para novo cadastro
+  const handleNewProcesso = () => {
+    // Objeto vazio temporário para o formulário
+    const newRecord: Partial<ZeladoriaRecord> = {
+      id: 'new', // Flag para identificar que é novo
+      ocupada: 'SEI', // Status inicial padrão
+      zelador: '',
+      sei_numero: '',
+      obs_sefisc: '',
+      school_id: '',
+      displayName: 'Novo Processo'
+    };
+    
+    setSelectedZeladoria(newRecord as ZeladoriaRecord);
+    setEditStatus("SEI");
+    setEditZelador("");
+    setEditProcesso("");
+    setEditObs("");
+    setEditSchoolId(""); // Importante: Admin deve selecionar a escola
+    setTimeline([]); // Sem histórico para novos
+    setIsEditModalOpen(true);
+  };
+
+  const handleDeleteProcesso = async () => {
+    if (!selectedZeladoria || selectedZeladoria.id === 'new') return;
+
+    if (!window.confirm("Tem a certeza que deseja eliminar este processo de zeladoria? Esta ação não pode ser desfeita.")) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const { error: deleteError } = await (supabase
+        .from('zeladorias') as any)
+        .delete()
+        .eq('id', selectedZeladoria.id);
+
+      if (deleteError) throw deleteError;
+
+      // Remove da lista local
+      setDados(prev => prev.filter(item => item.id !== selectedZeladoria.id));
+      
+      setIsEditModalOpen(false);
+      alert("Processo eliminado com sucesso!");
+
+    } catch (err: any) {
+      alert("Erro ao eliminar: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSaveZeladoria = async () => {
@@ -279,43 +365,98 @@ export function Zeladoria() {
     try {
       setLoading(true);
 
-      // 1. Atualizar tabela principal
-      // Cast (supabase.from('zeladorias') as any) resolve o erro de tipo 'never'
-      const { error: updateError } = await (supabase
-        .from('zeladorias') as any)
-        .update({
-          ocupada: editStatus,
-          zelador: editZelador,
-          sei_numero: editProcesso,
-          obs_sefisc: editObs
-        }) 
-        .eq('id', selectedZeladoria.id);
+      const payload: any = {
+        ocupada: editStatus,
+        zelador: editZelador,
+        sei_numero: editProcesso,
+        obs_sefisc: editObs,
+      };
 
-      if (updateError) throw updateError;
-
-      // 2. Registrar na Timeline se o status mudou
-      if (editStatus !== selectedZeladoria.ocupada) {
-        await (supabase.from('zeladoria_timeline') as any).insert({
-          zeladoria_id: selectedZeladoria.id,
-          previous_status: selectedZeladoria.ocupada,
-          new_status: editStatus,
-          changed_by: userId,
-          notes: `Status alterado de ${selectedZeladoria.ocupada} para ${editStatus}`
-        });
+      // Se for admin e selecionou uma escola, atualiza o vínculo
+      if (userRole === 'regional_admin' && editSchoolId) {
+        payload.school_id = editSchoolId;
       }
 
-      // 3. Atualizar estado local
-      setDados(prev => prev.map(item => 
-        item.id === selectedZeladoria.id 
-          ? { ...item, ocupada: editStatus, zelador: editZelador, sei_numero: editProcesso, obs_sefisc: editObs }
-          : item
-      ));
+      // Verificação para novo cadastro
+      const isNew = selectedZeladoria.id === 'new';
+
+      if (isNew) {
+        // --- CREATE (INSERT) ---
+        if (!editSchoolId) {
+          throw new Error("Selecione uma escola para vincular o novo processo.");
+        }
+
+        // Busca dados da escola para preencher colunas legadas como 'nome' e 'ue' se necessário
+        const schoolInfo = schoolList.find(s => s.id === editSchoolId);
+        
+        const insertPayload = {
+          ...payload,
+          nome: schoolInfo?.name || "Nova Zeladoria", // Fallback para coluna legada
+          // ue: ... se tiver lógica de número de UE, adicione aqui
+        };
+
+        const { data: insertedData, error: insertError } = await (supabase
+          .from('zeladorias') as any)
+          .insert([insertPayload])
+          .select()
+          .single();
+
+        if (insertError) throw insertError;
+
+        // Atualiza lista local adicionando o novo item
+        const newItem = {
+          ...insertedData,
+          displayName: schoolInfo?.name || insertedData.nome
+        };
+        setDados(prev => [newItem, ...prev]);
+        
+        // Adiciona log inicial na timeline
+        await (supabase.from('zeladoria_timeline') as any).insert({
+          zeladoria_id: insertedData.id,
+          previous_status: 'INICIO',
+          new_status: editStatus,
+          changed_by: userId,
+          notes: 'Processo iniciado manualmente pelo administrador'
+        });
+
+      } else {
+        // --- UPDATE ---
+        const { error: updateError } = await (supabase
+          .from('zeladorias') as any)
+          .update(payload) 
+          .eq('id', selectedZeladoria.id);
+
+        if (updateError) throw updateError;
+
+        // Registrar na Timeline se o status mudou
+        if (editStatus !== selectedZeladoria.ocupada) {
+          await (supabase.from('zeladoria_timeline') as any).insert({
+            zeladoria_id: selectedZeladoria.id,
+            previous_status: selectedZeladoria.ocupada,
+            new_status: editStatus,
+            changed_by: userId,
+            notes: `Status alterado de ${selectedZeladoria.ocupada} para ${editStatus}`
+          });
+        }
+
+        // Atualizar estado local
+        const newSchoolName = schoolList.find(s => s.id === editSchoolId)?.name;
+        setDados(prev => prev.map(item => 
+          item.id === selectedZeladoria.id 
+            ? { 
+                ...item, 
+                ...payload,
+                displayName: newSchoolName || item.displayName // Atualiza nome se mudou escola
+              }
+            : item
+        ));
+      }
 
       setIsEditModalOpen(false);
-      alert("Atualizado com sucesso!");
+      alert(isNew ? "Processo criado com sucesso!" : "Atualizado com sucesso!");
 
     } catch (err: any) {
-      alert("Erro ao atualizar: " + err.message);
+      alert("Erro ao salvar: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -388,7 +529,7 @@ export function Zeladoria() {
     });
 
     if (!dadosConsiderados || dadosConsiderados.length === 0) {
-      return { total: 0, comZeladoria: 0, semZeladoria: 0, ocupacao: "0", pieData: [], barData: [], vencendo: 0 };
+      return { total: 0, comZeladoria: 0, semZeladoria: 0, ocupacao: "0", pieData: [], barData: [], vencendo: 0, concluidos: 0 };
     }
 
     const total = dadosConsiderados.length;
@@ -400,6 +541,11 @@ export function Zeladoria() {
     const semZeladoria = total - comZeladoria;
     const ocupacao = total > 0 ? ((comZeladoria / total) * 100).toFixed(0) : "0";
     
+    // Novo cálculo: Concluídos
+    const concluidos = dadosConsiderados.filter(i => 
+      String(i.ocupada).toUpperCase().trim() === "CONCLUIDO"
+    ).length;
+
     const statusCount: Record<string, number> = {};
     dadosConsiderados.forEach(item => {
       const s = item.ocupada || "Indefinido";
@@ -434,7 +580,7 @@ export function Zeladoria() {
       return validade >= hoje && validade <= trintaDias;
     }).length;
 
-    return { total, comZeladoria, semZeladoria, ocupacao, pieData, barData, vencendo };
+    return { total, comZeladoria, semZeladoria, ocupacao, pieData, barData, vencendo, concluidos };
   }, [dados]);
 
   const filteredData = dados.filter(item => {
@@ -483,6 +629,17 @@ export function Zeladoria() {
                <button className="flex items-center px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg shadow-sm hover:bg-gray-50 text-sm font-medium">
                 <Filter size={16} className="mr-2" /> Filtros
               </button>
+              
+              {/* BOTÃO NOVO PROCESSO (Apenas Admin) */}
+              {userRole === 'regional_admin' && (
+                <button 
+                  onClick={handleNewProcesso}
+                  className="flex items-center px-4 py-2 bg-emerald-600 text-white rounded-lg shadow-md hover:bg-emerald-700 transition-colors text-sm font-medium"
+                >
+                  <Plus size={16} className="mr-2" /> Novo Processo
+                </button>
+              )}
+
               <button 
                 onClick={handleExportPDF}
                 disabled={exporting || loading}
@@ -500,11 +657,12 @@ export function Zeladoria() {
             </div>
           ) : (
             <>
-              {/* KPIs */}
-              <div ref={kpiRef} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 bg-gray-50 p-1">
+              {/* KPIs - Ajuste no grid para 5 colunas se couber, ou responsivo */}
+              <div ref={kpiRef} className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 bg-gray-50 p-1">
                 <StatCard title="Unidades Habitáveis" value={stats.total} subtext="Escolas c/ Zeladoria" icon={School} />
                 <StatCard title="Ocupação" value={`${stats.ocupacao}%`} subtext={`${stats.comZeladoria} ativas`} icon={CheckCircle} trendUp={true} />
                 <StatCard title="Vagas Disponíveis" value={stats.semZeladoria} subtext="Unidades vagas" icon={AlertCircle} trendUp={false} />
+                <StatCard title="Concluídos" value={stats.concluidos} subtext="Processos Finalizados" icon={Flag} colorClass="bg-emerald-50 text-emerald-600" />
                 <StatCard title="Vencimentos" value={stats.vencendo} subtext="Vencem em 30 dias" icon={Clock} />
               </div>
 
@@ -622,7 +780,9 @@ export function Zeladoria() {
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-blue-100 text-blue-600 rounded-lg"><FileText size={20} /></div>
                     <div>
-                      <h2 className="text-lg font-bold text-gray-800">Gerenciar Processo</h2>
+                      <h2 className="text-lg font-bold text-gray-800">
+                        {selectedZeladoria.id === 'new' ? 'Novo Processo' : 'Gerenciar Processo'}
+                      </h2>
                       <p className="text-xs text-gray-500">{(selectedZeladoria as any).displayName}</p>
                     </div>
                   </div>
@@ -667,6 +827,32 @@ export function Zeladoria() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* CAMPO DE SELEÇÃO DE ESCOLA (APENAS ADMIN) */}
+                      {userRole === 'regional_admin' && (
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">
+                            Escola Vinculada (Vínculo) {selectedZeladoria.id === 'new' && <span className="text-red-500">*</span>}
+                          </label>
+                          <select
+                            value={editSchoolId}
+                            onChange={(e) => setEditSchoolId(e.target.value)}
+                            className="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                          >
+                            <option value="">Selecione uma escola...</option>
+                            {schoolList.map(school => (
+                              <option key={school.id} value={school.id}>
+                                {school.name}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-gray-400 mt-1">
+                            {selectedZeladoria.id === 'new' 
+                              ? 'Selecione a escola para este novo processo.' 
+                              : 'Alterar isso vinculará este processo a outra unidade.'}
+                          </p>
+                        </div>
+                      )}
+
                       <div>
                         <label className="block text-xs font-semibold text-gray-600 mb-1">Status Atual</label>
                         <select 
@@ -720,7 +906,9 @@ export function Zeladoria() {
                       {loadingTimeline ? (
                         <div className="text-center py-4 text-gray-400"><Loader2 size={20} className="animate-spin mx-auto"/></div>
                       ) : timeline.length === 0 ? (
-                        <p className="text-xs text-gray-400 text-center italic py-4">Nenhum histórico registrado.</p>
+                        <p className="text-xs text-gray-400 text-center italic py-4">
+                          {selectedZeladoria.id === 'new' ? 'Novo registro - sem histórico.' : 'Nenhum histórico registrado.'}
+                        </p>
                       ) : (
                         timeline.map((log) => (
                           <div key={log.id} className="relative pl-4 border-l-2 border-gray-200 pb-2 last:pb-0">
@@ -740,21 +928,36 @@ export function Zeladoria() {
                 </div>
 
                 {/* Footer Modal */}
-                <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
-                  <button 
-                    onClick={() => setIsEditModalOpen(false)}
-                    className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-200 rounded-lg font-medium"
-                  >
-                    Cancelar
-                  </button>
-                  <button 
-                    onClick={handleSaveZeladoria}
-                    disabled={loading}
-                    className="px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-medium flex items-center gap-2 shadow-sm"
-                  >
-                    {loading ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-                    Salvar Alterações
-                  </button>
+                <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex justify-between gap-3">
+                  {/* BOTÃO EXCLUIR: Apenas Admin e se não for um processo novo */}
+                  {userRole === 'regional_admin' && selectedZeladoria.id !== 'new' ? (
+                    <button 
+                      onClick={handleDeleteProcesso}
+                      className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg font-medium flex items-center gap-2 transition-colors border border-transparent hover:border-red-100"
+                    >
+                      <Trash2 size={16} />
+                      Excluir Processo
+                    </button>
+                  ) : (
+                    <div></div> // Espaçador para manter alinhamento
+                  )}
+
+                  <div className="flex gap-3">
+                    <button 
+                      onClick={() => setIsEditModalOpen(false)}
+                      className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-200 rounded-lg font-medium"
+                    >
+                      Cancelar
+                    </button>
+                    <button 
+                      onClick={handleSaveZeladoria}
+                      disabled={loading}
+                      className="px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-medium flex items-center gap-2 shadow-sm"
+                    >
+                      {loading ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                      {selectedZeladoria.id === 'new' ? 'Criar Processo' : 'Salvar Alterações'}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

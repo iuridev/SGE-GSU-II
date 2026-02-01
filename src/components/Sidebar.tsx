@@ -55,6 +55,14 @@ export function Sidebar({ userRole }: SidebarProps) {
         />
         
         <NavItem 
+          to="/ConsumoAgua" 
+          icon={<FileText size={20} />} 
+          label="Consumo de Água" 
+          collapsed={isCollapsed} 
+          active={isActive('/ConsumoAgua')}
+        />
+
+        <NavItem 
           to="/zeladoria" 
           icon={<FileText size={20} />} 
           label="Zeladoria" 
