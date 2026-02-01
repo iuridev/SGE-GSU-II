@@ -1,16 +1,16 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
-  Droplets, Calendar as ChevronLeft, ChevronRight, 
+  Droplets, ChevronLeft, ChevronRight, 
   Save, X, AlertTriangle, CheckCircle,  
   Search, Building2, Users, Loader2,
   AlertCircle, ArrowRight, ArrowDown, Activity, ShieldCheck,
   TrendingUp, Waves, ListFilter,
-  CalendarDays, FileDown,
+  CalendarDays, FileDown
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
-  ResponsiveContainer, 
+  ResponsiveContainer
 } from 'recharts';
 
 // Tipagem baseada no banco de dados
@@ -57,7 +57,6 @@ export function ConsumoAgua() {
   const [userId, setUserId] = useState<string>('');
   const [logs, setLogs] = useState<Record<string, WaterLog>>({}); 
   const [allMonthLogs, setAllMonthLogs] = useState<WaterLog[]>([]); 
-  const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -88,7 +87,6 @@ export function ConsumoAgua() {
   }, [selectedSchoolId, currentDate]);
 
   async function fetchInitialData() {
-    setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
@@ -105,8 +103,6 @@ export function ConsumoAgua() {
       setSchools(schoolsData || []);
     } catch (error) {
       console.error('Erro ao carregar dados iniciais:', error);
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -188,7 +184,7 @@ export function ConsumoAgua() {
       .sort((a, b) => a.school_name.localeCompare(b.school_name));
   }, [allMonthLogs, schools]);
 
-  // --- Exportação PDF (Novo Motor de Redimensionamento) ---
+  // --- Exportação PDF ---
   const handleExportPDF = async () => {
     setExporting(true);
     try {
@@ -205,7 +201,6 @@ export function ConsumoAgua() {
 
       await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
 
-      // Selecionamos o template de impressão que é estruturado apenas com tabelas
       const element = document.getElementById('pdf-print-template');
       if (!element) throw new Error("Template de impressão não encontrado.");
 
@@ -222,17 +217,14 @@ export function ConsumoAgua() {
           useCORS: true, 
           logging: false,
           letterRendering: true,
-          width: 1120 // Largura exata para o layout de tabela em A4 Paisagem
+          width: 1120 
         },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
         pagebreak: { mode: ['css', 'legacy'] }
       };
 
-      // Tornamos o template visível temporariamente apenas para o html2pdf
       element.style.display = 'block';
-      
       await (window as any).html2pdf().set(opt).from(element).save();
-
       element.style.display = 'none';
       setExporting(false);
 
@@ -397,10 +389,6 @@ export function ConsumoAgua() {
   return (
     <div className="space-y-6 pb-20">
       
-      {/* -------------------------------------------------------------------------------- */}
-      {/* 1. LAYOUT INTERATIVO (O que o usuário vê na tela) */}
-      {/* -------------------------------------------------------------------------------- */}
-      
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 print:hidden">
         <div>
           <div className="flex items-center gap-3">
@@ -449,7 +437,7 @@ export function ConsumoAgua() {
         </div>
       </div>
 
-      {/* Cards de Indicadores (Visíveis na Tela) */}
+      {/* Cards de Indicadores */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 print:hidden">
           <div className={`p-6 rounded-[2.5rem] border-2 transition-all flex items-center gap-4 shadow-xl ${isTotalExceeded ? 'bg-red-50 border-red-200 text-red-700' : 'bg-white border-slate-100'}`}>
               <div className={`p-4 rounded-2xl ${isTotalExceeded ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'}`}><Waves size={20} /></div>
@@ -469,7 +457,6 @@ export function ConsumoAgua() {
           </div>
       </div>
 
-      {/* Gráfico Interativo (Visível apenas na tela) */}
       <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-2xl print:hidden">
           <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight flex items-center gap-2 mb-8">
               <Activity className="text-blue-600" size={20} /> Evolução Mensal de Consumo
@@ -489,7 +476,6 @@ export function ConsumoAgua() {
           </div>
       </div>
 
-      {/* Cartões de Justificativa (Visíveis na tela quando Global) */}
       {(!selectedSchoolId || userRole === 'regional_admin') && justificationsList.length > 0 && (
           <div className="space-y-6 print:hidden">
               <div className="flex items-center gap-3 px-6"><ListFilter className="text-blue-600" /><h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Ocorrências da Rede</h2></div>
@@ -517,7 +503,6 @@ export function ConsumoAgua() {
           </div>
       )}
 
-      {/* Calendário Interativo (Visível na tela quando Escola Selecionada) */}
       {selectedSchoolId && (
           <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-2xl print:hidden">
               <div className="flex items-center justify-between mb-10">
@@ -535,15 +520,11 @@ export function ConsumoAgua() {
           </div>
       )}
 
-      {/* -------------------------------------------------------------------------------- */}
-      {/* 2. TEMPLATE DE IMPRESSÃO (Oculto na tela, visível apenas no PDF) */}
-      {/* -------------------------------------------------------------------------------- */}
-      
+      {/* TEMPLATE DE IMPRESSÃO */}
       <div id="pdf-print-template" style={{ display: 'none', background: 'white', width: '1080px' }}>
-        
-        {/* Cabeçalho Técnico A4 */}
         <div style={{ borderBottom: '4px solid #2563eb', paddingBottom: '20px', marginBottom: '30px' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <tbody>
                 <tr>
                     <td style={{ border: 'none' }}>
                         <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 900, color: '#0f172a' }}>RELATÓRIO DE MONITORAMENTO HÍDRICO</h1>
@@ -554,17 +535,17 @@ export function ConsumoAgua() {
                         <p style={{ margin: '5px 0 0', fontWeight: 900, fontSize: '14px', color: '#1e293b' }}>{monthName.toUpperCase()} / {currentDate.getFullYear()}</p>
                     </td>
                 </tr>
+                </tbody>
             </table>
         </div>
 
-        {/* Resumo da Unidade */}
         <div style={{ background: '#f8fafc', padding: '15px', borderRadius: '15px', border: '1px solid #e2e8f0', marginBottom: '30px' }}>
             <span style={{ fontSize: '10px', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase' }}>Unidade Analisada:</span>
             <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#1e293b' }}>{selectedSchoolId ? schools.find(s => s.id === selectedSchoolId)?.name : 'REDE REGIONAL GLOBAL (TODAS AS UNIDADES)'}</h2>
         </div>
 
-        {/* Cards Técnicos em Tabela (Para garantir alinhamento no PDF) */}
         <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '10px', marginBottom: '30px' }}>
+            <tbody>
             <tr>
                 <td style={{ width: '25%', background: isTotalExceeded ? '#fef2f2' : '#eff6ff', padding: '20px', borderRadius: '20px', border: isTotalExceeded ? '2px solid #ef4444' : '1px solid #bfdbfe' }}>
                     <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#64748b' }}>CONSUMO TOTAL</p>
@@ -583,9 +564,9 @@ export function ConsumoAgua() {
                     <h3 style={{ margin: '5px 0 0', fontSize: '20px', fontWeight: 900, color: '#92400e' }}>{stats.exceededDays} ocorrências</h3>
                 </td>
             </tr>
+            </tbody>
         </table>
 
-        {/* TABELA DE OCORRÊNCIAS (Apenas no PDF) */}
         {justificationsList.length > 0 && (
             <div>
                 <h3 style={{ fontSize: '14px', fontWeight: 900, color: '#1e293b', marginBottom: '15px', textTransform: 'uppercase' }}>Detalhamento de Justificativas e Ações Corretivas</h3>
@@ -619,7 +600,6 @@ export function ConsumoAgua() {
         </div>
       </div>
 
-      {/* Modal de Registro (Apenas Interativo) */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 print:hidden">
           <div className="bg-white rounded-[3rem] w-full max-w-3xl shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden border border-white">
@@ -694,4 +674,3 @@ export function ConsumoAgua() {
     </div>
   );
 }
-
