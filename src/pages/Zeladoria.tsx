@@ -1,966 +1,675 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import { Sidebar } from '../components/Sidebar';
-import { Header } from '../components/Header';
 import { 
-  School, 
-  Search, 
-  Download, 
-  Filter,
-  CheckCircle,
-  AlertCircle,
-  Clock,
-  Loader2,
-  Edit,
-  X,
-  Save,
-  History,
-  FileText,
-  Plus, 
-  Trash2, 
-  Flag 
+  Plus, Search, Edit, Trash2, FileText, 
+  AlertTriangle, CheckCircle, Calendar, 
+  X, Save, Filter, Building2, User, 
+  Mail, ShieldAlert, MoreVertical, Loader2,
+  History, DollarSign, Info, ChevronRight,
+  Clock, ArrowRight, UserCircle, FileDown,
+  BarChart3, PieChart as PieIcon, LayoutDashboard,
+  CheckSquare, UserPlus, ShieldCheck
 } from 'lucide-react';
-// Importação segura do Recharts
 import { 
-  PieChart, 
-  Pie, 
-  Cell, 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  Legend, 
-  ResponsiveContainer 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, 
+  ResponsiveContainer, Cell, PieChart, Pie, Legend
 } from 'recharts';
 
-// Bibliotecas para PDF
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import html2canvas from 'html2canvas';
-
-// --- CONFIGURAÇÃO DE CORES ---
-const COLORS = {
-  primary: '#1e3a8a',
-  secondary: '#3b82f6',
-  success: '#10b981',
-  warning: '#f59e0b',
-  danger: '#ef4444',
-  neutral: '#6b7280',
-  background: '#f3f4f6'
-};
-
-// Mapeamento de cores baseado nos valores da coluna 'ocupada' do CSV
-const STATUS_COLORS: Record<string, string> = {
-  "CIÊNCIA VALOR": "#10b981", // Verde
-  "CASA CIVIL": "#f59e0b",    // Laranja
-  "PGE": "#ef4444",           // Vermelho
-  "CECIG-PGE": "#eab308",     // Amarelo
-  "NÃO POSSUI": "#9ca3af",    // Cinza
-  "NÃO HABITÁVEL": "#6b7280", // Cinza Escuro
-  "SIM": "#10b981",           // Verde
-  "NÃO": "#9ca3af",           // Cinza
-  "CONCLUIDO": "#059669"      // Verde Escuro
-};
-
-// Fases do Processo (Ordem Lógica)
-const FASES_PROCESSO = [
+// Definição das 8 etapas do processo
+const ETAPAS_PROCESSO = [
   "SEI",
-  "RELATÓRIO FOTOGRAFICO",
+  "RELATÓRIO FOTOGRÁFICO",
   "ANÁLISE",
-  "CECIG PGE",
+  "CECIG-PGE",
   "CIÊNCIA VALOR",
   "CASA CIVIL",
   "ASSINATURA DO TERMO",
-  "CONCLUIDO"
+  "CONCLUÍDO"
 ];
 
-// --- INTERFACES ---
-interface UserProfile {
-  role: string;
-  school_id: string | null;
-}
-
-interface TimelineRecord {
-  id: string;
-  previous_status: string;
-  new_status: string;
-  changed_at: string;
-  notes?: string;
-}
-
-interface ZeladoriaRecord {
-  id: number | string;
-  ue: number | string;   
-  nome: string;          
-  sei_numero: string;    
-  ocupada: string;       
-  zelador: string;       
-  rg: string;            
+interface Zeladoria {
+  id: string | number;
+  ue: string | number;
+  nome: string;
+  sei_numero: string;
+  ocupada: string; 
+  zelador: string;
+  rg: string;
   cargo: string;
   autorizacao: string;
   ate: string;
-  validade: string;      
+  validade: string;
   perto_de_vencer: string;
   obs_sefisc: string;
   apelido_zelador: string;
   emails: string;
-  dare: string;          
-  created_at: string;
+  dare: string;
+  valor_imovel: number | null;
+  imovel_1_porcento: number | null;
+  salario_10_porcento: number | null;
   school_id: string | null;
-  schools?: {
-    name: string;
-  };
-  [key: string]: any; 
 }
 
-// Interface para a lista de escolas (para o dropdown)
-interface SchoolOption {
+interface TimelineEntry {
+  id: string;
+  zeladoria_id: string | number;
+  previous_status: string;
+  new_status: string;
+  changed_at: string;
+  changed_by: string;
+  notes: string;
+}
+
+interface School {
   id: string;
   name: string;
 }
 
-// --- COMPONENTES VISUAIS ---
-
-const StatCard = ({ title, value, subtext, icon: Icon, trendUp, colorClass }: any) => (
-  <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-start justify-between">
-    <div>
-      <p className="text-sm font-semibold text-gray-500 uppercase tracking-wider">{title}</p>
-      <h3 className="text-3xl font-bold text-gray-800 mt-2">{value}</h3>
-      <p className="text-xs text-gray-400 mt-1">{subtext}</p>
-    </div>
-    <div className={`p-3 rounded-lg ${colorClass ? colorClass : (trendUp ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600')}`}>
-      <Icon size={24} />
-    </div>
-  </div>
-);
-
-const StatusBadge = ({ status }: { status: string }) => {
-  const s = status ? String(status).toUpperCase().trim() : "N/A";
-  
-  let colorClass = "bg-gray-100 text-gray-800";
-  
-  if (s.includes("CIÊNCIA") || s === "ISENTO" || s === "SIM" || s === "CONCLUIDO") colorClass = "bg-green-100 text-green-800 border border-green-200";
-  else if (s.includes("CASA CIVIL") || s.includes("CECIG") || s.includes("ANÁLISE")) colorClass = "bg-yellow-100 text-yellow-800 border border-yellow-200";
-  else if (s.includes("PGE") || s.includes("NÃO INSENTO") || s.includes("NÃO ISENTO")) colorClass = "bg-red-100 text-red-800 border border-red-200";
-  else if (s.includes("NÃO POSSUI") || s === "VAGO" || s.includes("NÃO HABITÁVEL")) colorClass = "bg-gray-100 text-gray-500 border border-gray-200";
-
-  return (
-    <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${colorClass}`}>
-      {status || "N/A"}
-    </span>
-  );
-};
-
-// --- COMPONENTE PRINCIPAL ---
-
+// Alterado de 'export default function App' para 'export function Zeladoria' para corrigir o erro ts(2614)
 export function Zeladoria() {
-  const [dados, setDados] = useState<ZeladoriaRecord[]>([]);
+  const [data, setData] = useState<Zeladoria[]>([]);
+  const [schools, setSchools] = useState<School[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string>('');
+  const [userSchoolId, setUserSchoolId] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string>('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [exporting, setExporting] = useState(false);
+  const [currentDate] = useState(new Date());
   
-  const [userRole, setUserRole] = useState<string>("");
-  const [userName, setUserName] = useState<string>("Usuário");
-  const [userId, setUserId] = useState<string>("");
+  // Modais
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<Zeladoria | null>(null);
+  const [historyData, setHistoryData] = useState<TimelineEntry[]>([]);
+  const [saveLoading, setSaveLoading] = useState(false);
 
-  // Estado para Edição/Criação
-  const [selectedZeladoria, setSelectedZeladoria] = useState<ZeladoriaRecord | null>(null);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [timeline, setTimeline] = useState<TimelineRecord[]>([]);
-  const [loadingTimeline, setLoadingTimeline] = useState(false);
-  
-  // Lista de Escolas para vinculação (apenas Admin)
-  const [schoolList, setSchoolList] = useState<SchoolOption[]>([]);
-
-  // Form States
-  const [editStatus, setEditStatus] = useState("");
-  const [editZelador, setEditZelador] = useState("");
-  const [editProcesso, setEditProcesso] = useState("");
-  const [editObs, setEditObs] = useState("");
-  const [editSchoolId, setEditSchoolId] = useState(""); // Novo estado para vincular escola
-
-  // Refs para PDF
-  const kpiRef = useRef<HTMLDivElement>(null);
-  const chartsRef = useRef<HTMLDivElement>(null);
+  // Formulário
+  const [formData, setFormData] = useState<Partial<Zeladoria>>({
+    ocupada: ETAPAS_PROCESSO[0],
+    perto_de_vencer: 'OK',
+    valor_imovel: 0
+  });
 
   useEffect(() => {
-    fetchZeladorias();
+    fetchInitialData();
   }, []);
 
-  async function fetchZeladorias() {
+  async function fetchInitialData() {
+    setLoading(true);
     try {
-      setLoading(true);
-      setError(null);
-      
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      
-      if (authError || !user) {
-        setError("Usuário não autenticado.");
-        setLoading(false);
-        return;
+      const { data: { user } } = await supabase.auth.getUser();
+      let currentRole = '';
+      let currentSchoolId = null;
+
+      if (user) {
+        setUserId(user.id);
+        const { data: profile } = await (supabase as any).from('profiles').select('role, school_id').eq('id', user.id).single();
+        currentRole = profile?.role || '';
+        currentSchoolId = profile?.school_id || null;
+        setUserRole(currentRole);
+        setUserSchoolId(currentSchoolId);
       }
 
-      setUserId(user.id);
-      const name = user.user_metadata?.full_name || user.email?.split('@')[0] || "Usuário";
-      setUserName(name);
+      const { data: zeladorias } = await (supabase as any).from('zeladorias').select('*').order('nome');
+      const { data: schoolsData } = await (supabase as any).from('schools').select('id, name').order('name');
 
-      const { data: profileData } = await supabase
-        .from('profiles') 
-        .select('role, school_id') 
-        .eq('id', user.id)
-        .single();
-
-      const profile = profileData as UserProfile | null;
-      const role = profile?.role || 'school_manager';
-      setUserRole(role);
-
-      let query = supabase
-        .from('zeladorias')
-        .select(`*, schools:school_id (name)`)
-        .order('id', { ascending: true });
-
-      if (role === 'school_manager') {
-          if (profile?.school_id) {
-            query = query.eq('school_id', profile.school_id);
-          } else {
-            setDados([]);
-            setLoading(false);
-            return;
-          }
-      } else if (role === 'regional_admin') {
-        // Se for admin, carregamos também a lista de todas as escolas para o dropdown de edição
-        fetchSchoolsList();
+      let filteredZeladorias = zeladorias || [];
+      if (currentRole === 'school_manager' && currentSchoolId) {
+        filteredZeladorias = filteredZeladorias.filter((z: Zeladoria) => z.school_id === currentSchoolId);
       }
 
-      const { data, error: dataError } = await query;
-
-      if (dataError) throw dataError;
-      
-      const rawData = (data || []) as ZeladoriaRecord[];
-      const dadosMapeados = rawData.map(item => ({
-        ...item,
-        displayName: item.schools?.name || item.nome || `Unidade ${item.ue}`
-      }));
-
-      setDados(dadosMapeados);
-      
-    } catch (err: any) {
-      console.error('Erro ao buscar dados:', err);
-      setError(err.message || "Erro desconhecido.");
+      setData(filteredZeladorias);
+      setSchools(schoolsData || []);
+    } catch (error) {
+      console.error('Erro ao carregar dados:', error);
     } finally {
       setLoading(false);
     }
   }
 
-  // Função auxiliar para carregar lista de escolas (apenas para Admin)
-  async function fetchSchoolsList() {
-    try {
-      const { data } = await (supabase.from('schools') as any)
-        .select('id, name')
-        .order('name');
-      if (data) {
-        setSchoolList(data);
-      }
-    } catch (e) {
-      console.error("Erro ao buscar lista de escolas", e);
-    }
-  }
+  // --- FILTRO DE UNIDADES ATIVAS ---
+  const activeData = useMemo(() => {
+    return data.filter(z => 
+      z.ocupada !== "NÃO POSSUI" && 
+      z.ocupada !== "NÃO HABITÁVEL" &&
+      z.ocupada !== "NÃO HABITAVEL"
+    );
+  }, [data]);
 
-  // Buscar histórico quando abrir modal
-  const fetchTimeline = async (zeladoriaId: string | number) => {
-    setLoadingTimeline(true);
-    try {
-      const { data, error } = await (supabase
-        .from('zeladoria_timeline') as any)
-        .select('*')
-        .eq('zeladoria_id', zeladoriaId)
-        .order('changed_at', { ascending: false });
-      
-      if (!error && data) {
-        setTimeline(data);
-      } else {
-        setTimeline([]);
-      }
-    } catch (e) {
-      console.error("Erro ao buscar timeline", e);
-    } finally {
-      setLoadingTimeline(false);
-    }
-  };
+  // --- CÁLCULOS DE INDICADORES ---
+  const stats = useMemo(() => {
+    const concluidos = activeData.filter(z => z.ocupada === "CONCLUÍDO").length;
+    const vagas = activeData.filter(z => 
+      z.zelador?.toUpperCase().includes('DISPONIVEL') ||
+      z.zelador?.toUpperCase().includes('DISPONÍVEL') ||
+      !z.zelador || z.zelador.trim() === ""
+    ).length;
 
-  const handleEditClick = (item: ZeladoriaRecord) => {
-    setSelectedZeladoria(item);
-    setEditStatus(item.ocupada || "");
-    setEditZelador(item.zelador || "");
-    setEditProcesso(item.sei_numero || "");
-    setEditObs(item.obs_sefisc || "");
-    setEditSchoolId(item.school_id || ""); // Carrega a escola atual
-    
-    fetchTimeline(item.id);
-    setIsEditModalOpen(true);
-  };
-
-  // Função para preparar modal para novo cadastro
-  const handleNewProcesso = () => {
-    // Objeto vazio temporário para o formulário
-    const newRecord: Partial<ZeladoriaRecord> = {
-      id: 'new', // Flag para identificar que é novo
-      ocupada: 'SEI', // Status inicial padrão
-      zelador: '',
-      sei_numero: '',
-      obs_sefisc: '',
-      school_id: '',
-      displayName: 'Novo Processo'
+    return {
+      totalValidas: activeData.length,
+      concluidos,
+      vagas
     };
-    
-    setSelectedZeladoria(newRecord as ZeladoriaRecord);
-    setEditStatus("SEI");
-    setEditZelador("");
-    setEditProcesso("");
-    setEditObs("");
-    setEditSchoolId(""); // Importante: Admin deve selecionar a escola
-    setTimeline([]); // Sem histórico para novos
-    setIsEditModalOpen(true);
-  };
+  }, [activeData]);
 
-  const handleDeleteProcesso = async () => {
-    if (!selectedZeladoria || selectedZeladoria.id === 'new') return;
+  // --- DADOS PARA GRÁFICOS ---
+  const statusChartData = useMemo(() => {
+    return ETAPAS_PROCESSO.map(etapa => ({
+      name: etapa,
+      quantidade: activeData.filter(z => z.ocupada === etapa).length
+    }));
+  }, [activeData]);
 
-    if (!window.confirm("Tem a certeza que deseja eliminar este processo de zeladoria? Esta ação não pode ser desfeita.")) {
-      return;
-    }
+  const dareChartData = useMemo(() => {
+    const isentos = activeData.filter(z => z.dare?.toLowerCase().includes('isento')).length;
+    const pagantes = activeData.filter(z => z.dare && !z.dare.toLowerCase().includes('isento')).length;
+    return [
+      { name: 'Isentas', value: isentos, color: '#10b981' },
+      { name: 'Não Isentas', value: pagantes, color: '#3b82f6' }
+    ];
+  }, [activeData]);
 
-    try {
-      setLoading(true);
-
-      const { error: deleteError } = await (supabase
-        .from('zeladorias') as any)
-        .delete()
-        .eq('id', selectedZeladoria.id);
-
-      if (deleteError) throw deleteError;
-
-      // Remove da lista local
-      setDados(prev => prev.filter(item => item.id !== selectedZeladoria.id));
-      
-      setIsEditModalOpen(false);
-      alert("Processo eliminado com sucesso!");
-
-    } catch (err: any) {
-      alert("Erro ao eliminar: " + err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSaveZeladoria = async () => {
-    if (!selectedZeladoria) return;
-
-    try {
-      setLoading(true);
-
-      const payload: any = {
-        ocupada: editStatus,
-        zelador: editZelador,
-        sei_numero: editProcesso,
-        obs_sefisc: editObs,
-      };
-
-      // Se for admin e selecionou uma escola, atualiza o vínculo
-      if (userRole === 'regional_admin' && editSchoolId) {
-        payload.school_id = editSchoolId;
-      }
-
-      // Verificação para novo cadastro
-      const isNew = selectedZeladoria.id === 'new';
-
-      if (isNew) {
-        // --- CREATE (INSERT) ---
-        if (!editSchoolId) {
-          throw new Error("Selecione uma escola para vincular o novo processo.");
-        }
-
-        // Busca dados da escola para preencher colunas legadas como 'nome' e 'ue' se necessário
-        const schoolInfo = schoolList.find(s => s.id === editSchoolId);
-        
-        const insertPayload = {
-          ...payload,
-          nome: schoolInfo?.name || "Nova Zeladoria", // Fallback para coluna legada
-          // ue: ... se tiver lógica de número de UE, adicione aqui
-        };
-
-        const { data: insertedData, error: insertError } = await (supabase
-          .from('zeladorias') as any)
-          .insert([insertPayload])
-          .select()
-          .single();
-
-        if (insertError) throw insertError;
-
-        // Atualiza lista local adicionando o novo item
-        const newItem = {
-          ...insertedData,
-          displayName: schoolInfo?.name || insertedData.nome
-        };
-        setDados(prev => [newItem, ...prev]);
-        
-        // Adiciona log inicial na timeline
-        await (supabase.from('zeladoria_timeline') as any).insert({
-          zeladoria_id: insertedData.id,
-          previous_status: 'INICIO',
-          new_status: editStatus,
-          changed_by: userId,
-          notes: 'Processo iniciado manualmente pelo administrador'
-        });
-
-      } else {
-        // --- UPDATE ---
-        const { error: updateError } = await (supabase
-          .from('zeladorias') as any)
-          .update(payload) 
-          .eq('id', selectedZeladoria.id);
-
-        if (updateError) throw updateError;
-
-        // Registrar na Timeline se o status mudou
-        if (editStatus !== selectedZeladoria.ocupada) {
-          await (supabase.from('zeladoria_timeline') as any).insert({
-            zeladoria_id: selectedZeladoria.id,
-            previous_status: selectedZeladoria.ocupada,
-            new_status: editStatus,
-            changed_by: userId,
-            notes: `Status alterado de ${selectedZeladoria.ocupada} para ${editStatus}`
-          });
-        }
-
-        // Atualizar estado local
-        const newSchoolName = schoolList.find(s => s.id === editSchoolId)?.name;
-        setDados(prev => prev.map(item => 
-          item.id === selectedZeladoria.id 
-            ? { 
-                ...item, 
-                ...payload,
-                displayName: newSchoolName || item.displayName // Atualiza nome se mudou escola
-              }
-            : item
-        ));
-      }
-
-      setIsEditModalOpen(false);
-      alert(isNew ? "Processo criado com sucesso!" : "Atualizado com sucesso!");
-
-    } catch (err: any) {
-      alert("Erro ao salvar: " + err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // --- EXPORTAR PDF (Seguindo a lógica da página de Consumo de Água) ---
   const handleExportPDF = async () => {
     setExporting(true);
-    const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 14;
-
     try {
-      doc.setFontSize(12);
-      doc.text("Unidade Regional de Ensino Guarulhos Sul", pageWidth / 2, 20, { align: "center" });
-      doc.setFontSize(14);
-      doc.text("Relatório de Zeladoria", pageWidth / 2, 35, { align: "center" });
+      const loadScript = (src: string) => {
+        return new Promise((resolve, reject) => {
+          if (document.querySelector(`script[src="${src}"]`)) return resolve(true);
+          const script = document.createElement('script');
+          script.src = src;
+          script.onload = resolve;
+          script.onerror = reject;
+          document.head.appendChild(script);
+        });
+      };
 
-      let currentY = 45;
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
 
-      if (kpiRef.current) {
-        const kpiCanvas = await html2canvas(kpiRef.current, { scale: 2 });
-        const kpiImg = kpiCanvas.toDataURL('image/png');
-        const kpiProps = doc.getImageProperties(kpiImg);
-        const kpiHeight = (kpiProps.height * (pageWidth - margin * 2)) / kpiProps.width;
-        doc.addImage(kpiImg, 'PNG', margin, currentY, pageWidth - margin * 2, kpiHeight);
-        currentY += kpiHeight + 10;
-      }
+      const element = document.getElementById('zeladoria-report-template');
+      if (!element) throw new Error("Template de relatório não encontrado.");
 
-      if (chartsRef.current) {
-        if (currentY + 60 > pageHeight) { doc.addPage(); currentY = 20; }
-        const chartsCanvas = await html2canvas(chartsRef.current, { scale: 2 });
-        const chartsImg = chartsCanvas.toDataURL('image/png');
-        const chartsHeight = (doc.getImageProperties(chartsImg).height * (pageWidth - margin * 2)) / doc.getImageProperties(chartsImg).width;
-        doc.addImage(chartsImg, 'PNG', margin, currentY, pageWidth - margin * 2, chartsHeight);
-        currentY += chartsHeight + 10;
-      }
+      // Mostra o template apenas para a captura
+      element.style.display = 'block';
 
-      const tableRows = filteredData.map(item => [
-        item.ue || item.id,
-        (item as any).displayName,
-        item.ocupada,
-        item.zelador || '-',
-        item.sei_numero || '-',
-        item.dare
-      ]);
+      const opt = {
+        margin: [10, 10, 10, 10],
+        filename: `Resumo_Estatistico_Zeladoria_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '_')}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { 
+          scale: 2, 
+          useCORS: true, 
+          letterRendering: true,
+          width: 1120 
+        },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+        pagebreak: { mode: ['css', 'legacy'] }
+      };
 
-      autoTable(doc, {
-        head: [['ID', 'Escola', 'Status', 'Zelador', 'Processo', 'DARE']],
-        body: tableRows,
-        startY: currentY + 5,
-        theme: 'grid',
-        styles: { fontSize: 8 },
-      });
+      // Inicia a geração
+      await (window as any).html2pdf().set(opt).from(element).save();
+      
+      // Esconde novamente após salvar
+      element.style.display = 'none';
+      setExporting(false);
 
-      doc.save(`Relatorio_Zeladoria.pdf`);
     } catch (err) {
       console.error(err);
-      alert("Erro ao gerar PDF.");
-    } finally {
+      alert("Houve um erro ao gerar o PDF. Tente novamente.");
       setExporting(false);
     }
   };
 
-  // --- CÁLCULOS ---
-  const stats = useMemo(() => {
-    const dadosConsiderados = dados.filter(i => {
-      const status = i.ocupada ? String(i.ocupada).toUpperCase().trim() : "";
-      return status !== "NÃO HABITÁVEL" && status !== "NÃO POSSUI";
-    });
-
-    if (!dadosConsiderados || dadosConsiderados.length === 0) {
-      return { total: 0, comZeladoria: 0, semZeladoria: 0, ocupacao: "0", pieData: [], barData: [], vencendo: 0, concluidos: 0 };
+  function handleOpenModal(item: Zeladoria | null = null) {
+    if (item) {
+      setEditingItem(item);
+      setFormData(item);
+    } else {
+      setEditingItem(null);
+      setFormData({ 
+        ocupada: ETAPAS_PROCESSO[0], 
+        perto_de_vencer: 'OK', 
+        valor_imovel: 0,
+        school_id: userRole === 'school_manager' ? userSchoolId : ''
+      });
     }
-
-    const total = dadosConsiderados.length;
-    const comZeladoria = dadosConsiderados.filter(i => {
-      const s = String(i.ocupada).toUpperCase().trim();
-      return !s.includes("VAGO") && s !== "NÃO";
-    }).length;
-    
-    const semZeladoria = total - comZeladoria;
-    const ocupacao = total > 0 ? ((comZeladoria / total) * 100).toFixed(0) : "0";
-    
-    // Novo cálculo: Concluídos
-    const concluidos = dadosConsiderados.filter(i => 
-      String(i.ocupada).toUpperCase().trim() === "CONCLUIDO"
-    ).length;
-
-    const statusCount: Record<string, number> = {};
-    dadosConsiderados.forEach(item => {
-      const s = item.ocupada || "Indefinido";
-      statusCount[s] = (statusCount[s] || 0) + 1;
-    });
-    
-    const pieData = Object.keys(statusCount).map(key => ({
-      name: key,
-      value: statusCount[key]
-    })).sort((a, b) => b.value - a.value);
-
-    const dareCount = { "Isento": 0, "Não Isento": 0 };
-    dadosConsiderados.forEach(item => {
-      const d = item.dare ? String(item.dare).toUpperCase() : "";
-      if ((d.includes("ISENTO") && !d.includes("NÃO")) || d === "SIM") dareCount["Isento"]++;
-      else dareCount["Não Isento"]++;
-    });
-    
-    const barData = [
-      { name: 'Isento', value: dareCount["Isento"] },
-      { name: 'Pendentes', value: dareCount["Não Isento"] }
-    ];
-
-    const hoje = new Date();
-    const trintaDias = new Date();
-    trintaDias.setDate(hoje.getDate() + 30);
-    
-    const vencendo = dadosConsiderados.filter(item => {
-      if (!item.validade) return false;
-      const validade = new Date(item.validade);
-      if (isNaN(validade.getTime())) return false;
-      return validade >= hoje && validade <= trintaDias;
-    }).length;
-
-    return { total, comZeladoria, semZeladoria, ocupacao, pieData, barData, vencendo, concluidos };
-  }, [dados]);
-
-  const filteredData = dados.filter(item => {
-    const term = searchTerm.toLowerCase();
-    const nomeEscola = (item as any).displayName ? (item as any).displayName.toLowerCase() : "";
-    return nomeEscola.includes(term);
-  });
-
-  // ADICIONADO: Tratamento de erro na renderização
-  if (error) {
-    return (
-      <div className="flex min-h-screen bg-gray-50 items-center justify-center">
-        <div className="text-center p-8 bg-white rounded-lg shadow-lg">
-          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-gray-800 mb-2">Ops! Algo deu errado.</h2>
-          <p className="text-gray-600 mb-4">{error}</p>
-          <button 
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            Tentar Novamente
-          </button>
-        </div>
-      </div>
-    );
+    setIsModalOpen(true);
   }
 
-  return (
-    <div className="flex min-h-screen bg-gray-50 font-sans">
-      <Sidebar userRole={userRole} />
-      
-      <div className="flex-1 flex flex-col min-h-screen overflow-hidden">
-        <Header userName={userName} userRole={userRole} />
-        
-        <main className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6 relative">
-          
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                <School className="text-blue-600" />
-                Painel de Zeladorias
-              </h1>
-              <p className="text-gray-500 mt-1">Gestão de Ocupação e Contratos (Base SEFISC)</p>
-            </div>
-            <div className="flex gap-2">
-               <button className="flex items-center px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg shadow-sm hover:bg-gray-50 text-sm font-medium">
-                <Filter size={16} className="mr-2" /> Filtros
-              </button>
-              
-              {/* BOTÃO NOVO PROCESSO (Apenas Admin) */}
-              {userRole === 'regional_admin' && (
-                <button 
-                  onClick={handleNewProcesso}
-                  className="flex items-center px-4 py-2 bg-emerald-600 text-white rounded-lg shadow-md hover:bg-emerald-700 transition-colors text-sm font-medium"
-                >
-                  <Plus size={16} className="mr-2" /> Novo Processo
-                </button>
-              )}
+  async function fetchHistory(zeladoriaId: string | number) {
+    setIsHistoryModalOpen(true);
+    setLoading(true);
+    try {
+      const { data: history } = await (supabase as any)
+        .from('zeladoria_timeline')
+        .select('*')
+        .eq('zeladoria_id', zeladoriaId)
+        .order('changed_at', { ascending: false });
+      setHistoryData(history || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }
 
-              <button 
-                onClick={handleExportPDF}
-                disabled={exporting || loading}
-                className={`flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 transition-colors text-sm font-medium ${exporting ? 'opacity-70 cursor-not-allowed' : ''}`}
-              >
-                {exporting ? <Loader2 size={16} className="mr-2 animate-spin" /> : <Download size={16} className="mr-2" />}
-                {exporting ? 'Gerando...' : 'Exportar PDF'}
-              </button>
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (userRole !== 'regional_admin') return;
+    setSaveLoading(true);
+    try {
+      if (editingItem) {
+        const { error } = await (supabase as any).from('zeladorias').update(formData).eq('id', editingItem.id);
+        if (error) throw error;
+        if (editingItem.ocupada !== formData.ocupada) {
+          await (supabase as any).from('zeladoria_timeline').insert([{
+            zeladoria_id: editingItem.id,
+            previous_status: editingItem.ocupada,
+            new_status: formData.ocupada,
+            changed_by: userId,
+            notes: `Processo avançou para a etapa: ${formData.ocupada}`,
+            changed_at: new Date().toISOString()
+          }]);
+        }
+      } else {
+        const { error } = await (supabase as any).from('zeladorias').insert([formData]);
+        if (error) throw error;
+      }
+      setIsModalOpen(false);
+      fetchInitialData();
+    } catch (error: any) {
+      alert('Erro ao guardar: ' + error.message);
+    } finally {
+      setSaveLoading(false);
+    }
+  }
+
+  async function handleDelete(id: string | number) {
+    if (userRole !== 'regional_admin') return;
+    if (!confirm('Eliminar permanentemente este registo?')) return;
+    try {
+      await (supabase as any).from('zeladoria_timeline').delete().eq('zeladoria_id', id);
+      const { error } = await (supabase as any).from('zeladorias').delete().eq('id', id);
+      if (error) throw error;
+      fetchInitialData();
+    } catch (error) {
+      alert('Erro ao eliminar registo.');
+    }
+  }
+
+  const filteredData = data.filter(item => 
+    item.nome?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    item.zelador?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    item.sei_numero?.includes(searchTerm)
+  );
+
+  const getStepIndex = (etapa: string) => ETAPAS_PROCESSO.indexOf(etapa) + 1;
+
+  return (
+    <div className="space-y-6 pb-20 relative">
+      
+      {/* -------------------------------------------------------------------------------- */}
+      {/* TEMPLATE PARA PDF (Lógica: display: none - APENAS ESTATÍSTICAS) */}
+      {/* -------------------------------------------------------------------------------- */}
+      <div 
+        id="zeladoria-report-template" 
+        style={{ display: 'none', background: 'white', width: '1080px', padding: '40px' }}
+      >
+          <div style={{ borderBottom: '6px solid #2563eb', paddingBottom: '20px', marginBottom: '30px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <tbody>
+                    <tr>
+                        <td style={{ border: 'none' }}>
+                            <h1 style={{ margin: 0, fontSize: '28px', fontWeight: 900, color: '#0f172a' }}>RELATÓRIO ESTATÍSTICO: GESTÃO DE ZELADORIAS</h1>
+                            <p style={{ margin: 0, fontSize: '11px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '2px' }}>CONSOLIDADO REGIONAL DE INDICADORES E OCUPAÇÃO</p>
+                        </td>
+                        <td style={{ border: 'none', textAlign: 'right' }}>
+                            <p style={{ margin: 0, fontWeight: 900, fontSize: '14px', color: '#1e293b' }}>{new Date().toLocaleDateString('pt-BR')}</p>
+                            <p style={{ margin: 0, fontSize: '9px', color: '#94a3b8', fontWeight: 800 }}>SGE-GSU INTELLIGENCE</p>
+                        </td>
+                    </tr>
+                  </tbody>
+              </table>
+          </div>
+
+          <div style={{ marginBottom: '40px' }}>
+            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '10px' }}>
+                <tbody>
+                  <tr>
+                      <td style={{ width: '33.3%', background: '#eff6ff', padding: '25px', borderRadius: '20px', border: '1px solid #bfdbfe', textAlign: 'center' }}>
+                          <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#1e40af', textTransform: 'uppercase' }}>Zeladorias Ativas</p>
+                          <h3 style={{ margin: '8px 0 0', fontSize: '32px', fontWeight: 900, color: '#1e3a8a' }}>{stats.totalValidas}</h3>
+                          <p style={{ margin: '2px 0 0', fontSize: '9px', fontWeight: 700, color: '#60a5fa' }}>Unidades operacionais</p>
+                      </td>
+                      <td style={{ width: '33.3%', background: '#ecfdf5', padding: '25px', borderRadius: '20px', border: '1px solid #a7f3d0', textAlign: 'center' }}>
+                          <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#065f46', textTransform: 'uppercase' }}>Processos Concluídos</p>
+                          <h3 style={{ margin: '8px 0 0', fontSize: '32px', fontWeight: 900, color: '#064e3b' }}>{stats.concluidos}</h3>
+                          <p style={{ margin: '2px 0 0', fontSize: '9px', fontWeight: 700, color: '#34d399' }}>Termos finalizados</p>
+                      </td>
+                      <td style={{ width: '33.3%', background: '#fffbeb', padding: '25px', borderRadius: '20px', border: '1px solid #fde68a', textAlign: 'center' }}>
+                          <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#92400e', textTransform: 'uppercase' }}>Vagas em Aberto</p>
+                          <h3 style={{ margin: '8px 0 0', fontSize: '32px', fontWeight: 900, color: '#78350f' }}>{stats.vagas}</h3>
+                          <p style={{ margin: '2px 0 0', fontSize: '9px', fontWeight: 700, color: '#fbbf24' }}>Unidades sem zelador</p>
+                      </td>
+                </tr>
+                </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: 'table', width: '100%', tableLayout: 'fixed' }}>
+            <div style={{ display: 'table-cell', width: '50%', paddingRight: '20px', verticalAlign: 'top' }}>
+                <h3 style={{ fontSize: '13px', fontWeight: 900, color: '#334155', textTransform: 'uppercase', marginBottom: '15px' }}>Status das Etapas (Resumo Técnico)</h3>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                        <tr style={{ background: '#f1f5f9' }}>
+                            <th style={{ padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', textAlign: 'left' }}>ETAPA DO PROCESSO</th>
+                            <th style={{ padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', textAlign: 'center' }}>QTD.</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {statusChartData.map(row => (
+                            <tr key={row.name}>
+                                <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '9px', fontWeight: 700 }}>{row.name}</td>
+                                <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '9px', textAlign: 'center', fontWeight: 800, color: '#2563eb' }}>{row.quantidade}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            <div style={{ display: 'table-cell', width: '50%', paddingLeft: '20px', verticalAlign: 'top' }}>
+                <h3 style={{ fontSize: '13px', fontWeight: 900, color: '#334155', textTransform: 'uppercase', marginBottom: '15px' }}>Situação Financeira (DARE)</h3>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                        <tr style={{ background: '#f1f5f9' }}>
+                            <th style={{ padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', textAlign: 'left' }}>CLASSIFICAÇÃO</th>
+                            <th style={{ padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', textAlign: 'center' }}>QTD.</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {dareChartData.map(row => (
+                            <tr key={row.name}>
+                                <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '9px', fontWeight: 700 }}>{row.name}</td>
+                                <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '9px', textAlign: 'center', fontWeight: 800, color: row.name === 'Isentas' ? '#10b981' : '#3b82f6' }}>{row.value}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+                <div style={{ marginTop: '30px', padding: '20px', background: '#f8fafc', borderRadius: '15px', border: '1px dashed #cbd5e1' }}>
+                    <p style={{ margin: 0, fontSize: '9px', color: '#64748b', lineHeight: '1.6', fontWeight: 500 }}>
+                        * Nota Técnica: Este resumo estatístico foca exclusivamente em unidades ativas, desconsiderando infraestruturas declaradas inexistentes ou inabitáveis na rede regional.
+                    </p>
+                </div>
             </div>
           </div>
 
-          {loading && !isEditModalOpen ? (
-            <div className="flex items-center justify-center h-64">
-              <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-            </div>
-          ) : (
+          <div style={{ marginTop: '100px', paddingTop: '20px', borderTop: '2px solid #f1f5f9', textAlign: 'center' }}>
+              <p style={{ fontSize: '10px', fontWeight: 900, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '4px' }}>SGE-GSU INTELLIGENCE • RELATÓRIO ESTRATÉGICO PARA CHEFIA</p>
+          </div>
+      </div>
+
+      {/* -------------------------------------------------------------------------------- */}
+      {/* 2. INTERFACE DE TELA (WEB) */}
+      {/* -------------------------------------------------------------------------------- */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-blue-600 rounded-2xl text-white shadow-lg shadow-blue-100"><ShieldCheck size={24}/></div>
+          <div>
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight uppercase">Zeladoria e Ocupação</h1>
+            <p className="text-slate-500 text-sm font-medium">Controle de fluxos e autorizações administrativas.</p>
+          </div>
+        </div>
+        
+        <div className="flex gap-3">
+          {userRole === 'regional_admin' && (
             <>
-              {/* KPIs */}
-              <div ref={kpiRef} className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 bg-gray-50 p-1">
-                <StatCard title="Unidades Habitáveis" value={stats.total} subtext="Escolas c/ Zeladoria" icon={School} />
-                <StatCard title="Ocupação" value={`${stats.ocupacao}%`} subtext={`${stats.comZeladoria} ativas`} icon={CheckCircle} trendUp={true} />
-                <StatCard title="Vagas Disponíveis" value={stats.semZeladoria} subtext="Unidades vagas" icon={AlertCircle} trendUp={false} />
-                <StatCard title="Concluídos" value={stats.concluidos} subtext="Processos Finalizados" icon={Flag} colorClass="bg-emerald-50 text-emerald-600" />
-                <StatCard title="Vencimentos" value={stats.vencendo} subtext="Vencem em 30 dias" icon={Clock} />
-              </div>
-
-              {/* Gráficos */}
-              <div ref={chartsRef} className="grid grid-cols-1 lg:grid-cols-3 gap-6 bg-gray-50 p-1">
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 col-span-1 lg:col-span-2">
-                  <h3 className="text-lg font-bold text-gray-800 mb-4">Status dos Processos (Habitáveis)</h3>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={stats.pieData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                        <XAxis type="number" hide />
-                        <YAxis dataKey="name" type="category" width={120} tick={{fontSize: 10}} interval={0} />
-                        <Tooltip />
-                        <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={20}>
-                          {stats.pieData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={STATUS_COLORS[entry.name] || COLORS.secondary} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                  <h3 className="text-lg font-bold text-gray-800 mb-4">Situação DARE</h3>
-                  <div className="h-64 flex items-center justify-center">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie data={stats.barData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                          <Cell fill={COLORS.success} />
-                          <Cell fill={COLORS.danger} />
-                        </Pie>
-                        <Tooltip />
-                        <Legend verticalAlign="bottom" height={36}/>
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
-
-              {/* Tabela */}
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-center bg-gray-50 gap-4">
-                  <h3 className="font-bold text-gray-800">Listagem Detalhada</h3>
-                  <div className="relative w-full sm:w-64">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
-                    <input 
-                      type="text" 
-                      placeholder="Procurar escola..." 
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-                
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-gray-50 text-xs font-semibold tracking-wide text-gray-500 uppercase border-b border-gray-200">
-                        <th className="px-6 py-4">ID / Escola</th>
-                        <th className="px-6 py-4">Status</th>
-                        <th className="px-6 py-4">Zelador (Ocupante)</th>
-                        <th className="px-6 py-4">Processo SEI</th>
-                        <th className="px-6 py-4">DARE</th>
-                        <th className="px-6 py-4 text-center">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {filteredData.map((item) => (
-                        <tr key={item.id} className="hover:bg-blue-50/50 transition-colors group">
-                          <td className="px-6 py-4">
-                            <div className="flex items-center">
-                              <div className="w-10 h-8 rounded bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs mr-3 shrink-0">
-                                {item.id ? String(item.id) : '#'}
-                              </div>
-                              <span className="font-medium text-gray-900 line-clamp-2">{(item as any).displayName}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4"><StatusBadge status={item.ocupada} /></td>
-                          <td className="px-6 py-4">
-                            <p className="text-sm font-medium text-gray-800 line-clamp-1">{item.zelador || "-"}</p>
-                            {item.rg && <p className="text-xs text-gray-400 mt-0.5">RG: {item.rg}</p>}
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className="text-sm text-gray-600 font-mono bg-gray-100 px-2 py-0.5 rounded w-fit">{item.sei_numero || "-"}</span>
-                          </td>
-                          <td className="px-6 py-4"><StatusBadge status={item.dare} /></td>
-                          <td className="px-6 py-4 text-center">
-                            {userRole === 'regional_admin' && (
-                              <button 
-                                onClick={() => handleEditClick(item)}
-                                className="text-gray-400 hover:text-blue-600 p-2 rounded-full hover:bg-blue-100 transition-colors"
-                                title="Editar Processo"
-                              >
-                                <Edit size={18} />
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              <button 
+                onClick={handleExportPDF}
+                disabled={exporting}
+                className="bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50"
+              >
+                {exporting ? <Loader2 className="animate-spin" size={18}/> : <FileDown size={18} />}
+                {exporting ? 'GERANDO PDF...' : 'RESUMO P/ CHEFIA (PDF)'}
+              </button>
+              <button 
+                onClick={() => handleOpenModal()}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-100 transition-all active:scale-95"
+              >
+                <Plus size={18} /> Novo Processo
+              </button>
             </>
           )}
+        </div>
+      </div>
 
-          {/* MODAL DE EDIÇÃO E HISTÓRICO */}
-          {isEditModalOpen && selectedZeladoria && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-              <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-                {/* Header Modal */}
-                <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-blue-100 text-blue-600 rounded-lg"><FileText size={20} /></div>
-                    <div>
-                      <h2 className="text-lg font-bold text-gray-800">
-                        {selectedZeladoria.id === 'new' ? 'Novo Processo' : 'Gerenciar Processo'}
-                      </h2>
-                      <p className="text-xs text-gray-500">{(selectedZeladoria as any).displayName}</p>
-                    </div>
-                  </div>
-                  <button onClick={() => setIsEditModalOpen(false)} className="text-gray-400 hover:text-gray-600 p-1 hover:bg-gray-200 rounded-full">
-                    <X size={20} />
-                  </button>
-                </div>
+      {/* CARDS DE INDICADORES */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-xl shadow-slate-200/50 flex items-center gap-4 transition-all hover:scale-[1.02]">
+          <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl"><Building2 size={24} /></div>
+          <div>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Zeladorias Ativas</p>
+            <h3 className="text-2xl font-black text-slate-800">{stats.totalValidas} <span className="text-xs text-slate-400 font-bold uppercase">Escolas</span></h3>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-xl shadow-slate-200/50 flex items-center gap-4 transition-all hover:scale-[1.02]">
+          <div className="p-4 bg-emerald-50 text-emerald-600 rounded-2xl"><CheckSquare size={24} /></div>
+          <div>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Processos Concluídos</p>
+            <h3 className="text-2xl font-black text-slate-800">{stats.concluidos} <span className="text-xs text-slate-400 font-bold uppercase">Casos</span></h3>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-xl shadow-slate-200/50 flex items-center gap-4 transition-all hover:scale-[1.02]">
+          <div className="p-4 bg-amber-50 text-amber-600 rounded-2xl"><UserPlus size={24} /></div>
+          <div>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Vagas Disponíveis</p>
+            <h3 className="text-2xl font-black text-slate-800">{stats.vagas} <span className="text-xs text-slate-400 font-bold uppercase">Abertas</span></h3>
+          </div>
+        </div>
+      </div>
 
-                <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-                  
-                  {/* Coluna 1: Formulário de Edição */}
-                  <div className="md:col-span-2 space-y-6">
-                    {/* Linha do Tempo Visual (Fases) */}
-                    <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
-                      <h4 className="text-sm font-bold text-blue-900 mb-4 flex items-center gap-2">
-                        <CheckCircle size={16} /> Fases do Processo
-                      </h4>
-                      <div className="flex flex-wrap gap-2">
-                        {FASES_PROCESSO.map((fase, idx) => {
-                          const isCompleted = FASES_PROCESSO.indexOf(editStatus) >= idx || editStatus === "CONCLUIDO";
-                          const isCurrent = editStatus === fase;
-                          
-                          return (
-                            <div key={idx} className={`flex items-center ${idx < FASES_PROCESSO.length - 1 ? 'flex-1' : ''}`}>
-                              <div 
-                                className={`flex items-center px-3 py-1.5 rounded-full text-xs font-medium border transition-all cursor-pointer
-                                  ${isCurrent ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-200' : 
-                                    isCompleted ? 'bg-green-100 text-green-700 border-green-200' : 
-                                    'bg-white text-gray-400 border-gray-200 hover:border-blue-300'
-                                  }`}
-                                onClick={() => setEditStatus(fase)}
-                              >
-                                {idx + 1}. {fase}
-                              </div>
-                              {idx < FASES_PROCESSO.length - 1 && (
-                                <div className={`h-0.5 flex-1 mx-1 ${isCompleted ? 'bg-green-200' : 'bg-gray-200'}`}></div>
-                              )}
-                            </div>
-                          )
-                        })}
+      {/* GRÁFICOS ANALÍTICOS */}
+      {userRole === 'regional_admin' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl shadow-slate-200/40">
+            <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight mb-8 flex items-center gap-2">
+              <BarChart3 size={18} className="text-blue-600" /> Distribuição por Etapas do Fluxo
+            </h3>
+            <div className="h-[250px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={statusChartData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} hide />
+                  <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}} />
+                  <RechartsTooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px rgba(0,0,0,0.1)'}} />
+                  <Bar dataKey="quantidade" radius={[6, 6, 0, 0]}>
+                    {statusChartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={index === 7 ? '#10b981' : '#3b82f6'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl shadow-slate-200/40">
+            <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight mb-8 flex items-center gap-2">
+              <PieIcon size={18} className="text-emerald-600" /> Relação de Pagamentos DARE
+            </h3>
+            <div className="h-[250px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={dareChartData}
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {dareChartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <RechartsTooltip />
+                  <Legend iconType="circle" wrapperStyle={{fontSize: '11px', fontWeight: 700, paddingTop: '20px'}} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BUSCA E TABELA */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+        <div className="relative w-full max-w-2xl">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input 
+            type="text" 
+            placeholder="Filtrar por escola, zelador ou processo..." 
+            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium transition-all"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 border-b border-slate-100">
+              <tr>
+                <th className="px-6 py-4 font-bold text-slate-500 uppercase text-[10px] tracking-wider">Unidade / SEI</th>
+                <th className="px-6 py-4 font-bold text-slate-500 uppercase text-[10px] tracking-wider">Status do Fluxo</th>
+                <th className="px-6 py-4 font-bold text-slate-500 uppercase text-[10px] tracking-wider">Responsável</th>
+                <th className="px-6 py-4 font-bold text-slate-500 uppercase text-[10px] tracking-wider text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+              {loading && data.length === 0 ? (
+                <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-400 font-bold uppercase tracking-widest"><Loader2 className="animate-spin inline mr-2 text-blue-600"/> Sincronizando dados...</td></tr>
+              ) : filteredData.map((item) => {
+                const step = getStepIndex(item.ocupada);
+                const isConcluido = step === 8;
+                const isDisponivel = item.zelador?.toUpperCase().includes('DISPONIVEL') || item.zelador?.toUpperCase().includes('DISPONÍVEL');
+                return (
+                  <tr key={item.id} className="hover:bg-slate-50/80 transition-colors group">
+                    <td className="px-6 py-4">
+                      <div className="font-bold text-slate-900 truncate max-w-[250px] uppercase text-xs">{item.nome}</div>
+                      <div className="flex items-center gap-1.5 mt-1 font-mono text-[10px] text-slate-400">
+                        <FileText size={12} /> {item.sei_numero || 'N/A'}
                       </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* CAMPO DE SELEÇÃO DE ESCOLA (APENAS ADMIN) */}
-                      {userRole === 'regional_admin' && (
-                        <div className="md:col-span-2">
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">
-                            Escola Vinculada (Vínculo) {selectedZeladoria.id === 'new' && <span className="text-red-500">*</span>}
-                          </label>
-                          <select
-                            value={editSchoolId}
-                            onChange={(e) => setEditSchoolId(e.target.value)}
-                            className="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                          >
-                            <option value="">Selecione uma escola...</option>
-                            {schoolList.map(school => (
-                              <option key={school.id} value={school.id}>
-                                {school.name}
-                              </option>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col gap-1.5">
+                        <span className={`text-[10px] font-black uppercase tracking-tight ${isConcluido ? 'text-emerald-600' : 'text-blue-600'}`}>
+                          {item.ocupada}
+                        </span>
+                        <div className="w-32 h-1 bg-slate-100 rounded-full overflow-hidden flex">
+                            {Array.from({length: 8}).map((_, i) => (
+                              <div key={i} className={`flex-1 h-full border-r border-white last:border-0 ${i < step ? (isConcluido ? 'bg-emerald-500' : 'bg-blue-500') : 'bg-slate-200'}`} />
                             ))}
-                          </select>
-                          <p className="text-xs text-gray-400 mt-1">
-                            {selectedZeladoria.id === 'new' 
-                              ? 'Selecione a escola para este novo processo.' 
-                              : 'Alterar isso vinculará este processo a outra unidade.'}
-                          </p>
                         </div>
-                      )}
-
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">Status Atual</label>
-                        <select 
-                          value={editStatus} 
-                          onChange={(e) => setEditStatus(e.target.value)}
-                          className="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                        >
-                          <option value="">Selecione...</option>
-                          {Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}
-                          {FASES_PROCESSO.map(f => !Object.keys(STATUS_COLORS).includes(f) && <option key={f} value={f}>{f}</option>)}
-                        </select>
                       </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">Processo SEI</label>
-                        <input 
-                          type="text" 
-                          value={editProcesso}
-                          onChange={(e) => setEditProcesso(e.target.value)}
-                          className="w-full p-2 border border-gray-300 rounded-lg text-sm"
-                        />
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className={`font-bold text-xs ${isDisponivel ? 'text-amber-600' : 'text-slate-900'}`}>{item.zelador || 'VAGA DISPONÍVEL'}</div>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => fetchHistory(item.id)} className="p-2 hover:bg-slate-100 text-slate-400 hover:text-blue-600 rounded-lg transition-colors" title="Ver Histórico"><History size={16}/></button>
+                        {userRole === 'regional_admin' && (
+                          <><button onClick={() => handleOpenModal(item)} className="p-2 hover:bg-amber-50 text-slate-400 hover:text-amber-600 rounded-lg transition-colors"><Edit size={16}/></button><button onClick={() => handleDelete(item.id)} className="p-2 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-lg transition-colors"><Trash2 size={16}/></button></>
+                        )}
                       </div>
-                      <div className="md:col-span-2">
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">Nome do Zelador</label>
-                        <input 
-                          type="text" 
-                          value={editZelador}
-                          onChange={(e) => setEditZelador(e.target.value)}
-                          className="w-full p-2 border border-gray-300 rounded-lg text-sm"
-                        />
-                      </div>
-                      <div className="md:col-span-2">
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">Observações (SEFISC)</label>
-                        <textarea 
-                          rows={3}
-                          value={editObs}
-                          onChange={(e) => setEditObs(e.target.value)}
-                          className="w-full p-2 border border-gray-300 rounded-lg text-sm resize-none"
-                          placeholder="Adicione notas sobre o andamento..."
-                        />
-                      </div>
-                    </div>
-                  </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-                  {/* Coluna 2: Histórico (Timeline) */}
-                  <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 flex flex-col h-full">
-                    <h4 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2">
-                      <History size={16} /> Histórico de Alterações
-                    </h4>
-                    
-                    <div className="flex-1 overflow-y-auto space-y-4 pr-1">
-                      {loadingTimeline ? (
-                        <div className="text-center py-4 text-gray-400"><Loader2 size={20} className="animate-spin mx-auto"/></div>
-                      ) : timeline.length === 0 ? (
-                        <p className="text-xs text-gray-400 text-center italic py-4">
-                          {selectedZeladoria.id === 'new' ? 'Novo registro - sem histórico.' : 'Nenhum histórico registrado.'}
-                        </p>
-                      ) : (
-                        timeline.map((log) => (
-                          <div key={log.id} className="relative pl-4 border-l-2 border-gray-200 pb-2 last:pb-0">
-                            <div className="absolute -left-[5px] top-0 w-2.5 h-2.5 bg-gray-400 rounded-full border-2 border-white"></div>
-                            <p className="text-xs text-gray-400 mb-0.5">
-                              {new Date(log.changed_at).toLocaleString('pt-BR')}
-                            </p>
-                            <div className="text-xs text-gray-800">
-                              <span className="font-semibold block">{log.new_status}</span>
-                              {log.notes && <span className="text-gray-500 italic block mt-1">"{log.notes}"</span>}
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Footer Modal */}
-                <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex justify-between gap-3">
-                  {/* BOTÃO EXCLUIR: Apenas Admin e se não for um processo novo */}
-                  {userRole === 'regional_admin' && selectedZeladoria.id !== 'new' ? (
-                    <button 
-                      onClick={handleDeleteProcesso}
-                      className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg font-medium flex items-center gap-2 transition-colors border border-transparent hover:border-red-100"
-                    >
-                      <Trash2 size={16} />
-                      Excluir Processo
-                    </button>
-                  ) : (
-                    <div></div> // Espaçador para manter alinhamento
-                  )}
-
-                  <div className="flex gap-3">
-                    <button 
-                      onClick={() => setIsEditModalOpen(false)}
-                      className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-200 rounded-lg font-medium"
-                    >
-                      Cancelar
-                    </button>
-                    <button 
-                      onClick={handleSaveZeladoria}
-                      disabled={loading}
-                      className="px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-medium flex items-center gap-2 shadow-sm"
-                    >
-                      {loading ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-                      {selectedZeladoria.id === 'new' ? 'Criar Processo' : 'Salvar Alterações'}
-                    </button>
-                  </div>
+      {/* MODAIS (EDIÇÃO E HISTÓRICO) */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-4xl max-h-[95vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden border border-slate-100">
+            <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-white">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-200"><ShieldAlert size={24}/></div>
+                <div><h2 className="text-2xl font-black text-slate-800 tracking-tight uppercase leading-none">{editingItem ? 'Editar Processo' : 'Novo Registro'}</h2><p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Fluxo Administrativo Regional</p></div>
+              </div>
+              <button onClick={() => setIsModalOpen(false)} className="p-3 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={24}/></button>
+            </div>
+            <form onSubmit={handleSave} className="p-8 overflow-y-auto custom-scrollbar space-y-10">
+              <div className="space-y-4">
+                <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><div className="w-1 h-3 bg-blue-500 rounded-full"></div>Evolução do Processo</label>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {ETAPAS_PROCESSO.map((etapa, idx) => {
+                    const active = formData.ocupada === etapa;
+                    const passed = getStepIndex(formData.ocupada || '') > idx;
+                    return (
+                      <button key={etapa} type="button" onClick={() => setFormData({...formData, ocupada: etapa})} className={`group relative p-4 rounded-2xl text-[10px] font-black transition-all border-2 text-left flex flex-col justify-between h-24 ${active ? 'bg-blue-600 border-blue-600 text-white shadow-xl shadow-blue-100 scale-[1.03]' : passed ? 'bg-blue-50 border-blue-100 text-blue-700' : 'bg-white border-slate-100 text-slate-400 hover:border-blue-200'}`}>
+                        <span className={`text-[14px] opacity-40 group-hover:opacity-100 transition-opacity`}>{idx + 1}</span>
+                        <span className="uppercase leading-none">{etapa}</span>
+                        {passed && !active && <CheckCircle size={14} className="absolute top-4 right-4 text-blue-400" />}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div className="md:col-span-2"><label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Escola Associada</label><select required disabled={userRole === 'school_manager'} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-700 focus:border-blue-500 focus:bg-white outline-none disabled:opacity-60 transition-all" value={formData.school_id || ''} onChange={e => setFormData({...formData, school_id: e.target.value})}><option value="">Seleccione a Unidade Escolar...</option>{schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+                <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Ordem Regional</label><input required placeholder="Ex: 01" className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold transition-all focus:border-blue-500 focus:bg-white outline-none" value={formData.ue || ''} onChange={e => setFormData({...formData, ue: e.target.value})} /></div>
+                <div className="md:col-span-2"><label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Nome do Zelador</label><input required className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold transition-all focus:border-blue-500 focus:bg-white outline-none" value={formData.zelador || ''} onChange={e => setFormData({...formData, zelador: e.target.value})} /></div>
+                <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Nº SEI</label><input required className="w-full p-3 bg-blue-50 border-2 border-blue-100 rounded-2xl font-mono text-blue-700 transition-all focus:border-blue-500 focus:bg-white outline-none" value={formData.sei_numero || ''} onChange={e => setFormData({...formData, sei_numero: e.target.value})} /></div>
+                <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Status DARE</label><input placeholder="Ex: ISENTO ou NÚMERO" className="w-full p-3 border-2 border-slate-100 rounded-2xl font-bold" value={formData.dare || ''} onChange={e => setFormData({...formData, dare: e.target.value})} /></div>
+                <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Validade</label><input type="date" className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold transition-all focus:border-blue-500 focus:bg-white outline-none" value={formData.ate || ''} onChange={e => setFormData({...formData, ate: e.target.value})} /></div>
+              </div>
+              <div className="pt-10 flex justify-end gap-4 sticky bottom-0 bg-white border-t border-slate-100 mt-6 pb-2">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-8 py-3 text-slate-500 font-black hover:text-slate-800 transition-all uppercase tracking-widest text-[11px]">Descartar</button>
+                <button type="submit" disabled={saveLoading || userRole === 'school_manager'} className="px-12 py-3.5 bg-blue-600 text-white rounded-2xl font-black shadow-2xl shadow-blue-200 hover:bg-blue-700 flex items-center gap-3 active:scale-95 disabled:opacity-50 transition-all uppercase tracking-widest text-[11px]">{saveLoading ? <Loader2 className="animate-spin" size={18}/> : <><Save size={18}/> Confirmar</>}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL HISTÓRICO */}
+      {isHistoryModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
+          <div className="bg-[#f8fafc] rounded-[3rem] w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden border border-white">
+            <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-white">
+              <div className="flex items-center gap-4"><div className="p-3 bg-blue-50 text-blue-600 rounded-2xl shadow-inner"><History size={24}/></div><div><h2 className="text-xl font-black text-slate-800 tracking-tight uppercase">Histórico</h2><p className="text-[10px] text-blue-500 font-bold uppercase tracking-widest">Auditoria de Transições</p></div></div>
+              <button onClick={() => setIsHistoryModalOpen(false)} className="p-3 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={24}/></button>
             </div>
-          )}
-        </main>
-      </div>
+            <div className="p-8 overflow-y-auto custom-scrollbar flex-1 bg-gradient-to-b from-white to-slate-50/50">
+              {loading ? (
+                 <div className="flex flex-col items-center justify-center py-20 gap-4"><Loader2 className="animate-spin text-blue-600" size={32}/><span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Sincronizando...</span></div>
+              ) : (
+                <div className="relative">
+                  <div className="absolute left-[2.25rem] top-4 bottom-4 w-1 bg-gradient-to-b from-blue-200 via-blue-100 to-transparent rounded-full"></div>
+                  <div className="space-y-12">
+                    {historyData.map((event, idx) => (
+                      <div key={event.id} className="relative pl-16 group">
+                        <div className={`absolute left-[1.75rem] top-1 w-5 h-5 rounded-full border-4 border-white shadow-lg transition-transform group-hover:scale-125 z-10 ${idx === 0 ? 'bg-blue-600 ring-4 ring-blue-100' : 'bg-slate-300'}`}></div>
+                        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
+                          <div className="flex justify-between items-center mb-4 text-slate-400 font-bold text-[10px] uppercase"><div className="flex items-center gap-2"><Calendar size={12}/>{new Date(event.changed_at).toLocaleString()}</div></div>
+                          <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl mb-4 border border-slate-100/50">
+                             <div className="flex-1"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">De</p><span className="text-[11px] font-bold text-slate-500 line-through opacity-60 truncate block">{event.previous_status}</span></div>
+                             <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-blue-500 shadow-sm"><ArrowRight size={16} /></div>
+                             <div className="flex-1"><p className="text-[9px] font-black text-blue-400 uppercase mb-1">Para</p><span className="text-[11px] font-black text-blue-700 truncate block uppercase">{event.new_status}</span></div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

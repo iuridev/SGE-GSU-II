@@ -18,21 +18,20 @@ interface NavItemProps {
 export function Sidebar({ userRole }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const navigate = useNavigate();
-  const location = useLocation(); // Hook para saber em qual página estamos
+  const location = useLocation();
 
   async function handleLogout() {
     await supabase.auth.signOut();
     navigate('/');
   }
 
-  // Função para verificar se o link é o atual
+  // Normaliza a verificação da rota (ignora maiúsculas/minúsculas se necessário)
   const isActive = (path: string) => location.pathname === path;
 
   return (
     <aside 
-      className={`${isCollapsed ? 'w-20' : 'w-64'} bg-slate-900 text-white transition-all duration-300 flex flex-col h-screen shadow-xl z-20 flex-shrink-0`}
+      className={`${isCollapsed ? 'w-20' : 'w-64'} bg-slate-900 text-white transition-all duration-300 flex flex-col h-screen shadow-xl z-20 flex-shrink-0 fixed left-0 top-0`}
     >
-      {/* Topo da Sidebar */}
       <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800">
         {!isCollapsed && <span className="font-bold text-xl tracking-tight text-blue-400">SGE-GSU</span>}
         <button 
@@ -43,8 +42,7 @@ export function Sidebar({ userRole }: SidebarProps) {
         </button>
       </div>
 
-      {/* Menu de Navegação */}
-      <nav className="flex-1 py-6 flex flex-col gap-2 px-3">
+      <nav className="flex-1 py-6 flex flex-col gap-2 px-3 overflow-y-auto">
         
         <NavItem 
           to="/painel-regional" 
@@ -54,12 +52,13 @@ export function Sidebar({ userRole }: SidebarProps) {
           active={isActive('/painel-regional')} 
         />
         
+        {/* CORREÇÃO AQUI: Link agora corresponde exatamente à rota no App.tsx */}
         <NavItem 
-          to="/ConsumoAgua" 
+          to="/consumo-agua" 
           icon={<FileText size={20} />} 
           label="Consumo de Água" 
           collapsed={isCollapsed} 
-          active={isActive('/ConsumoAgua')}
+          active={isActive('/consumo-agua')}
         />
 
         <NavItem 
@@ -78,7 +77,6 @@ export function Sidebar({ userRole }: SidebarProps) {
           active={isActive('/escola')}
         />
 
-        {/* Exibe apenas para Admin Regional (Ajustado para bater com a página Escola) */}
         {userRole === 'regional_admin' && (
           <NavItem 
             to="/usuarios" 
@@ -90,7 +88,6 @@ export function Sidebar({ userRole }: SidebarProps) {
         )}
       </nav>
 
-      {/* Rodapé */}
       <div className="p-4 border-t border-slate-800">
         <button 
           onClick={handleLogout}
@@ -104,7 +101,6 @@ export function Sidebar({ userRole }: SidebarProps) {
   );
 }
 
-// Componente auxiliar de item de menu
 function NavItem({ icon, label, collapsed, to, active = false }: NavItemProps) {
   return (
     <Link 

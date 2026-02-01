@@ -7,6 +7,8 @@
     "module": "ESNext",
     "types": ["vite/client"],
     "skipLibCheck": true,
+    "noUnusedLocals": false,      // Ignora variáveis locais não usadas
+    "noUnusedParameters": false,   // Ignora parâmetros de função não usados
 
     /* Bundler mode */
     "moduleResolution": "bundler",
