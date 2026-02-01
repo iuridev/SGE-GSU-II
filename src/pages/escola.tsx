@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
-  MapPin, Phone, Mail, MoreVertical, 
-  Search, Plus, GraduationCap, Users, 
+  MapPin, Phone, Mail, 
+  Search, Plus, GraduationCap, 
   Trash2, Edit, X, Save, UserCog, ShieldCheck,
   Building2, Zap, Droplets, Info
 } from 'lucide-react';
@@ -90,8 +90,6 @@ export function Escola() {
     }
   }
 
-  // --- Lógica de CRUD de Escolas ---
-
   function handleNewSchool() {
     setEditingSchool(null);
     setFormData({});
@@ -148,7 +146,6 @@ export function Escola() {
 
   return (
     <div className="space-y-6">
-      {/* Cabeçalho */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Unidades Escolares</h1>
@@ -166,7 +163,6 @@ export function Escola() {
         )}
       </div>
 
-      {/* Barra de Busca */}
       <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
@@ -178,7 +174,6 @@ export function Escola() {
         </div>
       </div>
 
-      {/* Grid de Escolas */}
       {loading ? (
         <div className="flex items-center justify-center h-64">
            <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
@@ -188,7 +183,6 @@ export function Escola() {
           {escolas.map((escola) => (
             <div key={escola.id} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all group relative">
               
-              {/* Menu de Ações */}
               <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white/80 backdrop-blur-sm p-1 rounded-lg">
                 <button 
                   onClick={() => handleManageFiscals(escola)}
@@ -269,7 +263,6 @@ export function Escola() {
         </div>
       )}
 
-      {/* --- MODAL DE CADASTRO/EDIÇÃO DE ESCOLA --- */}
       {isSchoolModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-hidden">
           <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-200">
@@ -288,7 +281,6 @@ export function Escola() {
             
             <form onSubmit={saveSchool} className="p-6 overflow-y-auto custom-scrollbar">
               <div className="space-y-6">
-                {/* Dados Principais */}
                 <section>
                   <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
@@ -314,7 +306,6 @@ export function Escola() {
                   </div>
                 </section>
 
-                {/* Localização */}
                 <section>
                    <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
@@ -332,7 +323,6 @@ export function Escola() {
                   </div>
                 </section>
 
-                {/* Dados Técnicos */}
                 <section>
                    <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
@@ -350,7 +340,6 @@ export function Escola() {
                   </div>
                 </section>
 
-                {/* Gestão */}
                 <section>
                    <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
@@ -389,7 +378,6 @@ export function Escola() {
         </div>
       )}
 
-      {/* --- MODAL DE FISCAIS --- */}
       {isFiscalModalOpen && editingSchool && (
         <FiscalManagerModal 
           school={editingSchool} 
@@ -402,7 +390,6 @@ export function Escola() {
   );
 }
 
-// --- SUB-COMPONENTE PARA GERENCIAR FISCAIS ---
 function FiscalManagerModal({ school, userRole, onClose }: { school: School, userRole: string, onClose: () => void }) {
   const [fiscals, setFiscals] = useState<Fiscal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -470,8 +457,6 @@ function FiscalManagerModal({ school, userRole, onClose }: { school: School, use
         </div>
 
         <div className="p-6 overflow-y-auto flex-1 space-y-6 custom-scrollbar">
-          
-          {/* Formulário de Adição - APENAS PARA ADMINISTRADORES */}
           {isAdmin ? (
             <div className="bg-blue-50/50 p-4 rounded-xl space-y-3 border border-blue-100 shadow-sm">
               <h3 className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">Novo Cadastro de Fiscal</h3>
@@ -523,7 +508,6 @@ function FiscalManagerModal({ school, userRole, onClose }: { school: School, use
             </div>
           )}
 
-          {/* Lista de Fiscais */}
           <div className="space-y-3">
             <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-100 pb-2">
                 Fiscais em Exercício ({fiscals.length})

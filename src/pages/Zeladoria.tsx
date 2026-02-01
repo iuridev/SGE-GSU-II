@@ -2,12 +2,11 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
   Plus, Search, Edit, Trash2, FileText, 
-  AlertTriangle, CheckCircle, Calendar, 
-  X, Save, Filter, Building2, User, 
-  Mail, ShieldAlert, MoreVertical, Loader2,
-  History, DollarSign, Info, ChevronRight,
-  Clock, ArrowRight, UserCircle, FileDown,
-  BarChart3, PieChart as PieIcon, LayoutDashboard,
+  CheckCircle, Calendar, 
+  X, Save, Building2, 
+  ShieldAlert, Loader2,
+  History, ArrowRight, FileDown,
+  BarChart3, PieChart as PieIcon,
   CheckSquare, UserPlus, ShieldCheck
 } from 'lucide-react';
 import { 
@@ -65,7 +64,6 @@ interface School {
   name: string;
 }
 
-// Alterado de 'export default function App' para 'export function Zeladoria' para corrigir o erro ts(2614)
 export function Zeladoria() {
   const [data, setData] = useState<Zeladoria[]>([]);
   const [schools, setSchools] = useState<School[]>([]);
@@ -75,7 +73,6 @@ export function Zeladoria() {
   const [userId, setUserId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [exporting, setExporting] = useState(false);
-  const [currentDate] = useState(new Date());
   
   // Modais
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -170,7 +167,7 @@ export function Zeladoria() {
     ];
   }, [activeData]);
 
-  // --- EXPORTAR PDF (Seguindo a lógica da página de Consumo de Água) ---
+  // --- EXPORTAR PDF ---
   const handleExportPDF = async () => {
     setExporting(true);
     try {
@@ -190,7 +187,6 @@ export function Zeladoria() {
       const element = document.getElementById('zeladoria-report-template');
       if (!element) throw new Error("Template de relatório não encontrado.");
 
-      // Mostra o template apenas para a captura
       element.style.display = 'block';
 
       const opt = {
@@ -207,10 +203,7 @@ export function Zeladoria() {
         pagebreak: { mode: ['css', 'legacy'] }
       };
 
-      // Inicia a geração
       await (window as any).html2pdf().set(opt).from(element).save();
-      
-      // Esconde novamente após salvar
       element.style.display = 'none';
       setExporting(false);
 
@@ -309,9 +302,6 @@ export function Zeladoria() {
   return (
     <div className="space-y-6 pb-20 relative">
       
-      {/* -------------------------------------------------------------------------------- */}
-      {/* TEMPLATE PARA PDF (Lógica: display: none - APENAS ESTATÍSTICAS) */}
-      {/* -------------------------------------------------------------------------------- */}
       <div 
         id="zeladoria-report-template" 
         style={{ display: 'none', background: 'white', width: '1080px', padding: '40px' }}
@@ -409,9 +399,6 @@ export function Zeladoria() {
           </div>
       </div>
 
-      {/* -------------------------------------------------------------------------------- */}
-      {/* 2. INTERFACE DE TELA (WEB) */}
-      {/* -------------------------------------------------------------------------------- */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="p-3 bg-blue-600 rounded-2xl text-white shadow-lg shadow-blue-100"><ShieldCheck size={24}/></div>
@@ -483,7 +470,7 @@ export function Zeladoria() {
                   <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}} />
                   <RechartsTooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px rgba(0,0,0,0.1)'}} />
                   <Bar dataKey="quantidade" radius={[6, 6, 0, 0]}>
-                    {statusChartData.map((entry, index) => (
+                    {statusChartData.map((_, index) => (
                       <Cell key={`cell-${index}`} fill={index === 7 ? '#10b981' : '#3b82f6'} />
                     ))}
                   </Bar>
@@ -590,7 +577,7 @@ export function Zeladoria() {
         </div>
       </div>
 
-      {/* MODAIS (EDIÇÃO E HISTÓRICO) */}
+      {/* MODAL DE EDIÇÃO */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-[2.5rem] w-full max-w-4xl max-h-[95vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden border border-slate-100">
@@ -626,7 +613,7 @@ export function Zeladoria() {
                 <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Status DARE</label><input placeholder="Ex: ISENTO ou NÚMERO" className="w-full p-3 border-2 border-slate-100 rounded-2xl font-bold" value={formData.dare || ''} onChange={e => setFormData({...formData, dare: e.target.value})} /></div>
                 <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Validade</label><input type="date" className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold transition-all focus:border-blue-500 focus:bg-white outline-none" value={formData.ate || ''} onChange={e => setFormData({...formData, ate: e.target.value})} /></div>
               </div>
-              <div className="pt-10 flex justify-end gap-4 sticky bottom-0 bg-white border-t border-slate-100 mt-6 pb-2">
+              <div className="pt-10 flex justify-end gap-4 border-t border-slate-100 mt-6 pb-2">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-8 py-3 text-slate-500 font-black hover:text-slate-800 transition-all uppercase tracking-widest text-[11px]">Descartar</button>
                 <button type="submit" disabled={saveLoading || userRole === 'school_manager'} className="px-12 py-3.5 bg-blue-600 text-white rounded-2xl font-black shadow-2xl shadow-blue-200 hover:bg-blue-700 flex items-center gap-3 active:scale-95 disabled:opacity-50 transition-all uppercase tracking-widest text-[11px]">{saveLoading ? <Loader2 className="animate-spin" size={18}/> : <><Save size={18}/> Confirmar</>}</button>
               </div>
