@@ -19,7 +19,7 @@ import {
 import { WaterTruckModal } from '../components/WaterTruckModal';
 import { PowerOutageModal } from '../components/PowerOutageModal';
 
-// Interfaces para garantir a tipagem correta e evitar erros de 'never'
+// Interfaces para garantir a tipagem correta
 interface Stats {
   schools: number;
   activeZeladorias: number;
@@ -35,10 +35,10 @@ interface ProfileData {
 interface SchoolData {
   name: string;
   sabesp_supply_id: string | null;
+  edp_installation_id: string | null;
 }
 
 export function Dashboard() {
-  // Estados para dados estatísticos
   const [stats, setStats] = useState<Stats>({
     schools: 0,
     activeZeladorias: 0,
@@ -46,13 +46,12 @@ export function Dashboard() {
     activeWorks: 0
   });
   
-  // Estados para informações do usuário e escola
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('');
   const [schoolName, setSchoolName] = useState('');
   const [sabespCode, setSabespCode] = useState('');
+  const [edpCode, setEdpCode] = useState('');
   
-  // Estados de controle dos modais
   const [isWaterTruckModalOpen, setIsWaterTruckModalOpen] = useState(false);
   const [isPowerOutageModalOpen, setIsPowerOutageModalOpen] = useState(false);
 
@@ -61,12 +60,10 @@ export function Dashboard() {
     fetchUser();
   }, []);
 
-  // Busca dados do usuário logado e sua respectiva escola
   async function fetchUser() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        // Busca o perfil do usuário
         const { data: profile } = await (supabase as any)
           .from('profiles')
           .select('full_name, school_id')
@@ -76,20 +73,20 @@ export function Dashboard() {
         if (profile) {
           setUserName(profile.full_name || 'Gestor');
 
-          // Se o usuário estiver vinculado a uma escola, busca os dados técnicos dela
           if (profile.school_id) {
             const { data: school } = await (supabase as any)
               .from('schools')
-              .select('name, sabesp_supply_id')
+              .select('name, sabesp_supply_id, edp_installation_id')
               .eq('id', profile.school_id)
               .single() as { data: SchoolData | null };
             
             setSchoolName(school?.name || 'Unidade Escolar');
             setSabespCode(school?.sabesp_supply_id || 'Não Cadastrado');
+            setEdpCode(school?.edp_installation_id || 'Não Cadastrado');
           } else {
-            // Fallback para administradores regionais
             setSchoolName('Administração Regional');
             setSabespCode('Gestão Regional');
+            setEdpCode('Gestão Regional');
           }
         }
       }
@@ -98,23 +95,19 @@ export function Dashboard() {
     }
   }
 
-  // Busca contagens para os cards estatísticos
   async function fetchStats() {
     setLoading(true);
     try {
-      // 1. Total de Escolas
       const { count: schoolsCount } = await (supabase as any)
         .from('schools')
         .select('*', { count: 'exact', head: true });
 
-      // 2. Zeladorias Ativas (ignorando inativas/inabitáveis)
       const { count: zeladoriasCount } = await (supabase as any)
         .from('zeladorias')
         .select('*', { count: 'exact', head: true })
         .not('ocupada', 'eq', 'NÃO POSSUI')
         .not('ocupada', 'eq', 'NÃO HABITÁVEL');
 
-      // 3. Alertas de Consumo de Água no mês vigente
       const firstDay = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
       const { count: waterAlertsCount } = await (supabase as any)
         .from('consumo_agua')
@@ -122,7 +115,6 @@ export function Dashboard() {
         .eq('limit_exceeded', true)
         .gte('date', firstDay);
 
-      // 4. Obras ativas (não concluídas)
       const { count: worksCount } = await (supabase as any)
         .from('obras')
         .select('*', { count: 'exact', head: true })
@@ -150,7 +142,6 @@ export function Dashboard() {
 
   return (
     <div className="space-y-8 pb-10">
-      {/* Seção de Saudação */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">
@@ -173,7 +164,6 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* Grid de Estatísticas (Cards Superiores) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard 
           title="Unidades de Ensino" 
@@ -210,7 +200,6 @@ export function Dashboard() {
         />
       </div>
 
-      {/* Seção de Ações Rápidas de Emergência */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
           <div className="flex items-center gap-3">
@@ -219,7 +208,6 @@ export function Dashboard() {
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Card para Solicitar Caminhão Pipa */}
             <button 
               onClick={() => setIsWaterTruckModalOpen(true)}
               className="group relative overflow-hidden bg-gradient-to-br from-blue-600 to-blue-800 p-8 rounded-[2.5rem] text-left shadow-xl shadow-blue-200 transition-all hover:scale-[1.02] active:scale-95"
@@ -237,7 +225,6 @@ export function Dashboard() {
               <Droplets className="absolute -bottom-10 -right-10 text-white/10" size={240} />
             </button>
 
-            {/* Card para Notificar Queda de Energia */}
             <button 
               onClick={() => setIsPowerOutageModalOpen(true)}
               className="group relative overflow-hidden bg-gradient-to-br from-slate-800 to-slate-950 p-8 rounded-[2.5rem] text-left shadow-xl shadow-slate-200 transition-all hover:scale-[1.02] active:scale-95"
@@ -257,7 +244,6 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Coluna de Atalhos e Suporte */}
         <div className="space-y-6">
           <div className="flex items-center gap-3">
              <div className="w-1 h-6 bg-slate-400 rounded-full"></div>
@@ -282,7 +268,6 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* Renderização Condicional dos Modais */}
       {isWaterTruckModalOpen && (
         <WaterTruckModal 
           isOpen={isWaterTruckModalOpen}
@@ -294,13 +279,18 @@ export function Dashboard() {
       )}
       
       {isPowerOutageModalOpen && (
-        <PowerOutageModal onClose={() => setIsPowerOutageModalOpen(false)} />
+        <PowerOutageModal 
+          isOpen={isPowerOutageModalOpen}
+          onClose={() => setIsPowerOutageModalOpen(false)} 
+          schoolName={schoolName}
+          userName={userName}
+          edpCode={edpCode}
+        />
       )}
     </div>
   );
 }
 
-// Componente Local: Card de Estatística
 function StatCard({ title, value, icon, color, loading, label, alert = false }: any) {
   const colorMap: any = {
     blue: "bg-blue-50 text-blue-600 border-blue-100",
@@ -342,7 +332,6 @@ function StatCard({ title, value, icon, color, loading, label, alert = false }: 
   );
 }
 
-// Componente Local: Link Rápido
 function QuickLink({ icon, title, desc, href, color }: any) {
   const colorMap: any = {
     blue: "group-hover:bg-blue-600 group-hover:text-white text-blue-600 bg-blue-50",
