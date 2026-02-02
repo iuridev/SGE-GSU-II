@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { 
   ClipboardCheck, Plus, Calendar as CalendarIcon, 
   ChevronLeft, ChevronRight, CheckCircle2, 
-  AlertCircle, X,  
+  AlertCircle, X, 
   Loader2, MoreVertical,
   Check, Clock, ListChecks, FileDown
 } from 'lucide-react';
@@ -65,8 +65,13 @@ export function Fiscalizacao() {
       const { data: schoolsData } = await (supabase as any).from('schools').select('id, name').order('name');
       setSchools(schoolsData || []);
 
-      fetchEvents();
-    } catch (error) { console.error(error); } finally { setLoading(false); }
+      // Await fetchEvents to ensure loading state is handled correctly
+      await fetchEvents();
+    } catch (error) { 
+      console.error("Erro ao inicializar dados de fiscalização:", error); 
+    } finally { 
+      setLoading(false); 
+    }
   }
 
   async function fetchEvents() {
@@ -237,6 +242,15 @@ export function Fiscalizacao() {
       </div>
     );
   };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-32 gap-4">
+        <Loader2 className="animate-spin text-indigo-600" size={48} />
+        <p className="font-black text-slate-400 uppercase tracking-widest text-xs">Sincronizando Cronograma...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 pb-20">
