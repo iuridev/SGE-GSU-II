@@ -21,6 +21,7 @@ import { Remanejamento } from './pages/Remanejamento';
 import { Escola } from './pages/escola';
 import { Usuario } from './pages/Usuario';
 import { Login } from './pages/Login';
+import {Fiscalizacao} from './pages/fiscalizacao';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -95,6 +96,7 @@ export default function App() {
       case 'remanejamento': return <Remanejamento />;
       case 'escolas': return <Escola />;
       case 'usuarios': return <Usuario />;
+      case 'fiscalizacao': return <Fiscalizacao/>
       default: return <Dashboard />;
     }
   };
@@ -106,6 +108,8 @@ export default function App() {
     { id: 'remanejamento', label: 'Remanejamento', icon: <ArrowRightLeft size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'escolas', label: 'Escolas', icon: <Building2 size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'usuarios', label: 'Gestão de Usuários', icon: <UserCog size={20} />, roles: ['regional_admin'] },
+    { id: 'fiscalizacao', label: 'Fiscalização Serviços', icon: <UserCog size={20} />, roles: ['regional_admin', 'school_manager'] },
+
   ];
 
   return (

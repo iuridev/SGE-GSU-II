@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { 
   Building2, Droplets, Zap, ShieldCheck, AlertTriangle, ArrowRight,
   Calendar, CheckCircle2, Waves, ZapOff, History, ChevronRight,
-  ArrowRightLeft
+  ArrowRightLeft, ClipboardCheck
 } from 'lucide-react';
 import { WaterTruckModal } from '../components/WaterTruckModal';
 import { PowerOutageModal } from '../components/PowerOutageModal';
@@ -18,13 +18,14 @@ interface Stats {
   waterTruckRequests: number; 
   powerOutageRecords: number;
   inventoryItems: number;
+  pendingFiscalizations: number; // Novo campo
 }
 
 export function Dashboard() {
   const [stats, setStats] = useState<Stats>({
     schools: 0, activeZeladorias: 0, waterAlerts: 0, activeWorks: 0,
     avgConsumption: 0, exceededDays: 0, waterTruckRequests: 0, powerOutageRecords: 0,
-    inventoryItems: 0
+    inventoryItems: 0, pendingFiscalizations: 0
   });
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string>('');
@@ -69,8 +70,18 @@ export function Dashboard() {
     const firstDayYear = new Date(new Date().getFullYear(), 0, 1).toISOString();
     
     try {
-      // Busca itens de remanejamento (Comum para ambos)
+      // 1. Busca itens de remanejamento (Comum para ambos)
       const { count: ic } = await (supabase as any).from('inventory_items').select('*', { count: 'exact', head: true }).eq('status', 'DISPONÍVEL');
+
+      // 2. Busca Fiscalizações Pendentes
+      let pendingFisc = 0;
+      if (role === 'regional_admin') {
+        const { data: submissions } = await (supabase as any).from('monitoring_submissions').select('is_completed');
+        pendingFisc = (submissions || []).filter((s: any) => !s.is_completed).length;
+      } else {
+        const { data: submissions } = await (supabase as any).from('monitoring_submissions').select('is_completed').eq('school_id', sId);
+        pendingFisc = (submissions || []).filter((s: any) => !s.is_completed).length;
+      }
 
       if (role === 'regional_admin') {
         // --- ESTATÍSTICAS REGIONAL ---
@@ -88,7 +99,8 @@ export function Dashboard() {
         setStats(prev => ({ 
           ...prev, 
           schools: sc || 0, activeZeladorias: zc || 0, avgConsumption: globalAvg,
-          waterTruckRequests: wtGlobal, powerOutageRecords: poGlobal, inventoryItems: ic || 0
+          waterTruckRequests: wtGlobal, powerOutageRecords: poGlobal, inventoryItems: ic || 0,
+          pendingFiscalizations: pendingFisc
         }));
       } else {
         // --- ESTATÍSTICAS UNIDADE ---
@@ -103,7 +115,8 @@ export function Dashboard() {
         
         setStats(prev => ({ 
           ...prev, 
-          avgConsumption: avg, exceededDays: exc, waterTruckRequests: wt, powerOutageRecords: po, inventoryItems: ic || 0
+          avgConsumption: avg, exceededDays: exc, waterTruckRequests: wt, powerOutageRecords: po, inventoryItems: ic || 0,
+          pendingFiscalizations: pendingFisc
         }));
       }
     } catch (error) { console.error(error); }
@@ -134,14 +147,14 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* Grid de Indicadores */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+      {/* Grid de Indicadores Expandido */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-4">
         {userRole === 'regional_admin' ? (
           <>
             <StatCard title="Escolas" value={stats.schools} icon={<Building2 size={20} />} color="blue" loading={loading} label="Cadastradas" />
             <StatCard title="Zeladorias" value={stats.activeZeladorias} icon={<ShieldCheck size={20} />} color="emerald" loading={loading} label="Ativas" />
             <StatCard title="Média Rede" value={`${stats.avgConsumption.toFixed(2)} m³`} icon={<Waves size={20} />} color="blue" loading={loading} label="Consumo Mês" />
-            <StatCard title="Pedidos Pipa" value={stats.waterTruckRequests} icon={<History size={20} />} color="amber" loading={loading} label="Total Ano" />
+            <StatCard title="Fiscalizações" value={stats.pendingFiscalizations} icon={<ClipboardCheck size={20} />} color="amber" loading={loading} label="Pendentes Rede" alert={stats.pendingFiscalizations > 0} />
             <StatCard title="Falta Energia" value={stats.powerOutageRecords} icon={<ZapOff size={20} />} color="slate" loading={loading} label="Total Ano" />
             <StatCard title="Banco Remaneja" value={stats.inventoryItems} icon={<ArrowRightLeft size={20} />} color="indigo" loading={loading} label="Itens Livres" />
           </>
@@ -149,8 +162,9 @@ export function Dashboard() {
           <>
             <StatCard title="Média Consumo" value={`${stats.avgConsumption.toFixed(2)} m³`} icon={<Waves size={22} />} color="blue" loading={loading} label="Média diária" />
             <StatCard title="Dias Excesso" value={stats.exceededDays} icon={<AlertTriangle size={22} />} color="amber" loading={loading} label="No mês atual" alert={stats.exceededDays > 0} />
-            <StatCard title="Caminhão Pipa" value={stats.waterTruckRequests} icon={<History size={22} />} color="blue" loading={loading} label="Pedidos no ano" />
+            <StatCard title="Fiscalização" value={stats.pendingFiscalizations} icon={<ClipboardCheck size={22} />} color="amber" loading={loading} label="Entregas Pendentes" alert={stats.pendingFiscalizations > 0} />
             <StatCard title="Falta Energia" value={stats.powerOutageRecords} icon={<ZapOff size={22} />} color="slate" loading={loading} label="Registros no ano" />
+            <StatCard title="Caminhão Pipa" value={stats.waterTruckRequests} icon={<History size={22} />} color="blue" loading={loading} label="Pedidos no ano" />
             <StatCard title="Banco Remaneja" value={stats.inventoryItems} icon={<ArrowRightLeft size={22} />} color="indigo" loading={loading} label="Itens Disponíveis" />
           </>
         )}
@@ -170,10 +184,10 @@ export function Dashboard() {
         </div>
 
         <div className="space-y-6">
-          <div className="flex items-center gap-3"><div className="w-1 h-6 bg-slate-400 rounded-full"></div><h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Acessos Rápidos</h2></div>
+          <div className="flex items-center gap-3"><div className="w-1 h-6 bg-slate-400 rounded-full"></div><h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Controle Administrativo</h2></div>
           <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-xl p-4 space-y-2">
-            <QuickLink icon={<ArrowRightLeft size={18}/>} title="Banco de Remanejamento" desc="Veja o que está disponível" href="#" onClick={() => {}} color="indigo" />
-            <QuickLink icon={<History size={18}/>} title="Histórico de Chamados" desc="Audite as ocorrências" href="#" onClick={() => {}} color="blue" />
+            <QuickLink icon={<ClipboardCheck size={18}/>} title="Fiscalização Terceirizados" desc="Acompanhe entregas e prazos" href="/fiscalizacao" color="amber" />
+            <QuickLink icon={<ArrowRightLeft size={18}/>} title="Banco de Remanejamento" desc="Veja o que está disponível" href="/remanejamento" color="indigo" />
           </div>
         </div>
       </div>
@@ -194,7 +208,7 @@ function StatCard({ title, value, icon, color, loading, label, alert = false }: 
   );
 }
 
-function QuickLink({ icon, title, desc, href, color, onClick }: any) {
+function QuickLink({ icon, title, desc, href, color }: any) {
   const colorMap: any = {
     blue: "group-hover:bg-blue-600 group-hover:text-white text-blue-600 bg-blue-50",
     emerald: "group-hover:bg-emerald-600 group-hover:text-white text-emerald-600 bg-emerald-50",
@@ -202,7 +216,7 @@ function QuickLink({ icon, title, desc, href, color, onClick }: any) {
     indigo: "group-hover:bg-indigo-600 group-hover:text-white text-indigo-600 bg-indigo-50",
   };
   return (
-    <a href={href} onClick={onClick} className="group flex items-center gap-4 p-3 hover:bg-slate-50 rounded-2xl transition-all">
+    <a href={href} className="group flex items-center gap-4 p-3 hover:bg-slate-50 rounded-2xl transition-all">
       <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${colorMap[color]}`}>{icon}</div>
       <div className="flex-1"><p className="text-xs font-bold text-slate-700 leading-none">{title}</p><p className="text-[10px] text-slate-400 mt-1 font-medium">{desc}</p></div>
       <ChevronRight size={16} className="text-slate-300 group-hover:text-slate-500 transition-colors" />
