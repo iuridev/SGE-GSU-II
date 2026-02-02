@@ -4,7 +4,7 @@ import {
   MapPin, Phone, Mail, 
   Search, Plus, GraduationCap, 
   Trash2, Edit, X, Save, UserCog, ShieldCheck,
-  Building2, Zap, Droplets, Info, Hash,
+  Building2, Zap, Droplets, Hash,
   Calendar, Layers, Clock, DoorOpen, Compass, ArrowUpCircle,
   Loader2
 } from 'lucide-react';
@@ -253,6 +253,7 @@ export function Escola() {
         </div>
       )}
 
+      {/* MODAL DE CADASTRO/EDIÇÃO ATUALIZADO */}
       {isSchoolModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-hidden">
           <div className="bg-white rounded-[3rem] w-full max-w-5xl max-h-[95vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden border border-white">
