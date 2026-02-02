@@ -1,12 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
   Building2, Droplets, Zap, ShieldCheck, AlertTriangle, ArrowRight,
   Calendar, CheckCircle2, Waves, ZapOff, History, ChevronRight,
-  ArrowRightLeft, ClipboardCheck
+  ArrowRightLeft, ClipboardCheck, Map as MapIcon,
 } from 'lucide-react';
 import { WaterTruckModal } from '../components/WaterTruckModal';
 import { PowerOutageModal } from '../components/PowerOutageModal';
+
+// URLs do Leaflet via CDN
+const LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+const LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 
 interface Stats {
   schools: number; 
@@ -18,7 +22,16 @@ interface Stats {
   waterTruckRequests: number; 
   powerOutageRecords: number;
   inventoryItems: number;
-  pendingFiscalizations: number; // Novo campo
+  pendingFiscalizations: number;
+}
+
+interface MapSchool {
+  id: string;
+  name: string;
+  latitude: number | null;
+  longitude: number | null;
+  periods: string[] | null;
+  address: string | null;
 }
 
 export function Dashboard() {
@@ -27,6 +40,7 @@ export function Dashboard() {
     avgConsumption: 0, exceededDays: 0, waterTruckRequests: 0, powerOutageRecords: 0,
     inventoryItems: 0, pendingFiscalizations: 0
   });
+  const [mapSchools, setMapSchools] = useState<MapSchool[]>([]);
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string>('');
   const [userName, setUserName] = useState('');
@@ -36,8 +50,50 @@ export function Dashboard() {
   const [schoolId, setSchoolId] = useState<string | null>(null);
   const [isWaterTruckModalOpen, setIsWaterTruckModalOpen] = useState(false);
   const [isPowerOutageModalOpen, setIsPowerOutageModalOpen] = useState(false);
+  
+  // Refs para o Leaflet
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const [leafletLoaded, setLeafletLoaded] = useState(false);
 
-  useEffect(() => { initDashboard(); }, []);
+  useEffect(() => { 
+    loadLeaflet();
+    initDashboard(); 
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+      }
+    };
+  }, []);
+
+  // Inicializa o mapa quando os dados das escolas e o Leaflet estiverem prontos
+  useEffect(() => {
+    if (leafletLoaded && mapSchools.length > 0 && mapContainerRef.current && !mapInstanceRef.current) {
+      initMap();
+    }
+  }, [leafletLoaded, mapSchools]);
+
+  function loadLeaflet() {
+    // Injeta CSS
+    if (!document.querySelector(`link[href="${LEAFLET_CSS}"]`)) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = LEAFLET_CSS;
+      document.head.appendChild(link);
+    }
+
+    // Injeta JS
+    if (!document.querySelector(`script[src="${LEAFLET_JS}"]`)) {
+      const script = document.createElement('script');
+      script.src = LEAFLET_JS;
+      script.async = true;
+      script.onload = () => setLeafletLoaded(true);
+      document.head.appendChild(script);
+    } else if ((window as any).L) {
+      setLeafletLoaded(true);
+    }
+  }
 
   async function initDashboard() {
     setLoading(true);
@@ -61,8 +117,23 @@ export function Dashboard() {
         }
         
         await fetchStats(profile.role, profile.school_id);
+        await fetchMapData();
       }
     } catch (error) { console.error(error); } finally { setLoading(false); }
+  }
+
+  async function fetchMapData() {
+    try {
+      const { data } = await (supabase as any)
+        .from('schools')
+        .select('id, name, latitude, longitude, periods, address')
+        .not('latitude', 'is', null)
+        .not('longitude', 'is', null);
+      
+      setMapSchools(data || []);
+    } catch (error) {
+      console.error("Erro ao buscar dados do mapa:", error);
+    }
   }
 
   async function fetchStats(role: string, sId: string | null) {
@@ -70,10 +141,8 @@ export function Dashboard() {
     const firstDayYear = new Date(new Date().getFullYear(), 0, 1).toISOString();
     
     try {
-      // 1. Busca itens de remanejamento (Comum para ambos)
       const { count: ic } = await (supabase as any).from('inventory_items').select('*', { count: 'exact', head: true }).eq('status', 'DISPONÍVEL');
 
-      // 2. Busca Fiscalizações Pendentes
       let pendingFisc = 0;
       if (role === 'regional_admin') {
         const { data: submissions } = await (supabase as any).from('monitoring_submissions').select('is_completed');
@@ -84,14 +153,12 @@ export function Dashboard() {
       }
 
       if (role === 'regional_admin') {
-        // --- ESTATÍSTICAS REGIONAL ---
         const { count: sc } = await (supabase as any).from('schools').select('*', { count: 'exact', head: true });
         const { count: zc } = await (supabase as any).from('zeladorias').select('*', { count: 'exact', head: true }).not('ocupada', 'in', '("NÃO POSSUI", "NÃO HABITÁVEL")');
         const { data: globalCons } = await (supabase as any).from('consumo_agua').select('consumption_diff').gte('date', firstDayMonth);
         const logsGlobal = globalCons || [];
         const globalAvg = logsGlobal.length > 0 ? logsGlobal.reduce((acc: number, curr: any) => acc + (curr.consumption_diff || 0), 0) / logsGlobal.length : 0;
         
-        // Ocorrências Globais do Ano
         const { data: occsGlobal } = await (supabase as any).from('occurrences').select('type').gte('created_at', firstDayYear);
         const wtGlobal = (occsGlobal || []).filter((o: any) => o.type === 'WATER_TRUCK').length;
         const poGlobal = (occsGlobal || []).filter((o: any) => o.type === 'POWER_OUTAGE').length;
@@ -103,7 +170,6 @@ export function Dashboard() {
           pendingFiscalizations: pendingFisc
         }));
       } else {
-        // --- ESTATÍSTICAS UNIDADE ---
         const { data: cons } = await (supabase as any).from('consumo_agua').select('consumption_diff, limit_exceeded').eq('school_id', sId).gte('date', firstDayMonth);
         const logs = cons || [];
         const avg = logs.length > 0 ? logs.reduce((acc: number, curr: any) => acc + (curr.consumption_diff || 0), 0) / logs.length : 0;
@@ -120,6 +186,61 @@ export function Dashboard() {
         }));
       }
     } catch (error) { console.error(error); }
+  }
+
+  function initMap() {
+    const L = (window as any).L;
+    if (!L || !mapContainerRef.current) return;
+
+    // Centro inicial baseado na primeira escola
+    const firstSchool = mapSchools[0];
+    const center: [number, number] = [firstSchool.latitude || -23.5505, firstSchool.longitude || -46.6333];
+
+    const map = L.map(mapContainerRef.current, {
+      center: center,
+      zoom: 12,
+      scrollWheelZoom: false
+    });
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    mapSchools.forEach(school => {
+      if (school.latitude && school.longitude) {
+        let color = '#f97316'; // Laranja (Padrão)
+        if (school.periods?.includes('Integral 9h')) color = '#22c55e'; // Verde
+        else if (school.periods?.includes('Integral 7h')) color = '#3b82f6'; // Azul
+
+        const icon = L.divIcon({
+          className: 'custom-div-icon',
+          html: `<div style="background-color: ${color}; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);"></div>`,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12]
+        });
+
+        const popupContent = `
+          <div style="font-family: sans-serif; padding: 5px;">
+            <h4 style="margin: 0 0 5px 0; font-weight: 900; text-transform: uppercase; font-size: 12px; color: #1e293b;">${school.name}</h4>
+            <p style="margin: 0 0 8px 0; font-size: 10px; color: #64748b;">${school.address || 'Sem endereço'}</p>
+            <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+              ${(school.periods || []).map(p => `<span style="background: #e0e7ff; color: #4338ca; padding: 2px 6px; border-radius: 4px; font-size: 8px; font-weight: 800; text-transform: uppercase;">${p}</span>`).join('')}
+            </div>
+            <a href="https://www.google.com/maps/dir/?api=1&destination=${school.latitude},${school.longitude}" 
+               target="_blank" 
+               style="display: block; margin-top: 10px; background: #4f46e5; color: white; text-align: center; padding: 6px; border-radius: 6px; text-decoration: none; font-size: 10px; font-weight: 800; text-transform: uppercase;">
+               Ver Rota
+            </a>
+          </div>
+        `;
+
+        L.marker([school.latitude, school.longitude], { icon })
+          .addTo(map)
+          .bindPopup(popupContent);
+      }
+    });
+
+    mapInstanceRef.current = map;
   }
 
   const getTimeGreeting = () => {
@@ -147,7 +268,6 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* Grid de Indicadores Expandido */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-4">
         {userRole === 'regional_admin' ? (
           <>
@@ -170,24 +290,58 @@ export function Dashboard() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-6">
-          <div className="flex items-center gap-3"><div className="w-1 h-6 bg-blue-600 rounded-full"></div><h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Serviços de Emergência</h2></div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <button onClick={() => setIsWaterTruckModalOpen(true)} className="group relative overflow-hidden bg-gradient-to-br from-blue-600 to-blue-800 p-8 rounded-[2.5rem] text-left shadow-xl transition-all hover:scale-[1.02] active:scale-95">
-              <div className="relative z-10"><div className="w-14 h-14 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center text-white mb-6"><Droplets size={32} /></div><h3 className="text-2xl font-black text-white leading-tight">Solicitar<br />Caminhão Pipa</h3><div className="mt-8 flex items-center gap-2 text-white font-bold text-sm uppercase tracking-widest">Abrir Checklist <ArrowRight size={16} /></div></div>
-            </button>
-            <button onClick={() => setIsPowerOutageModalOpen(true)} className="group relative overflow-hidden bg-gradient-to-br from-slate-800 to-slate-950 p-8 rounded-[2.5rem] text-left shadow-xl transition-all hover:scale-[1.02] active:scale-95">
-              <div className="relative z-10"><div className="w-14 h-14 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center text-amber-400 mb-6"><Zap size={32} /></div><h3 className="text-2xl font-black text-white leading-tight">Notificar<br />Queda de Energia</h3><div className="mt-8 flex items-center gap-2 text-white font-bold text-sm uppercase tracking-widest">Notificar Regional <ArrowRight size={16} /></div></div>
-            </button>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="lg:col-span-8 space-y-6">
+          <div className="flex items-center gap-3">
+            <div className="w-1 h-6 bg-indigo-600 rounded-full"></div>
+            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+              <MapIcon size={20} className="text-indigo-600" /> Mapa da Rede Regional
+            </h2>
+          </div>
+          
+          <div className="bg-white p-4 rounded-[2.5rem] border border-slate-100 shadow-2xl overflow-hidden relative">
+            <div className="absolute top-8 right-8 z-[50] flex flex-col gap-2">
+                <div className="bg-white/90 backdrop-blur p-3 rounded-2xl shadow-xl border border-slate-100 space-y-2">
+                   <div className="flex items-center gap-2 text-[9px] font-black uppercase text-slate-500">
+                      <div className="w-2 h-2 rounded-full bg-blue-500"></div> Integral 7h
+                   </div>
+                   <div className="flex items-center gap-2 text-[9px] font-black uppercase text-slate-500">
+                      <div className="w-2 h-2 rounded-full bg-green-500"></div> Integral 9h
+                   </div>
+                   <div className="flex items-center gap-2 text-[9px] font-black uppercase text-slate-500">
+                      <div className="w-2 h-2 rounded-full bg-orange-500"></div> Parcial / Outros
+                   </div>
+                </div>
+            </div>
+            
+            <div ref={mapContainerRef} className="h-[500px] w-full rounded-[2rem] overflow-hidden border border-slate-100 z-0">
+               {(!leafletLoaded || mapSchools.length === 0) && (
+                 <div className="h-full w-full bg-slate-50 flex flex-col items-center justify-center text-slate-300">
+                    <MapIcon size={48} className="mb-2" />
+                    <p className="text-xs font-black uppercase tracking-widest">
+                      {!leafletLoaded ? 'Carregando Mapa...' : 'Aguardando Coordenadas...'}
+                    </p>
+                 </div>
+               )}
+            </div>
           </div>
         </div>
 
-        <div className="space-y-6">
-          <div className="flex items-center gap-3"><div className="w-1 h-6 bg-slate-400 rounded-full"></div><h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Controle Administrativo</h2></div>
+        <div className="lg:col-span-4 space-y-6">
+          <div className="flex items-center gap-3"><div className="w-1 h-6 bg-blue-600 rounded-full"></div><h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Serviços de Emergência</h2></div>
+          <div className="grid grid-cols-1 gap-4">
+            <button onClick={() => setIsWaterTruckModalOpen(true)} className="group relative overflow-hidden bg-gradient-to-br from-blue-600 to-blue-800 p-6 rounded-[2rem] text-left shadow-xl transition-all hover:scale-[1.02] active:scale-95">
+              <div className="relative z-10"><div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center text-white mb-4"><Droplets size={28} /></div><h3 className="text-xl font-black text-white leading-tight uppercase">Caminhão Pipa</h3><div className="mt-4 flex items-center gap-2 text-white/70 font-bold text-[10px] uppercase tracking-widest">Abrir Solicitação <ArrowRight size={14} /></div></div>
+            </button>
+            <button onClick={() => setIsPowerOutageModalOpen(true)} className="group relative overflow-hidden bg-gradient-to-br from-slate-800 to-slate-950 p-6 rounded-[2rem] text-left shadow-xl transition-all hover:scale-[1.02] active:scale-95">
+              <div className="relative z-10"><div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center text-amber-400 mb-4"><Zap size={28} /></div><h3 className="text-xl font-black text-white leading-tight uppercase">Falta Energia</h3><div className="mt-4 flex items-center gap-2 text-white/70 font-bold text-[10px] uppercase tracking-widest">Notificar Regional <ArrowRight size={14} /></div></div>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-3 mt-8"><div className="w-1 h-6 bg-slate-400 rounded-full"></div><h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Controle</h2></div>
           <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-xl p-4 space-y-2">
             <QuickLink icon={<ClipboardCheck size={18}/>} title="Fiscalização Terceirizados" desc="Acompanhe entregas e prazos" href="/fiscalizacao" color="amber" />
-            <QuickLink icon={<ArrowRightLeft size={18}/>} title="Banco de Remanejamento" desc="Veja o que está disponível" href="/remanejamento" color="indigo" />
+            <QuickLink icon={<ArrowRightLeft size={18}/>} title="Remanejamento" desc="Banco regional de itens" href="/remanejamento" color="indigo" />
           </div>
         </div>
       </div>
