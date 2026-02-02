@@ -6,11 +6,12 @@ interface PowerOutageModalProps {
   isOpen: boolean;
   onClose: () => void;
   schoolName: string;
+  schoolId: string | null;
   userName: string;
   edpCode: string;
 }
 
-export function PowerOutageModal({ isOpen, onClose, schoolName, userName, edpCode }: PowerOutageModalProps) {
+export function PowerOutageModal({ isOpen, onClose, schoolName, schoolId, userName, edpCode }: PowerOutageModalProps) {
   const [formData, setFormData] = useState({
     q1_disjuntor: '',
     q2_vizinhanca: '',
@@ -22,11 +23,10 @@ export function PowerOutageModal({ isOpen, onClose, schoolName, userName, edpCod
 
   if (!isOpen) return null;
 
-  // Formatação organizada com quebras de linha para o e-mail
   const formatReport = () => {
-    return `1 - Verificou o Disjuntor (ligou/desligou)? ${formData.q1_disjuntor}
+    return `1 - Verificou o Disjuntor? O problema foi resolvido? ${formData.q1_disjuntor}
     
-2 - Verificou a Vizinhança (vizinhos sem luz)? ${formData.q2_vizinhanca}
+2 - Verificou a Vizinhança? O problema foi resolvido? ${formData.q2_vizinhanca}
 
 3 - Descrição da Situação:
 ${formData.q3_descricao}`.trim();
@@ -44,17 +44,17 @@ ${formData.q3_descricao}`.trim();
         body: { 
           type: 'POWER_OUTAGE',
           schoolName,
+          schoolId, // CORREÇÃO: Enviando o ID para o banco
           userName,
           data: { 
             notes: formatReport(),
-            edpCode // Envia o código capturado do Dashboard
+            edpCode 
           }
         }
       });
 
       if (error) {
-        let msg = error.message;
-        if (data && data.error) msg = data.error;
+        const msg = data?.error || error.message || "Erro desconhecido no servidor.";
         throw new Error(msg);
       }
 
@@ -71,30 +71,28 @@ ${formData.q3_descricao}`.trim();
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4">
       <div className="bg-white rounded-[2.5rem] w-full max-w-2xl shadow-2xl overflow-hidden border border-white animate-in zoom-in-95 duration-200">
         
-        {/* Cabeçalho */}
         <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-900 text-white">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-amber-400 rounded-2xl flex items-center justify-center text-slate-900 shadow-lg">
+            <div className="w-12 h-12 bg-amber-400 rounded-2xl flex items-center justify-center text-slate-900 shadow-lg shadow-amber-500/20">
               <Zap size={24} />
             </div>
             <div>
-              <h2 className="text-xl font-black uppercase tracking-tight leading-none">Queda de Energia</h2>
-              <p className="text-[10px] text-amber-400 font-bold uppercase tracking-widest mt-1">Notificação de Manutenção</p>
+              <h2 className="text-xl font-black uppercase tracking-tight">Queda de Energia</h2>
+              <p className="text-[10px] text-amber-400 font-bold uppercase tracking-widest mt-1">Protocolo SEOM - Manutenção</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors text-slate-400"><X size={24} /></button>
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full text-slate-400"><X size={24} /></button>
         </div>
 
         <div className="p-8 space-y-6 max-h-[75vh] overflow-y-auto custom-scrollbar">
           {sent ? (
             <div className="py-12 text-center space-y-4 animate-in fade-in">
               <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto animate-bounce"><CheckCircle2 size={40} /></div>
-              <h3 className="text-2xl font-black text-slate-800 tracking-tight">Relato Enviado!</h3>
-              <p className="text-slate-500 font-medium px-10">O chamado foi encaminhado para <strong>gsu.seom@educacao.sp.gov.br</strong>.</p>
+              <h3 className="text-2xl font-black text-slate-800 tracking-tight">Notificação Enviada!</h3>
+              <p className="text-slate-500 font-medium px-10">O chamado foi registrado com sucesso nas estatísticas da unidade.</p>
             </div>
           ) : (
             <>
-              {/* Info Unidade */}
               <div className="flex flex-col md:flex-row gap-4">
                 <div className="flex-1 bg-slate-50 p-4 rounded-2xl border border-slate-100">
                   <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Unidade Escolar</p>
@@ -108,31 +106,29 @@ ${formData.q3_descricao}`.trim();
 
               <div className="space-y-5">
                 <div className="flex items-center gap-2 text-slate-800 font-black uppercase text-[10px] tracking-[0.2em] mb-2">
-                  <ClipboardCheck size={14} className="text-amber-500" /> Procedimentos de Segurança
+                  <ClipboardCheck size={14} className="text-amber-500" /> Checklist Obrigatório
                 </div>
 
                 <div className="space-y-4">
                   <QuestionCard 
                     number="1"
                     title="Verifique o Disjuntor"
-                    desc="Confira se o disjuntor no quadro ou no relógio não caiu. Desligue-o e ligue-o novamente. O problema foi resolvido?"
+                    desc="O disjuntor caiu? Desligue e ligue-o novamente. O problema foi resolvido?"
                     value={formData.q1_disjuntor}
-                    onChange={(v) => setFormData({...formData, q1_disjuntor: v})}
+                    onChange={(v: string) => setFormData({...formData, q1_disjuntor: v})}
                   />
-
                   <QuestionCard 
                     number="2"
                     title="Verifique a Vizinhança"
-                    desc="Os postes da rua e os vizinhos também estão sem luz? (Se sim, o problema é na rede externa da distribuidora)."
+                    desc="Postes da rua e vizinhos também estão sem luz? O problema foi resolvido?"
                     value={formData.q2_vizinhanca}
-                    onChange={(v) => setFormData({...formData, q2_vizinhanca: v})}
+                    onChange={(v: string) => setFormData({...formData, q2_vizinhanca: v})}
                   />
-
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase ml-1">3 - Descrição Detalhada do Ocorrido:</label>
+                    <label className="text-[10px] font-black text-slate-500 uppercase ml-1">3 - Descrição da Situação:</label>
                     <textarea 
-                      className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-amber-500 focus:bg-white outline-none transition-all text-sm font-medium min-h-[120px] placeholder:text-slate-300"
-                      placeholder="Descreva se o problema é em toda a escola, apenas em um bloco, se houve estouro no poste, etc..."
+                      className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-amber-500 focus:bg-white outline-none transition-all text-sm font-medium min-h-[120px]"
+                      placeholder="Descreva detalhes do ocorrido..."
                       value={formData.q3_descricao}
                       onChange={(e) => setFormData({...formData, q3_descricao: e.target.value})}
                     />
@@ -141,12 +137,8 @@ ${formData.q3_descricao}`.trim();
               </div>
 
               <div className="pt-4">
-                <button 
-                  onClick={handleSendNotification} 
-                  disabled={loading} 
-                  className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black shadow-xl hover:bg-black flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-50"
-                >
-                  {loading ? <><Loader2 className="animate-spin" size={20} /> NOTIFICANDO...</> : <><Send size={20} /> ENVIAR NOTIFICAÇÃO POR E-MAIL</>}
+                <button onClick={handleSendNotification} disabled={loading} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black shadow-lg hover:bg-black flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-50">
+                  {loading ? <><Loader2 className="animate-spin" size={20} /> ENVIANDO...</> : <><Send size={20} /> ENVIAR NOTIFICAÇÃO POR E-MAIL</>}
                 </button>
               </div>
             </>
@@ -157,7 +149,6 @@ ${formData.q3_descricao}`.trim();
   );
 }
 
-// Componente Interno para as Perguntas do Checklist
 function QuestionCard({ number, title, desc, value, onChange }: { number: string, title: string, desc: string, value: string, onChange: (v: string) => void }) {
   return (
     <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
@@ -169,14 +160,8 @@ function QuestionCard({ number, title, desc, value, onChange }: { number: string
         </div>
       </div>
       <div className="flex gap-2 pl-9">
-        <button
-          onClick={() => onChange('SIM')}
-          className={`px-6 py-2 rounded-xl text-[10px] font-black transition-all border-2 ${value === 'SIM' ? 'bg-blue-600 border-blue-600 text-white shadow-md' : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'}`}
-        >SIM</button>
-        <button
-          onClick={() => onChange('NÃO')}
-          className={`px-6 py-2 rounded-xl text-[10px] font-black transition-all border-2 ${value === 'NÃO' ? 'bg-red-500 border-red-500 text-white shadow-md' : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'}`}
-        >NÃO</button>
+        <button onClick={() => onChange('SIM')} className={`px-6 py-2 rounded-xl text-[10px] font-black border-2 transition-all ${value === 'SIM' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-400'}`}>SIM</button>
+        <button onClick={() => onChange('NÃO')} className={`px-6 py-2 rounded-xl text-[10px] font-black border-2 transition-all ${value === 'NÃO' ? 'bg-red-500 border-red-500 text-white' : 'bg-white border-slate-200 text-slate-400'}`}>NÃO</button>
       </div>
     </div>
   );

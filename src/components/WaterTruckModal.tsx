@@ -6,12 +6,12 @@ interface WaterTruckModalProps {
   isOpen: boolean;
   onClose: () => void;
   schoolName: string;
+  schoolId: string | null;
   userName: string;
   sabespCode: string;
 }
 
-export function WaterTruckModal({ isOpen, onClose, schoolName, userName, sabespCode }: WaterTruckModalProps) {
-  // Estado para as 7 perguntas técnicas obrigatórias do protocolo
+export function WaterTruckModal({ isOpen, onClose, schoolName, schoolId, userName, sabespCode }: WaterTruckModalProps) {
   const [formData, setFormData] = useState({
     q1_registro: '',
     q2_reservatorio: '',
@@ -27,7 +27,6 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, userName, sabespC
 
   if (!isOpen) return null;
 
-  // Formatação do relatório para o corpo do e-mail
   const formatReport = () => {
     return `1 - Verificou se tem registro fechado? ${formData.q1_registro}
 2 - Olhou no reservatório se realmente está sem água? ${formData.q2_reservatorio}
@@ -38,21 +37,20 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, userName, sabespC
 7 - Qual o nome do funcionário para auxiliar o motorista no abastecimento? ${formData.q7_funcionario}`;
   };
 
-  const handleAutomaticSolicitation = async () => {
-    // Validação de preenchimento obrigatório
+  const handleSend = async () => {
     const isFormIncomplete = Object.values(formData).some(value => value.trim() === '');
     if (isFormIncomplete) {
-      alert("Por favor, responda todas as 7 perguntas do checklist técnico antes de enviar.");
+      alert("Por favor, responda todas as 7 perguntas do checklist.");
       return;
     }
     
     setLoading(true);
     try {
-      // Invocação da Edge Function
       const { data, error } = await supabase.functions.invoke('send-outage-email', {
         body: { 
           type: 'WATER_TRUCK',
           schoolName,
+          schoolId, // CORREÇÃO: Enviando o ID para o banco
           userName,
           data: { 
             notes: formatReport(),
@@ -61,22 +59,14 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, userName, sabespC
         }
       });
 
-      // Tratamento de erro detalhado vindo do servidor
       if (error) {
-        let errorMsg = error.message;
-        // Tenta extrair a mensagem de erro que a nossa função enviou no JSON (ex: domínio não verificado)
-        try {
-          if (data && data.error) errorMsg = data.error;
-        } catch (e) {
-          // Mantém o erro original se falhar ao processar JSON
-        }
+        const errorMsg = data?.error || error.message || "Erro no servidor.";
         throw new Error(errorMsg);
       }
 
       setSent(true);
       setTimeout(onClose, 3000);
     } catch (error: any) {
-      console.error("Erro no envio:", error);
       alert("FALHA NO ENVIO:\n" + error.message);
     } finally {
       setLoading(false);
@@ -88,32 +78,28 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, userName, sabespC
       <div className="bg-white rounded-[2.5rem] w-full max-w-2xl shadow-2xl overflow-hidden border border-white animate-in zoom-in-95 duration-200">
         <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-blue-50/50">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
-              <Droplets size={24} />
-            </div>
+            <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg"><Droplets size={24} /></div>
             <div>
               <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Solicitar Caminhão Pipa</h2>
               <p className="text-xs text-blue-600 font-bold uppercase tracking-widest">Protocolo GSU-SEOM</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white rounded-full text-slate-400 transition-colors"><X size={24} /></button>
+          <button onClick={onClose} className="p-2 hover:bg-white rounded-full text-slate-400"><X size={24} /></button>
         </div>
 
         <div className="p-8 space-y-6 max-h-[75vh] overflow-y-auto custom-scrollbar">
           {sent ? (
             <div className="py-12 text-center space-y-4 animate-in fade-in">
-              <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto animate-bounce">
-                <CheckCircle2 size={40} />
-              </div>
-              <h3 className="text-2xl font-black text-slate-800 tracking-tight">Solicitação Protocolada!</h3>
-              <p className="text-slate-500 font-medium px-10">O checklist técnico e o código Sabesp foram enviados para <strong>gsu.seom@educacao.sp.gov.br</strong>.</p>
+              <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto animate-bounce"><CheckCircle2 size={40} /></div>
+              <h3 className="text-2xl font-black text-slate-800 tracking-tight">Pedido Enviado!</h3>
+              <p className="text-slate-500 font-medium">O checklist foi encaminhado e registrado com sucesso.</p>
             </div>
           ) : (
             <>
               <div className="flex flex-col md:flex-row gap-4">
                 <div className="flex-1 bg-slate-50 p-4 rounded-2xl border border-slate-100">
                   <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Unidade Escolar</p>
-                  <p className="text-[13px] font-bold text-slate-700 truncate">{schoolName}</p>
+                  <p className="text-[13px] font-bold text-slate-700 truncate uppercase">{schoolName}</p>
                 </div>
                 <div className="w-full md:w-48 bg-blue-50/50 p-4 rounded-2xl border border-blue-100">
                   <p className="text-[10px] font-black text-blue-400 uppercase mb-1">Cód. Sabesp</p>
@@ -121,32 +107,25 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, userName, sabespC
                 </div>
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <div className="flex items-center gap-2 text-slate-800 font-black uppercase text-xs tracking-widest mb-2">
-                  <ClipboardCheck size={16} className="text-blue-600" /> Checklist Técnico de Verificação
+                  <ClipboardCheck size={16} className="text-blue-600" /> Checklist Obrigatório
                 </div>
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <QuestionSelect label="1 - Registro fechado?" value={formData.q1_registro} onChange={(v) => setFormData({...formData, q1_registro: v})} />
-                  <QuestionSelect label="2 - Reservatório sem água?" value={formData.q2_reservatorio} onChange={(v) => setFormData({...formData, q2_reservatorio: v})} />
-                  <QuestionSelect label="3 - Tem engate de abastec.?" value={formData.q3_engate} onChange={(v) => setFormData({...formData, q3_engate: v})} />
-                  <QuestionInput label="4 - Distância (Caminhão x Caixa)" placeholder="Ex: 15 metros" value={formData.q4_distancia} onChange={(v) => setFormData({...formData, q4_distancia: v})} />
+                  <QuestionSelect label="1. Registro fechado?" value={formData.q1_registro} onChange={(v: string) => setFormData({...formData, q1_registro: v})} />
+                  <QuestionSelect label="2. Está sem água?" value={formData.q2_reservatorio} onChange={(v: string) => setFormData({...formData, q2_reservatorio: v})} />
+                  <QuestionSelect label="3. Tem engate?" value={formData.q3_engate} onChange={(v: string) => setFormData({...formData, q3_engate: v})} />
+                  <QuestionInput label="4. Distância (m)" placeholder="Ex: 10 metros" value={formData.q4_distancia} onChange={(v: string) => setFormData({...formData, q4_distancia: v})} />
                 </div>
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <QuestionInput label="5 - Altura do Reservatório" placeholder="Ex: 10 metros" value={formData.q5_altura} onChange={(v) => setFormData({...formData, q5_altura: v})} />
-                  <QuestionInput label="6 - Capacidade (Litros)" placeholder="Ex: 20.000 L" value={formData.q6_capacidade} onChange={(v) => setFormData({...formData, q6_capacidade: v})} />
+                  <QuestionInput label="5. Altura do Reservatório" placeholder="Ex: 6m" value={formData.q5_altura} onChange={(v: string) => setFormData({...formData, q5_altura: v})} />
+                  <QuestionInput label="6. Capacidade (L)" placeholder="Ex: 10.000 L" value={formData.q6_capacidade} onChange={(v: string) => setFormData({...formData, q6_capacidade: v})} />
                 </div>
-
-                <QuestionInput label="7 - Funcionário para auxiliar" placeholder="Nome completo do responsável na unidade" value={formData.q7_funcionario} onChange={(v) => setFormData({...formData, q7_funcionario: v})} />
+                <QuestionInput label="7. Funcionário para auxílio" placeholder="Nome do responsável" value={formData.q7_funcionario} onChange={(v: string) => setFormData({...formData, q7_funcionario: v})} />
               </div>
 
               <div className="pt-6">
-                <button 
-                  onClick={handleAutomaticSolicitation} 
-                  disabled={loading} 
-                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-200 hover:bg-blue-700 flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-50"
-                >
+                <button onClick={handleSend} disabled={loading} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg hover:bg-blue-700 flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-50">
                   {loading ? <><Loader2 className="animate-spin" size={20} /> ENVIANDO...</> : <><Send size={20} /> ENVIAR SOLICITAÇÃO POR E-MAIL</>}
                 </button>
               </div>
@@ -158,23 +137,11 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, userName, sabespC
   );
 }
 
-// Componentes Auxiliares com Tipagem Correta
-interface QuestionProps {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-}
-
-function QuestionSelect({ label, value, onChange }: QuestionProps) {
+function QuestionSelect({ label, value, onChange }: { label: string, value: string, onChange: (v: string) => void }) {
   return (
     <div className="space-y-1.5">
       <label className="text-[10px] font-black text-slate-500 uppercase ml-1">{label}</label>
-      <select 
-        className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-blue-500 outline-none text-sm font-bold text-slate-700 transition-all cursor-pointer"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
+      <select className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-blue-500 outline-none text-sm font-bold text-slate-700 cursor-pointer" value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">Selecione...</option>
         <option value="SIM">SIM</option>
         <option value="NÃO">NÃO</option>
@@ -183,17 +150,11 @@ function QuestionSelect({ label, value, onChange }: QuestionProps) {
   );
 }
 
-function QuestionInput({ label, value, placeholder, onChange }: QuestionProps) {
+function QuestionInput({ label, value, placeholder, onChange }: { label: string, value: string, placeholder: string, onChange: (v: string) => void }) {
   return (
     <div className="space-y-1.5">
       <label className="text-[10px] font-black text-slate-500 uppercase ml-1">{label}</label>
-      <input 
-        type="text"
-        placeholder={placeholder}
-        className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-blue-500 outline-none text-sm font-bold text-slate-700 transition-all"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
+      <input type="text" placeholder={placeholder} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-blue-500 outline-none text-sm font-bold text-slate-700" value={value} onChange={(e) => onChange(e.target.value)} />
     </div>
   );
 }
