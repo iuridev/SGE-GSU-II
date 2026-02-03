@@ -10,7 +10,9 @@ import {
   LogOut,
   Menu,
   X,
-  Bell
+  Bell,
+  BookOpen,
+  ClipboardCheck
 } from 'lucide-react';
 
 // Importação das Páginas
@@ -21,7 +23,8 @@ import { Remanejamento } from './pages/Remanejamento';
 import { Escola } from './pages/escola';
 import { Usuario } from './pages/Usuario';
 import { Login } from './pages/Login';
-import {Fiscalizacao} from './pages/fiscalizacao';
+import { Fiscalizacao } from './pages/fiscalizacao';
+import { Tutoriais } from './pages/Tutoriais';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -31,14 +34,12 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Verificar sessão inicial
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session) fetchUserRole(session.user.id);
       else setLoading(false);
     });
 
-    // Ouvir mudanças de autenticação - Corrigido para onAuthStateChange
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       if (session) fetchUserRole(session.user.id);
@@ -53,7 +54,6 @@ export default function App() {
 
   async function fetchUserRole(userId: string) {
     try {
-      // Adicionada conversão 'as any' para evitar o erro de tipo 'never'
       const { data } = await (supabase as any)
         .from('profiles')
         .select('role')
@@ -87,7 +87,6 @@ export default function App() {
     return <Login />;
   }
 
-  // Função para renderizar a página activa (Roteamento Manual)
   const renderContent = () => {
     switch (currentPage) {
       case 'dashboard': return <Dashboard />;
@@ -95,31 +94,28 @@ export default function App() {
       case 'zeladoria': return <Zeladoria />;
       case 'remanejamento': return <Remanejamento />;
       case 'escolas': return <Escola />;
+      case 'tutoriais': return <Tutoriais />;
+      case 'fiscalizacao': return <Fiscalizacao />;
       case 'usuarios': return <Usuario />;
-      case 'fiscalizacao': return <Fiscalizacao/>
       default: return <Dashboard />;
     }
   };
 
   const menuItems = [
     { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager'] },
+    { id: 'tutoriais', label: 'Manuais e Tutoriais', icon: <BookOpen size={20} />, roles: ['regional_admin', 'school_manager'] },
+    { id: 'fiscalizacao', label: 'Fiscalização', icon: <ClipboardCheck size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'consumo', label: 'Consumo de Água', icon: <Waves size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'zeladoria', label: 'Zeladoria', icon: <ShieldCheck size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'remanejamento', label: 'Remanejamento', icon: <ArrowRightLeft size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'escolas', label: 'Escolas', icon: <Building2 size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'usuarios', label: 'Gestão de Usuários', icon: <UserCog size={20} />, roles: ['regional_admin'] },
-    { id: 'fiscalizacao', label: 'Fiscalização Serviços', icon: <UserCog size={20} />, roles: ['regional_admin', 'school_manager'] },
-
   ];
 
   return (
     <div className="min-h-screen bg-[#f8fafc] flex font-sans text-slate-900">
-      
-      {/* Sidebar Lateral */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 text-white transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0`}>
         <div className="h-full flex flex-col p-6">
-          
-          {/* Logo */}
           <div className="flex items-center gap-3 px-2 mb-10">
             <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20 text-white">
               <Building2 size={22} />
@@ -129,8 +125,6 @@ export default function App() {
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Intelligence II</p>
             </div>
           </div>
-
-          {/* Navegação */}
           <nav className="flex-1 space-y-1">
             {menuItems.filter(item => item.roles.includes(userRole)).map((item) => (
               <button
@@ -150,12 +144,10 @@ export default function App() {
               </button>
             ))}
           </nav>
-
-          {/* Footer Sidebar */}
           <div className="pt-6 border-t border-white/10">
             <button 
               onClick={handleLogout}
-              className="w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl font-bold text-sm text-red-400 hover:bg-red-500/10 transition-all"
+              className="w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl font-bold text-sm text-red-400 hover:bg-red-50/10 transition-all"
             >
               <LogOut size={20} />
               Sair do Sistema
@@ -163,11 +155,7 @@ export default function App() {
           </div>
         </div>
       </aside>
-
-      {/* Área Principal de Conteúdo */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden h-screen">
-        
-        {/* Header Superior */}
         <header className="h-20 bg-white border-b border-slate-100 flex items-center justify-between px-8 shrink-0">
           <div className="flex items-center gap-4">
             <button 
@@ -180,7 +168,6 @@ export default function App() {
               {menuItems.find(i => i.id === currentPage)?.label || 'Painel'}
             </h2>
           </div>
-
           <div className="flex items-center gap-6">
             <button className="relative p-2 text-slate-400 hover:text-blue-600 transition-colors">
               <Bell size={22} />
@@ -198,8 +185,6 @@ export default function App() {
             </div>
           </div>
         </header>
-
-        {/* Scrollable Content Container */}
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
           <div className="max-w-7xl mx-auto">
             {renderContent()}
