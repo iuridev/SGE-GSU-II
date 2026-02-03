@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
-  MapPin, Phone, Mail, 
+  MapPin, Phone, 
   Search, Plus, GraduationCap, 
   Trash2, Edit, X, Save, UserCog, ShieldCheck,
   Building2, Zap, Droplets, Hash,
   Calendar, Layers, Clock, DoorOpen, Compass, ArrowUpCircle,
-  Loader2
+  Loader2, User
 } from 'lucide-react';
 
 // Tipos atualizados com CIE, SGI e FDE
@@ -97,7 +97,9 @@ export function Escola() {
     setFormData({
       teaching_types: [],
       periods: [],
-      has_elevator: false
+      has_elevator: false,
+      director_name: '',
+      manager_name: ''
     });
     setIsSchoolModalOpen(true);
   }
@@ -224,6 +226,10 @@ export function Escola() {
               </div>
               
               <div className="space-y-4 text-sm text-slate-600 mb-6">
+                <div className="flex items-center gap-3">
+                  <User className="w-5 h-5 text-indigo-400 shrink-0" />
+                  <span className="font-bold text-xs uppercase">{escola.director_name || 'Diretor não informado'}</span>
+                </div>
                 <div className="flex items-start gap-3">
                   <MapPin className="w-5 h-5 text-indigo-400 mt-0.5 shrink-0" />
                   <span className="font-medium text-xs leading-relaxed">{escola.address || 'Endereço não cadastrado'}</span>
@@ -231,10 +237,6 @@ export function Escola() {
                 <div className="flex items-center gap-3">
                   <Phone className="w-5 h-5 text-indigo-400 shrink-0" />
                   <span className="font-bold text-xs">{escola.phone || '(00) 0000-0000'}</span>
-                </div>
-                 <div className="flex items-center gap-3">
-                  <Mail className="w-5 h-5 text-indigo-400 shrink-0" />
-                  <span className="font-medium text-xs truncate">{escola.email || 'sem@email.com'}</span>
                 </div>
               </div>
 
@@ -303,6 +305,22 @@ export function Escola() {
 
                   <section className="space-y-6">
                     <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">
+                      <div className="w-8 h-px bg-slate-100"></div> Equipe Gestora
+                    </h3>
+                    <div className="grid grid-cols-1 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Nome do Diretor(a)</label>
+                        <input placeholder="Nome completo do Diretor" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.director_name || ''} onChange={e => setFormData({...formData, director_name: e.target.value})} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Nome do Vice-Diretor / GOE</label>
+                        <input placeholder="Nome completo do Vice ou Gerente" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.manager_name || ''} onChange={e => setFormData({...formData, manager_name: e.target.value})} />
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="space-y-6">
+                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">
                       <div className="w-8 h-px bg-slate-100"></div> Localização e Contato
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -324,10 +342,13 @@ export function Escola() {
                       </div>
                     </div>
                   </section>
+                </div>
 
+                {/* LADO DIREITO: INFRAESTRUTURA */}
+                <div className="space-y-10">
                   <section className="space-y-6">
                     <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">
-                      <div className="w-8 h-px bg-slate-100"></div> Dados Administrativos
+                      <div className="w-8 h-px bg-slate-100"></div> Dados de Consumo
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-1.5">
@@ -340,10 +361,7 @@ export function Escola() {
                       </div>
                     </div>
                   </section>
-                </div>
 
-                {/* LADO DIREITO: INFRAESTRUTURA */}
-                <div className="space-y-10">
                   <section className="space-y-6">
                     <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">
                       <div className="w-8 h-px bg-slate-100"></div> Infraestrutura do Prédio
