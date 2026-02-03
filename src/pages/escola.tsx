@@ -6,10 +6,10 @@ import {
   Trash2, Edit, X, Save, UserCog, ShieldCheck,
   Building2, Zap, Droplets, Hash,
   Calendar, Layers, Clock, DoorOpen, Compass, ArrowUpCircle,
-  Loader2, User
+  Loader2, User, Users, UsersRound, 
 } from 'lucide-react';
 
-// Tipos atualizados com CIE, SGI e FDE
+// Tipos atualizados
 interface School {
   id: string;
   name: string;
@@ -19,9 +19,9 @@ interface School {
   zip_code: string | null;
   director_name: string | null;
   manager_name: string | null;
-  cie_code: string | null;           // Novo campo específico para CIE
-  fde_code: string | null;           // Agora usado especificamente para FDE
-  sgi_code: string | null;           // SGI
+  cie_code: string | null;           
+  fde_code: string | null;           
+  sgi_code: string | null;           
   building_year: number | null;
   sector_number: string | null;
   teaching_types: string[] | null;   
@@ -50,6 +50,8 @@ const SERVICE_TYPES = ['LIMPEZA', 'CUIDADOR', 'MERENDA', 'TELEFONE', 'AGUA', 'VI
 const TEACHING_OPTIONS = ['Fundamental I', 'Fundamental II', 'Ensino Médio'];
 const PERIOD_OPTIONS = ['Manhã', 'Tarde', 'Noite', 'Integral 9h', 'Integral 7h'];
 
+type TabType = 'identificacao' | 'localizacao' | 'infraestrutura' | 'ensino';
+
 export function Escola() {
   const [escolas, setEscolas] = useState<School[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,6 +61,7 @@ export function Escola() {
   const [isSchoolModalOpen, setIsSchoolModalOpen] = useState(false);
   const [isFiscalModalOpen, setIsFiscalModalOpen] = useState(false);
   const [editingSchool, setEditingSchool] = useState<School | null>(null);
+  const [activeTab, setActiveTab] = useState<TabType>('identificacao');
   
   const [formData, setFormData] = useState<Partial<School>>({
     teaching_types: [],
@@ -99,8 +102,15 @@ export function Escola() {
       periods: [],
       has_elevator: false,
       director_name: '',
-      manager_name: ''
+      manager_name: '',
+      student_count: 0,
+      teacher_count: 0,
+      latitude: null,
+      longitude: null,
+      sabesp_supply_id: '',
+      edp_installation_id: ''
     });
+    setActiveTab('identificacao');
     setIsSchoolModalOpen(true);
   }
 
@@ -111,6 +121,7 @@ export function Escola() {
       teaching_types: school.teaching_types || [],
       periods: school.periods || []
     });
+    setActiveTab('identificacao');
     setIsSchoolModalOpen(true);
   }
 
@@ -200,9 +211,9 @@ export function Escola() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {filteredEscolas.map((escola) => (
             <div key={escola.id} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl hover:shadow-2xl hover:-translate-y-1 transition-all group relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-110"></div>
+              <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-110 z-0"></div>
               
-              <div className="absolute top-6 right-6 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+              <div className="absolute top-6 right-6 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-30">
                 <button onClick={() => { setEditingSchool(escola); setIsFiscalModalOpen(true); }} className="p-2.5 bg-white shadow-lg text-slate-500 hover:text-indigo-600 rounded-xl transition-all border border-slate-100"><UserCog className="w-4 h-4" /></button>
                 {userRole === 'regional_admin' && (
                   <>
@@ -212,20 +223,28 @@ export function Escola() {
                 )}
               </div>
 
-              <div className="flex items-start justify-between mb-6">
-                <div className="p-4 bg-indigo-600 rounded-2xl text-white shadow-lg shadow-indigo-100">
+              <div className="relative z-20 flex items-start gap-5 mb-6">
+                <div className="p-4 bg-indigo-600 rounded-2xl text-white shadow-lg shadow-indigo-100 shrink-0">
                   <GraduationCap className="w-8 h-8" />
+                </div>
+                <div className="flex flex-col gap-1.5 mt-1">
+                   <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                      <Users size={12} className="text-indigo-500"/> {escola.student_count || 0} Alunos
+                   </div>
+                   <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                      <UsersRound size={12} className="text-indigo-500"/> {escola.teacher_count || 0} Professores
+                   </div>
                 </div>
               </div>
               
-              <h3 className="font-black text-slate-900 text-xl mb-1 line-clamp-1 pr-10 uppercase tracking-tight" title={escola.name}>{escola.name}</h3>
-              <div className="flex flex-wrap gap-1.5 mb-6">
+              <h3 className="font-black text-slate-900 text-xl mb-1 line-clamp-1 pr-10 uppercase tracking-tight relative z-10" title={escola.name}>{escola.name}</h3>
+              <div className="flex flex-wrap gap-1.5 mb-6 relative z-10">
                 <span className="bg-slate-100 px-2 py-0.5 rounded-lg text-[9px] font-black text-slate-500 uppercase tracking-widest border border-slate-200">CIE: {escola.cie_code || '---'}</span>
                 <span className="bg-blue-50 px-2 py-0.5 rounded-lg text-[9px] font-black text-blue-600 uppercase tracking-widest border border-blue-100">SGI: {escola.sgi_code || '---'}</span>
                 <span className="bg-indigo-50 px-2 py-0.5 rounded-lg text-[9px] font-black text-indigo-600 uppercase tracking-widest border border-indigo-100">FDE: {escola.fde_code || '---'}</span>
               </div>
               
-              <div className="space-y-4 text-sm text-slate-600 mb-6">
+              <div className="space-y-4 text-sm text-slate-600 mb-6 relative z-10">
                 <div className="flex items-center gap-3">
                   <User className="w-5 h-5 text-indigo-400 shrink-0" />
                   <span className="font-bold text-xs uppercase">{escola.director_name || 'Diretor não informado'}</span>
@@ -240,7 +259,7 @@ export function Escola() {
                 </div>
               </div>
 
-              <div className="pt-6 border-t border-slate-50 grid grid-cols-2 gap-4">
+              <div className="pt-6 border-t border-slate-50 grid grid-cols-2 gap-4 relative z-10">
                 <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400" title="Instalação EDP">
                     <div className="p-1.5 bg-amber-50 rounded-lg text-amber-500"><Zap size={14} /></div>
                     <span className="truncate">{escola.edp_installation_id || '---'}</span>
@@ -255,32 +274,38 @@ export function Escola() {
         </div>
       )}
 
-      {/* MODAL DE CADASTRO/EDIÇÃO ATUALIZADO */}
+      {/* MODAL DE CADASTRO/EDIÇÃO COM ABAS */}
       {isSchoolModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-hidden">
-          <div className="bg-white rounded-[3rem] w-full max-w-5xl max-h-[95vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden border border-white">
+          <div className="bg-white rounded-[3rem] w-full max-w-4xl max-h-[95vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden border border-white">
             <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 bg-indigo-600 rounded-[1.5rem] flex items-center justify-center text-white shadow-xl shadow-indigo-100"><Building2 size={28}/></div>
                 <div>
                   <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">
-                    {editingSchool ? 'Ficha da Unidade' : 'Nova Unidade'}
+                    {editingSchool ? 'Editar Unidade' : 'Nova Unidade'}
                   </h2>
                   <p className="text-xs text-indigo-600 font-black uppercase tracking-[0.2em] mt-1">SGE-GSU Intelligence System</p>
                 </div>
               </div>
               <button onClick={() => setIsSchoolModalOpen(false)} className="hover:bg-white p-3 rounded-full transition-all text-slate-400 shadow-sm border border-transparent hover:border-slate-100"><X size={24} /></button>
             </div>
+
+            {/* NAVEGAÇÃO POR ABAS */}
+            <div className="px-8 pt-4 bg-slate-50/50 flex gap-2 border-b border-slate-100">
+               <TabButton active={activeTab === 'identificacao'} onClick={() => setActiveTab('identificacao')} icon={<Hash size={14}/>} label="Identificação" />
+               <TabButton active={activeTab === 'localizacao'} onClick={() => setActiveTab('localizacao')} icon={<MapPin size={14}/>} label="Localização" />
+               <TabButton active={activeTab === 'infraestrutura'} onClick={() => setActiveTab('infraestrutura')} icon={<Building2 size={14}/>} label="Infraestrutura" />
+               <TabButton active={activeTab === 'ensino'} onClick={() => setActiveTab('ensino')} icon={<GraduationCap size={14}/>} label="Ensino" />
+            </div>
             
-            <form onSubmit={saveSchool} className="p-10 overflow-y-auto custom-scrollbar bg-white">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                
-                {/* LADO ESQUERDO: IDENTIFICAÇÃO E CONTATO */}
-                <div className="space-y-10">
+            <form onSubmit={saveSchool} className="p-8 overflow-y-auto custom-scrollbar bg-white flex-1">
+              
+              {/* ABA: IDENTIFICAÇÃO */}
+              {activeTab === 'identificacao' && (
+                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
                   <section className="space-y-6">
-                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">
-                      <div className="w-8 h-px bg-slate-100"></div> Identificação Primária
-                    </h3>
+                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">Dados Principais</h3>
                     <div className="space-y-4">
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Nome da Unidade Escolar</label>
@@ -303,29 +328,45 @@ export function Escola() {
                     </div>
                   </section>
 
-                  <section className="space-y-6">
-                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">
-                      <div className="w-8 h-px bg-slate-100"></div> Equipe Gestora
-                    </h3>
-                    <div className="grid grid-cols-1 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Nome do Diretor(a)</label>
-                        <input placeholder="Nome completo do Diretor" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.director_name || ''} onChange={e => setFormData({...formData, director_name: e.target.value})} />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Nome do Vice-Diretor / GOE</label>
-                        <input placeholder="Nome completo do Vice ou Gerente" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.manager_name || ''} onChange={e => setFormData({...formData, manager_name: e.target.value})} />
-                      </div>
+                  <section className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-6">
+                       <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">Gestão</h3>
+                       <div className="space-y-4">
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Diretor(a)</label>
+                            <input placeholder="Nome completo" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.director_name || ''} onChange={e => setFormData({...formData, director_name: e.target.value})} />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Vice-Diretor / GOE</label>
+                            <input placeholder="Nome completo" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.manager_name || ''} onChange={e => setFormData({...formData, manager_name: e.target.value})} />
+                          </div>
+                       </div>
+                    </div>
+                    <div className="space-y-6">
+                       <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">Censo</h3>
+                       <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><Users size={12}/> Alunos</label>
+                            <input type="number" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.student_count || ''} onChange={e => setFormData({...formData, student_count: Number(e.target.value)})} />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><UsersRound size={12}/> Professores</label>
+                            <input type="number" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.teacher_count || ''} onChange={e => setFormData({...formData, teacher_count: Number(e.target.value)})} />
+                          </div>
+                       </div>
                     </div>
                   </section>
+                </div>
+              )}
 
+              {/* ABA: LOCALIZAÇÃO */}
+              {activeTab === 'localizacao' && (
+                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
                   <section className="space-y-6">
-                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">
-                      <div className="w-8 h-px bg-slate-100"></div> Localização e Contato
-                    </h3>
+                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">Endereço e Contato</h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="md:col-span-2 space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Endereço Completo</label>
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Logradouro Completo</label>
                         <input className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.address || ''} onChange={e => setFormData({...formData, address: e.target.value})} />
                       </div>
                       <div className="space-y-1.5">
@@ -342,117 +383,109 @@ export function Escola() {
                       </div>
                     </div>
                   </section>
-                </div>
-
-                {/* LADO DIREITO: INFRAESTRUTURA */}
-                <div className="space-y-10">
-                  <section className="space-y-6">
-                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">
-                      <div className="w-8 h-px bg-slate-100"></div> Dados de Consumo
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Instalação EDP</label>
-                        <input className="w-full p-4 bg-amber-50/30 border-2 border-amber-100/50 rounded-2xl font-bold text-amber-700 focus:border-amber-500 outline-none transition-all" value={formData.edp_installation_id || ''} onChange={e => setFormData({...formData, edp_installation_id: e.target.value})} />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Fornecimento SABESP</label>
-                        <input className="w-full p-4 bg-blue-50/30 border-2 border-blue-100/50 rounded-2xl font-bold text-blue-700 focus:border-blue-500 outline-none transition-all" value={formData.sabesp_supply_id || ''} onChange={e => setFormData({...formData, sabesp_supply_id: e.target.value})} />
-                      </div>
-                    </div>
-                  </section>
 
                   <section className="space-y-6">
-                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">
-                      <div className="w-8 h-px bg-slate-100"></div> Infraestrutura do Prédio
-                    </h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><Calendar size={12}/> Ano do Prédio</label>
-                        <input type="number" placeholder="Ex: 1985" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.building_year || ''} onChange={e => setFormData({...formData, building_year: Number(e.target.value)})} />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><Layers size={12}/> Número Setor</label>
-                        <input placeholder="Setor A" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.sector_number || ''} onChange={e => setFormData({...formData, sector_number: e.target.value})} />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><DoorOpen size={12}/> Qtd. de Salas</label>
-                        <input type="number" placeholder="0" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.room_count || ''} onChange={e => setFormData({...formData, room_count: Number(e.target.value)})} />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><Hash size={12}/> Inscrição Imobiliária</label>
-                        <input placeholder="Matrícula" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.property_registration || ''} onChange={e => setFormData({...formData, property_registration: e.target.value})} />
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-4 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl group transition-all hover:bg-white hover:border-indigo-100">
-                      <div className={`p-3 rounded-xl transition-all ${formData.has_elevator ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-white text-slate-300'}`}>
-                        <ArrowUpCircle size={20} />
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-[10px] font-black text-slate-500 uppercase leading-none">Acessibilidade</p>
-                        <p className="text-xs font-bold text-slate-400 mt-1">A unidade possui elevador funcional?</p>
-                      </div>
-                      <button 
-                        type="button" 
-                        onClick={() => setFormData({...formData, has_elevator: !formData.has_elevator})}
-                        className={`w-14 h-8 rounded-full relative transition-all ${formData.has_elevator ? 'bg-indigo-600' : 'bg-slate-200'}`}
-                      >
-                        <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all ${formData.has_elevator ? 'left-7' : 'left-1'}`}></div>
-                      </button>
-                    </div>
-                  </section>
-
-                  <section className="space-y-6">
-                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">
-                      <div className="w-8 h-px bg-slate-100"></div> Oferta de Ensino
-                    </h3>
-                    <div className="space-y-6">
-                      <div className="space-y-3">
-                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5">Tipos de Ensino</label>
-                        <div className="flex flex-wrap gap-2">
-                          {TEACHING_OPTIONS.map(opt => (
-                            <button key={opt} type="button" onClick={() => toggleArrayItem('teaching_types', opt)} className={`px-4 py-2.5 rounded-xl text-[11px] font-black transition-all border-2 ${formData.teaching_types?.includes(opt) ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-white border-slate-100 text-slate-400 hover:border-indigo-200'}`}>
-                              {opt}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="space-y-3">
-                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><Clock size={12}/> Período de Atendimento</label>
-                        <div className="flex flex-wrap gap-2">
-                          {PERIOD_OPTIONS.map(opt => (
-                            <button key={opt} type="button" onClick={() => toggleArrayItem('periods', opt)} className={`px-4 py-2.5 rounded-xl text-[11px] font-black transition-all border-2 ${formData.periods?.includes(opt) ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-100' : 'bg-white border-slate-100 text-slate-400 hover:border-blue-200'}`}>
-                              {opt}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </section>
-
-                  <section className="space-y-6">
-                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">
-                      <div className="w-8 h-px bg-slate-100"></div> Geolocalização
-                    </h3>
+                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">Geolocalização (Mapa)</h3>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><Compass size={12}/> Latitude</label>
-                        <input type="number" step="any" placeholder="-23.0000" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-mono font-bold focus:border-indigo-500 outline-none transition-all" value={formData.latitude || ''} onChange={e => setFormData({...formData, latitude: Number(e.target.value)})} />
+                        <input type="number" step="any" placeholder="-23.0000" className="w-full p-4 bg-indigo-50/50 border-2 border-indigo-100 rounded-2xl font-mono font-bold focus:border-indigo-500 outline-none transition-all" value={formData.latitude || ''} onChange={e => setFormData({...formData, latitude: Number(e.target.value)})} />
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><Compass size={12}/> Longitude</label>
-                        <input type="number" step="any" placeholder="-46.0000" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-mono font-bold focus:border-indigo-500 outline-none transition-all" value={formData.longitude || ''} onChange={e => setFormData({...formData, longitude: Number(e.target.value)})} />
+                        <input type="number" step="any" placeholder="-46.0000" className="w-full p-4 bg-indigo-50/50 border-2 border-indigo-100 rounded-2xl font-mono font-bold focus:border-indigo-500 outline-none transition-all" value={formData.longitude || ''} onChange={e => setFormData({...formData, longitude: Number(e.target.value)})} />
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-medium italic">* Coordenadas essenciais para visualização no mapa do painel principal.</p>
+                  </section>
+                </div>
+              )}
+
+              {/* ABA: INFRAESTRUTURA */}
+              {activeTab === 'infraestrutura' && (
+                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <section className="space-y-6">
+                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">Prédio e Património</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1"><Calendar size={12}/> Ano</label>
+                        <input type="number" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.building_year || ''} onChange={e => setFormData({...formData, building_year: Number(e.target.value)})} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1"><Layers size={12}/> Setor</label>
+                        <input className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.sector_number || ''} onChange={e => setFormData({...formData, sector_number: e.target.value})} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1"><DoorOpen size={12}/> Salas</label>
+                        <input type="number" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.room_count || ''} onChange={e => setFormData({...formData, room_count: Number(e.target.value)})} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1"><Hash size={12}/> Matrícula</label>
+                        <input className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.property_registration || ''} onChange={e => setFormData({...formData, property_registration: e.target.value})} />
                       </div>
                     </div>
                   </section>
-                </div>
-              </div>
 
-              <div className="pt-12 flex justify-end gap-4 sticky bottom-0 bg-white border-t border-slate-100 mt-12 pb-4">
-                <button type="button" onClick={() => setIsSchoolModalOpen(false)} className="px-8 py-4 text-slate-400 font-black hover:text-slate-600 transition-all uppercase tracking-widest text-xs">Cancelar</button>
-                <button type="submit" className="px-14 py-4 bg-indigo-600 text-white rounded-3xl font-black shadow-2xl shadow-indigo-200 hover:bg-indigo-700 flex items-center gap-3 active:scale-95 transition-all uppercase tracking-widest text-xs">
-                  <Save size={20} /> Finalizar Cadastro
+                  <section className="space-y-6">
+                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">Contas de Consumo</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-2 text-blue-600"><Droplets size={12}/> Código SABESP</label>
+                        <input placeholder="Nº Fornecimento" className="w-full p-4 bg-blue-50/30 border-2 border-blue-100 rounded-2xl font-bold text-blue-700 focus:border-blue-500 outline-none transition-all" value={formData.sabesp_supply_id || ''} onChange={e => setFormData({...formData, sabesp_supply_id: e.target.value})} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-2 text-amber-600"><Zap size={12}/> Instalação EDP</label>
+                        <input placeholder="Nº Instalação" className="w-full p-4 bg-amber-50/30 border-2 border-amber-100 rounded-2xl font-bold text-amber-700 focus:border-amber-500 outline-none transition-all" value={formData.edp_installation_id || ''} onChange={e => setFormData({...formData, edp_installation_id: e.target.value})} />
+                      </div>
+                    </div>
+                  </section>
+
+                  <div className="flex items-center gap-4 p-5 bg-slate-50 border-2 border-slate-100 rounded-[2rem] group transition-all hover:bg-white hover:border-indigo-100">
+                    <div className={`p-4 rounded-xl transition-all ${formData.has_elevator ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-white text-slate-300'}`}>
+                      <ArrowUpCircle size={24} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-[10px] font-black text-slate-500 uppercase leading-none">Acessibilidade</p>
+                      <p className="text-xs font-bold text-slate-400 mt-1">A unidade possui elevador funcional?</p>
+                    </div>
+                    <button type="button" onClick={() => setFormData({...formData, has_elevator: !formData.has_elevator})} className={`w-14 h-8 rounded-full relative transition-all ${formData.has_elevator ? 'bg-indigo-600' : 'bg-slate-200'}`}>
+                      <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all ${formData.has_elevator ? 'left-7' : 'left-1'}`}></div>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ABA: ENSINO */}
+              {activeTab === 'ensino' && (
+                <div className="space-y-10 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <section className="space-y-6">
+                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">Níveis de Ensino</h3>
+                    <div className="flex flex-wrap gap-3">
+                      {TEACHING_OPTIONS.map(opt => (
+                        <button key={opt} type="button" onClick={() => toggleArrayItem('teaching_types', opt)} className={`px-6 py-4 rounded-2xl text-xs font-black transition-all border-2 ${formData.teaching_types?.includes(opt) ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-100 scale-[1.02]' : 'bg-white border-slate-100 text-slate-400 hover:border-indigo-200'}`}>
+                          {opt}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="space-y-6">
+                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">Períodos de Funcionamento</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {PERIOD_OPTIONS.map(opt => (
+                        <button key={opt} type="button" onClick={() => toggleArrayItem('periods', opt)} className={`p-4 rounded-2xl text-[11px] font-black transition-all border-2 text-center flex items-center justify-center gap-2 ${formData.periods?.includes(opt) ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-100' : 'bg-white border-slate-100 text-slate-400 hover:border-blue-200'}`}>
+                          <Clock size={14}/> {opt}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+              )}
+
+              <div className="pt-8 flex justify-end gap-4 border-t border-slate-100 mt-12">
+                <button type="button" onClick={() => setIsSchoolModalOpen(false)} className="px-8 py-3 text-slate-400 font-black hover:text-slate-600 transition-all uppercase tracking-widest text-[10px]">Cancelar</button>
+                <button type="submit" className="px-12 py-3 bg-indigo-600 text-white rounded-2xl font-black shadow-2xl shadow-indigo-200 hover:bg-indigo-700 flex items-center gap-2 active:scale-95 transition-all uppercase tracking-widest text-[10px]">
+                  <Save size={18} /> {editingSchool ? 'Guardar Alterações' : 'Concluir Cadastro'}
                 </button>
               </div>
             </form>
@@ -469,6 +502,20 @@ export function Escola() {
       )}
 
     </div>
+  );
+}
+
+// Componente auxiliar para os botões das abas
+function TabButton({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) {
+  return (
+    <button 
+      type="button"
+      onClick={onClick}
+      className={`px-6 py-4 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all border-b-2 ${active ? 'text-indigo-600 border-indigo-600' : 'text-slate-400 border-transparent hover:text-slate-600'}`}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
 
