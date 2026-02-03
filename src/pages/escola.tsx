@@ -6,7 +6,8 @@ import {
   Trash2, Edit, X, Save, UserCog, ShieldCheck,
   Building2, Zap, Droplets, Hash,
   Calendar, Layers, Clock, DoorOpen, Compass, ArrowUpCircle,
-  Loader2, User, Users, UsersRound, 
+  Loader2, User, Users, UsersRound, LayoutGrid,
+  Info
 } from 'lucide-react';
 
 // Tipos atualizados
@@ -56,6 +57,7 @@ export function Escola() {
   const [escolas, setEscolas] = useState<School[]>([]);
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string>('');
+  const [userSchoolId, setUserSchoolId] = useState<string | null>(null); 
   const [searchTerm, setSearchTerm] = useState('');
   
   const [isSchoolModalOpen, setIsSchoolModalOpen] = useState(false);
@@ -70,22 +72,58 @@ export function Escola() {
   });
 
   useEffect(() => {
-    fetchProfile();
-    fetchEscolas();
+    const initialize = async () => {
+      setLoading(true);
+      const profile = await fetchProfile();
+      if (profile) {
+        await fetchEscolas(profile.role, profile.school_id);
+      } else {
+        setLoading(false);
+      }
+    };
+    initialize();
   }, []);
 
   async function fetchProfile() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const { data } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-      setUserRole((data as any)?.role || '');
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('role, school_id')
+          .eq('id', user.id)
+          .single();
+        
+        if (error) throw error;
+
+        const profile = data as any;
+        setUserRole(profile?.role || '');
+        setUserSchoolId(profile?.school_id || null);
+        return profile;
+      }
+    } catch (error) {
+      console.error('Erro ao carregar perfil:', error);
     }
+    return null;
   }
 
-  async function fetchEscolas() {
-    setLoading(true);
+  async function fetchEscolas(role?: string, sId?: string | null) {
+    const activeRole = role || userRole;
+    const activeSchoolId = sId !== undefined ? sId : userSchoolId;
+
     try {
-      const { data, error } = await (supabase as any).from('schools').select('*').order('name');
+      let query = (supabase as any).from('schools').select('*');
+      
+      if (activeRole === 'school_manager') {
+        if (activeSchoolId) {
+          query = query.eq('id', activeSchoolId);
+        } else {
+          setEscolas([]);
+          return;
+        }
+      }
+
+      const { data, error } = await query.order('name');
       if (error) throw error;
       setEscolas(data || []);
     } catch (error) {
@@ -139,7 +177,11 @@ export function Escola() {
 
   async function saveSchool(e: React.FormEvent) {
     e.preventDefault();
-    if (userRole !== 'regional_admin') return;
+    
+    if (userRole !== 'regional_admin') {
+      alert("Acesso negado. Apenas o administrador regional pode alterar dados cadastrais.");
+      return;
+    }
     
     try {
       if (editingSchool?.id) {
@@ -158,6 +200,7 @@ export function Escola() {
   }
 
   const toggleArrayItem = (field: 'teaching_types' | 'periods', value: string) => {
+    if (userRole !== 'regional_admin') return; 
     const current = (formData[field] as string[]) || [];
     const updated = current.includes(value) 
       ? current.filter(item => item !== value)
@@ -171,15 +214,19 @@ export function Escola() {
     e.fde_code?.includes(searchTerm)
   );
 
+  const isAdmin = userRole === 'regional_admin';
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">Unidades Escolares</h1>
-          <p className="text-slate-500 font-medium">Gestão e infraestrutura da rede regional.</p>
+          <p className="text-slate-500 font-medium">
+            {userRole === 'school_manager' ? 'Informações detalhadas da sua unidade.' : 'Gestão e infraestrutura da rede regional.'}
+          </p>
         </div>
         
-        {userRole === 'regional_admin' && (
+        {isAdmin && (
           <button 
             onClick={handleNewSchool}
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-2xl font-black flex items-center gap-2 shadow-xl shadow-indigo-100 transition-all active:scale-95"
@@ -190,18 +237,20 @@ export function Escola() {
         )}
       </div>
 
-      <div className="bg-white p-4 rounded-[2rem] border border-slate-100 shadow-sm flex items-center gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-          <input 
-            type="text" 
-            placeholder="Buscar por nome, códigos ou endereço..." 
-            className="w-full pl-12 pr-4 py-3 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+      {isAdmin && (
+        <div className="bg-white p-4 rounded-[2rem] border border-slate-100 shadow-sm flex items-center gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+            <input 
+              type="text" 
+              placeholder="Buscar por nome, códigos ou endereço..." 
+              className="w-full pl-12 pr-4 py-3 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center h-64">
@@ -209,17 +258,38 @@ export function Escola() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {filteredEscolas.map((escola) => (
+          {filteredEscolas.length === 0 ? (
+            <div className="col-span-full py-20 text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100">
+               <Building2 size={48} className="mx-auto text-slate-200 mb-4"/>
+               <p className="text-slate-400 font-black uppercase text-xs tracking-widest">Nenhuma unidade escolar disponível para seu acesso.</p>
+            </div>
+          ) : filteredEscolas.map((escola) => (
             <div key={escola.id} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl hover:shadow-2xl hover:-translate-y-1 transition-all group relative overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-110 z-0"></div>
               
               <div className="absolute top-6 right-6 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-30">
-                <button onClick={() => { setEditingSchool(escola); setIsFiscalModalOpen(true); }} className="p-2.5 bg-white shadow-lg text-slate-500 hover:text-indigo-600 rounded-xl transition-all border border-slate-100"><UserCog className="w-4 h-4" /></button>
-                {userRole === 'regional_admin' && (
+                <button 
+                  onClick={() => { setEditingSchool(escola); setIsFiscalModalOpen(true); }} 
+                  className="p-2.5 bg-white shadow-lg text-slate-500 hover:text-indigo-600 rounded-xl transition-all border border-slate-100"
+                  title="Visualizar Fiscais"
+                >
+                  <UserCog className="w-4 h-4" />
+                </button>
+                
+                {isAdmin && (
                   <>
                     <button onClick={() => handleEditSchool(escola)} className="p-2.5 bg-white shadow-lg text-slate-500 hover:text-amber-600 rounded-xl transition-all border border-slate-100"><Edit className="w-4 h-4" /></button>
                     <button onClick={() => handleDeleteSchool(escola.id)} className="p-2.5 bg-white shadow-lg text-slate-500 hover:text-red-600 rounded-xl transition-all border border-slate-100"><Trash2 className="w-4 h-4" /></button>
                   </>
+                )}
+                {!isAdmin && (
+                  <button 
+                    onClick={() => handleEditSchool(escola)} 
+                    className="p-2.5 bg-white shadow-lg text-slate-500 hover:text-indigo-600 rounded-xl transition-all border border-slate-100"
+                    title="Ver Detalhes"
+                  >
+                    <LayoutGrid className="w-4 h-4" />
+                  </button>
                 )}
               </div>
 
@@ -283,7 +353,7 @@ export function Escola() {
                 <div className="w-14 h-14 bg-indigo-600 rounded-[1.5rem] flex items-center justify-center text-white shadow-xl shadow-indigo-100"><Building2 size={28}/></div>
                 <div>
                   <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">
-                    {editingSchool ? 'Editar Unidade' : 'Nova Unidade'}
+                    {isAdmin ? (editingSchool ? 'Editar Unidade' : 'Nova Unidade') : 'Ficha da Unidade'}
                   </h2>
                   <p className="text-xs text-indigo-600 font-black uppercase tracking-[0.2em] mt-1">SGE-GSU Intelligence System</p>
                 </div>
@@ -291,7 +361,6 @@ export function Escola() {
               <button onClick={() => setIsSchoolModalOpen(false)} className="hover:bg-white p-3 rounded-full transition-all text-slate-400 shadow-sm border border-transparent hover:border-slate-100"><X size={24} /></button>
             </div>
 
-            {/* NAVEGAÇÃO POR ABAS */}
             <div className="px-8 pt-4 bg-slate-50/50 flex gap-2 border-b border-slate-100">
                <TabButton active={activeTab === 'identificacao'} onClick={() => setActiveTab('identificacao')} icon={<Hash size={14}/>} label="Identificação" />
                <TabButton active={activeTab === 'localizacao'} onClick={() => setActiveTab('localizacao')} icon={<MapPin size={14}/>} label="Localização" />
@@ -301,7 +370,6 @@ export function Escola() {
             
             <form onSubmit={saveSchool} className="p-8 overflow-y-auto custom-scrollbar bg-white flex-1">
               
-              {/* ABA: IDENTIFICAÇÃO */}
               {activeTab === 'identificacao' && (
                 <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
                   <section className="space-y-6">
@@ -309,20 +377,20 @@ export function Escola() {
                     <div className="space-y-4">
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Nome da Unidade Escolar</label>
-                        <input required placeholder="Ex: EE PROFESSOR JOÃO DA SILVA" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-800 focus:border-indigo-500 outline-none transition-all" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} />
+                        <input disabled={!isAdmin} required placeholder="Ex: EE PROFESSOR JOÃO DA SILVA" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-800 focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} />
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="space-y-1.5">
                           <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><Hash size={12}/> CIE</label>
-                          <input placeholder="000000" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-mono font-bold focus:border-indigo-500 outline-none transition-all" value={formData.cie_code || ''} onChange={e => setFormData({...formData, cie_code: e.target.value})} />
+                          <input disabled={!isAdmin} placeholder="000000" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-mono font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.cie_code || ''} onChange={e => setFormData({...formData, cie_code: e.target.value})} />
                         </div>
                         <div className="space-y-1.5">
                           <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><Hash size={12}/> SGI</label>
-                          <input placeholder="0000" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-mono font-bold focus:border-indigo-500 outline-none transition-all" value={formData.sgi_code || ''} onChange={e => setFormData({...formData, sgi_code: e.target.value})} />
+                          <input disabled={!isAdmin} placeholder="0000" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-mono font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.sgi_code || ''} onChange={e => setFormData({...formData, sgi_code: e.target.value})} />
                         </div>
                         <div className="space-y-1.5">
                           <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><Hash size={12}/> FDE</label>
-                          <input placeholder="0000" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-mono font-bold focus:border-indigo-500 outline-none transition-all" value={formData.fde_code || ''} onChange={e => setFormData({...formData, fde_code: e.target.value})} />
+                          <input disabled={!isAdmin} placeholder="0000" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-mono font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.fde_code || ''} onChange={e => setFormData({...formData, fde_code: e.target.value})} />
                         </div>
                       </div>
                     </div>
@@ -334,11 +402,11 @@ export function Escola() {
                        <div className="space-y-4">
                           <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Diretor(a)</label>
-                            <input placeholder="Nome completo" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.director_name || ''} onChange={e => setFormData({...formData, director_name: e.target.value})} />
+                            <input disabled={!isAdmin} placeholder="Nome completo" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.director_name || ''} onChange={e => setFormData({...formData, director_name: e.target.value})} />
                           </div>
                           <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Vice-Diretor / GOE</label>
-                            <input placeholder="Nome completo" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.manager_name || ''} onChange={e => setFormData({...formData, manager_name: e.target.value})} />
+                            <input disabled={!isAdmin} placeholder="Nome completo" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.manager_name || ''} onChange={e => setFormData({...formData, manager_name: e.target.value})} />
                           </div>
                        </div>
                     </div>
@@ -347,11 +415,11 @@ export function Escola() {
                        <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><Users size={12}/> Alunos</label>
-                            <input type="number" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.student_count || ''} onChange={e => setFormData({...formData, student_count: Number(e.target.value)})} />
+                            <input disabled={!isAdmin} type="number" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.student_count || ''} onChange={e => setFormData({...formData, student_count: Number(e.target.value)})} />
                           </div>
                           <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><UsersRound size={12}/> Professores</label>
-                            <input type="number" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.teacher_count || ''} onChange={e => setFormData({...formData, teacher_count: Number(e.target.value)})} />
+                            <input disabled={!isAdmin} type="number" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.teacher_count || ''} onChange={e => setFormData({...formData, teacher_count: Number(e.target.value)})} />
                           </div>
                        </div>
                     </div>
@@ -359,7 +427,6 @@ export function Escola() {
                 </div>
               )}
 
-              {/* ABA: LOCALIZAÇÃO */}
               {activeTab === 'localizacao' && (
                 <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
                   <section className="space-y-6">
@@ -367,19 +434,19 @@ export function Escola() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="md:col-span-2 space-y-1.5">
                         <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Logradouro Completo</label>
-                        <input className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.address || ''} onChange={e => setFormData({...formData, address: e.target.value})} />
+                        <input disabled={!isAdmin} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.address || ''} onChange={e => setFormData({...formData, address: e.target.value})} />
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-black text-slate-500 uppercase ml-1">CEP</label>
-                        <input className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.zip_code || ''} onChange={e => setFormData({...formData, zip_code: e.target.value})} />
+                        <input disabled={!isAdmin} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.zip_code || ''} onChange={e => setFormData({...formData, zip_code: e.target.value})} />
                       </div>
                       <div className="md:col-span-2 space-y-1.5">
                         <label className="text-[10px] font-black text-slate-500 uppercase ml-1">E-mail Institucional</label>
-                        <input type="email" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.email || ''} onChange={e => setFormData({...formData, email: e.target.value})} />
+                        <input disabled={!isAdmin} type="email" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.email || ''} onChange={e => setFormData({...formData, email: e.target.value})} />
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Telefone</label>
-                        <input className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.phone || ''} onChange={e => setFormData({...formData, phone: e.target.value})} />
+                        <input disabled={!isAdmin} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.phone || ''} onChange={e => setFormData({...formData, phone: e.target.value})} />
                       </div>
                     </div>
                   </section>
@@ -389,19 +456,17 @@ export function Escola() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><Compass size={12}/> Latitude</label>
-                        <input type="number" step="any" placeholder="-23.0000" className="w-full p-4 bg-indigo-50/50 border-2 border-indigo-100 rounded-2xl font-mono font-bold focus:border-indigo-500 outline-none transition-all" value={formData.latitude || ''} onChange={e => setFormData({...formData, latitude: Number(e.target.value)})} />
+                        <input disabled={!isAdmin} type="number" step="any" placeholder="-23.0000" className="w-full p-4 bg-indigo-50/50 border-2 border-indigo-100 rounded-2xl font-mono font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.latitude || ''} onChange={e => setFormData({...formData, latitude: Number(e.target.value)})} />
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><Compass size={12}/> Longitude</label>
-                        <input type="number" step="any" placeholder="-46.0000" className="w-full p-4 bg-indigo-50/50 border-2 border-indigo-100 rounded-2xl font-mono font-bold focus:border-indigo-500 outline-none transition-all" value={formData.longitude || ''} onChange={e => setFormData({...formData, longitude: Number(e.target.value)})} />
+                        <input disabled={!isAdmin} type="number" step="any" placeholder="-46.0000" className="w-full p-4 bg-indigo-50/50 border-2 border-indigo-100 rounded-2xl font-mono font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.longitude || ''} onChange={e => setFormData({...formData, longitude: Number(e.target.value)})} />
                       </div>
                     </div>
-                    <p className="text-[10px] text-slate-400 font-medium italic">* Coordenadas essenciais para visualização no mapa do painel principal.</p>
                   </section>
                 </div>
               )}
 
-              {/* ABA: INFRAESTRUTURA */}
               {activeTab === 'infraestrutura' && (
                 <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
                   <section className="space-y-6">
@@ -409,19 +474,19 @@ export function Escola() {
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-black text-slate-500 uppercase ml-1"><Calendar size={12}/> Ano</label>
-                        <input type="number" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.building_year || ''} onChange={e => setFormData({...formData, building_year: Number(e.target.value)})} />
+                        <input disabled={!isAdmin} type="number" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.building_year || ''} onChange={e => setFormData({...formData, building_year: Number(e.target.value)})} />
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-black text-slate-500 uppercase ml-1"><Layers size={12}/> Setor</label>
-                        <input className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.sector_number || ''} onChange={e => setFormData({...formData, sector_number: e.target.value})} />
+                        <input disabled={!isAdmin} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.sector_number || ''} onChange={e => setFormData({...formData, sector_number: e.target.value})} />
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-black text-slate-500 uppercase ml-1"><DoorOpen size={12}/> Salas</label>
-                        <input type="number" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.room_count || ''} onChange={e => setFormData({...formData, room_count: Number(e.target.value)})} />
+                        <input disabled={!isAdmin} type="number" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.room_count || ''} onChange={e => setFormData({...formData, room_count: Number(e.target.value)})} />
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-black text-slate-500 uppercase ml-1"><Hash size={12}/> Matrícula</label>
-                        <input className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all" value={formData.property_registration || ''} onChange={e => setFormData({...formData, property_registration: e.target.value})} />
+                        <input disabled={!isAdmin} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.property_registration || ''} onChange={e => setFormData({...formData, property_registration: e.target.value})} />
                       </div>
                     </div>
                   </section>
@@ -431,16 +496,16 @@ export function Escola() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-2 text-blue-600"><Droplets size={12}/> Código SABESP</label>
-                        <input placeholder="Nº Fornecimento" className="w-full p-4 bg-blue-50/30 border-2 border-blue-100 rounded-2xl font-bold text-blue-700 focus:border-blue-500 outline-none transition-all" value={formData.sabesp_supply_id || ''} onChange={e => setFormData({...formData, sabesp_supply_id: e.target.value})} />
+                        <input disabled={!isAdmin} placeholder="Nº Fornecimento" className="w-full p-4 bg-blue-50/30 border-2 border-blue-100 rounded-2xl font-bold text-blue-700 focus:border-blue-500 outline-none transition-all disabled:opacity-70" value={formData.sabesp_supply_id || ''} onChange={e => setFormData({...formData, sabesp_supply_id: e.target.value})} />
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-2 text-amber-600"><Zap size={12}/> Instalação EDP</label>
-                        <input placeholder="Nº Instalação" className="w-full p-4 bg-amber-50/30 border-2 border-amber-100 rounded-2xl font-bold text-amber-700 focus:border-amber-500 outline-none transition-all" value={formData.edp_installation_id || ''} onChange={e => setFormData({...formData, edp_installation_id: e.target.value})} />
+                        <input disabled={!isAdmin} placeholder="Nº Instalação" className="w-full p-4 bg-amber-50/30 border-2 border-amber-100 rounded-2xl font-bold text-amber-700 focus:border-amber-500 outline-none transition-all disabled:opacity-70" value={formData.edp_installation_id || ''} onChange={e => setFormData({...formData, edp_installation_id: e.target.value})} />
                       </div>
                     </div>
                   </section>
 
-                  <div className="flex items-center gap-4 p-5 bg-slate-50 border-2 border-slate-100 rounded-[2rem] group transition-all hover:bg-white hover:border-indigo-100">
+                  <div className={`flex items-center gap-4 p-5 bg-slate-50 border-2 border-slate-100 rounded-[2rem] group transition-all ${!isAdmin ? 'opacity-70' : 'hover:bg-white hover:border-indigo-100'}`}>
                     <div className={`p-4 rounded-xl transition-all ${formData.has_elevator ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-white text-slate-300'}`}>
                       <ArrowUpCircle size={24} />
                     </div>
@@ -448,21 +513,31 @@ export function Escola() {
                       <p className="text-[10px] font-black text-slate-500 uppercase leading-none">Acessibilidade</p>
                       <p className="text-xs font-bold text-slate-400 mt-1">A unidade possui elevador funcional?</p>
                     </div>
-                    <button type="button" onClick={() => setFormData({...formData, has_elevator: !formData.has_elevator})} className={`w-14 h-8 rounded-full relative transition-all ${formData.has_elevator ? 'bg-indigo-600' : 'bg-slate-200'}`}>
+                    <button 
+                      type="button" 
+                      disabled={!isAdmin}
+                      onClick={() => setFormData({...formData, has_elevator: !formData.has_elevator})} 
+                      className={`w-14 h-8 rounded-full relative transition-all ${formData.has_elevator ? 'bg-indigo-600' : 'bg-slate-200'} ${!isAdmin && 'cursor-not-allowed'}`}
+                    >
                       <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all ${formData.has_elevator ? 'left-7' : 'left-1'}`}></div>
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* ABA: ENSINO */}
               {activeTab === 'ensino' && (
                 <div className="space-y-10 animate-in fade-in slide-in-from-bottom-2 duration-300">
                   <section className="space-y-6">
                     <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">Níveis de Ensino</h3>
                     <div className="flex flex-wrap gap-3">
                       {TEACHING_OPTIONS.map(opt => (
-                        <button key={opt} type="button" onClick={() => toggleArrayItem('teaching_types', opt)} className={`px-6 py-4 rounded-2xl text-xs font-black transition-all border-2 ${formData.teaching_types?.includes(opt) ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-100 scale-[1.02]' : 'bg-white border-slate-100 text-slate-400 hover:border-indigo-200'}`}>
+                        <button 
+                          key={opt} 
+                          type="button" 
+                          disabled={!isAdmin}
+                          onClick={() => toggleArrayItem('teaching_types', opt)} 
+                          className={`px-6 py-4 rounded-2xl text-xs font-black transition-all border-2 ${formData.teaching_types?.includes(opt) ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-100 scale-[1.02]' : 'bg-white border-slate-100 text-slate-400 hover:border-indigo-200'} ${!isAdmin && 'cursor-not-allowed opacity-70'}`}
+                        >
                           {opt}
                         </button>
                       ))}
@@ -473,7 +548,13 @@ export function Escola() {
                     <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">Períodos de Funcionamento</h3>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                       {PERIOD_OPTIONS.map(opt => (
-                        <button key={opt} type="button" onClick={() => toggleArrayItem('periods', opt)} className={`p-4 rounded-2xl text-[11px] font-black transition-all border-2 text-center flex items-center justify-center gap-2 ${formData.periods?.includes(opt) ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-100' : 'bg-white border-slate-100 text-slate-400 hover:border-blue-200'}`}>
+                        <button 
+                          key={opt} 
+                          type="button" 
+                          disabled={!isAdmin}
+                          onClick={() => toggleArrayItem('periods', opt)} 
+                          className={`p-4 rounded-2xl text-[11px] font-black transition-all border-2 text-center flex items-center justify-center gap-2 ${formData.periods?.includes(opt) ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-100' : 'bg-white border-slate-100 text-slate-400 hover:border-blue-200'} ${!isAdmin && 'cursor-not-allowed opacity-70'}`}
+                        >
                           <Clock size={14}/> {opt}
                         </button>
                       ))}
@@ -483,10 +564,14 @@ export function Escola() {
               )}
 
               <div className="pt-8 flex justify-end gap-4 border-t border-slate-100 mt-12">
-                <button type="button" onClick={() => setIsSchoolModalOpen(false)} className="px-8 py-3 text-slate-400 font-black hover:text-slate-600 transition-all uppercase tracking-widest text-[10px]">Cancelar</button>
-                <button type="submit" className="px-12 py-3 bg-indigo-600 text-white rounded-2xl font-black shadow-2xl shadow-indigo-200 hover:bg-indigo-700 flex items-center gap-2 active:scale-95 transition-all uppercase tracking-widest text-[10px]">
-                  <Save size={18} /> {editingSchool ? 'Guardar Alterações' : 'Concluir Cadastro'}
+                <button type="button" onClick={() => setIsSchoolModalOpen(false)} className="px-8 py-3 text-slate-400 font-black hover:text-slate-600 transition-all uppercase tracking-widest text-[10px]">
+                  {isAdmin ? 'Cancelar' : 'Fechar'}
                 </button>
+                {isAdmin && (
+                  <button type="submit" className="px-12 py-3 bg-indigo-600 text-white rounded-2xl font-black shadow-2xl shadow-indigo-200 hover:bg-indigo-700 flex items-center gap-2 active:scale-95 transition-all uppercase tracking-widest text-[10px]">
+                    <Save size={18} /> {editingSchool ? 'Guardar Alterações' : 'Concluir Cadastro'}
+                  </button>
+                )}
               </div>
             </form>
           </div>
@@ -505,7 +590,6 @@ export function Escola() {
   );
 }
 
-// Componente auxiliar para os botões das abas
 function TabButton({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) {
   return (
     <button 
@@ -524,6 +608,8 @@ function FiscalManagerModal({ school, userRole, onClose }: { school: School, use
   const [loading, setLoading] = useState(true);
   const [newFiscal, setNewFiscal] = useState<Partial<Fiscal>>({ contract_type: 'LIMPEZA' });
 
+  const isAdmin = userRole === 'regional_admin';
+
   useEffect(() => {
     fetchFiscals();
   }, [school.id]);
@@ -536,7 +622,7 @@ function FiscalManagerModal({ school, userRole, onClose }: { school: School, use
   }
 
   async function handleAddFiscal() {
-    if (userRole !== 'regional_admin') return;
+    if (!isAdmin) return;
     if (!newFiscal.fiscal_name || !newFiscal.contact_info) return alert("Preencha nome e contato do fiscal");
     
     try {
@@ -556,15 +642,13 @@ function FiscalManagerModal({ school, userRole, onClose }: { school: School, use
   }
 
   async function handleDeleteFiscal(id: string) {
-    if (userRole !== 'regional_admin') return;
+    if (!isAdmin) return;
     if(!confirm('Remover este fiscal?')) return;
     try {
         await (supabase as any).from('school_fiscals').delete().eq('id', id);
         fetchFiscals();
     } catch (error) { console.error(error); }
   }
-
-  const isAdmin = userRole === 'regional_admin';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -580,7 +664,7 @@ function FiscalManagerModal({ school, userRole, onClose }: { school: School, use
         </div>
 
         <div className="p-8 overflow-y-auto flex-1 space-y-8 custom-scrollbar bg-white">
-          {isAdmin && (
+          {isAdmin ? (
             <div className="bg-indigo-50/50 p-6 rounded-3xl space-y-4 border-2 border-indigo-100 shadow-sm">
               <h3 className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2 flex items-center gap-2"><Plus size={14}/> Novo Credenciamento</h3>
               <div className="grid grid-cols-1 gap-4">
@@ -600,6 +684,13 @@ function FiscalManagerModal({ school, userRole, onClose }: { school: School, use
                 </div>
               </div>
               <button onClick={handleAddFiscal} className="w-full py-4 bg-indigo-600 text-white rounded-xl text-xs font-black hover:bg-indigo-700 transition-all uppercase tracking-widest shadow-lg shadow-indigo-100">Adicionar Fiscal</button>
+            </div>
+          ) : (
+            <div className="bg-slate-50 p-4 rounded-2xl flex items-start gap-3 border border-slate-100">
+               <Info size={18} className="text-slate-400 shrink-0 mt-0.5" />
+               <p className="text-[11px] text-slate-500 font-medium leading-relaxed">
+                  A gestão de fiscais é centralizada na Administração Regional. Entre em contato com o setor responsável para atualizações.
+               </p>
             </div>
           )}
 
