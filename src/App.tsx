@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import { 
   LayoutDashboard, 
@@ -12,7 +12,8 @@ import {
   X,
   Bell,
   BookOpen,
-  ClipboardCheck
+  ClipboardCheck,
+  Calendar
 } from 'lucide-react';
 
 // Importação das Páginas
@@ -25,6 +26,7 @@ import { Usuario } from './pages/Usuario';
 import { Login } from './pages/Login';
 import { Fiscalizacao } from './pages/fiscalizacao';
 import { Tutoriais } from './pages/Tutoriais';
+import { Reunioes } from './pages/Reunioes';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -90,6 +92,7 @@ export default function App() {
   const renderContent = () => {
     switch (currentPage) {
       case 'dashboard': return <Dashboard />;
+      case 'reunioes': return <Reunioes />;
       case 'consumo': return <ConsumoAgua />;
       case 'zeladoria': return <Zeladoria />;
       case 'remanejamento': return <Remanejamento />;
@@ -103,6 +106,7 @@ export default function App() {
 
   const menuItems = [
     { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager'] },
+    { id: 'reunioes', label: 'Agenda de Reuniões', icon: <Calendar size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'tutoriais', label: 'Manuais e Tutoriais', icon: <BookOpen size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'fiscalizacao', label: 'Fiscalização', icon: <ClipboardCheck size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'consumo', label: 'Consumo de Água', icon: <Waves size={20} />, roles: ['regional_admin', 'school_manager'] },
