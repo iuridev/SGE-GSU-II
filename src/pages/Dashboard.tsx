@@ -4,6 +4,7 @@ import {
   Building2, Droplets, Zap, ShieldCheck, AlertTriangle, ArrowRight,
   Calendar, CheckCircle2, Waves, ZapOff, History, ChevronRight,
   ArrowRightLeft, ClipboardCheck, Map as MapIcon, Loader2
+  
 } from 'lucide-react';
 import { WaterTruckModal } from '../components/WaterTruckModal';
 import { PowerOutageModal } from '../components/PowerOutageModal';
@@ -34,7 +35,7 @@ interface MapSchool {
   longitude: number | null;
   periods: string[] | null;
   address: string | null;
-  has_elevator: boolean; // Novo campo
+  has_elevator: boolean;
 }
 
 export function Dashboard() {
@@ -80,7 +81,6 @@ export function Dashboard() {
   const filteredMapSchools = useMemo(() => {
     let filtered = mapSchools;
     
-    // Filtro de períodos (OR)
     if (selectedPeriods.length > 0) {
       filtered = filtered.filter(school => 
         school.periods?.some(p => selectedPeriods.includes(p))
@@ -89,7 +89,6 @@ export function Dashboard() {
       return [];
     }
 
-    // Filtro de elevador (AND)
     if (filterOnlyElevator) {
       filtered = filtered.filter(school => school.has_elevator);
     }
@@ -250,10 +249,9 @@ export function Dashboard() {
         if (school.periods?.includes('Integral 9h')) color = '#22c55e'; 
         else if (school.periods?.includes('Integral 7h')) color = '#3b82f6'; 
 
-        // Diferenciação de forma para elevador
         const borderRadius = school.has_elevator ? '6px' : '50%';
         const rotation = school.has_elevator ? 'rotate(45deg)' : 'rotate(0deg)';
-        const size = school.has_elevator ? '24px' : '26px'; // Diamante parece maior que o círculo
+        const size = school.has_elevator ? '24px' : '26px';
 
         const icon = L.divIcon({
           className: 'custom-div-icon',
@@ -351,7 +349,6 @@ export function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* MAPA COM FILTROS AMPLIADOS */}
         <div className="lg:col-span-8 space-y-6">
           <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
             <div className="flex items-center gap-4">
@@ -361,47 +358,55 @@ export function Dashboard() {
               </h2>
             </div>
             
-            {/* Barra de Filtros Ampliada */}
+            {/* Barra de Filtros com Cores Correspondentes */}
             <div className="flex flex-wrap gap-2.5 p-2 bg-slate-100/80 rounded-[1.5rem] border border-slate-200">
-               {PERIOD_OPTIONS.map(opt => (
-                 <button 
-                  key={opt}
-                  onClick={() => togglePeriodFilter(opt)}
-                  className={`px-5 py-3 rounded-2xl text-[11px] font-black uppercase transition-all flex items-center gap-3 shadow-sm active:scale-95 border-2 ${
-                    selectedPeriods.includes(opt) 
-                      ? 'bg-indigo-600 border-indigo-600 text-white shadow-indigo-200' 
-                      : 'bg-white border-white text-slate-400 hover:text-slate-600 hover:border-slate-200'
-                  }`}
-                 >
-                   <div className={`w-3 h-3 rounded-full border-2 border-white/20 ${
-                     opt === 'Integral 9h' ? 'bg-green-400' :
-                     opt === 'Integral 7h' ? 'bg-blue-400' :
-                     'bg-orange-400'
-                   } ${selectedPeriods.includes(opt) ? 'bg-white' : ''}`} />
-                   {opt}
-                 </button>
-               ))}
+               {PERIOD_OPTIONS.map(opt => {
+                 const isSelected = selectedPeriods.includes(opt);
+                 const isIntegral9 = opt === 'Integral 9h';
+                 const isIntegral7 = opt === 'Integral 7h';
+                 
+                 // Lógica de Cores da Seleção
+                 let activeClass = 'bg-orange-600 border-orange-600 shadow-orange-200';
+                 if (isIntegral9) activeClass = 'bg-emerald-600 border-emerald-600 shadow-emerald-200';
+                 if (isIntegral7) activeClass = 'bg-blue-600 border-blue-600 shadow-blue-200';
 
-               {/* Filtro Separador */}
+                 return (
+                   <button 
+                    key={opt}
+                    onClick={() => togglePeriodFilter(opt)}
+                    className={`px-5 py-3 rounded-2xl text-[11px] font-black uppercase transition-all flex items-center gap-3 shadow-sm active:scale-95 border-2 ${
+                      isSelected 
+                        ? `${activeClass} text-white` 
+                        : 'bg-white border-white text-slate-400 hover:text-slate-600 hover:border-slate-200'
+                    }`}
+                   >
+                     <div className={`w-3 h-3 rounded-full border-2 border-white/20 ${
+                       isIntegral9 ? 'bg-green-400' :
+                       isIntegral7 ? 'bg-blue-400' :
+                       'bg-orange-400'
+                     } ${isSelected ? 'bg-white' : ''}`} />
+                     {opt}
+                   </button>
+                 );
+               })}
+
                <div className="w-px h-8 bg-slate-200 self-center mx-1 hidden md:block"></div>
 
-               {/* Filtro de Elevador */}
                <button 
                   onClick={() => setFilterOnlyElevator(!filterOnlyElevator)}
                   className={`px-5 py-3 rounded-2xl text-[11px] font-black uppercase transition-all flex items-center gap-3 shadow-sm active:scale-95 border-2 ${
                     filterOnlyElevator 
-                      ? 'bg-amber-500 border-amber-500 text-white shadow-amber-200' 
-                      : 'bg-white border-white text-slate-400 hover:text-amber-600 hover:border-amber-200'
+                      ? 'bg-slate-900 border-slate-900 text-white shadow-slate-200' 
+                      : 'bg-white border-white text-slate-400 hover:text-slate-600 hover:border-slate-200'
                   }`}
                >
                  <div className={`w-4 h-4 flex items-center justify-center rounded-sm rotate-45 border-2 ${filterOnlyElevator ? 'bg-white' : 'bg-slate-300'}`}></div>
-                 Com Elevador
+                 Elevador
                </button>
             </div>
           </div>
           
           <div className="bg-white p-4 rounded-[3rem] border border-slate-100 shadow-2xl overflow-hidden relative">
-            {/* Legenda Flutuante */}
             <div className="absolute top-8 right-8 z-[40]">
                 <div className="bg-white/95 backdrop-blur px-5 py-4 rounded-3xl shadow-2xl border border-slate-100 space-y-3">
                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">Legenda de Formas</p>
@@ -416,7 +421,6 @@ export function Dashboard() {
                 </div>
             </div>
 
-            {/* Overlay de Status */}
             <div className="absolute top-8 left-8 z-[40]">
                 <div className="bg-slate-900 text-white px-5 py-2.5 rounded-2xl shadow-2xl border border-white/10 flex items-center gap-3">
                    <div className="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-pulse"></div>
@@ -439,7 +443,6 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Lado Direito: Ações */}
         <div className="lg:col-span-4 space-y-6">
           <div className="flex items-center gap-3"><div className="w-1 h-6 bg-blue-600 rounded-full"></div><h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Serviços de Emergência</h2></div>
           <div className="grid grid-cols-1 gap-4">
