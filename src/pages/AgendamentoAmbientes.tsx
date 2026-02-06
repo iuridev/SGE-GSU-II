@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
   Building2, ShieldCheck, FileSpreadsheet, ClipboardList, 
-  Loader2, Send, ArrowRight, SearchCheck, BarChart3,
-  Calendar, Award, Info, FileDown, Clock, MapPin,
+  Loader2, Send, SearchCheck, BarChart3,
+  Calendar, Award, FileDown, Clock, MapPin,
   Users
 } from 'lucide-react';
 import { 
@@ -421,7 +421,7 @@ export function AgendamentoAmbientes() {
                       <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 900, fill: '#cbd5e1'}} />
                       <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px rgba(0,0,0,0.1)', fontSize: '11px', fontWeight: '900'}} />
                       <Bar dataKey="count" radius={[8, 8, 0, 0]} barSize={28}>
-                        {chartData.map((entry, index) => (
+                        {chartData.map((_, index) => (
                           <Cell key={`cell-${index}`} fill={index === chartData.length - 1 ? "#4f46e5" : "#e2e8f0"} />
                         ))}
                       </Bar>
