@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
   Car, ShieldCheck, FileSpreadsheet, ClipboardList, 
-  Loader2, CheckCircle2, AlertCircle, Send,
+  Loader2, Send,
   ArrowRight, SearchCheck, BarChart3, Users,
-  Calendar, Award, Info, MapPin, User
+  Calendar, Award, Info,
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
