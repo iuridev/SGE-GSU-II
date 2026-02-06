@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import { 
   LayoutDashboard, 
@@ -13,7 +13,8 @@ import {
   Bell,
   BookOpen,
   ClipboardCheck,
-  Calendar
+  Calendar,
+  Car
 } from 'lucide-react';
 
 // Importação das Páginas
@@ -27,6 +28,7 @@ import { Login } from './pages/Login';
 import { Fiscalizacao } from './pages/fiscalizacao';
 import { Tutoriais } from './pages/Tutoriais';
 import { Reunioes } from './pages/Reunioes';
+import { AgendamentoCarros } from './pages/AgendamentoCarros';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -93,12 +95,13 @@ export default function App() {
     switch (currentPage) {
       case 'dashboard': return <Dashboard />;
       case 'reunioes': return <Reunioes />;
+      case 'carros': return <AgendamentoCarros />;
+      case 'tutoriais': return <Tutoriais />;
+      case 'fiscalizacao': return <Fiscalizacao />;
       case 'consumo': return <ConsumoAgua />;
       case 'zeladoria': return <Zeladoria />;
       case 'remanejamento': return <Remanejamento />;
       case 'escolas': return <Escola />;
-      case 'tutoriais': return <Tutoriais />;
-      case 'fiscalizacao': return <Fiscalizacao />;
       case 'usuarios': return <Usuario />;
       default: return <Dashboard />;
     }
@@ -107,6 +110,7 @@ export default function App() {
   const menuItems = [
     { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'reunioes', label: 'Agenda de Reuniões', icon: <Calendar size={20} />, roles: ['regional_admin', 'school_manager'] },
+    { id: 'carros', label: 'Carros Oficiais', icon: <Car size={20} />, roles: ['regional_admin'] },
     { id: 'tutoriais', label: 'Manuais e Tutoriais', icon: <BookOpen size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'fiscalizacao', label: 'Fiscalização', icon: <ClipboardCheck size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'consumo', label: 'Consumo de Água', icon: <Waves size={20} />, roles: ['regional_admin', 'school_manager'] },
