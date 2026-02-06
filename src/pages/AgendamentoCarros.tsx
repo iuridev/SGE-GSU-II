@@ -4,7 +4,8 @@ import {
   Car, ShieldCheck, FileSpreadsheet, ClipboardList, 
   Loader2, Send,
   ArrowRight, SearchCheck, BarChart3, Users,
-  Calendar, Award, Info
+  Calendar, Award, Info, 
+  FileDown
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -27,6 +28,7 @@ interface MonthlyData {
 export function AgendamentoCarros() {
   const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [schedules, setSchedules] = useState<CarSchedule[]>([]);
   const [status, setStatus] = useState<{ type: 'idle' | 'success' | 'none' | 'error', msg?: string }>({ type: 'idle' });
   const [activeTab, setActiveTab] = useState<'painel' | 'planilha' | 'formulario'>('painel');
@@ -70,6 +72,8 @@ export function AgendamentoCarros() {
     const [y, m, d] = todayStr.split('-');
     return `${d}/${m}/${y}`;
   }, [todayStr]);
+
+  const currentMonthName = new Date().toLocaleString('pt-BR', { month: 'long' }).toUpperCase();
 
   const todayBookings = useMemo(() => {
     return schedules.filter(s => s.service_date === todayStr);
@@ -115,6 +119,59 @@ export function AgendamentoCarros() {
     return months;
   }, [schedules]);
 
+  const currentMonthSchedules = useMemo(() => {
+    const monthKey = todayStr.substring(0, 7);
+    return schedules.filter(s => s.service_date.startsWith(monthKey));
+  }, [schedules, todayStr]);
+
+  // --- AÇÕES ---
+
+  const handleExportPDF = async () => {
+    setExporting(true);
+    try {
+      const loadScript = (src: string) => {
+        return new Promise((resolve, reject) => {
+          if (document.querySelector(`script[src="${src}"]`)) return resolve(true);
+          const script = document.createElement('script');
+          script.src = src;
+          script.onload = resolve;
+          script.onerror = reject;
+          document.head.appendChild(script);
+        });
+      };
+
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
+
+      const element = document.getElementById('car-report-template');
+      if (!element) throw new Error("Template de relatório não encontrado.");
+
+      element.style.display = 'block';
+
+      const opt = {
+        margin: [10, 10, 10, 10],
+        filename: `Relatorio_Frota_${currentMonthName}_${new Date().getFullYear()}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { 
+          scale: 2, 
+          useCORS: true, 
+          letterRendering: true,
+          width: 1120 
+        },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['css', 'legacy'] }
+      };
+
+      await (window as any).html2pdf().set(opt).from(element).save();
+      element.style.display = 'none';
+      setExporting(false);
+
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao gerar o PDF.");
+      setExporting(false);
+    }
+  };
+
   const handleAutoCheckAndNotify = async () => {
     setLoading(true);
     setStatus({ type: 'idle' });
@@ -140,7 +197,101 @@ export function AgendamentoCarros() {
   };
 
   return (
-    <div className="space-y-8 pb-20">
+    <div className="space-y-8 pb-20 relative">
+      
+      {/* --- TEMPLATE PARA PDF (OCULTO) --- */}
+      <div id="car-report-template" style={{ display: 'none', background: 'white', width: '1080px', padding: '40px' }}>
+          <div style={{ borderBottom: '6px solid #1e293b', paddingBottom: '20px', marginBottom: '30px' }}>
+              <table style={{ width: '100%' }}>
+                  <tbody>
+                    <tr>
+                        <td style={{ border: 'none' }}>
+                            <h1 style={{ margin: 0, fontSize: '28px', fontWeight: 900, color: '#0f172a' }}>RELATÓRIO ESTRATÉGICO: GESTÃO DE FROTA</h1>
+                            <p style={{ margin: 0, fontSize: '11px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '2px' }}>CONSOLIDADO DE USO MENSAL E CONDUTORES</p>
+                        </td>
+                        <td style={{ border: 'none', textAlign: 'right' }}>
+                            <p style={{ margin: 0, fontWeight: 900, fontSize: '14px', color: '#1e293b' }}>{currentMonthName} / {new Date().getFullYear()}</p>
+                            <p style={{ margin: 0, fontSize: '9px', color: '#94a3b8', fontWeight: 800 }}>SGE-GSU INTELLIGENCE II</p>
+                        </td>
+                    </tr>
+                  </tbody>
+              </table>
+          </div>
+
+          <div style={{ marginBottom: '40px' }}>
+            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '10px' }}>
+                <tbody>
+                  <tr>
+                      <td style={{ width: '50%', background: '#f8fafc', padding: '25px', borderRadius: '20px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                          <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#64748b', textTransform: 'uppercase' }}>Total de Viagens (Mês)</p>
+                          <h3 style={{ margin: '8px 0 0', fontSize: '32px', fontWeight: 900, color: '#0f172a' }}>{currentMonthSchedules.length}</h3>
+                          <p style={{ margin: '2px 0 0', fontSize: '9px', fontWeight: 700, color: '#94a3b8' }}>Solicitações processadas</p>
+                      </td>
+                      <td style={{ width: '50%', background: '#eff6ff', padding: '25px', borderRadius: '20px', border: '1px solid #bfdbfe', textAlign: 'center' }}>
+                          <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#1e40af', textTransform: 'uppercase' }}>Condutor Principal</p>
+                          <h3 style={{ margin: '8px 0 0', fontSize: '24px', fontWeight: 900, color: '#1e3a8a' }}>{topDrivers[0]?.name || 'N/A'}</h3>
+                          <p style={{ margin: '2px 0 0', fontSize: '9px', fontWeight: 700, color: '#60a5fa' }}>Maior recorrência no período</p>
+                      </td>
+                </tr>
+                </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: 'table', width: '100%', tableLayout: 'fixed' }}>
+            <div style={{ display: 'table-cell', width: '65%', paddingRight: '20px', verticalAlign: 'top' }}>
+                <h3 style={{ fontSize: '13px', fontWeight: 900, color: '#334155', textTransform: 'uppercase', marginBottom: '15px' }}>Detalhamento Mensal de Saídas</h3>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                        <tr style={{ background: '#f1f5f9' }}>
+                            <th style={{ padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', textAlign: 'left' }}>DATA</th>
+                            <th style={{ padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', textAlign: 'left' }}>SOLICITANTE</th>
+                            <th style={{ padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', textAlign: 'center' }}>STATUS</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {currentMonthSchedules.slice(0, 20).map(row => (
+                            <tr key={row.id}>
+                                <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '9px', fontWeight: 700 }}>{row.service_date.split('-').reverse().join('/')}</td>
+                                <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase' }}>{row.requester_name}</td>
+                                <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '8px', textAlign: 'center', fontWeight: 900, color: row.status.includes('APROVADO') ? '#059669' : '#d97706' }}>{row.status.toUpperCase()}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+                {currentMonthSchedules.length > 20 && <p style={{ fontSize: '9px', color: '#94a3b8', marginTop: '10px' }}>* Mostrando as primeiras 20 de {currentMonthSchedules.length} viagens do período.</p>}
+            </div>
+
+            <div style={{ display: 'table-cell', width: '35%', paddingLeft: '20px', verticalAlign: 'top' }}>
+                <h3 style={{ fontSize: '13px', fontWeight: 900, color: '#334155', textTransform: 'uppercase', marginBottom: '15px' }}>Top 5 Condutores</h3>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                        <tr style={{ background: '#f8fafc' }}>
+                            <th style={{ padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', textAlign: 'left' }}>NOME</th>
+                            <th style={{ padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', textAlign: 'center' }}>QTD.</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {topDrivers.map(row => (
+                            <tr key={row.name}>
+                                <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase' }}>{row.name}</td>
+                                <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '10px', textAlign: 'center', fontWeight: 800, color: '#4f46e5' }}>{row.count}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+                <div style={{ marginTop: '30px', padding: '20px', background: '#f8fafc', borderRadius: '15px', border: '1px dashed #cbd5e1' }}>
+                    <p style={{ margin: 0, fontSize: '9px', color: '#64748b', lineHeight: '1.6', fontWeight: 500 }}>
+                        Este documento consolida o histórico de uso da frota oficial para fins de prestação de contas e planejamento logístico regional.
+                    </p>
+                </div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: '100px', paddingTop: '20px', borderTop: '2px solid #f1f5f9', textAlign: 'center' }}>
+              <p style={{ fontSize: '10px', fontWeight: 900, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '4px' }}>SGE-GSU INTELLIGENCE • RELATÓRIO OFICIAL DE FROTA</p>
+          </div>
+      </div>
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-5">
           <div className="p-4 bg-slate-900 rounded-[2rem] text-white shadow-2xl shadow-slate-200">
@@ -152,10 +303,21 @@ export function AgendamentoCarros() {
           </div>
         </div>
 
-        <div className="flex gap-2 p-2 bg-slate-100 rounded-[1.5rem] border border-slate-200">
-          <TabButton active={activeTab === 'painel'} onClick={() => setActiveTab('painel')} icon={<ShieldCheck size={16}/>} label="Painel Inteligente" />
-          <TabButton active={activeTab === 'planilha'} onClick={() => setActiveTab('planilha')} icon={<FileSpreadsheet size={16}/>} label="Planilha" />
-          <TabButton active={activeTab === 'formulario'} onClick={() => setActiveTab('formulario')} icon={<ClipboardList size={16}/>} label="Solicitar Carro" />
+        <div className="flex flex-wrap gap-3">
+          <button 
+            onClick={handleExportPDF}
+            disabled={exporting || dataLoading}
+            className="bg-slate-900 text-white px-6 py-3 rounded-2xl font-black flex items-center justify-center gap-3 shadow-xl hover:bg-black transition-all active:scale-95 disabled:opacity-50 text-xs"
+          >
+            {exporting ? <Loader2 className="animate-spin" size={18}/> : <FileDown size={18} />}
+            {exporting ? 'GERANDO PDF...' : 'RELATÓRIO P/ CHEFIA'}
+          </button>
+
+          <div className="flex gap-2 p-2 bg-slate-100 rounded-[1.5rem] border border-slate-200">
+            <TabButton active={activeTab === 'painel'} onClick={() => setActiveTab('painel')} icon={<ShieldCheck size={16}/>} label="Painel Inteligente" />
+            <TabButton active={activeTab === 'planilha'} onClick={() => setActiveTab('planilha')} icon={<FileSpreadsheet size={16}/>} label="Planilha" />
+            <TabButton active={activeTab === 'formulario'} onClick={() => setActiveTab('formulario')} icon={<ClipboardList size={16}/>} label="Solicitar" />
+          </div>
         </div>
       </div>
 
@@ -242,8 +404,6 @@ export function AgendamentoCarros() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            
-            {/* GRÁFICO 12 MESES - ESTILO MELHORADO */}
             <div className="lg:col-span-8">
               <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-2xl h-full relative overflow-hidden">
                 <div className="absolute top-0 right-0 p-8 opacity-[0.03] pointer-events-none">
@@ -277,51 +437,13 @@ export function AgendamentoCarros() {
                             <stop offset="100%" stopColor="#312e81" stopOpacity={1}/>
                           </linearGradient>
                         </defs>
-                        
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        
-                        <XAxis 
-                          dataKey="label" 
-                          axisLine={false} 
-                          tickLine={false} 
-                          tick={{fontSize: 10, fontWeight: 900, fill: '#94a3b8'}} 
-                          dy={15} 
-                        />
-                        
-                        <YAxis 
-                          axisLine={false} 
-                          tickLine={false} 
-                          tick={{fontSize: 10, fontWeight: 900, fill: '#cbd5e1'}} 
-                        />
-                        
-                        <Tooltip 
-                          cursor={{fill: '#f8fafc', radius: 8}}
-                          contentStyle={{ 
-                            borderRadius: '16px', 
-                            border: 'none', 
-                            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)', 
-                            fontSize: '11px', 
-                            fontWeight: '900',
-                            padding: '12px 16px',
-                            textTransform: 'uppercase'
-                          }} 
-                          itemStyle={{ color: '#4f46e5' }}
-                          formatter={(value: any) => [`${value} Saídas`, 'Total']}
-                        />
-                        
-                        <Bar 
-                          dataKey="count" 
-                          radius={[8, 8, 0, 0]} 
-                          barSize={28}
-                          animationDuration={1500}
-                        >
+                        <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 900, fill: '#94a3b8'}} dy={15} />
+                        <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 900, fill: '#cbd5e1'}} />
+                        <Tooltip cursor={{fill: '#f8fafc', radius: 8}} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', fontSize: '11px', fontWeight: '900', padding: '12px 16px', textTransform: 'uppercase'}} itemStyle={{ color: '#4f46e5' }} formatter={(value: any) => [`${value} Saídas`, 'Total']}/>
+                        <Bar dataKey="count" radius={[8, 8, 0, 0]} barSize={28} animationDuration={1500}>
                           {chartData.map((entry, index) => (
-                            <Cell 
-                              key={`cell-${index}`} 
-                              fill={index === chartData.length - 1 ? "url(#activeGradient)" : "url(#barGradient)"}
-                              fillOpacity={index === chartData.length - 1 ? 1 : (entry.count === 0 ? 0.1 : 0.4 + (index / 20))}
-                              className="transition-all duration-300 hover:opacity-100"
-                            />
+                            <Cell key={`cell-${index}`} fill={index === chartData.length - 1 ? "url(#activeGradient)" : "url(#barGradient)"} fillOpacity={index === chartData.length - 1 ? 1 : (entry.count === 0 ? 0.1 : 0.4 + (index / 20))} className="transition-all duration-300 hover:opacity-100"/>
                           ))}
                         </Bar>
                       </BarChart>
@@ -384,7 +506,7 @@ export function AgendamentoCarros() {
                 <div className="mt-10 p-5 bg-slate-50 rounded-[2rem] border border-dashed border-slate-200">
                    <div className="flex items-start gap-3">
                       <Info size={14} className="text-slate-400 mt-0.5" />
-                      <p className="text-[9px] text-slate-500 font-medium leading-relaxed uppercase tracking-tight font-bold">Base de dados sincronizada via Google Sheets e validadas pela regional.</p>
+                      <p className="text-[9px] text-slate-500 font-medium leading-relaxed uppercase tracking-tight font-bold">Base de dados sincronizada via Google Sheets.</p>
                    </div>
                 </div>
               </div>
