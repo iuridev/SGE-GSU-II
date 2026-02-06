@@ -4,7 +4,7 @@ import {
   Car, ShieldCheck, FileSpreadsheet, ClipboardList, 
   Loader2, Send,
   ArrowRight, SearchCheck, BarChart3, Users,
-  Calendar, Award, Info,
+  Calendar, Award, Info
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -207,11 +207,16 @@ export function AgendamentoCarros() {
                         <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">{todayDisplay}</p>
                       </div>
                     </div>
-                    <span className="bg-indigo-600 px-4 py-1 rounded-full text-[10px] font-black uppercase">{todayBookings.length} Viagens</span>
+                    {!dataLoading && <span className="bg-indigo-600 px-4 py-1 rounded-full text-[10px] font-black uppercase">{todayBookings.length} Viagens</span>}
                   </div>
 
                   <div className="space-y-3 max-h-[220px] overflow-y-auto pr-2 custom-scrollbar">
-                    {todayBookings.length === 0 ? (
+                    {dataLoading ? (
+                      <div className="py-20 flex flex-col items-center justify-center gap-3 text-white/40">
+                        <Loader2 className="animate-spin" size={32} />
+                        <p className="text-[10px] font-black uppercase tracking-widest">Sincronizando...</p>
+                      </div>
+                    ) : todayBookings.length === 0 ? (
                       <div className="py-10 text-center opacity-30 italic text-sm">Sem veículos escalados para hoje.</div>
                     ) : todayBookings.map(booking => (
                       <div key={booking.id} className="bg-white/5 border border-white/10 p-4 rounded-2xl flex items-center justify-between group hover:bg-white/10 transition-all">
@@ -254,69 +259,74 @@ export function AgendamentoCarros() {
                 </div>
 
                 <div className="h-[320px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                      <defs>
-                        {/* Gradiente para as barras normais */}
-                        <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#818cf8" stopOpacity={0.8}/>
-                          <stop offset="100%" stopColor="#4f46e5" stopOpacity={1}/>
-                        </linearGradient>
-                        {/* Gradiente para a barra de destaque (mês atual) */}
-                        <linearGradient id="activeGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#6366f1" stopOpacity={1}/>
-                          <stop offset="100%" stopColor="#312e81" stopOpacity={1}/>
-                        </linearGradient>
-                      </defs>
-                      
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      
-                      <XAxis 
-                        dataKey="label" 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{fontSize: 10, fontWeight: 900, fill: '#94a3b8'}} 
-                        dy={15} 
-                      />
-                      
-                      <YAxis 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{fontSize: 10, fontWeight: 900, fill: '#cbd5e1'}} 
-                      />
-                      
-                      <Tooltip 
-                        cursor={{fill: '#f8fafc', radius: 8}}
-                        contentStyle={{ 
-                          borderRadius: '16px', 
-                          border: 'none', 
-                          boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)', 
-                          fontSize: '11px', 
-                          fontWeight: '900',
-                          padding: '12px 16px',
-                          textTransform: 'uppercase'
-                        }} 
-                        itemStyle={{ color: '#4f46e5' }}
-                        formatter={(value: any) => [`${value} Saídas`, 'Total']}
-                      />
-                      
-                      <Bar 
-                        dataKey="count" 
-                        radius={[8, 8, 0, 0]} 
-                        barSize={28}
-                        animationDuration={1500}
-                      >
-                        {chartData.map((entry, index) => (
-                          <Cell 
-                            key={`cell-${index}`} 
-                            fill={index === chartData.length - 1 ? "url(#activeGradient)" : "url(#barGradient)"}
-                            fillOpacity={index === chartData.length - 1 ? 1 : (entry.count === 0 ? 0.1 : 0.4 + (index / 20))}
-                            className="transition-all duration-300 hover:opacity-100"
-                          />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+                  {dataLoading ? (
+                    <div className="h-full flex flex-col items-center justify-center gap-3 text-slate-300">
+                      <Loader2 className="animate-spin" size={40} />
+                      <p className="text-[10px] font-black uppercase tracking-widest">Gerando Gráfico...</p>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#818cf8" stopOpacity={0.8}/>
+                            <stop offset="100%" stopColor="#4f46e5" stopOpacity={1}/>
+                          </linearGradient>
+                          <linearGradient id="activeGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#6366f1" stopOpacity={1}/>
+                            <stop offset="100%" stopColor="#312e81" stopOpacity={1}/>
+                          </linearGradient>
+                        </defs>
+                        
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        
+                        <XAxis 
+                          dataKey="label" 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{fontSize: 10, fontWeight: 900, fill: '#94a3b8'}} 
+                          dy={15} 
+                        />
+                        
+                        <YAxis 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{fontSize: 10, fontWeight: 900, fill: '#cbd5e1'}} 
+                        />
+                        
+                        <Tooltip 
+                          cursor={{fill: '#f8fafc', radius: 8}}
+                          contentStyle={{ 
+                            borderRadius: '16px', 
+                            border: 'none', 
+                            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)', 
+                            fontSize: '11px', 
+                            fontWeight: '900',
+                            padding: '12px 16px',
+                            textTransform: 'uppercase'
+                          }} 
+                          itemStyle={{ color: '#4f46e5' }}
+                          formatter={(value: any) => [`${value} Saídas`, 'Total']}
+                        />
+                        
+                        <Bar 
+                          dataKey="count" 
+                          radius={[8, 8, 0, 0]} 
+                          barSize={28}
+                          animationDuration={1500}
+                        >
+                          {chartData.map((entry, index) => (
+                            <Cell 
+                              key={`cell-${index}`} 
+                              fill={index === chartData.length - 1 ? "url(#activeGradient)" : "url(#barGradient)"}
+                              fillOpacity={index === chartData.length - 1 ? 1 : (entry.count === 0 ? 0.1 : 0.4 + (index / 20))}
+                              className="transition-all duration-300 hover:opacity-100"
+                            />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
                 </div>
 
                 <div className="mt-8 flex items-center gap-6">
@@ -343,7 +353,12 @@ export function AgendamentoCarros() {
                 </div>
 
                 <div className="space-y-6 flex-1">
-                  {topDrivers.length === 0 ? (
+                  {dataLoading ? (
+                    <div className="h-full flex flex-col items-center justify-center gap-2 text-slate-300">
+                      <Loader2 className="animate-spin" size={24} />
+                      <p className="text-[9px] font-black uppercase tracking-widest text-center">Calculando...</p>
+                    </div>
+                  ) : topDrivers.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-10 opacity-20">
                       <Users size={48} className="mb-2"/>
                       <p className="text-xs font-bold uppercase">Sem histórico</p>
