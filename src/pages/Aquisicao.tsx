@@ -333,7 +333,7 @@ export function Aquisicao() {
           <input 
             type="text" 
             placeholder="Pesquisar por escola, item ou código..."
-            className="w-full pl-12 pr-4 py-3 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-emerald-500 font-medium outline-none"
+            className="w-full pl-12 pr-4 py-3 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-emerald-500 font-medium outline-none transition-all"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -345,6 +345,7 @@ export function Aquisicao() {
       ) : (
         <div className="animate-in fade-in duration-500">
           
+          {/* ABA: SOLICITAÇÃO (ESCOLA) - VISÃO EM LISTA */}
           {activeTab === 'solicitacao' && (
             <div className="space-y-8">
               {!activeEvent ? (
@@ -363,38 +364,51 @@ export function Aquisicao() {
                     <ShoppingBag className="absolute -bottom-10 -right-10 text-white/5 w-64 h-64 -rotate-12" />
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {filteredItems.map(item => {
-                      const currentVal = quantities[item.id] || 0;
-                      const hasHistory = (historyMap[item.id] || 0) > 0;
-                      const isInvalid = currentVal < 0;
-                      const isPending = pendingSaves[item.id];
+                  <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-xl overflow-hidden">
+                    <div className="hidden md:grid grid-cols-12 gap-4 p-6 bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                       <div className="col-span-2">Código</div>
+                       <div className="col-span-5">Descrição do Item</div>
+                       <div className="col-span-2 text-center">Histórico</div>
+                       <div className="col-span-2 text-center">Quantidade</div>
+                       <div className="col-span-1"></div>
+                    </div>
 
-                      return (
-                        <div key={item.id} className={`bg-white p-8 rounded-[2.5rem] border-2 transition-all shadow-xl group flex flex-col relative ${isPending ? 'border-emerald-500' : 'border-slate-100'}`}>
-                           {hasHistory && (
-                             <div className="absolute top-4 right-4 group-hover:scale-110 transition-transform z-10">
-                                <div className="bg-amber-50 text-amber-600 px-3 py-1 rounded-xl text-[8px] font-black uppercase flex items-center gap-1 border border-amber-100 shadow-sm">
-                                   <History size={10}/> Já solicitado antes: {historyMap[item.id]} un.
-                                </div>
+                    <div className="divide-y divide-slate-50">
+                      {filteredItems.map(item => {
+                        const currentVal = quantities[item.id] || 0;
+                        const hasHistory = (historyMap[item.id] || 0) > 0;
+                        const isInvalid = currentVal < 0;
+                        const isPending = pendingSaves[item.id];
+
+                        return (
+                          <div key={item.id} className={`grid grid-cols-1 md:grid-cols-12 gap-4 p-4 md:p-6 items-center transition-all ${isPending ? 'bg-emerald-50/30' : 'hover:bg-slate-50/50'}`}>
+                             <div className="col-span-2">
+                                <span className="inline-flex px-3 py-1 bg-slate-900 text-white rounded-lg font-black text-xs uppercase tracking-wider shadow-sm">
+                                  {item.code}
+                                </span>
                              </div>
-                           )}
-                           <div className="inline-flex self-start px-3 py-1 bg-slate-900 text-white rounded-lg font-black text-xs uppercase tracking-wider mb-6 shadow-sm">
-                             {item.code}
-                           </div>
-                           <h3 className="font-black text-slate-800 uppercase text-sm leading-tight mb-2 h-10 line-clamp-2">{item.name}</h3>
-                           <div className="relative mt-8 space-y-3">
-                             {isInvalid && (
-                               <div className="absolute -top-6 left-2 animate-bounce">
-                                 <span className="bg-red-600 text-white text-[8px] font-black px-2 py-0.5 rounded-full shadow-lg">NÚMERO INVÁLIDO</span>
-                               </div>
-                             )}
-                             <div className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all shadow-inner ${isInvalid ? 'bg-red-50 border-red-500' : isPending ? 'bg-emerald-50 border-emerald-300' : 'bg-slate-100 border-slate-200'}`}>
-                                <span className={`text-[10px] font-black uppercase tracking-widest ml-1 shrink-0 ${isInvalid ? 'text-red-500' : 'text-slate-500'}`}>Quantidade:</span>
+                             
+                             <div className="col-span-5">
+                                <h3 className="font-black text-slate-800 uppercase text-xs leading-tight">{item.name}</h3>
+                             </div>
+
+                             <div className="col-span-2 text-center">
+                                {hasHistory ? (
+                                   <div className="bg-amber-50 text-amber-600 px-3 py-1 rounded-xl text-[9px] font-black uppercase inline-flex items-center gap-1 border border-amber-100">
+                                      <History size={10}/> {historyMap[item.id]} un.
+                                   </div>
+                                ) : <span className="text-[10px] text-slate-300 font-bold uppercase">Nenhum</span>}
+                             </div>
+
+                             <div className="col-span-2 relative">
                                 <input 
                                   type="number" 
                                   min="0" 
-                                  className={`w-full bg-transparent font-black text-right outline-none text-2xl ${isInvalid ? 'text-red-600' : 'text-emerald-600'}`}
+                                  className={`w-full p-3 rounded-xl border-2 transition-all font-black text-center text-lg outline-none ${
+                                    isInvalid ? 'bg-red-50 border-red-400 text-red-600' : 
+                                    isPending ? 'bg-white border-emerald-500 text-emerald-600' : 
+                                    'bg-slate-50 border-slate-100 text-slate-700 focus:bg-white focus:border-indigo-400'
+                                  }`}
                                   value={currentVal || ''}
                                   placeholder="0"
                                   onChange={(e) => {
@@ -403,27 +417,40 @@ export function Aquisicao() {
                                     setPendingSaves(prev => ({ ...prev, [item.id]: true }));
                                   }}
                                 />
+                                {isInvalid && (
+                                  <div className="absolute -top-4 left-0 w-full text-center">
+                                    <span className="bg-red-600 text-white text-[7px] font-black px-2 py-0.5 rounded-full uppercase shadow-lg">INVÁLIDO</span>
+                                  </div>
+                                )}
                              </div>
-                             {isPending && !isInvalid && (
-                               <button onClick={() => confirmRequest(item.id)} className="w-full py-3 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg flex items-center justify-center gap-2 hover:bg-emerald-700 active:scale-95 transition-all">
-                                 <Check size={14}/> Gravar Solicitação
-                               </button>
-                             )}
-                           </div>
-                        </div>
-                      );
-                    })}
+
+                             <div className="col-span-1 flex justify-end">
+                                {isPending && !isInvalid && (
+                                  <button 
+                                    onClick={() => confirmRequest(item.id)}
+                                    className="p-3 bg-emerald-600 text-white rounded-xl shadow-lg hover:bg-emerald-700 active:scale-90 transition-all"
+                                    title="Gravar"
+                                  >
+                                    <Check size={20}/>
+                                  </button>
+                                )}
+                             </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               )}
             </div>
           )}
 
+          {/* ABA: LANÇAMENTO MANUAL (ADMIN) - VISÃO EM LISTA */}
           {activeTab === 'lancamento' && isAdmin && (
             <div className="space-y-8">
                <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                     <label className="text-[10px] font-black text-slate-400 uppercase ml-1 flex items-center gap-2"><Calendar size={12}/> 1. Seleccione o Evento (Pode ser Antigo)</label>
+                     <label className="text-[10px] font-black text-slate-400 uppercase ml-1 flex items-center gap-2"><Calendar size={12}/> 1. Seleccione o Evento</label>
                      <select className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-indigo-500" value={adminSelectedEvent} onChange={e => setAdminSelectedEvent(e.target.value)}>
                         <option value="">Seleccione o Evento...</option>
                         {events.map(e => <option key={e.id} value={e.id}>{e.title} ({e.status})</option>)}
@@ -439,39 +466,80 @@ export function Aquisicao() {
                </div>
 
                {adminSelectedEvent && adminSelectedSchool ? (
-                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in slide-in-from-bottom-4 duration-500">
-                    {filteredItems.map(item => {
-                       const currentVal = manualQuantities[item.id] || 0;
-                       const hasHistory = (historyMap[item.id] || 0) > 0;
-                       const isInvalid = currentVal < 0;
-                       const isPending = pendingSaves[item.id];
+                 <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-500">
+                    <div className="hidden md:grid grid-cols-12 gap-4 p-6 bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                       <div className="col-span-2">Código</div>
+                       <div className="col-span-5">Descrição do Item</div>
+                       <div className="col-span-2 text-center">Histórico</div>
+                       <div className="col-span-2 text-center">Qtde Final</div>
+                       <div className="col-span-1"></div>
+                    </div>
 
-                       return (
-                         <div key={item.id} className={`bg-white p-6 rounded-[2.5rem] border-2 transition-all shadow-xl flex flex-col relative group ${isPending ? 'border-indigo-500' : 'border-slate-100'}`}>
-                            {hasHistory && (
-                              <div className="absolute top-4 right-4"><div className="bg-amber-50 text-amber-600 px-2 py-0.5 rounded-lg text-[7px] font-black uppercase border border-amber-100">Solicitado Anterior: {historyMap[item.id]}</div></div>
-                            )}
-                            <div className="inline-flex self-start px-2 py-0.5 bg-slate-900 text-white rounded-md font-black text-[11px] uppercase tracking-wider mb-4 shadow-sm">{item.code}</div>
-                            <h3 className="font-black text-slate-800 uppercase text-xs leading-tight line-clamp-2 h-10">{item.name}</h3>
-                            <div className="relative mt-6 space-y-3">
-                               {isInvalid && <div className="absolute -top-5 left-1 animate-bounce"><span className="bg-red-600 text-white text-[7px] font-black px-2 py-0.5 rounded-full shadow-lg">NÚMERO INVÁLIDO</span></div>}
-                               <div className={`p-4 rounded-2xl border-2 flex items-center gap-3 shadow-inner transition-all ${isInvalid ? 'bg-red-50 border-red-500' : isPending ? 'bg-indigo-50 border-indigo-300' : 'bg-slate-100 border-slate-200'}`}>
-                                  <span className={`text-[9px] font-black uppercase shrink-0 ${isInvalid ? 'text-red-500' : 'text-slate-500'}`}>Qtde Final:</span>
-                                  <input type="number" className={`w-full bg-transparent font-black text-right outline-none text-2xl ${isInvalid ? 'text-red-600' : 'text-indigo-700'}`} value={currentVal || ''} placeholder="0" onChange={e => {
+                    <div className="divide-y divide-slate-50">
+                      {filteredItems.map(item => {
+                        const currentVal = manualQuantities[item.id] || 0;
+                        const hasHistory = (historyMap[item.id] || 0) > 0;
+                        const isInvalid = currentVal < 0;
+                        const isPending = pendingSaves[item.id];
+
+                        return (
+                          <div key={item.id} className={`grid grid-cols-1 md:grid-cols-12 gap-4 p-4 md:p-6 items-center transition-all ${isPending ? 'bg-indigo-50/30' : 'hover:bg-slate-50/50'}`}>
+                             <div className="col-span-2">
+                                <span className="inline-flex px-3 py-1 bg-slate-900 text-white rounded-lg font-black text-xs uppercase tracking-wider shadow-sm">
+                                  {item.code}
+                                </span>
+                             </div>
+                             
+                             <div className="col-span-5">
+                                <h3 className="font-black text-slate-800 uppercase text-xs leading-tight">{item.name}</h3>
+                             </div>
+
+                             <div className="col-span-2 text-center">
+                                {hasHistory ? (
+                                   <div className="bg-amber-50 text-amber-600 px-3 py-1 rounded-xl text-[9px] font-black uppercase inline-flex items-center gap-1 border border-amber-100">
+                                      <History size={10}/> {historyMap[item.id]} un.
+                                   </div>
+                                ) : <span className="text-[10px] text-slate-300 font-bold uppercase">Nenhum</span>}
+                             </div>
+
+                             <div className="col-span-2 relative">
+                                <input 
+                                  type="number" 
+                                  className={`w-full p-3 rounded-xl border-2 transition-all font-black text-center text-lg outline-none ${
+                                    isInvalid ? 'bg-red-50 border-red-400 text-red-600' : 
+                                    isPending ? 'bg-white border-indigo-500 text-indigo-700' : 
+                                    'bg-slate-50 border-slate-100 text-slate-700 focus:bg-white focus:border-indigo-400'
+                                  }`}
+                                  value={currentVal || ''}
+                                  placeholder="0"
+                                  onChange={e => {
                                       const val = Number(e.target.value);
                                       setManualQuantities(prev => ({ ...prev, [item.id]: val }));
                                       setPendingSaves(prev => ({ ...prev, [item.id]: true }));
-                                  }} />
-                               </div>
-                               {isPending && !isInvalid && (
-                                 <button onClick={() => confirmManualEntry(item.id)} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all">
-                                   <Check size={14}/> Confirmar Ajuste
-                                 </button>
-                               )}
-                            </div>
-                         </div>
-                       );
-                    })}
+                                  }} 
+                                />
+                                {isInvalid && (
+                                  <div className="absolute -top-4 left-0 w-full text-center">
+                                    <span className="bg-red-600 text-white text-[7px] font-black px-2 py-0.5 rounded-full uppercase shadow-lg">INVÁLIDO</span>
+                                  </div>
+                                )}
+                             </div>
+
+                             <div className="col-span-1 flex justify-end">
+                                {isPending && !isInvalid && (
+                                  <button 
+                                    onClick={() => confirmManualEntry(item.id)}
+                                    className="p-3 bg-indigo-600 text-white rounded-xl shadow-lg hover:bg-indigo-700 active:scale-90 transition-all"
+                                    title="Confirmar Ajuste"
+                                  >
+                                    <Check size={20}/>
+                                  </button>
+                                )}
+                             </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                  </div>
                ) : (
                  <div className="py-32 bg-white rounded-[3rem] border-2 border-dashed border-slate-100 text-center flex flex-col items-center">
@@ -481,6 +549,7 @@ export function Aquisicao() {
             </div>
           )}
 
+          {/* ABA: CONSOLIDADO (SEM ALTERAÇÃO DE LAYOUT, JÁ ESTÁ EM LISTA AGRUPADA) */}
           {activeTab === 'consolidado' && (
             <div className="space-y-10">
                <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-2xl flex flex-col md:flex-row justify-between items-center gap-4">
