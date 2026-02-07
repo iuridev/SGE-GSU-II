@@ -4,8 +4,9 @@ import {
   ClipboardCheck, Plus, Calendar as CalendarIcon, 
   ChevronLeft, ChevronRight, CheckCircle2, 
   AlertCircle, X, 
-  Loader2,
-  Check, Trash2, Clock, ListChecks, ArrowRight, FileDown
+  Loader2, 
+  Check, Trash2, Clock, ListChecks, ArrowRight, FileDown,
+  Ban, XCircle
 } from 'lucide-react';
 
 interface MonitoringEvent {
@@ -19,6 +20,7 @@ interface MonitoringSubmission {
   event_id: string;
   school_id: string;
   is_completed: boolean;
+  is_dispensed: boolean; // Novo campo
   school_name?: string;
   updated_at?: string;
 }
@@ -91,7 +93,8 @@ export function Fiscalizacao() {
       const subs = schools.map(s => ({
         event_id: event.id,
         school_id: s.id,
-        is_completed: false
+        is_completed: false,
+        is_dispensed: false
       }));
       await (supabase as any).from('monitoring_submissions').insert(subs);
 
@@ -104,16 +107,57 @@ export function Fiscalizacao() {
     try {
       await (supabase as any)
         .from('monitoring_submissions')
-        .update({ is_completed: !currentStatus, updated_at: new Date().toISOString() })
+        .update({ 
+          is_completed: !currentStatus, 
+          is_dispensed: false, // Se marcar concluído, remove a dispensa
+          updated_at: new Date().toISOString() 
+        })
         .eq('event_id', eventId)
         .eq('school_id', schoolId);
       
       setSubmissions(prev => prev.map(s => 
         (s.school_id === schoolId && s.event_id === eventId) 
-        ? { ...s, is_completed: !currentStatus } 
+        ? { ...s, is_completed: !currentStatus, is_dispensed: false } 
         : s
       ));
     } catch (err) { console.error(err); }
+  }
+
+  async function toggleDispensed(schoolId: string, eventId: string, currentDispensed: boolean) {
+    try {
+      await (supabase as any)
+        .from('monitoring_submissions')
+        .update({ 
+          is_dispensed: !currentDispensed, 
+          is_completed: false, // Se dispensar, remove a conclusão
+          updated_at: new Date().toISOString() 
+        })
+        .eq('event_id', eventId)
+        .eq('school_id', schoolId);
+      
+      setSubmissions(prev => prev.map(s => 
+        (s.school_id === schoolId && s.event_id === eventId) 
+        ? { ...s, is_dispensed: !currentDispensed, is_completed: false } 
+        : s
+      ));
+    } catch (err) { console.error(err); }
+  }
+
+  async function handleSelectAll(eventId: string) {
+    if (!confirm("Deseja marcar TODAS as unidades como CONCLUÍDAS?")) return;
+    setSaveLoading(true);
+    try {
+      await (supabase as any)
+        .from('monitoring_submissions')
+        .update({ is_completed: true, is_dispensed: false, updated_at: new Date().toISOString() })
+        .eq('event_id', eventId);
+      
+      await fetchEvents();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSaveLoading(false);
+    }
   }
 
   async function handleDeleteEvent(id: string) {
@@ -172,12 +216,12 @@ export function Fiscalizacao() {
 
     const pending = monthEvents.filter(e => {
       const sub = submissions.find(s => s.event_id === e.id && s.school_id === userSchoolId);
-      return !sub?.is_completed;
+      return !sub?.is_completed && !sub?.is_dispensed;
     }).length;
 
     const completed = monthEvents.filter(e => {
       const sub = submissions.find(s => s.event_id === e.id && s.school_id === userSchoolId);
-      return sub?.is_completed;
+      return sub?.is_completed || sub?.is_dispensed;
     }).length;
 
     return { total: monthEvents.length, pending, completed };
@@ -195,10 +239,14 @@ export function Fiscalizacao() {
   const taskList = useMemo(() => {
     if (userRole !== 'school_manager') return [];
     return filteredEventsForCurrentMonth
-      .map(e => ({
-        ...e,
-        is_completed: submissions.find(s => s.event_id === e.id && s.school_id === userSchoolId)?.is_completed || false
-      }))
+      .map(e => {
+        const sub = submissions.find(s => s.event_id === e.id && s.school_id === userSchoolId);
+        return {
+          ...e,
+          is_completed: sub?.is_completed || false,
+          is_dispensed: sub?.is_dispensed || false
+        };
+      })
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [filteredEventsForCurrentMonth, submissions, userSchoolId, userRole]);
 
@@ -231,14 +279,15 @@ export function Fiscalizacao() {
             {dayEvents.map(e => {
               const sub = submissions.find(s => s.event_id === e.id && s.school_id === userSchoolId);
               const isOk = sub?.is_completed;
+              const isDisp = sub?.is_dispensed;
               return (
-                <div key={e.id} className={`p-2 rounded-xl text-[9px] font-black uppercase flex flex-col gap-1 border shadow-sm transition-transform hover:scale-[1.02] ${isOk ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-600 animate-in zoom-in-95'}`}>
+                <div key={e.id} className={`p-2 rounded-xl text-[9px] font-black uppercase flex flex-col gap-1 border shadow-sm transition-transform hover:scale-[1.02] ${isOk ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : isDisp ? 'bg-slate-100 border-slate-200 text-slate-500' : 'bg-red-50 border-red-200 text-red-600 animate-in zoom-in-95'}`}>
                   <div className="flex items-center gap-1.5">
-                    {isOk ? <CheckCircle2 size={10} className="shrink-0"/> : <AlertCircle size={10} className="shrink-0"/>}
+                    {isOk ? <CheckCircle2 size={10} className="shrink-0"/> : isDisp ? <XCircle size={10} className="shrink-0"/> : <AlertCircle size={10} className="shrink-0"/>}
                     <span className="truncate">{e.service_type}</span>
                   </div>
                   <div className="flex justify-between items-center opacity-60">
-                    <span className="text-[7px]">{e.frequency}</span>
+                    <span className="text-[7px]">{isDisp ? 'DISPENSADO' : e.frequency}</span>
                   </div>
                 </div>
               );
@@ -311,14 +360,14 @@ export function Fiscalizacao() {
            <div className={`p-8 rounded-[2.5rem] border-2 transition-all flex items-center gap-5 shadow-xl ${managerStats.completed === managerStats.total && managerStats.total > 0 ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-white border-slate-100'}`}>
               <div className={`w-16 h-16 rounded-3xl flex items-center justify-center shadow-lg ${managerStats.completed === managerStats.total && managerStats.total > 0 ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-400'}`}><CheckCircle2 size={28}/></div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest leading-none opacity-60">Concluídas</p>
+                <p className="text-[10px] font-black uppercase tracking-widest leading-none opacity-60">Conformidade Atual</p>
                 <h3 className="text-3xl font-black mt-1">{managerStats.completed} <span className="text-xs font-bold uppercase ml-1">Confirmadas</span></h3>
               </div>
            </div>
         </div>
       )}
 
-      {/* CALENDÁRIO (OCUPANDO TODO O TOPO) */}
+      {/* CALENDÁRIO */}
       <div className="bg-white p-10 rounded-[4rem] border border-slate-100 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.08)] overflow-hidden">
         <div className="flex flex-col md:flex-row items-center justify-between mb-12 gap-8">
             <div className="flex items-center gap-6">
@@ -337,6 +386,7 @@ export function Fiscalizacao() {
             <div className="flex flex-wrap items-center justify-center gap-4">
               <div className="px-6 py-3 bg-slate-50 rounded-2xl flex gap-8 border border-slate-100 shadow-inner">
                 <div className="flex items-center gap-2.5 text-[10px] font-black text-emerald-600 uppercase tracking-widest"><div className="w-3 h-3 rounded-full bg-emerald-500 shadow-sm shadow-emerald-200"/> Concluído</div>
+                <div className="flex items-center gap-2.5 text-[10px] font-black text-slate-400 uppercase tracking-widest"><div className="w-3 h-3 rounded-full bg-slate-300 shadow-sm"/> Dispensada</div>
                 <div className="flex items-center gap-2.5 text-[10px] font-black text-red-500 uppercase tracking-widest"><div className="w-3 h-3 rounded-full bg-red-500 animate-pulse shadow-sm shadow-red-200"/> Pendente</div>
               </div>
               <button onClick={() => setCurrentCalendarDate(new Date())} className="px-8 py-3 bg-indigo-50 text-indigo-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all">Ir para Hoje</button>
@@ -346,7 +396,7 @@ export function Fiscalizacao() {
         {renderCalendar()}
       </div>
 
-      {/* DETALHES / CONTROLE (EMBAIXO DO CALENDÁRIO) */}
+      {/* DETALHES / CONTROLE */}
       <div className="animate-in slide-in-from-bottom-6 duration-700">
         {userRole === 'school_manager' ? (
           <div className="bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-2xl">
@@ -367,13 +417,13 @@ export function Fiscalizacao() {
                   <p className="text-slate-300 font-black uppercase text-xs tracking-widest">Nenhuma tarefa agendada para este mês</p>
                 </div>
               ) : taskList.map(task => (
-                <div key={task.id} className={`p-6 rounded-[2.5rem] border-2 flex flex-col justify-between h-48 transition-all hover:shadow-2xl ${task.is_completed ? 'bg-slate-50 border-slate-100 opacity-70' : 'bg-white border-red-50 ring-4 ring-red-50/30'}`}>
+                <div key={task.id} className={`p-6 rounded-[2.5rem] border-2 flex flex-col justify-between h-48 transition-all hover:shadow-2xl ${task.is_completed || task.is_dispensed ? 'bg-slate-50 border-slate-100 opacity-70' : 'bg-white border-red-50 ring-4 ring-red-50/30'}`}>
                   <div className="flex items-start justify-between">
-                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-lg ${task.is_completed ? 'bg-emerald-500' : 'bg-red-600 animate-pulse'}`}>
-                      {task.is_completed ? <CheckCircle2 size={28}/> : <AlertCircle size={28}/>}
+                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-lg ${task.is_completed ? 'bg-emerald-500' : task.is_dispensed ? 'bg-slate-400' : 'bg-red-600 animate-pulse'}`}>
+                      {task.is_completed ? <Check size={28}/> : task.is_dispensed ? <XCircle size={28}/> : <AlertCircle size={28}/>}
                     </div>
-                    <span className={`text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-widest ${task.is_completed ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                       {task.is_completed ? 'ENTREGUE' : 'PENDENTE'}
+                    <span className={`text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-widest ${task.is_completed ? 'bg-emerald-100 text-emerald-700' : task.is_dispensed ? 'bg-slate-200 text-slate-600' : 'bg-red-100 text-red-700'}`}>
+                       {task.is_completed ? 'ENTREGUE' : task.is_dispensed ? 'DISPENSADA' : 'PENDENTE'}
                     </span>
                   </div>
                   <div>
@@ -416,8 +466,8 @@ export function Fiscalizacao() {
              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 relative z-10">
                {filteredEventsForCurrentMonth.map(e => {
                  const total = schools.length;
-                 const completed = submissions.filter(s => s.event_id === e.id && s.is_completed).length;
-                 const pct = (completed / total) * 100;
+                 const completedOrDispensed = submissions.filter(s => s.event_id === e.id && (s.is_completed || s.is_dispensed)).length;
+                 const pct = total > 0 ? (completedOrDispensed / total) * 100 : 0;
                  return (
                    <div key={e.id} className="bg-white/5 border border-white/10 p-8 rounded-[3rem] space-y-6 transition-all hover:bg-white/10 hover:border-indigo-500/50 group shadow-xl">
                       <div className="flex items-center justify-between">
@@ -446,8 +496,8 @@ export function Fiscalizacao() {
                             <div className={`h-full transition-all duration-1000 ease-out rounded-full shadow-[0_0_20px_rgba(79,70,229,0.4)] ${pct > 80 ? 'bg-emerald-500' : pct > 50 ? 'bg-indigo-500' : 'bg-red-500'}`} style={{ width: `${pct}%` }} />
                          </div>
                          <div className="flex justify-between items-center text-[9px] font-bold text-white/20 uppercase tracking-widest">
-                            <span>{completed} Enviaram</span>
-                            <span>{total - completed} Faltando</span>
+                            <span>{completedOrDispensed} Finalizados</span>
+                            <span>{total - completedOrDispensed} Restantes</span>
                          </div>
                       </div>
                    </div>
@@ -510,9 +560,13 @@ export function Fiscalizacao() {
                    <div>
                       <h2 className="text-3xl font-black uppercase leading-none tracking-tight">{selectedEvent.service_type}</h2>
                       <div className="flex items-center gap-3 mt-2">
-                        <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest bg-white/5 px-3 py-1 rounded-lg">Prazo Final: {new Date(selectedEvent.date + 'T12:00:00').toLocaleDateString()}</span>
-                        <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">•</span>
-                        <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{selectedEvent.frequency}</span>
+                        <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest bg-white/5 px-3 py-1 rounded-lg">Prazo: {new Date(selectedEvent.date + 'T12:00:00').toLocaleDateString()}</span>
+                        <button 
+                          onClick={() => handleSelectAll(selectedEvent.id)}
+                          className="text-[10px] font-black text-emerald-400 uppercase tracking-widest bg-white/10 px-3 py-1 rounded-lg hover:bg-emerald-500 hover:text-white transition-all ml-4"
+                        >
+                           Mapear Todas como OK
+                        </button>
                       </div>
                    </div>
                 </div>
@@ -534,17 +588,35 @@ export function Fiscalizacao() {
                    {schools.map(school => {
                       const sub = submissions.find(s => s.event_id === selectedEvent.id && s.school_id === school.id);
                       const isOk = sub?.is_completed;
+                      const isDisp = sub?.is_dispensed;
                       return (
-                        <div key={school.id} onClick={() => toggleSubmission(school.id, selectedEvent.id, !!isOk)} className={`p-6 rounded-[2.5rem] border-2 transition-all cursor-pointer flex flex-col justify-between group h-36 shadow-lg ${isOk ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-100 hover:border-indigo-400 hover:scale-[1.02]'}`}>
+                        <div key={school.id} className={`p-6 rounded-[2.5rem] border-2 transition-all flex flex-col justify-between group h-40 shadow-lg ${isOk ? 'bg-emerald-50 border-emerald-200' : isDisp ? 'bg-slate-100 border-slate-200 opacity-60' : 'bg-white border-slate-100 hover:border-indigo-400'}`}>
                            <div className="flex items-start gap-4">
-                              <div className={`w-11 h-11 rounded-[1.2rem] flex items-center justify-center transition-all shadow-md ${isOk ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-300 group-hover:bg-indigo-100 group-hover:text-indigo-600'}`}>
-                                 {isOk ? <Check size={24}/> : <Clock size={24}/>}
+                              <div className={`w-11 h-11 rounded-[1.2rem] flex items-center justify-center transition-all shadow-md ${isOk ? 'bg-emerald-500 text-white' : isDisp ? 'bg-slate-300 text-slate-600' : 'bg-slate-100 text-slate-300 group-hover:bg-indigo-100 group-hover:text-indigo-600'}`}>
+                                 {isOk ? <Check size={24}/> : isDisp ? <XCircle size={24}/> : <Clock size={24}/>}
                               </div>
-                              <span className={`text-[11px] font-black uppercase leading-tight mt-1.5 ${isOk ? 'text-emerald-800' : 'text-slate-600'}`}>{school.name}</span>
+                              <span className={`text-[11px] font-black uppercase leading-tight mt-1.5 ${isOk ? 'text-emerald-800' : isDisp ? 'text-slate-500' : 'text-slate-600'}`}>{school.name}</span>
                            </div>
-                           <div className="flex justify-end">
-                              <span className={`text-[9px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest ${isOk ? 'bg-emerald-200 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
-                                 {isOk ? 'COMPROVADO' : 'PENDENTE'}
+                           
+                           <div className="flex items-center justify-between gap-2 mt-4">
+                              <div className="flex gap-2">
+                                 <button 
+                                  onClick={() => toggleSubmission(school.id, selectedEvent.id, !!isOk)}
+                                  className={`p-2 rounded-xl border-2 transition-all ${isOk ? 'bg-emerald-500 border-emerald-600 text-white' : 'bg-white border-slate-200 text-slate-400 hover:border-emerald-500 hover:text-emerald-500'}`}
+                                  title="Marcar como Concluído"
+                                 >
+                                    <Check size={16}/>
+                                 </button>
+                                 <button 
+                                  onClick={() => toggleDispensed(school.id, selectedEvent.id, !!isDisp)}
+                                  className={`p-2 rounded-xl border-2 transition-all ${isDisp ? 'bg-slate-500 border-slate-600 text-white' : 'bg-white border-slate-200 text-slate-400 hover:border-red-500 hover:text-red-500'}`}
+                                  title="Marcar como Dispensada"
+                                 >
+                                    <Ban size={16}/>
+                                 </button>
+                              </div>
+                              <span className={`text-[8px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest ${isOk ? 'bg-emerald-200 text-emerald-700' : isDisp ? 'bg-slate-300 text-slate-700' : 'bg-slate-100 text-slate-400'}`}>
+                                 {isOk ? 'COMPROVADO' : isDisp ? 'DISPENSADA' : 'PENDENTE'}
                               </span>
                            </div>
                         </div>
@@ -561,7 +633,7 @@ export function Fiscalizacao() {
         </div>
       )}
 
-      {/* --- TEMPLATE PARA PDF (OCULTO) --- */}
+      {/* --- TEMPLATE PARA PDF --- */}
       {selectedEvent && (
         <div id="regional-monitoring-pdf-template" style={{ display: 'none', background: 'white', width: '700px', minHeight: '900px', padding: '50px', fontFamily: 'sans-serif' }}>
           <div style={{ borderBottom: '6px solid #1e293b', paddingBottom: '20px', marginBottom: '30px' }}>
@@ -595,7 +667,7 @@ export function Fiscalizacao() {
                 <td style={{ background: '#eff6ff', padding: '20px', borderRadius: '20px', border: '1px solid #bfdbfe', textAlign: 'center' }}>
                    <p style={{ margin: 0, fontSize: '9px', fontWeight: 900, color: '#1e40af', textTransform: 'uppercase' }}>Cobertura da Rede</p>
                    <h3 style={{ margin: '5px 0 0', fontSize: '16px', fontWeight: 900, color: '#1e3a8a' }}>
-                      {Math.round((submissions.filter(s => s.event_id === selectedEvent.id && s.is_completed).length / schools.length) * 100)}% OK
+                      {Math.round((submissions.filter(s => s.event_id === selectedEvent.id && (s.is_completed || s.is_dispensed)).length / schools.length) * 100)}% OK
                    </h3>
                 </td>
               </tr>
@@ -608,18 +680,19 @@ export function Fiscalizacao() {
                 <thead>
                   <tr style={{ background: '#f1f5f9' }}>
                     <th style={{ padding: '12px', border: '1px solid #cbd5e1', textAlign: 'left', fontSize: '9px', fontWeight: 900 }}>ESCOLA</th>
-                    <th style={{ padding: '12px', border: '1px solid #cbd5e1', textAlign: 'center', fontSize: '9px', fontWeight: 900 }}>STATUS DE CONFORMIDADE</th>
+                    <th style={{ padding: '12px', border: '1px solid #cbd5e1', textAlign: 'center', fontSize: '9px', fontWeight: 900 }}>STATUS</th>
                   </tr>
                 </thead>
                 <tbody>
                   {schools.map((school) => {
                     const sub = submissions.find(s => s.event_id === selectedEvent.id && s.school_id === school.id);
                     const isOk = sub?.is_completed;
+                    const isDisp = sub?.is_dispensed;
                     return (
                       <tr key={school.id}>
                         <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase' }}>{school.name}</td>
-                        <td style={{ padding: '10px', border: '1px solid #cbd5e1', textAlign: 'center', fontSize: '10px', fontWeight: 900, color: isOk ? '#059669' : '#dc2626' }}>
-                          {isOk ? 'FINALIZADO' : 'PENDENTE / EM ATRASO'}
+                        <td style={{ padding: '10px', border: '1px solid #cbd5e1', textAlign: 'center', fontSize: '10px', fontWeight: 900, color: isOk ? '#059669' : isDisp ? '#64748b' : '#dc2626' }}>
+                          {isOk ? 'FINALIZADO' : isDisp ? 'DISPENSADO' : 'PENDENTE'}
                         </td>
                       </tr>
                     );
