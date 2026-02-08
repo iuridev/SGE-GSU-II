@@ -3,10 +3,10 @@ import { supabase } from '../lib/supabase';
 import { 
   ClipboardCheck, Plus, Calendar as CalendarIcon, 
   ChevronLeft, ChevronRight, CheckCircle2, 
-  AlertCircle, X, 
+  AlertCircle, X, Search, Building2, 
   Loader2, 
   Check, Trash2, Clock, ListChecks, ArrowRight, FileDown,
-  Ban, XCircle
+  Ban, XCircle, Star
 } from 'lucide-react';
 
 interface MonitoringEvent {
@@ -20,7 +20,8 @@ interface MonitoringSubmission {
   event_id: string;
   school_id: string;
   is_completed: boolean;
-  is_dispensed: boolean; // Novo campo
+  is_dispensed: boolean; 
+  rating: number | null; // Campo de satisfação (0-10)
   school_name?: string;
   updated_at?: string;
 }
@@ -34,6 +35,7 @@ export function Fiscalizacao() {
   const [loading, setLoading] = useState(true);
   const [events, setEvents] = useState<MonitoringEvent[]>([]);
   const [submissions, setSubmissions] = useState<MonitoringSubmission[]>([]);
+  const [checklistSearch, setChecklistSearch] = useState('');
   
   // Administração
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -94,7 +96,8 @@ export function Fiscalizacao() {
         event_id: event.id,
         school_id: s.id,
         is_completed: false,
-        is_dispensed: false
+        is_dispensed: false,
+        rating: null
       }));
       await (supabase as any).from('monitoring_submissions').insert(subs);
 
@@ -103,41 +106,17 @@ export function Fiscalizacao() {
     } catch (err: any) { alert(err.message); } finally { setSaveLoading(false); }
   }
 
-  async function toggleSubmission(schoolId: string, eventId: string, currentStatus: boolean) {
+  async function updateSubmission(schoolId: string, eventId: string, updates: Partial<MonitoringSubmission>) {
     try {
       await (supabase as any)
         .from('monitoring_submissions')
-        .update({ 
-          is_completed: !currentStatus, 
-          is_dispensed: false, // Se marcar concluído, remove a dispensa
-          updated_at: new Date().toISOString() 
-        })
+        .update(updates)
         .eq('event_id', eventId)
         .eq('school_id', schoolId);
       
       setSubmissions(prev => prev.map(s => 
         (s.school_id === schoolId && s.event_id === eventId) 
-        ? { ...s, is_completed: !currentStatus, is_dispensed: false } 
-        : s
-      ));
-    } catch (err) { console.error(err); }
-  }
-
-  async function toggleDispensed(schoolId: string, eventId: string, currentDispensed: boolean) {
-    try {
-      await (supabase as any)
-        .from('monitoring_submissions')
-        .update({ 
-          is_dispensed: !currentDispensed, 
-          is_completed: false, // Se dispensar, remove a conclusão
-          updated_at: new Date().toISOString() 
-        })
-        .eq('event_id', eventId)
-        .eq('school_id', schoolId);
-      
-      setSubmissions(prev => prev.map(s => 
-        (s.school_id === schoolId && s.event_id === eventId) 
-        ? { ...s, is_dispensed: !currentDispensed, is_completed: false } 
+        ? { ...s, ...updates } 
         : s
       ));
     } catch (err) { console.error(err); }
@@ -149,7 +128,24 @@ export function Fiscalizacao() {
     try {
       await (supabase as any)
         .from('monitoring_submissions')
-        .update({ is_completed: true, is_dispensed: false, updated_at: new Date().toISOString() })
+        .update({ is_completed: true, is_dispensed: false, rating: 10 }) 
+        .eq('event_id', eventId);
+      
+      await fetchEvents();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSaveLoading(false);
+    }
+  }
+
+  async function handleDispenseAll(eventId: string) {
+    if (!confirm("Deseja marcar TODAS as unidades como DISPENSADAS?")) return;
+    setSaveLoading(true);
+    try {
+      await (supabase as any)
+        .from('monitoring_submissions')
+        .update({ is_completed: false, is_dispensed: true, rating: null }) 
         .eq('event_id', eventId);
       
       await fetchEvents();
@@ -165,6 +161,19 @@ export function Fiscalizacao() {
     await (supabase as any).from('monitoring_events').delete().eq('id', id);
     fetchEvents();
   }
+
+  const calculateAverageRating = (eventId: string) => {
+    const eventSubs = submissions.filter(s => s.event_id === eventId && s.is_completed && s.rating !== null);
+    if (eventSubs.length === 0) return 0;
+    const sum = eventSubs.reduce((acc, curr) => acc + (curr.rating || 0), 0);
+    return sum / eventSubs.length;
+  };
+
+  const getRatingColor = (rating: number) => {
+    if (rating >= 8) return 'text-emerald-500 bg-emerald-50 border-emerald-100';
+    if (rating >= 5) return 'text-amber-500 bg-amber-50 border-amber-100';
+    return 'text-red-500 bg-red-50 border-red-100';
+  };
 
   const handleExportPDF = async (event: MonitoringEvent) => {
     setExporting(true);
@@ -204,29 +213,6 @@ export function Fiscalizacao() {
     }
   };
 
-  const managerStats = useMemo(() => {
-    if (userRole !== 'school_manager') return null;
-    const currentMonth = currentCalendarDate.getMonth();
-    const currentYear = currentCalendarDate.getFullYear();
-    
-    const monthEvents = events.filter(e => {
-      const d = new Date(e.date + 'T12:00:00');
-      return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-    });
-
-    const pending = monthEvents.filter(e => {
-      const sub = submissions.find(s => s.event_id === e.id && s.school_id === userSchoolId);
-      return !sub?.is_completed && !sub?.is_dispensed;
-    }).length;
-
-    const completed = monthEvents.filter(e => {
-      const sub = submissions.find(s => s.event_id === e.id && s.school_id === userSchoolId);
-      return sub?.is_completed || sub?.is_dispensed;
-    }).length;
-
-    return { total: monthEvents.length, pending, completed };
-  }, [events, submissions, userSchoolId, currentCalendarDate, userRole]);
-
   const filteredEventsForCurrentMonth = useMemo(() => {
     const currentMonth = currentCalendarDate.getMonth();
     const currentYear = currentCalendarDate.getFullYear();
@@ -244,11 +230,16 @@ export function Fiscalizacao() {
         return {
           ...e,
           is_completed: sub?.is_completed || false,
-          is_dispensed: sub?.is_dispensed || false
+          is_dispensed: sub?.is_dispensed || false,
+          rating: sub?.rating || null
         };
       })
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [filteredEventsForCurrentMonth, submissions, userSchoolId, userRole]);
+
+  const filteredSchoolsInChecklist = useMemo(() => {
+    return schools.filter(s => s.name.toLowerCase().includes(checklistSearch.toLowerCase()));
+  }, [schools, checklistSearch]);
 
   const renderCalendar = () => {
     const year = currentCalendarDate.getFullYear();
@@ -288,6 +279,9 @@ export function Fiscalizacao() {
                   </div>
                   <div className="flex justify-between items-center opacity-60">
                     <span className="text-[7px]">{isDisp ? 'DISPENSADO' : e.frequency}</span>
+                    {isOk && sub.rating !== null && (
+                        <span className="flex items-center gap-0.5 text-emerald-600"><Star size={8} fill="currentColor"/> {sub.rating}</span>
+                    )}
                   </div>
                 </div>
               );
@@ -340,33 +334,6 @@ export function Fiscalizacao() {
         )}
       </div>
 
-      {/* STATS (SÓ GESTOR) */}
-      {userRole === 'school_manager' && managerStats && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-           <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl flex items-center gap-5">
-              <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-3xl flex items-center justify-center shadow-inner"><CalendarIcon size={28}/></div>
-              <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Agendamentos Mês</p>
-                <h3 className="text-3xl font-black text-slate-800 mt-1">{managerStats.total} <span className="text-xs font-bold text-slate-400 uppercase ml-1">Total</span></h3>
-              </div>
-           </div>
-           <div className={`p-8 rounded-[2.5rem] border-2 transition-all flex items-center gap-5 shadow-xl ${managerStats.pending > 0 ? 'border-red-100 bg-red-50/20' : 'bg-white border-slate-100'}`}>
-              <div className={`w-16 h-16 rounded-3xl flex items-center justify-center shadow-lg ${managerStats.pending > 0 ? 'bg-red-500 text-white animate-pulse' : 'bg-slate-100 text-slate-400'}`}><Clock size={28}/></div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest leading-none opacity-60">Aguardando Envio</p>
-                <h3 className={`text-3xl font-black mt-1 ${managerStats.pending > 0 ? 'text-red-600' : 'text-slate-800'}`}>{managerStats.pending} <span className="text-xs font-bold uppercase ml-1">Pendentes</span></h3>
-              </div>
-           </div>
-           <div className={`p-8 rounded-[2.5rem] border-2 transition-all flex items-center gap-5 shadow-xl ${managerStats.completed === managerStats.total && managerStats.total > 0 ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-white border-slate-100'}`}>
-              <div className={`w-16 h-16 rounded-3xl flex items-center justify-center shadow-lg ${managerStats.completed === managerStats.total && managerStats.total > 0 ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-400'}`}><CheckCircle2 size={28}/></div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest leading-none opacity-60">Conformidade Atual</p>
-                <h3 className="text-3xl font-black mt-1">{managerStats.completed} <span className="text-xs font-bold uppercase ml-1">Confirmadas</span></h3>
-              </div>
-           </div>
-        </div>
-      )}
-
       {/* CALENDÁRIO */}
       <div className="bg-white p-10 rounded-[4rem] border border-slate-100 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.08)] overflow-hidden">
         <div className="flex flex-col md:flex-row items-center justify-between mb-12 gap-8">
@@ -400,20 +367,18 @@ export function Fiscalizacao() {
       <div className="animate-in slide-in-from-bottom-6 duration-700">
         {userRole === 'school_manager' ? (
           <div className="bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-2xl">
-            <div className="flex items-center justify-between mb-10 pb-6 border-b border-slate-100">
-               <div className="flex items-center gap-4">
-                  <div className="p-4 bg-indigo-600 rounded-3xl text-white shadow-xl"><ListChecks size={28}/></div>
-                  <div>
-                    <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Agenda de Entregas</h2>
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Compromissos do mês de {MONTHS[currentCalendarDate.getMonth()]}</p>
-                  </div>
-               </div>
+            <div className="flex items-center gap-4 mb-10 border-b border-slate-100 pb-6">
+              <div className="p-4 bg-indigo-600 rounded-3xl text-white shadow-xl"><ListChecks size={28}/></div>
+              <div>
+                <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Agenda de Compromissos</h2>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Compromissos do mês de {MONTHS[currentCalendarDate.getMonth()]}</p>
+              </div>
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {taskList.length === 0 ? (
                 <div className="col-span-full py-24 text-center">
-                  <div className="w-20 h-20 bg-slate-50 text-slate-200 rounded-full flex items-center justify-center mx-auto mb-4"><CalendarIcon size={40}/></div>
+                  <div className="w-20 h-20 bg-slate-50 text-slate-200 rounded-full flex items-center justify-center mx-auto mb-4"><Clock size={40}/></div>
                   <p className="text-slate-300 font-black uppercase text-xs tracking-widest">Nenhuma tarefa agendada para este mês</p>
                 </div>
               ) : taskList.map(task => (
@@ -447,13 +412,13 @@ export function Fiscalizacao() {
                   <div className="p-4 bg-white/10 text-amber-400 rounded-[1.5rem] shadow-2xl"><ClipboardCheck size={36}/></div>
                   <div>
                       <h2 className="text-3xl font-black uppercase tracking-tight">Controle Regional</h2>
-                      <p className="text-[10px] text-white/40 font-bold uppercase tracking-[0.2em] mt-1">Auditória em Tempo Real de Toda a Rede Escolar</p>
+                      <p className="text-[10px] text-white/40 font-bold uppercase tracking-[0.2em] mt-1">Auditória em Tempo Real e Grau de Satisfação</p>
                   </div>
                 </div>
                 <div className="bg-white/5 border border-white/10 px-8 py-4 rounded-[2rem] flex gap-10">
                    <div className="text-center">
                       <p className="text-[9px] font-black text-white/40 uppercase tracking-widest">Rede Total</p>
-                      <h4 className="text-2xl font-black">{schools.length} Escolas</h4>
+                      <h4 className="text-2xl font-black flex items-center gap-2"><Building2 size={24} className="text-indigo-400"/> {schools.length} Escolas</h4>
                    </div>
                    <div className="w-px h-8 bg-white/10 self-center"></div>
                    <div className="text-center">
@@ -468,6 +433,8 @@ export function Fiscalizacao() {
                  const total = schools.length;
                  const completedOrDispensed = submissions.filter(s => s.event_id === e.id && (s.is_completed || s.is_dispensed)).length;
                  const pct = total > 0 ? (completedOrDispensed / total) * 100 : 0;
+                 const avgSatisfaction = calculateAverageRating(e.id);
+                 
                  return (
                    <div key={e.id} className="bg-white/5 border border-white/10 p-8 rounded-[3rem] space-y-6 transition-all hover:bg-white/10 hover:border-indigo-500/50 group shadow-xl">
                       <div className="flex items-center justify-between">
@@ -487,17 +454,29 @@ export function Fiscalizacao() {
                         ><ArrowRight size={24}/></button>
                       </div>
                       
-                      <div className="space-y-3 pt-2">
-                         <div className="flex justify-between text-[11px] font-black uppercase tracking-widest">
-                            <span className="text-white/40">Cumprimento da Rede</span>
-                            <span className={pct > 80 ? 'text-emerald-500' : 'text-indigo-400'}>{Math.round(pct)}% CONCLUÍDO</span>
+                      <div className="space-y-4">
+                         <div className="flex justify-between items-end">
+                            <div className="space-y-1">
+                                <p className="text-[9px] font-black text-white/40 uppercase tracking-widest">Satisfação Média</p>
+                                <div className="flex items-center gap-2">
+                                   <div className={`px-2 py-1 rounded-lg text-lg font-black ${avgSatisfaction >= 8 ? 'bg-emerald-500/20 text-emerald-400' : avgSatisfaction >= 5 ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/20 text-red-400'}`}>
+                                      {avgSatisfaction.toFixed(1)}
+                                   </div>
+                                   <div className="flex gap-0.5">
+                                      {Array.from({length: 5}).map((_, i) => (
+                                        <Star key={i} size={10} className={i < Math.round(avgSatisfaction / 2) ? 'text-amber-400 fill-amber-400' : 'text-white/10'} />
+                                      ))}
+                                   </div>
+                                </div>
+                            </div>
+                            <div className="text-right">
+                               <p className="text-[9px] font-black text-white/40 uppercase tracking-widest">Adesão</p>
+                               <span className="text-sm font-black text-indigo-400">{Math.round(pct)}%</span>
+                            </div>
                          </div>
-                         <div className="h-2.5 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5">
-                            <div className={`h-full transition-all duration-1000 ease-out rounded-full shadow-[0_0_20px_rgba(79,70,229,0.4)] ${pct > 80 ? 'bg-emerald-500' : pct > 50 ? 'bg-indigo-500' : 'bg-red-500'}`} style={{ width: `${pct}%` }} />
-                         </div>
-                         <div className="flex justify-between items-center text-[9px] font-bold text-white/20 uppercase tracking-widest">
-                            <span>{completedOrDispensed} Finalizados</span>
-                            <span>{total - completedOrDispensed} Restantes</span>
+
+                         <div className="h-2 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5">
+                            <div className={`h-full transition-all duration-1000 ease-out rounded-full ${pct > 80 ? 'bg-emerald-50 shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-indigo-50 shadow-[0_0_15px_rgba(99,102,241,0.3)]'}`} style={{ width: `${pct}%` }} />
                          </div>
                       </div>
                    </div>
@@ -553,7 +532,7 @@ export function Fiscalizacao() {
       {/* Modal Checklist Regional */}
       {isChecklistOpen && selectedEvent && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/90 backdrop-blur-xl p-4">
-          <div className="bg-white rounded-[3.5rem] w-full max-w-5xl max-h-[90vh] shadow-2xl overflow-hidden border border-white animate-in zoom-in-95 duration-200 flex flex-col">
+          <div className="bg-white rounded-[3.5rem] w-full max-w-6xl max-h-[90vh] shadow-2xl overflow-hidden border border-white animate-in zoom-in-95 duration-200 flex flex-col">
              <div className="p-10 border-b bg-slate-900 text-white flex justify-between items-center">
                 <div className="flex items-center gap-6">
                    <div className="w-16 h-16 bg-indigo-500 rounded-[1.8rem] flex items-center justify-center text-white shadow-2xl"><ClipboardCheck size={32}/></div>
@@ -561,63 +540,95 @@ export function Fiscalizacao() {
                       <h2 className="text-3xl font-black uppercase leading-none tracking-tight">{selectedEvent.service_type}</h2>
                       <div className="flex items-center gap-3 mt-2">
                         <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest bg-white/5 px-3 py-1 rounded-lg">Prazo: {new Date(selectedEvent.date + 'T12:00:00').toLocaleDateString()}</span>
-                        <button 
-                          onClick={() => handleSelectAll(selectedEvent.id)}
-                          className="text-[10px] font-black text-emerald-400 uppercase tracking-widest bg-white/10 px-3 py-1 rounded-lg hover:bg-emerald-500 hover:text-white transition-all ml-4"
-                        >
-                           Mapear Todas como OK
-                        </button>
+                        
+                        <div className="flex items-center gap-2 ml-4">
+                          <button 
+                            onClick={() => handleSelectAll(selectedEvent.id)}
+                            className="text-[10px] font-black text-emerald-400 uppercase tracking-widest bg-white/10 px-3 py-1 rounded-lg hover:bg-emerald-500 hover:text-white transition-all shadow-sm"
+                          >
+                             Mapear Todas como OK (Nota 10)
+                          </button>
+                          <button 
+                            onClick={() => handleDispenseAll(selectedEvent.id)}
+                            className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-white/10 px-3 py-1 rounded-lg hover:bg-slate-500 hover:text-white transition-all shadow-sm"
+                          >
+                             Dispensar Todas
+                          </button>
+                        </div>
                       </div>
                    </div>
                 </div>
                 <div className="flex items-center gap-4">
-                  <button 
-                    onClick={() => handleExportPDF(selectedEvent)}
-                    disabled={exporting}
-                    className="px-8 py-4 bg-white/10 hover:bg-white/20 rounded-[1.5rem] text-white transition-all flex items-center gap-3 text-[11px] font-black uppercase tracking-widest shadow-lg border border-white/5"
-                  >
-                    {exporting ? <Loader2 className="animate-spin" size={18}/> : <FileDown size={18}/>}
-                    GERAR PDF DA REDE
+                  <div className="relative group">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+                    <input 
+                      type="text" 
+                      placeholder="Filtrar Escolas..." 
+                      className="bg-white/10 border border-white/5 rounded-xl pl-9 pr-4 py-2 text-xs font-bold text-white outline-none focus:bg-white/20 transition-all w-48"
+                      value={checklistSearch}
+                      onChange={(e) => setChecklistSearch(e.target.value)}
+                    />
+                  </div>
+                  <button onClick={() => handleExportPDF(selectedEvent)} disabled={exporting} className="px-8 py-4 bg-white/10 hover:bg-white/20 rounded-[1.5rem] text-white transition-all flex items-center gap-3 text-[11px] font-black uppercase tracking-widest shadow-lg border border-white/5">
+                    {exporting ? <Loader2 className="animate-spin" size={18}/> : <FileDown size={18}/>} GERAR PDF DA REDE
                   </button>
                   <button onClick={() => setIsChecklistOpen(false)} className="p-4 hover:bg-white/10 rounded-full transition-colors text-slate-400"><X size={32}/></button>
                 </div>
              </div>
              
              <div className="p-10 overflow-y-auto flex-1 custom-scrollbar bg-slate-50/50">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                   {schools.map(school => {
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                   {filteredSchoolsInChecklist.map(school => {
                       const sub = submissions.find(s => s.event_id === selectedEvent.id && s.school_id === school.id);
                       const isOk = sub?.is_completed;
                       const isDisp = sub?.is_dispensed;
+                      const currentRating = sub?.rating || 0;
+
                       return (
-                        <div key={school.id} className={`p-6 rounded-[2.5rem] border-2 transition-all flex flex-col justify-between group h-40 shadow-lg ${isOk ? 'bg-emerald-50 border-emerald-200' : isDisp ? 'bg-slate-100 border-slate-200 opacity-60' : 'bg-white border-slate-100 hover:border-indigo-400'}`}>
-                           <div className="flex items-start gap-4">
-                              <div className={`w-11 h-11 rounded-[1.2rem] flex items-center justify-center transition-all shadow-md ${isOk ? 'bg-emerald-500 text-white' : isDisp ? 'bg-slate-300 text-slate-600' : 'bg-slate-100 text-slate-300 group-hover:bg-indigo-100 group-hover:text-indigo-600'}`}>
-                                 {isOk ? <Check size={24}/> : isDisp ? <XCircle size={24}/> : <Clock size={24}/>}
+                        <div key={school.id} className={`p-6 rounded-[2.5rem] border-2 transition-all flex flex-col justify-between group shadow-lg ${isOk ? 'bg-white border-emerald-200 ring-4 ring-emerald-50/50' : isDisp ? 'bg-slate-100 border-slate-200 opacity-60' : 'bg-white border-slate-100 hover:border-indigo-400'}`}>
+                           <div className="flex items-center justify-between mb-4">
+                              <div className="flex items-center gap-4">
+                                <div className={`w-11 h-11 rounded-[1.2rem] flex items-center justify-center transition-all shadow-md ${isOk ? 'bg-emerald-500 text-white' : isDisp ? 'bg-slate-300 text-slate-600' : 'bg-slate-100 text-slate-300 group-hover:bg-indigo-100 group-hover:text-indigo-600'}`}>
+                                  {isOk ? <Check size={24}/> : isDisp ? <XCircle size={24}/> : <Clock size={24}/>}
+                                </div>
+                                <span className={`text-[11px] font-black uppercase leading-tight mt-1.5 ${isOk ? 'text-emerald-800' : isDisp ? 'text-slate-500' : 'text-slate-600'}`}>{school.name}</span>
                               </div>
-                              <span className={`text-[11px] font-black uppercase leading-tight mt-1.5 ${isOk ? 'text-emerald-800' : isDisp ? 'text-slate-500' : 'text-slate-600'}`}>{school.name}</span>
+                              <span className={`text-[9px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest ${isOk ? 'bg-emerald-200 text-emerald-700' : isDisp ? 'bg-slate-300 text-slate-700' : 'bg-slate-100 text-slate-400'}`}>
+                                 {isOk ? 'COMPROVADO' : isDisp ? 'DISPENSADA' : 'PENDENTE'}
+                              </span>
                            </div>
-                           
-                           <div className="flex items-center justify-between gap-2 mt-4">
-                              <div className="flex gap-2">
+
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center border-t border-slate-50 pt-4">
+                              {/* Controle de Satisfação */}
+                              <div className={`space-y-2 transition-opacity ${!isOk ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
+                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">Grau de Satisfação (0-10)</p>
+                                 <div className="flex items-center gap-2">
+                                    <input 
+                                      type="range" min="0" max="10" step="1" 
+                                      className="flex-1 accent-indigo-600"
+                                      value={currentRating}
+                                      onChange={(e) => updateSubmission(school.id, selectedEvent.id, { rating: Number(e.target.value) })}
+                                    />
+                                    <span className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-lg ${getRatingColor(currentRating)} shadow-sm`}>
+                                      {currentRating}
+                                    </span>
+                                 </div>
+                              </div>
+
+                              <div className="flex justify-end gap-2">
                                  <button 
-                                  onClick={() => toggleSubmission(school.id, selectedEvent.id, !!isOk)}
-                                  className={`p-2 rounded-xl border-2 transition-all ${isOk ? 'bg-emerald-500 border-emerald-600 text-white' : 'bg-white border-slate-200 text-slate-400 hover:border-emerald-500 hover:text-emerald-500'}`}
-                                  title="Marcar como Concluído"
+                                  onClick={() => updateSubmission(school.id, selectedEvent.id, { is_completed: !isOk, is_dispensed: false, rating: !isOk ? 10 : null })}
+                                  className={`flex-1 py-3 rounded-2xl border-2 font-black text-[10px] uppercase transition-all flex items-center justify-center gap-2 ${isOk ? 'bg-emerald-500 border-emerald-600 text-white' : 'bg-white border-slate-200 text-slate-400 hover:border-emerald-500 hover:text-emerald-500'}`}
                                  >
-                                    <Check size={16}/>
+                                    <Check size={16}/> {isOk ? 'Dêsfazer' : 'Confirmar'}
                                  </button>
                                  <button 
-                                  onClick={() => toggleDispensed(school.id, selectedEvent.id, !!isDisp)}
-                                  className={`p-2 rounded-xl border-2 transition-all ${isDisp ? 'bg-slate-500 border-slate-600 text-white' : 'bg-white border-slate-200 text-slate-400 hover:border-red-500 hover:text-red-500'}`}
-                                  title="Marcar como Dispensada"
+                                  onClick={() => updateSubmission(school.id, selectedEvent.id, { is_dispensed: !isDisp, is_completed: false, rating: null })}
+                                  className={`px-4 py-3 rounded-2xl border-2 transition-all ${isDisp ? 'bg-slate-500 border-slate-600 text-white' : 'bg-white border-slate-200 text-slate-400 hover:border-red-500 hover:text-red-500'}`}
                                  >
                                     <Ban size={16}/>
                                  </button>
                               </div>
-                              <span className={`text-[8px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest ${isOk ? 'bg-emerald-200 text-emerald-700' : isDisp ? 'bg-slate-300 text-slate-700' : 'bg-slate-100 text-slate-400'}`}>
-                                 {isOk ? 'COMPROVADO' : isDisp ? 'DISPENSADA' : 'PENDENTE'}
-                              </span>
                            </div>
                         </div>
                       );
@@ -642,7 +653,7 @@ export function Fiscalizacao() {
                   <tr>
                     <td>
                       <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 900, color: '#0f172a' }}>RELATÓRIO TÉCNICO DE FISCALIZAÇÃO</h1>
-                      <p style={{ margin: '5px 0 0', fontSize: '10px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '2px' }}>Gestão de Contratos de Terceirização • Regional II</p>
+                      <p style={{ margin: '5px 0 0', fontSize: '10px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '2px' }}>Gestão de Contratos e Qualidade • Regional II</p>
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ background: '#1e293b', color: 'white', padding: '8px 20px', borderRadius: '10px', fontSize: '10px', fontWeight: 900 }}>SGE-GSU Intelligence</div>
@@ -657,17 +668,19 @@ export function Fiscalizacao() {
             <tbody>
               <tr>
                 <td style={{ background: '#f8fafc', padding: '20px', borderRadius: '20px', border: '1px solid #e2e8f0' }}>
-                   <p style={{ margin: 0, fontSize: '9px', fontWeight: 900, color: '#64748b', textTransform: 'uppercase' }}>Vencimento da Entrega</p>
+                   <p style={{ margin: 0, fontSize: '9px', fontWeight: 900, color: '#64748b', textTransform: 'uppercase' }}>Vencimento</p>
                    <h3 style={{ margin: '5px 0 0', fontSize: '16px', fontWeight: 900, color: '#0f172a' }}>{new Date(selectedEvent.date + 'T12:00:00').toLocaleDateString('pt-BR')}</h3>
                 </td>
-                <td style={{ background: '#f8fafc', padding: '20px', borderRadius: '20px', border: '1px solid #e2e8f0' }}>
-                   <p style={{ margin: 0, fontSize: '9px', fontWeight: 900, color: '#64748b', textTransform: 'uppercase' }}>Frequência</p>
-                   <h3 style={{ margin: '5px 0 0', fontSize: '16px', fontWeight: 900, color: '#0f172a' }}>{selectedEvent.frequency}</h3>
-                </td>
                 <td style={{ background: '#eff6ff', padding: '20px', borderRadius: '20px', border: '1px solid #bfdbfe', textAlign: 'center' }}>
-                   <p style={{ margin: 0, fontSize: '9px', fontWeight: 900, color: '#1e40af', textTransform: 'uppercase' }}>Cobertura da Rede</p>
-                   <h3 style={{ margin: '5px 0 0', fontSize: '16px', fontWeight: 900, color: '#1e3a8a' }}>
-                      {Math.round((submissions.filter(s => s.event_id === selectedEvent.id && (s.is_completed || s.is_dispensed)).length / schools.length) * 100)}% OK
+                   <p style={{ margin: 0, fontSize: '9px', fontWeight: 900, color: '#1e40af', textTransform: 'uppercase' }}>Satisfação Média</p>
+                   <h3 style={{ margin: '5px 0 0', fontSize: '18px', fontWeight: 900, color: '#1e3a8a' }}>
+                      {calculateAverageRating(selectedEvent.id).toFixed(1)} / 10.0
+                   </h3>
+                </td>
+                <td style={{ background: '#f8fafc', padding: '20px', borderRadius: '20px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                   <p style={{ margin: 0, fontSize: '9px', fontWeight: 900, color: '#64748b', textTransform: 'uppercase' }}>Cobertura OK</p>
+                   <h3 style={{ margin: '5px 0 0', fontSize: '16px', fontWeight: 900, color: '#0f172a' }}>
+                      {Math.round((submissions.filter(s => s.event_id === selectedEvent.id && (s.is_completed || s.is_dispensed)).length / schools.length) * 100)}%
                    </h3>
                 </td>
               </tr>
@@ -675,12 +688,13 @@ export function Fiscalizacao() {
           </table>
 
           <div style={{ marginBottom: '40px' }}>
-             <h4 style={{ margin: '0 0 15px 0', fontSize: '11px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', borderBottom: '2px solid #f1f5f9', paddingBottom: '10px' }}>Situação das Unidades Escolares</h4>
+             <h4 style={{ margin: '0 0 15px 0', fontSize: '11px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', borderBottom: '2px solid #f1f5f9', paddingBottom: '10px' }}>Situação Detalhada das Unidades</h4>
              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ background: '#f1f5f9' }}>
                     <th style={{ padding: '12px', border: '1px solid #cbd5e1', textAlign: 'left', fontSize: '9px', fontWeight: 900 }}>ESCOLA</th>
                     <th style={{ padding: '12px', border: '1px solid #cbd5e1', textAlign: 'center', fontSize: '9px', fontWeight: 900 }}>STATUS</th>
+                    <th style={{ padding: '12px', border: '1px solid #cbd5e1', textAlign: 'center', fontSize: '9px', fontWeight: 900 }}>NOTA</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -694,6 +708,9 @@ export function Fiscalizacao() {
                         <td style={{ padding: '10px', border: '1px solid #cbd5e1', textAlign: 'center', fontSize: '10px', fontWeight: 900, color: isOk ? '#059669' : isDisp ? '#64748b' : '#dc2626' }}>
                           {isOk ? 'FINALIZADO' : isDisp ? 'DISPENSADO' : 'PENDENTE'}
                         </td>
+                        <td style={{ padding: '10px', border: '1px solid #cbd5e1', textAlign: 'center', fontSize: '10px', fontWeight: 900 }}>
+                          {isOk && sub.rating !== null ? sub.rating.toFixed(1) : '---'}
+                        </td>
                       </tr>
                     );
                   })}
@@ -702,7 +719,7 @@ export function Fiscalizacao() {
           </div>
 
           <div style={{ marginTop: 'auto', paddingTop: '50px', textAlign: 'center', borderTop: '2px solid #f1f5f9' }}>
-             <p style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 900, letterSpacing: '4px' }}>RELATÓRIO GERADO PARA USO EXCLUSIVO DA ADMINISTRAÇÃO REGIONAL</p>
+             <p style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 900, letterSpacing: '4px' }}>RELATÓRIO DE QUALIDADE GERADO PELO SISTEMA SGE-GSU</p>
              <p style={{ margin: '10px 0 0', fontSize: '8px', color: '#cbd5e1' }}>Emitido em {new Date().toLocaleString('pt-BR')}</p>
           </div>
         </div>
