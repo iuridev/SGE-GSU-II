@@ -39,12 +39,14 @@ interface SchoolBase {
 export function RankingEscolas() {
   const [schools, setSchools] = useState<SchoolRanking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saveLoading, setSaveLoading] = useState(false); 
   const [userRole, setUserRole] = useState('');
   const [userSchoolId, setUserSchoolId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectedSchool, setSelectedSchool] = useState<SchoolRanking | null>(null);
   
+  // Pesos iniciais (serão sobrescritos pelo banco de dados)
   const [weights, setWeights] = useState<WeightConfig>({
     water_reg: 2,
     water_limit: 1,
@@ -54,12 +56,13 @@ export function RankingEscolas() {
   });
 
   useEffect(() => {
-    fetchData();
+    initRanking();
   }, []);
 
-  async function fetchData() {
+  async function initRanking() {
     setLoading(true);
     try {
+      // 1. Carregar perfil e permissões
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { data: profile } = await (supabase as any)
@@ -71,6 +74,34 @@ export function RankingEscolas() {
         setUserSchoolId(profile?.school_id || null);
       }
 
+      // 2. Carregar Pesos do Banco de Dados
+      const { data: settings } = await (supabase as any)
+        .from('ranking_settings')
+        .select('*')
+        .eq('id', 'default-weights')
+        .maybeSingle();
+
+      const activeWeights = settings ? {
+        water_reg: settings.water_reg,
+        water_limit: settings.water_limit,
+        demand_on_time: settings.demand_on_time,
+        fiscal_delivery: settings.fiscal_delivery,
+        fiscal_quality: settings.fiscal_quality
+      } : weights;
+
+      if (settings) setWeights(activeWeights);
+
+      // 3. Processar Dados com os pesos ativos
+      await fetchData(activeWeights);
+    } catch (err) {
+      console.error("Erro na inicialização:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function fetchData(currentWeights: WeightConfig) {
+    try {
       const { data: schoolsData } = await (supabase as any).from('schools').select('id, name');
       const now = new Date();
       const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
@@ -88,33 +119,38 @@ export function RankingEscolas() {
       const currentDay = now.getDate();
 
       const ranking: SchoolRanking[] = allSchools.map((school: SchoolBase) => {
+        // 1. Água - Frequência de Registro
         const schoolWater = waterLogs.filter((w: any) => w.school_id === school.id);
         const waterRegPct = Math.min(1, schoolWater.length / currentDay);
         
+        // 2. Água - Eficiência (Dentro do teto)
         const exceededCount = schoolWater.filter((w: any) => w.limit_exceeded).length;
         const waterEffPct = schoolWater.length > 0 ? (1 - exceededCount / schoolWater.length) : 1;
 
+        // 3. Demandas - Prazo
         const schoolDemands = allDemands.filter((d: any) => d.school_id === school.id);
         const onTimeDemands = schoolDemands.filter((d: any) => d.status === 'CONCLUÍDO' && d.completed_at <= d.deadline);
         const demandPct = schoolDemands.length > 0 ? (onTimeDemands.length / schoolDemands.length) : 1;
 
+        // 4. Fiscalização - Entrega e Dispensas
         const schoolFiscal = fiscalLogs.filter((f: any) => f.school_id === school.id);
         const completedOrDispensed = schoolFiscal.filter((f: any) => f.is_completed || f.is_dispensed);
         const fiscalPct = schoolFiscal.length > 0 ? (completedOrDispensed.length / schoolFiscal.length) : 1;
         
+        // 5. Fiscalização - Qualidade (Nota 0-10)
         const ratings = schoolFiscal.filter((f: any) => f.is_completed && f.rating !== null);
         const avgRating = ratings.length > 0 
           ? (ratings.reduce((acc: number, curr: any) => acc + curr.rating, 0) / ratings.length) / 10
           : 0.8; 
 
-        const totalWeight = weights.water_reg + weights.water_limit + weights.demand_on_time + weights.fiscal_delivery + weights.fiscal_quality;
+        const totalWeight = currentWeights.water_reg + currentWeights.water_limit + currentWeights.demand_on_time + currentWeights.fiscal_delivery + currentWeights.fiscal_quality;
         
         let finalScore = (
-          (waterRegPct * 10 * weights.water_reg) +
-          (waterEffPct * 10 * weights.water_limit) +
-          (demandPct * 10 * weights.demand_on_time) +
-          (fiscalPct * 10 * weights.fiscal_delivery) +
-          (avgRating * 10 * weights.fiscal_quality)
+          (waterRegPct * 10 * currentWeights.water_reg) +
+          (waterEffPct * 10 * currentWeights.water_limit) +
+          (demandPct * 10 * currentWeights.demand_on_time) +
+          (fiscalPct * 10 * currentWeights.fiscal_delivery) +
+          (avgRating * 10 * currentWeights.fiscal_quality)
         ) / totalWeight;
 
         finalScore = Math.max(0.01, Math.min(10, finalScore));
@@ -141,8 +177,29 @@ export function RankingEscolas() {
       setSchools(sortedRanking);
     } catch (error) {
       console.error(error);
+    }
+  }
+
+  // Função para Salvar Pesos no Supabase
+  async function handleSaveSettings() {
+    setSaveLoading(true);
+    try {
+      const { error } = await (supabase as any)
+        .from('ranking_settings')
+        .upsert({
+          id: 'default-weights',
+          ...weights,
+          updated_at: new Date().toISOString()
+        });
+
+      if (error) throw error;
+      
+      await fetchData(weights);
+      setIsSettingsOpen(false);
+    } catch (error: any) {
+      alert("Erro ao salvar configurações: " + error.message);
     } finally {
-      setLoading(false);
+      setSaveLoading(false);
     }
   }
 
@@ -150,12 +207,9 @@ export function RankingEscolas() {
 
   const filteredRanking = useMemo(() => {
     let list = schools;
-    
-    // Se for gestor, vê apenas a sua escola
     if (!isAdmin && userSchoolId) {
       list = schools.filter(s => s.id === userSchoolId);
     }
-
     return list.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()));
   }, [schools, searchTerm, isAdmin, userSchoolId]);
 
@@ -328,9 +382,9 @@ export function RankingEscolas() {
 
       {/* MODAL DE EXPLICAÇÃO DA NOTA */}
       {selectedSchool && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4 overflow-y-auto">
-           <div className="bg-white rounded-[3.5rem] w-full max-w-2xl shadow-2xl animate-in zoom-in-95 duration-200 border border-white flex flex-col my-8">
-              <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4 overflow-hidden">
+           <div className="bg-white rounded-[3.5rem] w-full max-w-2xl max-h-[90vh] shadow-2xl animate-in zoom-in-95 duration-200 border border-white flex flex-col overflow-hidden">
+              <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
                  <div className="flex items-center gap-5">
                     <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-xl ${selectedSchool.score >= 8 ? 'bg-emerald-500' : 'bg-indigo-600'}`}>
                        <Building2 size={28}/>
@@ -343,7 +397,7 @@ export function RankingEscolas() {
                  <button onClick={() => setSelectedSchool(null)} className="p-3 hover:bg-white rounded-full transition-all text-slate-400"><X size={28}/></button>
               </div>
 
-              <div className="p-8 space-y-8">
+              <div className="p-8 space-y-8 overflow-y-auto custom-scrollbar flex-1">
                  <div className="bg-slate-900 p-8 rounded-[2.5rem] text-white flex items-center justify-between shadow-2xl relative overflow-hidden">
                     <Trophy size={100} className="absolute -right-8 -bottom-8 text-white/5 rotate-12" />
                     <div className="relative z-10">
@@ -385,7 +439,7 @@ export function RankingEscolas() {
                  </div>
               </div>
 
-              <div className="p-8 border-t border-slate-100 bg-white sticky bottom-0 text-center">
+              <div className="p-8 border-t border-slate-100 bg-white shrink-0 text-center">
                  <button onClick={() => setSelectedSchool(null)} className="px-12 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-black transition-all">Entendido</button>
               </div>
            </div>
@@ -394,16 +448,19 @@ export function RankingEscolas() {
 
       {/* MODAL DE CONFIGURAÇÃO DE PESOS */}
       {isSettingsOpen && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-[3rem] w-full max-w-xl shadow-2xl overflow-hidden border border-white animate-in zoom-in-95 duration-200">
-            <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-indigo-50/50">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4 overflow-hidden">
+          <div className="bg-white rounded-[3rem] w-full max-w-xl max-h-[90vh] shadow-2xl overflow-hidden border border-white animate-in zoom-in-95 duration-200 flex flex-col">
+            {/* Header Fixo */}
+            <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-indigo-50/50 shrink-0">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-slate-900 rounded-2xl flex items-center justify-center text-white"><Settings2 size={24} /></div>
                 <div><h2 className="text-xl font-black uppercase tracking-tight leading-none">Ajuste dos Pesos</h2><p className="text-xs text-indigo-600 font-bold uppercase tracking-widest mt-1">Configure a importância de cada indicador</p></div>
               </div>
               <button onClick={() => setIsSettingsOpen(false)} className="p-2 hover:bg-white rounded-full text-slate-400 transition-all"><X size={24} /></button>
             </div>
-            <div className="p-8 space-y-6">
+            
+            {/* Conteúdo com Scroll */}
+            <div className="p-8 space-y-6 overflow-y-auto custom-scrollbar flex-1">
                <div className="bg-amber-50 p-4 rounded-2xl flex items-start gap-3 border border-amber-100"><HelpCircle size={20} className="text-amber-500 shrink-0 mt-0.5" /><p className="text-[11px] text-amber-700 font-medium leading-relaxed">Valores maiores aumentam o impacto da categoria na nota final. Pesos variam de 1 a 5.</p></div>
                <div className="space-y-4">
                   <WeightInput label="Registro de Água" val={weights.water_reg} onChange={(v) => setWeights({...weights, water_reg: v})} icon={<Droplets size={14}/>}/>
@@ -412,7 +469,14 @@ export function RankingEscolas() {
                   <WeightInput label="Entrega Fiscalizações" val={weights.fiscal_delivery} onChange={(v) => setWeights({...weights, fiscal_delivery: v})} icon={<ClipboardCheck size={14}/>}/>
                   <WeightInput label="Qualidade (Notas)" val={weights.fiscal_quality} onChange={(v) => setWeights({...weights, fiscal_quality: v})} icon={<Star size={14}/>}/>
                </div>
-               <div className="pt-6"><button onClick={() => { fetchData(); setIsSettingsOpen(false); }} className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 uppercase tracking-widest text-[11px]"><Save size={18}/> Salvar e Recalcular Tudo</button></div>
+            </div>
+
+            {/* Rodapé Fixo com Botão */}
+            <div className="p-8 border-t border-slate-100 bg-white shrink-0">
+               <button onClick={handleSaveSettings} disabled={saveLoading} className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 uppercase tracking-widest text-[11px]">
+                  {saveLoading ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>}
+                  Salvar e Recalcular Tudo
+               </button>
             </div>
           </div>
         </div>
@@ -454,7 +518,7 @@ function BreakdownItem({ label, value, weight, icon }: { label: string, value: n
           </div>
        </div>
        <div className="w-full h-1 bg-slate-200 rounded-full overflow-hidden">
-          <div className={`h-full transition-all duration-1000 ${value >= 90 ? 'bg-emerald-500' : value >= 70 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${value}%` }} />
+          <div className={`h-full transition-all duration-1000 ${value >= 90 ? 'bg-emerald-50' : value >= 70 ? 'bg-amber-50' : 'bg-red-50'}`} style={{ width: `${value}%` }} />
        </div>
     </div>
   );
