@@ -5,9 +5,8 @@ import {
   ShieldCheck, ArrowRightLeft, FileDown, 
   Loader2, MapPin, Hash, User, GraduationCap,
   ClipboardCheck, Filter, LayoutGrid,
-  ShoppingBag
+  ShoppingBag, Star
 } from 'lucide-react';
-
 
 interface School {
   id: string;
@@ -20,6 +19,8 @@ interface School {
   phone: string;
   email: string;
 }
+
+const SERVICE_TYPES = ["LIMPEZA", "CUIDADOR", "MERENDA", "VIGILANTE", "TELEFONE"];
 
 export function RaioXEscola() {
   const [schools, setSchools] = useState<School[]>([]);
@@ -58,7 +59,7 @@ export function RaioXEscola() {
     const firstDayMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
 
     try {
-      // 1. Água (Logs do mês atual e alertas)
+      // 1. Água
       const { data: water } = await (supabase as any)
         .from('consumo_agua')
         .select('*')
@@ -66,7 +67,7 @@ export function RaioXEscola() {
         .gte('date', firstDayMonth);
       setWaterData(water || []);
 
-      // 2. Demandas (Pendentes ou Atrasadas)
+      // 2. Demandas
       const { data: demands } = await (supabase as any)
         .from('demands')
         .select('*')
@@ -74,15 +75,21 @@ export function RaioXEscola() {
         .eq('status', 'PENDENTE');
       setDemandsData(demands || []);
 
-      // 3. Fiscalização (O que não respondeu)
+      // 3. Fiscalização (Com Join para pegar o tipo de serviço do evento)
       const { data: fisc } = await (supabase as any)
         .from('monitoring_submissions')
-        .select('*, monitoring_events(*)')
-        .eq('school_id', selectedSchoolId)
-        .eq('is_completed', false);
+        .select(`
+          rating,
+          is_completed,
+          is_dispensed,
+          monitoring_events (
+            service_type
+          )
+        `)
+        .eq('school_id', selectedSchoolId);
       setFiscalizationData(fisc || []);
 
-      // 4. Zeladoria (Processo atual)
+      // 4. Zeladoria
       const { data: zel } = await (supabase as any)
         .from('zeladorias')
         .select('*')
@@ -90,15 +97,14 @@ export function RaioXEscola() {
         .maybeSingle();
       setZeladoriaData(zel || null);
 
-      // 5. Remanejamento (Lotes ativos ou remanejados)
+      // 5. Remanejamento
       const { data: reman } = await (supabase as any)
         .from('inventory_items')
         .select('*')
-        .eq('school_id', selectedSchoolId)
-        .order('created_at', { ascending: false });
+        .eq('school_id', selectedSchoolId);
       setRemanejamentoData(reman || []);
 
-      // 6. Aquisição (Itens solicitados FDE)
+      // 6. Aquisição
       const { data: acq } = await (supabase as any)
         .from('acquisition_responses')
         .select(`
@@ -119,12 +125,12 @@ export function RaioXEscola() {
 
   const selectedSchool = schools.find(s => s.id === selectedSchoolId);
 
-  // --- ANÁLISE DE PENDÊNCIAS ---
+  // --- ANÁLISE DE PENDÊNCIAS E QUALIDADE SEGMENTADA ---
   const analysis = useMemo(() => {
     const today = new Date();
     const currentDay = today.getDate();
     
-    // Dias sem registro de água (até hoje)
+    // Dias sem registro de água
     const recordedDays = waterData.map(w => new Date(w.date + 'T12:00:00').getDate());
     const missingWaterDays = [];
     for (let i = 1; i <= currentDay; i++) {
@@ -133,15 +139,33 @@ export function RaioXEscola() {
 
     const overdueDemands = demandsData.filter(d => d.deadline < today.toISOString().split('T')[0]);
 
+    // CÁLCULO DE SATISFAÇÃO POR SERVIÇO
+    const satisfactionPerService: Record<string, string> = {};
+    SERVICE_TYPES.forEach(service => {
+      const filtered = fiscalizationData.filter(f => 
+        f.monitoring_events?.service_type === service && 
+        f.is_completed && 
+        f.rating !== null
+      );
+      
+      if (filtered.length > 0) {
+        const avg = filtered.reduce((acc, curr) => acc + curr.rating, 0) / filtered.length;
+        satisfactionPerService[service] = avg.toFixed(1);
+      } else {
+        satisfactionPerService[service] = "média indisponível";
+      }
+    });
+
+    const pendingFiscCount = fiscalizationData.filter(f => !f.is_completed && !f.is_dispensed).length;
+
     return {
       missingWaterDays,
       overdueDemands,
-      pendingFisc: fiscalizationData.length,
-      isWaterCritical: missingWaterDays.length > 3 || waterData.some(w => w.limit_exceeded),
-      remanCount: remanejamentoData.length,
-      acquisitionCount: acquisitionData.reduce((acc, curr) => acc + curr.requested_qty, 0)
+      pendingFisc: pendingFiscCount,
+      satisfactionPerService,
+      isWaterCritical: missingWaterDays.length > 3 || waterData.some(w => w.limit_exceeded)
     };
-  }, [waterData, demandsData, fiscalizationData, remanejamentoData, acquisitionData]);
+  }, [waterData, demandsData, fiscalizationData]);
 
   const handleExportPDF = async () => {
     setExporting(true);
@@ -250,36 +274,84 @@ export function RaioXEscola() {
           </div>
 
           {/* Cards de Status Crítico */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
              <AuditCard 
                 title="Consumo de Água" 
                 status={analysis.missingWaterDays.length > 0 ? 'ALERT' : 'OK'}
                 desc={analysis.missingWaterDays.length > 0 ? `${analysis.missingWaterDays.length} dias sem leitura` : 'Tudo em dia'}
-                icon={<Droplets size={24}/>}
+                icon={<Droplets size={20}/>}
                 color="blue"
              />
              <AuditCard 
-                title="Demandas Administrativas" 
+                title="Demandas Adm." 
                 status={analysis.overdueDemands.length > 0 ? 'ALERT' : 'OK'}
                 desc={analysis.overdueDemands.length > 0 ? `${analysis.overdueDemands.length} tarefas atrasadas` : 'Sem pendências'}
-                icon={<AlertTriangle size={24}/>}
+                icon={<AlertTriangle size={20}/>}
                 color="red"
              />
              <AuditCard 
-                title="Fiscalização Terc." 
+                title="Prazos Terc." 
                 status={analysis.pendingFisc > 0 ? 'ALERT' : 'OK'}
-                desc={analysis.pendingFisc > 0 ? `${analysis.pendingFisc} formulários pendentes` : 'Conformidade OK'}
-                icon={<ClipboardCheck size={24}/>}
+                desc={analysis.pendingFisc > 0 ? `${analysis.pendingFisc} forms. pendentes` : 'Conformidade OK'}
+                icon={<ClipboardCheck size={20}/>}
                 color="amber"
              />
              <AuditCard 
-                title="Processo Zeladoria" 
+                title="Zeladoria" 
                 status={zeladoriaData?.ocupada === 'CONCLUÍDO' ? 'OK' : 'INFO'}
-                desc={zeladoriaData ? `Fase: ${zeladoriaData.ocupada}` : 'Não possui/registrado'}
-                icon={<ShieldCheck size={24}/>}
+                desc={zeladoriaData ? `${zeladoriaData.ocupada}` : 'Não registrado'}
+                icon={<ShieldCheck size={20}/>}
                 color="emerald"
              />
           </div>
+
+          {/* NOVA SEÇÃO: QUALIDADE POR SERVIÇO */}
+          <section className="bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-2xl overflow-hidden relative">
+             <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none">
+                <Star size={120} />
+             </div>
+             <div className="flex items-center gap-4 mb-8">
+                <div className="p-3 bg-indigo-600 rounded-2xl text-white shadow-lg"><Star size={24} fill="currentColor"/></div>
+                <div>
+                   <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Qualidade dos Contratos</h3>
+                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Média de satisfação atribuída em fiscalizações</p>
+                </div>
+             </div>
+
+             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                {SERVICE_TYPES.map(service => {
+                   const rating = analysis.satisfactionPerService[service];
+                   const isNumeric = !isNaN(parseFloat(rating));
+                   const numericValue = isNumeric ? parseFloat(rating) : 0;
+                   
+                   return (
+                      <div key={service} className="p-6 bg-slate-50 rounded-[2.5rem] border border-slate-100 flex flex-col justify-between h-40 group hover:bg-white hover:border-indigo-200 transition-all hover:shadow-xl">
+                         <div className="flex justify-between items-start">
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{service}</span>
+                            {isNumeric && numericValue >= 8 && <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>}
+                         </div>
+                         <div className="mt-4">
+                            {isNumeric ? (
+                               <div className="flex items-end gap-2">
+                                  <h4 className={`text-4xl font-black leading-none ${numericValue >= 8 ? 'text-emerald-600' : numericValue >= 5 ? 'text-amber-600' : 'text-red-600'}`}>
+                                     {rating}
+                                  </h4>
+                                  <span className="text-[10px] font-bold text-slate-400 mb-1">/ 10.0</span>
+                               </div>
+                            ) : (
+                               <h4 className="text-xs font-black text-slate-300 uppercase leading-tight italic">Média Indisponível</h4>
+                            )}
+                         </div>
+                         <div className="flex gap-0.5 mt-4">
+                            {Array.from({length: 5}).map((_, i) => (
+                               <Star key={i} size={10} className={isNumeric && i < Math.round(numericValue / 2) ? 'text-amber-400 fill-amber-400' : 'text-slate-200'} />
+                            ))}
+                         </div>
+                      </div>
+                   );
+                })}
+             </div>
+          </section>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
              {/* Detalhamento de Água e Fiscalização */}
@@ -410,18 +482,41 @@ export function RaioXEscola() {
               <p style={{ margin: '5px 0 0', fontSize: '11px', color: '#64748b', fontWeight: 700 }}>Diretor(a): {selectedSchool.director_name} | CIE: {selectedSchool.cie_code}</p>
           </div>
 
-          {/* Grid de Problemas Críticos no PDF */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '30px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px', marginBottom: '30px' }}>
              <div style={{ border: '1px solid #e2e8f0', padding: '15px', borderRadius: '15px' }}>
-                <h4 style={{ margin: '0 0 10px 0', fontSize: '10px', fontWeight: 900, color: '#ef4444', textTransform: 'uppercase' }}>⚠️ Alertas de Consumo (Água)</h4>
-                {analysis.missingWaterDays.length > 0 ? (
-                  <p style={{ margin: 0, fontSize: '11px', fontWeight: 700 }}>Atenção: {analysis.missingWaterDays.length} dias sem registro hídrico este mês.</p>
-                ) : <p style={{ margin: 0, fontSize: '11px', color: '#059669' }}>✓ Registros hídricos atualizados.</p>}
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '9px', fontWeight: 900, color: '#ef4444', textTransform: 'uppercase' }}>⚠️ Consumo Água</h4>
+                <p style={{ margin: 0, fontSize: '11px', fontWeight: 700 }}>{analysis.missingWaterDays.length} dias pendentes.</p>
              </div>
              <div style={{ border: '1px solid #e2e8f0', padding: '15px', borderRadius: '15px' }}>
-                <h4 style={{ margin: '0 0 10px 0', fontSize: '10px', fontWeight: 900, color: '#f59e0b', textTransform: 'uppercase' }}>📋 Pendências de Fiscalização</h4>
-                <p style={{ margin: 0, fontSize: '11px', fontWeight: 700 }}>{analysis.pendingFisc} formulários terceirizados não preenchidos.</p>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '9px', fontWeight: 900, color: '#f59e0b', textTransform: 'uppercase' }}>📋 Fiscalização</h4>
+                <p style={{ margin: 0, fontSize: '11px', fontWeight: 700 }}>{analysis.pendingFisc} pendências.</p>
              </div>
+             <div style={{ border: '1px solid #e2e8f0', padding: '15px', borderRadius: '15px' }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '9px', fontWeight: 900, color: '#059669', textTransform: 'uppercase' }}>✅ Zeladoria</h4>
+                <p style={{ margin: 0, fontSize: '11px', fontWeight: 700 }}>{zeladoriaData?.ocupada || 'N/A'}</p>
+             </div>
+          </div>
+
+          <div style={{ marginBottom: '30px' }}>
+              <h3 style={{ fontSize: '12px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', borderBottom: '2px solid #f1f5f9', paddingBottom: '8px', marginBottom: '15px' }}>Qualidade dos Serviços (Satisfação 0-10)</h3>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                      <tr style={{ background: '#f8fafc' }}>
+                          <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'left' }}>TIPO DE SERVIÇO</th>
+                          <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'center' }}>MÉDIA ATUAL</th>
+                      </tr>
+                  </thead>
+                  <tbody>
+                      {SERVICE_TYPES.map(service => (
+                          <tr key={service}>
+                              <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', fontWeight: 700 }}>{service}</td>
+                              <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', textAlign: 'center', fontWeight: 900 }}>
+                                 {analysis.satisfactionPerService[service]}
+                              </td>
+                          </tr>
+                      ))}
+                  </tbody>
+              </table>
           </div>
 
           <div style={{ marginBottom: '30px' }}>
@@ -448,38 +543,8 @@ export function RaioXEscola() {
               )}
           </div>
 
-          <div style={{ marginBottom: '30px' }}>
-              <h3 style={{ fontSize: '12px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', borderBottom: '2px solid #f1f5f9', paddingBottom: '8px', marginBottom: '15px' }}>Demandas e Documentos Atrasados</h3>
-              {demandsData.length === 0 ? <p style={{ fontSize: '11px', color: '#94a3b8' }}>Nenhuma pendência administrativa em aberto.</p> : (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                        <tr style={{ background: '#f8fafc' }}>
-                            <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'left' }}>TÍTULO DA DEMANDA</th>
-                            <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'center' }}>PRAZO</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {demandsData.map(d => (
-                            <tr key={d.id}>
-                                <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', fontWeight: 700 }}>{d.title}</td>
-                                <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', textAlign: 'center', color: d.deadline < new Date().toISOString() ? '#ef4444' : '#1e293b' }}>{new Date(d.deadline + 'T12:00:00').toLocaleDateString()}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-              )}
-          </div>
-
-          <div style={{ marginBottom: '30px' }}>
-              <h3 style={{ fontSize: '12px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', borderBottom: '2px solid #f1f5f9', paddingBottom: '8px', marginBottom: '15px' }}>Situação da Zeladoria</h3>
-              <div style={{ padding: '15px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-                 <p style={{ margin: 0, fontSize: '11px', fontWeight: 800 }}>ETAPA ATUAL: {zeladoriaData?.ocupada || 'NÃO POSSUI'}</p>
-                 <p style={{ margin: '5px 0 0', fontSize: '10px', color: '#64748b' }}>Zelador: {zeladoriaData?.zelador || 'Vaga disponível / Aguardando'}</p>
-              </div>
-          </div>
-
           <div style={{ marginTop: 'auto', paddingTop: '40px', textAlign: 'center', borderTop: '1px dashed #cbd5e1' }}>
-              <p style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 900, letterSpacing: '2px' }}>RELATÓRIO GERADO PARA USO EXCLUSIVO DA EQUIPE TÉCNICA REGIONAL</p>
+              <p style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 900, letterSpacing: '4px' }}>RELATÓRIO GERADO PARA USO EXCLUSIVO DA EQUIPE TÉCNICA REGIONAL</p>
           </div>
         </div>
       )}
@@ -492,7 +557,8 @@ function AuditCard({ title, status, desc, icon, color }: any) {
     blue: "bg-blue-50 text-blue-600 border-blue-100",
     red: "bg-red-50 text-red-600 border-red-100",
     amber: "bg-amber-50 text-amber-600 border-amber-100",
-    emerald: "bg-emerald-50 text-emerald-600 border-emerald-100"
+    emerald: "bg-emerald-50 text-emerald-600 border-emerald-100",
+    indigo: "bg-indigo-50 text-indigo-600 border-indigo-100"
   };
 
   return (

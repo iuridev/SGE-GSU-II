@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import { 
   LayoutDashboard, Waves, ShieldCheck, ArrowRightLeft, 
-  Building2, UserCog, LogOut, Menu, X,
+  Building2, UserCog, LogOut, Menu, X, 
   BookOpen, ClipboardCheck, Calendar, Car, Building,
-  AlertTriangle, Scan, ShoppingBag
+  AlertTriangle, Scan, ShoppingBag, Trophy
 } from 'lucide-react';
 
 import { Dashboard } from './pages/Dashboard';
@@ -22,6 +22,7 @@ import { AgendamentoAmbientes } from './pages/AgendamentoAmbientes';
 import { Demanda } from './pages/Demanda';
 import { RaioXEscola } from './pages/RaioXEscola';
 import { Aquisicao } from './pages/Aquisicao';
+import { RankingEscolas } from './pages/RankingEscolas';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -91,6 +92,7 @@ export default function App() {
     switch (currentPage) {
       case 'dashboard': return <Dashboard />;
       case 'raiox': return <RaioXEscola />;
+      case 'ranking': return <RankingEscolas />; // ADICIONADO O RETURN AQUI
       case 'reunioes': return <Reunioes />;
       case 'demandas': return <Demanda />;
       case 'aquisicao': return <Aquisicao />;
@@ -110,6 +112,7 @@ export default function App() {
   // Definição dos itens do menu com base nas permissões
   const menuItems = [
     { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager'] },
+    { id: 'ranking', label: 'Ranking de Escolas', icon: <Trophy size={20} className="text-amber-500" />, roles: ['regional_admin', 'school_manager'] },
     { id: 'raiox', label: 'Raio-X / Vistoria', icon: <Scan size={20} className="text-indigo-500" />, roles: ['regional_admin'] },
     { id: 'demandas', label: 'Demandas / E-mails', icon: <AlertTriangle size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager'] },
     { id: 'aquisicao', label: 'Aquisição de Itens', icon: <ShoppingBag size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager'] },
