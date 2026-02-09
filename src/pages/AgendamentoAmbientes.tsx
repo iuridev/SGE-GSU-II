@@ -331,7 +331,7 @@ export function AgendamentoAmbientes() {
               <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-2xl h-full flex flex-col items-center text-center relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-1.5 bg-indigo-600"></div>
                 <div className="w-20 h-20 bg-indigo-50 rounded-[2rem] flex items-center justify-center text-indigo-600 mb-6"><SearchCheck size={40} /></div>
-                <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Notificar Pátio/Apoio</h2>
+                <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Notificar SEOM / SEFISC</h2>
                 <p className="text-xs text-slate-400 font-bold mt-2 mb-8 max-w-[250px] uppercase tracking-widest">Envia as reservas de amanhã para SEOM e SEFISC.</p>
 
                 {status.type === 'idle' ? (
