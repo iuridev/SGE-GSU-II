@@ -4,7 +4,8 @@ import {
   LayoutDashboard, Waves, ShieldCheck, ArrowRightLeft, 
   Building2, UserCog, LogOut, Menu, X, 
   BookOpen, ClipboardCheck, Calendar, Car, Building,
-  AlertTriangle, Scan, ShoppingBag, Trophy, Package
+  AlertTriangle, Scan, ShoppingBag, Trophy, Package,
+  Star // Adicionado para corrigir o erro ts(2304)
 } from 'lucide-react';
 
 import { Dashboard } from './pages/Dashboard';
@@ -24,6 +25,7 @@ import { RaioXEscola } from './pages/RaioXEscola';
 import { Aquisicao } from './pages/Aquisicao';
 import { RankingEscolas } from './pages/RankingEscolas';
 import { PatrimonioProcessos } from './pages/PatrimonioProcessos';
+import { EscolasPrioritarias } from './pages/EscolasPrioritarias';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -98,6 +100,7 @@ export default function App() {
       case 'demandas': return <Demanda />;
       case 'aquisicao': return <Aquisicao />;
       case 'patrimonio': return <PatrimonioProcessos />;
+      case 'prioritarias': return <EscolasPrioritarias />;
       case 'carros': return <AgendamentoCarros />;
       case 'ambientes': return <AgendamentoAmbientes />;
       case 'tutoriais': return <Tutoriais />;
@@ -114,6 +117,7 @@ export default function App() {
   // Definição dos itens do menu com base nas permissões
   const menuItems = [
     { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager'] },
+    { id: 'prioritarias', label: 'Escolas Prioritárias', icon: <Star size={20} className="text-amber-500" />, roles: ['regional_admin'] },
     { id: 'ranking', label: 'Ranking de Escolas', icon: <Trophy size={20} className="text-amber-500" />, roles: ['regional_admin', 'school_manager'] },
     { id: 'raiox', label: 'Raio-X / Vistoria', icon: <Scan size={20} className="text-indigo-500" />, roles: ['regional_admin'] },
     { id: 'demandas', label: 'Demandas / E-mails', icon: <AlertTriangle size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager'] },

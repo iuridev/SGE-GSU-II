@@ -4,9 +4,9 @@ import {
   Trophy, Medal, Target, Star, 
   TrendingUp, TrendingDown, Settings2,
   ChevronRight, Search, Building2, Loader2,
-  Droplets, ClipboardCheck, 
+  Droplets, ClipboardCheck, AlertTriangle,
   X, Save, HelpCircle, Clock, BarChart3,
-  ArrowUpRight, CheckCircle2 
+  CheckCircle2 
 } from 'lucide-react';
 
 interface SchoolRanking {
@@ -38,6 +38,7 @@ interface SchoolBase {
 
 export function RankingEscolas() {
   const [schools, setSchools] = useState<SchoolRanking[]>([]);
+  const [priorityNames, setPriorityNames] = useState<string[]>([]); // Escolas classificadas na planilha
   const [loading, setLoading] = useState(true);
   const [saveLoading, setSaveLoading] = useState(false); 
   const [userRole, setUserRole] = useState('');
@@ -54,6 +55,10 @@ export function RankingEscolas() {
     fiscal_quality: 2.0
   });
 
+  // Configurações da Planilha de Prioritárias para sincronismo
+  const SPREADSHEET_ID = "1P6NIWUntGR_GNVCJmVEL22wznAV3XLB1vj9MDK6Q8L8";
+  const CSV_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv`;
+
   useEffect(() => {
     initRanking();
   }, []);
@@ -61,17 +66,26 @@ export function RankingEscolas() {
   async function initRanking() {
     setLoading(true);
     try {
+      // 1. Carrega Perfil do Utilizador
       const { data: { user } } = await supabase.auth.getUser();
+      let role = '';
       if (user) {
         const { data: profile } = await (supabase as any)
           .from('profiles')
           .select('role, school_id')
           .eq('id', user.id)
           .single();
-        setUserRole(profile?.role || '');
+        role = profile?.role || '';
+        setUserRole(role);
         setUserSchoolId(profile?.school_id || null);
       }
 
+      // 2. Procura nomes das escolas prioritárias apenas se for ADMIN
+      if (role === 'regional_admin') {
+        await fetchExternalPriorities();
+      }
+
+      // 3. Carrega configurações de pesos da base de dados
       const { data: settings } = await (supabase as any)
         .from('ranking_settings')
         .select('*')
@@ -87,6 +101,8 @@ export function RankingEscolas() {
       } : weights;
 
       setWeights(activeWeights);
+
+      // 4. Processa o ranking final
       await fetchData(activeWeights);
     } catch (err) {
       console.error("Erro na inicialização:", err);
@@ -94,6 +110,51 @@ export function RankingEscolas() {
       setLoading(false);
     }
   }
+
+  async function fetchExternalPriorities() {
+    try {
+      const response = await fetch(CSV_URL);
+      const csvText = await response.text();
+      const rows = csvText.split('\n').map(row => {
+        const matches = row.match(/(".*?"|[^",\r\n]+)(?=\s*,|\s*$)/g);
+        return matches ? matches.map(m => m.replace(/^"|"$/g, '').trim()) : [];
+      });
+
+      // Filtra escolas com status "Escola Prioritária SEOM - SEFISC" na Coluna I (Índice 8)
+      const priorities = rows.slice(2)
+        .filter(row => row[8] === 'Escola Prioritária SEOM - SEFISC')
+        .map(row => row[0]); // Nome na Coluna A
+
+      setPriorityNames(priorities);
+    } catch (error) {
+      console.error("Erro ao carregar prioritárias externas:", error);
+    }
+  }
+
+  // Auxiliar para normalizar e comparar nomes de escolas (Fuzzy Matching)
+  const isSchoolPriority = (schoolName: string) => {
+    if (userRole !== 'regional_admin') return false; // Bloqueio de segurança
+
+    const normalize = (name: string) => {
+      if (!name) return "";
+      return name
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "") // Remove acentos
+        .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, " ") // Remove pontuação
+        .replace(/\bee\b|\bprof(essor|a)?\b|\bdona\b|\bdr\b|\best\b/gi, "") // Remove prefixos
+        .replace(/\s+/g, " ") 
+        .trim();
+    };
+
+    const normTarget = normalize(schoolName);
+    
+    return priorityNames.some(pName => {
+      const normPriority = normalize(pName);
+      if (!normPriority || !normTarget) return false;
+      return normTarget.includes(normPriority) || normPriority.includes(normTarget);
+    });
+  };
 
   async function fetchData(currentWeights: WeightConfig) {
     try {
@@ -227,7 +288,7 @@ export function RankingEscolas() {
   }, [schools, searchTerm, isAdmin, userSchoolId]);
 
   return (
-    <div className="min-h-screen space-y-8 pb-32">
+    <div className="min-h-screen space-y-8 pb-32 bg-[#f8fafc]">
       {/* Header Gamificado */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-5">
@@ -236,7 +297,7 @@ export function RankingEscolas() {
           </div>
           <div>
             <h1 className="text-3xl font-black text-slate-900 tracking-tight uppercase leading-none">Ranking Regional</h1>
-            <p className="text-slate-500 font-medium mt-1 uppercase text-xs tracking-widest italic">Performance e Conformidade da Rede</p>
+            <p className="text-slate-500 font-medium mt-1 uppercase text-xs tracking-widest italic">Desempenho e Conformidade da Rede</p>
           </div>
         </div>
 
@@ -246,7 +307,7 @@ export function RankingEscolas() {
               <Search size={18} className="text-slate-400 ml-2" />
               <input 
                 type="text" 
-                placeholder="Buscar Unidade..." 
+                placeholder="Procurar Unidade..." 
                 className="w-full bg-transparent border-none outline-none font-bold text-slate-700 text-xs py-2 uppercase"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -267,7 +328,7 @@ export function RankingEscolas() {
            <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Calculando algoritmos GSU...</p>
         </div>
       ) : (
-        <div className="space-y-12">
+        <div className="space-y-12 animate-in fade-in duration-500">
           
           {/* DESTAQUE TOP 3 (PÓDIO) - SÓ ADMIN */}
           {isAdmin && (
@@ -299,7 +360,7 @@ export function RankingEscolas() {
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             
-            {/* LADO ESQUERDO: REGRAS E STATUS (Ocupando o espaço lateral) */}
+            {/* LADO ESQUERDO: REGRAS E STATUS */}
             <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-8">
               <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-2xl space-y-8">
                  <div>
@@ -307,7 +368,7 @@ export function RankingEscolas() {
                        <HelpCircle size={18} className="text-indigo-600"/> Pilares da Nota
                     </h3>
                     <div className="space-y-6">
-                       <RuleInfo icon={<Droplets size={14}/>} title="Registros de Água" desc="Frequência diária de leitura no sistema." color="text-blue-500" />
+                       <RuleInfo icon={<Droplets size={14}/>} title="Registos de Água" desc="Frequência diária de leitura no sistema." color="text-blue-500" />
                        <RuleInfo icon={<TrendingDown size={14}/>} title="Eficiência Hídrica" desc="Manutenção do consumo dentro do teto." color="text-cyan-500" />
                        <RuleInfo icon={<Clock size={14}/>} title="Prazos de Demandas" desc="Resposta a e-mails e ofícios regionais." color="text-red-500" />
                        <RuleInfo icon={<ClipboardCheck size={14}/>} title="Fiscalizações" desc="Entrega mensal dos formulários técnicos." color="text-amber-500" />
@@ -332,19 +393,9 @@ export function RankingEscolas() {
                    </div>
                  )}
               </div>
-
-              <div className="bg-slate-900 p-8 rounded-[3rem] text-white shadow-2xl relative overflow-hidden group">
-                 <Target className="absolute -right-4 -bottom-4 text-white/5 group-hover:scale-110 transition-transform" size={120} />
-                 <h4 className="text-sm font-black uppercase tracking-tight mb-2 flex items-center gap-2">
-                    <Target size={18} className="text-indigo-400"/> Selo Diamante
-                 </h4>
-                 <p className="text-[10px] text-white/60 leading-relaxed font-bold uppercase italic">
-                    Unidades com Índice acima de 9.00 demonstram excelência administrativa total.
-                 </p>
-              </div>
             </div>
 
-            {/* LADO DIREITO: LISTA (Filtro por permissão) */}
+            {/* LADO DIREITO: LISTA */}
             <div className="lg:col-span-8 space-y-4">
               <div className="flex items-center gap-3 px-4 mb-2">
                  <Target className="text-indigo-600" size={18} />
@@ -353,42 +404,59 @@ export function RankingEscolas() {
                  </h3>
               </div>
               
-              {filteredRanking.map((school) => (
-                  <div 
-                    key={school.id} 
-                    onClick={() => setSelectedSchool(school)}
-                    className="bg-white p-4 rounded-[2.5rem] border border-slate-100 shadow-xl flex items-center gap-4 group hover:border-indigo-400 cursor-pointer transition-all active:scale-[0.99] overflow-hidden"
-                  >
-                     <div className="flex items-center gap-4 flex-1 min-w-0">
-                        <div className="w-10 h-10 rounded-2xl flex items-center justify-center font-black text-xs shrink-0 border-2 border-slate-50 text-slate-400 group-hover:text-indigo-600 group-hover:bg-indigo-50 transition-all">#{school.position}</div>
-                        <div className="flex-1 min-w-0 pr-2">
-                           <h4 className="font-black text-slate-800 uppercase text-[11px] truncate group-hover:text-indigo-600 transition-colors" title={school.name}>{school.name}</h4>
-                           <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                              <SmallStat label="Água" val={school.stats.water_compliance} icon={<Droplets size={10}/>} />
-                              <SmallStat label="Demandas" val={school.stats.demand_compliance} icon={<Clock size={10}/>} />
-                              <SmallStat label="Fiscal" val={school.stats.fiscal_compliance} icon={<ClipboardCheck size={10}/>} />
-                           </div>
-                        </div>
-                     </div>
-                     <div className="flex items-center gap-4 shrink-0 border-l border-slate-50 pl-4 min-w-[120px] justify-end">
-                        <div className="text-right">
-                           <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Índice GSU</p>
-                           <div className={`px-4 py-1.5 rounded-xl font-black text-md shadow-inner transition-all group-hover:scale-105 ${school.score >= 8 ? 'text-emerald-600 bg-emerald-50' : school.score >= 6 ? 'text-amber-600 bg-amber-50' : 'text-red-600 bg-red-50'}`}>
-                              {school.score.toFixed(2)}
-                           </div>
-                        </div>
-                        <div className="p-2 bg-slate-50 text-slate-300 rounded-xl group-hover:bg-indigo-600 group-hover:text-white transition-all hidden sm:block">
-                          <ChevronRight size={16}/>
-                        </div>
-                     </div>
-                  </div>
-              ))}
-              
-              {!isAdmin && filteredRanking.length === 0 && (
-                <div className="p-16 bg-white rounded-[3rem] border-2 border-dashed border-slate-100 text-center">
-                   <p className="text-slate-400 font-bold uppercase text-xs">Unidade Escolar não identificada no ranking.</p>
-                </div>
-              )}
+              {filteredRanking.map((school) => {
+                  // A checagem de prioridade agora é protegida por isAdmin internamente
+                  const isPriority = isAdmin && isSchoolPriority(school.name);
+
+                  return (
+                    <div 
+                      key={school.id} 
+                      onClick={() => setSelectedSchool(school)}
+                      className={`bg-white p-5 rounded-[2.5rem] border transition-all cursor-pointer shadow-xl flex items-center gap-4 group hover:border-indigo-400 active:scale-[0.99] overflow-hidden ${isPriority ? 'ring-2 ring-red-100 border-red-200' : 'border-slate-100'}`}
+                    >
+                       <div className="flex items-center gap-4 flex-1 min-w-0">
+                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-sm shrink-0 border-2 text-slate-400 group-hover:text-indigo-600 group-hover:bg-indigo-50 transition-all ${isPriority ? 'bg-red-50 border-red-100' : 'border-slate-50'}`}>#{school.position}</div>
+                          <div className="flex-1 min-w-0 pr-2">
+                             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                                <h4 className="font-black text-slate-800 uppercase text-xs truncate group-hover:text-indigo-600 transition-colors" title={school.name}>{school.name}</h4>
+                                
+                                {/* ALERTA ANIMADO PARA ESCOLA PRIORITÁRIA SEOM-SEFISC (VISÍVEL APENAS PARA ADMIN) */}
+                                {isAdmin && isPriority && (
+                                  <div className="flex items-center gap-2 bg-gradient-to-r from-red-600 to-red-500 px-4 py-2 rounded-xl shadow-[0_4px_20px_rgba(220,38,38,0.4)] animate-in zoom-in-75 duration-300 relative group/alert overflow-hidden">
+                                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full animate-[shimmer_2s_infinite] pointer-events-none" />
+                                     <div className="relative flex items-center gap-2">
+                                       <div className="animate-[bounce_2s_infinite]">
+                                          <AlertTriangle size={14} className="text-white fill-white" />
+                                       </div>
+                                       <span className="text-[10px] font-black text-white uppercase tracking-[0.1em] whitespace-nowrap">
+                                          Escola Prioritária SEOM-SEFISC
+                                       </span>
+                                     </div>
+                                  </div>
+                                )}
+                             </div>
+
+                             <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                                <SmallStat label="Água" val={school.stats.water_compliance} icon={<Droplets size={12}/>} />
+                                <SmallStat label="Demandas" val={school.stats.demand_compliance} icon={<Clock size={12}/>} />
+                                <SmallStat label="Fiscal" val={school.stats.fiscal_compliance} icon={<ClipboardCheck size={12}/>} />
+                             </div>
+                          </div>
+                       </div>
+                       <div className="flex items-center gap-4 shrink-0 border-l border-slate-50 pl-4 min-w-[140px] justify-end">
+                          <div className="text-right">
+                             <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Índice GSU</p>
+                             <div className={`px-5 py-2 rounded-xl font-black text-lg shadow-inner transition-all group-hover:scale-105 ${school.score >= 8 ? 'text-emerald-600 bg-emerald-50' : school.score >= 6 ? 'text-amber-600 bg-amber-50' : 'text-red-600 bg-red-50'}`}>
+                                {school.score.toFixed(2)}
+                             </div>
+                          </div>
+                          <div className="p-3 bg-slate-50 text-slate-300 rounded-xl group-hover:bg-indigo-600 group-hover:text-white transition-all hidden sm:block">
+                            <ChevronRight size={18}/>
+                          </div>
+                       </div>
+                    </div>
+                  );
+              })}
             </div>
           </div>
         </div>
@@ -411,7 +479,7 @@ export function RankingEscolas() {
                  <button onClick={() => setSelectedSchool(null)} className="p-3 hover:bg-white rounded-full transition-all text-slate-400"><X size={28}/></button>
               </div>
 
-              <div className="p-8 space-y-8 overflow-y-auto custom-scrollbar flex-1">
+              <div className="p-8 space-y-8 overflow-y-auto custom-scrollbar flex-1 text-slate-800">
                  <div className="bg-slate-900 p-8 rounded-[2.5rem] text-white flex items-center justify-between shadow-2xl relative overflow-hidden">
                     <Trophy size={100} className="absolute -right-8 -bottom-8 text-white/5 rotate-12" />
                     <div className="relative z-10">
@@ -424,31 +492,30 @@ export function RankingEscolas() {
                     </div>
                  </div>
 
+                 {/* AVISO DE INTERVENÇÃO (APENAS PARA ADMIN) */}
+                 {isAdmin && isSchoolPriority(selectedSchool.name) && (
+                   <div className="p-8 bg-gradient-to-br from-red-600 to-red-700 rounded-[2.5rem] text-white shadow-2xl flex items-center gap-6 animate-in slide-in-from-top-4 border-2 border-red-400/30">
+                      <div className="p-4 bg-white/20 rounded-2xl backdrop-blur-md shadow-inner">
+                        <AlertTriangle size={36} className="text-white animate-bounce" />
+                      </div>
+                      <div>
+                        <h4 className="text-lg font-black uppercase tracking-tight">Intervenção Prioritária Regional</h4>
+                        <p className="text-xs font-bold opacity-90 mt-1 uppercase tracking-wider">Unidade sob monitorização técnica intensiva SEOM - SEFISC.</p>
+                      </div>
+                   </div>
+                 )}
+
                  <div className="space-y-4">
                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-2 px-2">
                        <BarChart3 size={14}/> Composição da Pontuação (Peso Aplicado)
                     </h4>
                     
                     <div className="grid gap-3">
-                       <BreakdownItem label="Registro de Água" value={selectedSchool.stats.water_compliance} weight={weights.water_reg} icon={<Droplets size={14} className="text-blue-500"/>} />
+                       <BreakdownItem label="Registo de Água" value={selectedSchool.stats.water_compliance} weight={weights.water_reg} icon={<Droplets size={14} className="text-blue-500"/>} />
                        <BreakdownItem label="Eficiência Hídrica" value={selectedSchool.stats.water_efficiency} weight={weights.water_limit} icon={<TrendingDown size={14} className="text-cyan-500"/>} />
                        <BreakdownItem label="Demandas no Prazo" value={selectedSchool.stats.demand_compliance} weight={weights.demand_on_time} icon={<Clock size={14} className="text-red-500"/>} />
                        <BreakdownItem label="Entrega Fiscalização" value={selectedSchool.stats.fiscal_compliance} weight={weights.fiscal_delivery} icon={<ClipboardCheck size={14} className="text-amber-500"/>} />
                        <BreakdownItem label="Qualidade Percebida" value={selectedSchool.stats.fiscal_quality * 10} weight={weights.fiscal_quality} icon={<Star size={14} className="text-emerald-500"/>} />
-                    </div>
-                 </div>
-
-                 <div className="p-6 bg-blue-50 border-2 border-blue-100 rounded-[2rem] flex items-start gap-4">
-                    <div className="p-3 bg-white rounded-2xl text-blue-600 shadow-sm"><ArrowUpRight size={24}/></div>
-                    <div>
-                       <h5 className="text-[10px] font-black text-blue-900 uppercase tracking-wider">Recomendação GSU:</h5>
-                       <p className="text-[11px] text-blue-700 font-medium leading-relaxed mt-1">
-                          {selectedSchool.stats.water_compliance < 100 
-                            ? "A unidade tem lacunas no registro diário de água. Regularize hoje mesmo para aumentar a nota."
-                            : selectedSchool.stats.demand_compliance < 100 
-                            ? "Existem tarefas atrasadas. O maior impacto no ranking vem do cumprimento de prazos administrativos."
-                            : "Desempenho exemplar! Mantenha o foco na fiscalização técnica para segurar o Selo Diamante."}
-                       </p>
                     </div>
                  </div>
               </div>
@@ -481,15 +548,8 @@ export function RankingEscolas() {
                   <CheckCircle2 className="text-emerald-400" size={32} />
                </div>
 
-               <div className="bg-amber-50 p-4 rounded-2xl flex items-start gap-3 border border-amber-100">
-                  <HelpCircle size={18} className="text-amber-500 shrink-0 mt-0.5" />
-                  <p className="text-[10px] text-amber-700 font-medium leading-relaxed">
-                    O sistema reajusta os outros campos automaticamente ao alterar um peso, mantendo o Índice GSU na escala de 0 a 10.
-                  </p>
-               </div>
-
                <div className="space-y-6">
-                  <WeightInput label="Registro de Água" val={weights.water_reg} onChange={(v) => handleWeightChange('water_reg', v)} icon={<Droplets size={14}/>}/>
+                  <WeightInput label="Registo de Água" val={weights.water_reg} onChange={(v) => handleWeightChange('water_reg', v)} icon={<Droplets size={14}/>}/>
                   <WeightInput label="Eficiência Hídrica" val={weights.water_limit} onChange={(v) => handleWeightChange('water_limit', v)} icon={<TrendingDown size={14}/>}/>
                   <WeightInput label="Demandas no Prazo" val={weights.demand_on_time} onChange={(v) => handleWeightChange('demand_on_time', v)} icon={<Clock size={14}/>}/>
                   <WeightInput label="Entrega Fiscalizações" val={weights.fiscal_delivery} onChange={(v) => handleWeightChange('fiscal_delivery', v)} icon={<ClipboardCheck size={14}/>}/>
@@ -513,7 +573,7 @@ export function RankingEscolas() {
 function SmallStat({ label, val, icon }: { label: string, val: number, icon: React.ReactNode }) {
   const color = val >= 90 ? 'text-emerald-600' : val >= 70 ? 'text-amber-600' : 'text-red-500';
   return (
-    <div className="flex items-center gap-1"><span className="text-slate-300 shrink-0">{icon}</span><span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">{label}:</span><span className={`text-[9px] font-black ${color}`}>{Math.round(val)}%</span></div>
+    <div className="flex items-center gap-1.5"><span className="text-slate-300 shrink-0">{icon}</span><span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">{label}:</span><span className={`text-[10px] font-black ${color}`}>{Math.round(val)}%</span></div>
   );
 }
 
@@ -532,31 +592,31 @@ function RuleInfo({ icon, title, desc, color }: { icon: React.ReactNode, title: 
 function BreakdownItem({ label, value, weight, icon }: { label: string, value: number, weight: number, icon: React.ReactNode }) {
   const scoreContribution = (value / 100) * weight;
   return (
-    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 group transition-all hover:bg-white hover:border-indigo-100">
+    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 group transition-all hover:bg-white hover:border-indigo-100">
        <div className="flex justify-between items-center mb-2">
           <div className="flex items-center gap-2">
              {icon}
-             <span className="text-[10px] font-black text-slate-600 uppercase tracking-tight">{label}</span>
+             <span className="text-[11px] font-black text-slate-600 uppercase tracking-tight">{label}</span>
           </div>
           <div className="flex items-center gap-2">
-             <span className="text-[8px] font-bold text-slate-400 uppercase bg-white px-2 py-0.5 rounded border">Peso: {weight.toFixed(1)}</span>
-             <span className="text-xs font-black text-slate-900">{value.toFixed(1)}%</span>
+             <span className="text-[9px] font-bold text-slate-400 uppercase bg-white px-2 py-0.5 rounded border">Peso: {weight.toFixed(1)}</span>
+             <span className="text-sm font-black text-slate-900">{value.toFixed(1)}%</span>
           </div>
        </div>
-       <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+       <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
           <div className={`h-full transition-all duration-1000 ${value >= 90 ? 'bg-emerald-500' : value >= 70 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${value}%` }} />
        </div>
-       <p className="text-[8px] font-black text-slate-400 uppercase mt-2">Contribuição real: <span className="text-indigo-600">+{scoreContribution.toFixed(2)} pts</span></p>
+       <p className="text-[9px] font-black text-slate-400 uppercase mt-2">Contribuição real: <span className="text-indigo-600 font-black">+{scoreContribution.toFixed(2)} pts</span></p>
     </div>
   );
 }
 
 function WeightInput({ label, val, onChange, icon }: { label: string, val: number, onChange: (v: number) => void, icon: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-indigo-200 transition-all">
+    <div className="flex items-center justify-between p-5 bg-slate-50 rounded-2xl border border-slate-100 hover:border-indigo-200 transition-all">
       <div className="flex items-center gap-3">
         <div className="text-indigo-400">{icon}</div>
-        <span className="text-[11px] font-black text-slate-700 uppercase tracking-tight">{label}</span>
+        <span className="text-[12px] font-black text-slate-700 uppercase tracking-tight">{label}</span>
       </div>
       <div className="flex items-center gap-4">
         <input 
@@ -564,11 +624,11 @@ function WeightInput({ label, val, onChange, icon }: { label: string, val: numbe
           min="0.1" 
           max="5" 
           step="0.1" 
-          className="w-24 accent-indigo-600" 
+          className="w-24 accent-indigo-600 cursor-pointer" 
           value={val} 
           onChange={(e) => onChange(Number(e.target.value))} 
         />
-        <span className="w-10 h-8 bg-indigo-600 text-white rounded-lg flex items-center justify-center font-black text-xs shadow-md">
+        <span className="w-12 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center font-black text-sm shadow-md">
           {val.toFixed(1)}
         </span>
       </div>
