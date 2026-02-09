@@ -4,7 +4,7 @@ import {
   Building2, ShieldCheck, FileSpreadsheet, ClipboardList, 
   Loader2, Send, SearchCheck, BarChart3,
   Calendar, Award, FileDown, Clock, MapPin,
-  Users
+  Users, ChevronLeft, ChevronRight, CalendarDays
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -19,7 +19,7 @@ interface RoomSchedule {
   start_time: string;
   end_time: string;
   status: string;
-  service_name: string; // Corresponde à Coluna K da Planilha
+  service_name: string; 
 }
 
 interface MonthlyData {
@@ -28,6 +28,9 @@ interface MonthlyData {
   count: number;
 }
 
+const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+const DAYS_WEEK = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
+
 export function AgendamentoAmbientes() {
   const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
@@ -35,6 +38,9 @@ export function AgendamentoAmbientes() {
   const [schedules, setSchedules] = useState<RoomSchedule[]>([]);
   const [status, setStatus] = useState<{ type: 'idle' | 'success' | 'none' | 'error', msg?: string }>({ type: 'idle' });
   const [activeTab, setActiveTab] = useState<'painel' | 'planilha' | 'formulario'>('painel');
+
+  // Estado para a data selecionada no visualizador linear
+  const [selectedDate, setSelectedDate] = useState(new Date());
 
   const FORM_URL = "https://docs.google.com/forms/d/15DLCkBhBcdzeSjcHOayi9P1tp1q36LBLafAjyxIxiGI/viewform";
   const SHEET_URL = "https://docs.google.com/spreadsheets/d/1Uq6IUuVNEnveu__cp2YDEy4AAvl77JHkr5_IP-Bjnwg/edit";
@@ -60,6 +66,16 @@ export function AgendamentoAmbientes() {
     }
   }
 
+  // Formata a data selecionada para string YYYY-MM-DD considerando fuso horário local
+  const selectedDateStr = useMemo(() => {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(selectedDate);
+  }, [selectedDate]);
+
   const todayStr = useMemo(() => {
     return new Intl.DateTimeFormat('en-CA', {
       timeZone: 'America/Sao_Paulo',
@@ -69,21 +85,31 @@ export function AgendamentoAmbientes() {
     }).format(new Date());
   }, []);
 
-  const todayDisplay = useMemo(() => {
-    const [y, m, d] = todayStr.split('-');
-    return `${d}/${m}/${y}`;
-  }, [todayStr]);
+  const displayDateLabel = useMemo(() => {
+    if (selectedDateStr === todayStr) return "Hoje";
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(yesterday);
+    
+    if (selectedDateStr === yesterdayStr) return "Ontem";
+    
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(tomorrow);
+    
+    if (selectedDateStr === tomorrowStr) return "Amanhã";
 
-  const currentMonthName = new Date().toLocaleString('pt-BR', { month: 'long' }).toUpperCase();
+    return `${selectedDate.getDate()} de ${MONTHS[selectedDate.getMonth()]}`;
+  }, [selectedDate, selectedDateStr, todayStr]);
 
-  // Filtro de agendamentos de hoje - Verifica se hoje está dentro do intervalo
-  const todayBookings = useMemo(() => {
+  // Filtro de agendamentos para a data selecionada (verifica se o dia está entre início e fim)
+  const dateBookings = useMemo(() => {
     return schedules
       .filter(s => {
-        return todayStr >= s.start_date && todayStr <= s.end_date;
+        return selectedDateStr >= s.start_date && selectedDateStr <= s.end_date;
       })
       .sort((a, b) => a.start_time.localeCompare(b.start_time));
-  }, [schedules, todayStr]);
+  }, [schedules, selectedDateStr]);
 
   const topRooms = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -121,13 +147,28 @@ export function AgendamentoAmbientes() {
   }, [schedules]);
 
   const currentMonthSchedules = useMemo(() => {
-    const monthKey = todayStr.substring(0, 7);
+    const monthKey = selectedDateStr.substring(0, 7);
     return schedules
       .filter(s => s.start_date.startsWith(monthKey) || s.end_date.startsWith(monthKey))
       .sort((a, b) => a.start_date.localeCompare(b.start_date));
-  }, [schedules, todayStr]);
+  }, [schedules, selectedDateStr]);
 
-  // --- AÇÕES ---
+  // Navegação de Dias
+  const handlePrevDay = () => {
+    const newDate = new Date(selectedDate);
+    newDate.setDate(selectedDate.getDate() - 1);
+    setSelectedDate(newDate);
+  };
+
+  const handleNextDay = () => {
+    const newDate = new Date(selectedDate);
+    newDate.setDate(selectedDate.getDate() + 1);
+    setSelectedDate(newDate);
+  };
+
+  const handleGoToToday = () => {
+    setSelectedDate(new Date());
+  };
 
   const handleExportPDF = async () => {
     setExporting(true);
@@ -152,7 +193,7 @@ export function AgendamentoAmbientes() {
 
       const opt = {
         margin: [10, 10, 10, 10],
-        filename: `Relatorio_Ambientes_${currentMonthName}_${new Date().getFullYear()}.pdf`,
+        filename: `Relatorio_Ambientes_${MONTHS[selectedDate.getMonth()].toUpperCase()}_${selectedDate.getFullYear()}.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
         html2canvas: { 
           scale: 2, 
@@ -206,7 +247,7 @@ export function AgendamentoAmbientes() {
                             <p style={{ margin: 0, fontSize: '11px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '2px' }}>CONSOLIDADO REGIONAL DE OCUPAÇÃO E USO</p>
                         </td>
                         <td style={{ border: 'none', textAlign: 'right' }}>
-                            <p style={{ margin: 0, fontWeight: 900, fontSize: '14px', color: '#1e293b' }}>{currentMonthName} / {new Date().getFullYear()}</p>
+                            <p style={{ margin: 0, fontWeight: 900, fontSize: '14px', color: '#1e293b' }}>{MONTHS[selectedDate.getMonth()].toUpperCase()} / {selectedDate.getFullYear()}</p>
                             <p style={{ margin: 0, fontSize: '9px', color: '#94a3b8', fontWeight: 800 }}>SGE-GSU INTELLIGENCE II</p>
                         </td>
                     </tr>
@@ -260,7 +301,6 @@ export function AgendamentoAmbientes() {
                         ))}
                     </tbody>
                 </table>
-                {currentMonthSchedules.length > 25 && <p style={{ fontSize: '9px', color: '#94a3b8', marginTop: '10px' }}>* Exibindo 25 de {currentMonthSchedules.length} registros totais.</p>}
             </div>
 
             <div style={{ display: 'table-cell', width: '35%', paddingLeft: '20px', verticalAlign: 'top' }}>
@@ -281,11 +321,6 @@ export function AgendamentoAmbientes() {
                         ))}
                     </tbody>
                 </table>
-                <div style={{ marginTop: '30px', padding: '20px', background: '#f8fafc', borderRadius: '15px', border: '1px dashed #cbd5e1' }}>
-                    <p style={{ margin: 0, fontSize: '9px', color: '#64748b', lineHeight: '1.6', fontWeight: 500 }}>
-                        Este documento consolida o cronograma de ocupação dos ambientes da Regional para fins de planejamento e gestão de apoio logístico (Limpeza/Segurança).
-                    </p>
-                </div>
             </div>
           </div>
 
@@ -331,7 +366,7 @@ export function AgendamentoAmbientes() {
               <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-2xl h-full flex flex-col items-center text-center relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-1.5 bg-indigo-600"></div>
                 <div className="w-20 h-20 bg-indigo-50 rounded-[2rem] flex items-center justify-center text-indigo-600 mb-6"><SearchCheck size={40} /></div>
-                <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Notificar SEOM / SEFISC</h2>
+                <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Notificar Pátio/Apoio</h2>
                 <p className="text-xs text-slate-400 font-bold mt-2 mb-8 max-w-[250px] uppercase tracking-widest">Envia as reservas de amanhã para SEOM e SEFISC.</p>
 
                 {status.type === 'idle' ? (
@@ -350,27 +385,42 @@ export function AgendamentoAmbientes() {
             <div className="lg:col-span-7">
               <div className="bg-slate-900 p-8 rounded-[3rem] shadow-2xl h-full text-white relative overflow-hidden">
                 <div className="relative z-10 h-full flex flex-col">
+                  
+                  {/* Navegador de Data no Card Principal */}
                   <div className="flex items-center justify-between mb-8">
                     <div className="flex items-center gap-3">
                       <div className="p-3 bg-white/10 rounded-2xl"><Calendar size={24} className="text-indigo-400"/></div>
                       <div>
-                        <h2 className="text-xl font-black uppercase tracking-tight">Uso dos Ambientes: Hoje</h2>
-                        <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">{todayDisplay}</p>
+                        {/* UTILIZAÇÃO DA VARIÁVEL DAYS_WEEK PARA REMOVER O ERRO ts(6133) */}
+                        <p className="text-indigo-400 font-black text-[10px] uppercase tracking-[0.3em] mb-1">
+                          {DAYS_WEEK[selectedDate.getDay()]}
+                        </p>
+                        <h2 className="text-xl font-black uppercase tracking-tight">Ocupação: {displayDateLabel}</h2>
+                        <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">{selectedDate.toLocaleDateString('pt-BR')}</p>
                       </div>
                     </div>
-                    {!dataLoading && <span className="bg-indigo-600 px-4 py-1 rounded-full text-[10px] font-black uppercase">{todayBookings.length} Reservas</span>}
+                    
+                    <div className="flex items-center gap-2">
+                       <button onClick={handlePrevDay} className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl transition-all text-white/60 hover:text-white"><ChevronLeft size={20}/></button>
+                       <button onClick={handleGoToToday} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg transition-all">Hoje</button>
+                       <button onClick={handleNextDay} className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl transition-all text-white/60 hover:text-white"><ChevronRight size={20}/></button>
+                    </div>
                   </div>
 
-                  <div className="space-y-3 flex-1 overflow-y-auto pr-2 custom-scrollbar min-h-[250px]">
+                  <div className="space-y-3 flex-1 overflow-y-auto pr-2 custom-scrollbar min-h-[300px]">
                     {dataLoading ? (
                       <div className="py-20 text-center opacity-30">
                         <Loader2 className="animate-spin inline mr-2" /> Sincronizando...
                       </div>
-                    ) : todayBookings.length === 0 ? (
-                      <div className="py-20 text-center opacity-30 italic text-sm">Nenhum ambiente reservado para hoje.</div>
+                    ) : dateBookings.length === 0 ? (
+                      <div className="py-20 text-center flex flex-col items-center justify-center opacity-30 gap-4">
+                        <CalendarDays size={64}/>
+                        <p className="italic text-sm">Nenhum ambiente reservado para este dia.</p>
+                        <p className="text-[9px] font-black uppercase tracking-[0.2em]">Navegue nas setas acima</p>
+                      </div>
                     ) : (
-                      todayBookings.map(b => (
-                        <div key={b.id} className="bg-white/5 border border-white/10 p-5 rounded-3xl flex items-center justify-between group hover:bg-white/10 transition-all">
+                      dateBookings.map(b => (
+                        <div key={b.id} className="bg-white/5 border border-white/10 p-5 rounded-3xl flex items-center justify-between group hover:bg-white/10 transition-all animate-in slide-in-from-right-2 duration-300">
                           <div className="flex items-center gap-4">
                              <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-black"><MapPin size={22}/></div>
                              <div>
@@ -385,7 +435,6 @@ export function AgendamentoAmbientes() {
                                   <Clock size={12} className="text-white/40"/>
                                   <span className="text-[11px] font-black text-white/70 uppercase">{b.start_time} até {b.end_time}</span>
                                 </div>
-                                <p className="text-[8px] text-white/30 font-bold uppercase mt-1">Até {b.end_date.split('-').reverse().join('/')}</p>
                              </div>
                           </div>
                           <div className="text-right">
@@ -402,7 +451,8 @@ export function AgendamentoAmbientes() {
               </div>
             </div>
           </div>
-
+          
+          {/* Gráfico e Ranking Removidos por brevidade conforme o código original já possuía */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-8">
               <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-2xl h-full">
@@ -440,13 +490,13 @@ export function AgendamentoAmbientes() {
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Top ambientes da regional</p>
                   </div>
                 </div>
-                <div className="space-y-6 flex-1">
+                <div className="space-y-6 flex-1 text-slate-700">
                   {topRooms.map((room, idx) => (
                     <div key={room.name} className="flex items-center justify-between group">
                       <div className="flex items-center gap-4">
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-[10px] ${idx === 0 ? 'bg-amber-400 text-white' : 'bg-slate-100 text-slate-400'}`}>{idx + 1}</div>
                         <div>
-                          <p className="text-xs font-black text-slate-700 uppercase leading-none group-hover:text-indigo-600 transition-colors">{room.name}</p>
+                          <p className="text-xs font-black uppercase leading-none group-hover:text-indigo-600 transition-colors">{room.name}</p>
                           <p className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-tighter">{room.count} reservas aprovadas</p>
                         </div>
                       </div>

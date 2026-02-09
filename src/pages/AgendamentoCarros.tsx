@@ -1,11 +1,10 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
   Car, ShieldCheck, FileSpreadsheet, ClipboardList, 
-  Loader2, Send,
-  ArrowRight, SearchCheck, BarChart3, Users,
-  Calendar, Award, Info, 
-  FileDown
+  Loader2, Send, ArrowRight, SearchCheck, BarChart3, 
+  Users, Calendar, Award, Info, MapPin, User,
+  FileDown, ChevronLeft, ChevronRight, CalendarDays
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -25,6 +24,8 @@ interface MonthlyData {
   count: number;
 }
 
+const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+
 export function AgendamentoCarros() {
   const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
@@ -32,6 +33,9 @@ export function AgendamentoCarros() {
   const [schedules, setSchedules] = useState<CarSchedule[]>([]);
   const [status, setStatus] = useState<{ type: 'idle' | 'success' | 'none' | 'error', msg?: string }>({ type: 'idle' });
   const [activeTab, setActiveTab] = useState<'painel' | 'planilha' | 'formulario'>('painel');
+
+  // Estado para a data seleccionada no visualizador
+  const [selectedDate, setSelectedDate] = useState(new Date());
 
   const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSeBf5H7qaSNSE_6KudfxvN4e0Z53Xgwog5JTt_Fih4HHVwvnA/viewform";
   const SHEET_URL = "https://docs.google.com/spreadsheets/d/1q67248Gbn9IBlNS9D89p_LuG6ttWSZ-TErtUMHF3BE4/edit?gid=1619415650#gid=1619415650";
@@ -57,7 +61,16 @@ export function AgendamentoCarros() {
     }
   }
 
-  // --- CÁLCULOS ANALÍTICOS ---
+  // --- CÁLCULOS ANALÍTICOS E FILTROS ---
+
+  const selectedDateStr = useMemo(() => {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(selectedDate);
+  }, [selectedDate]);
 
   const todayStr = useMemo(() => {
     return new Intl.DateTimeFormat('en-CA', {
@@ -68,16 +81,24 @@ export function AgendamentoCarros() {
     }).format(new Date());
   }, []);
 
-  const todayDisplay = useMemo(() => {
-    const [y, m, d] = todayStr.split('-');
-    return `${d}/${m}/${y}`;
-  }, [todayStr]);
+  const displayDateLabel = useMemo(() => {
+    if (selectedDateStr === todayStr) return "Hoje";
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    if (selectedDateStr === yesterdayStr) return "Ontem";
+    
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    if (selectedDateStr === tomorrowStr) return "Amanhã";
 
-  const currentMonthName = new Date().toLocaleString('pt-BR', { month: 'long' }).toUpperCase();
+    return `${selectedDate.getDate()} de ${MONTHS[selectedDate.getMonth()]}`;
+  }, [selectedDate, selectedDateStr, todayStr]);
 
-  const todayBookings = useMemo(() => {
-    return schedules.filter(s => s.service_date === todayStr);
-  }, [schedules, todayStr]);
+  const dateBookings = useMemo(() => {
+    return schedules.filter(s => s.service_date === selectedDateStr);
+  }, [schedules, selectedDateStr]);
 
   const topDrivers = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -120,11 +141,27 @@ export function AgendamentoCarros() {
   }, [schedules]);
 
   const currentMonthSchedules = useMemo(() => {
-    const monthKey = todayStr.substring(0, 7);
+    const monthKey = selectedDateStr.substring(0, 7);
     return schedules.filter(s => s.service_date.startsWith(monthKey));
-  }, [schedules, todayStr]);
+  }, [schedules, selectedDateStr]);
 
-  // --- AÇÕES ---
+  // --- NAVEGAÇÃO ---
+
+  const handlePrevDay = () => {
+    const newDate = new Date(selectedDate);
+    newDate.setDate(selectedDate.getDate() - 1);
+    setSelectedDate(newDate);
+  };
+
+  const handleNextDay = () => {
+    const newDate = new Date(selectedDate);
+    newDate.setDate(selectedDate.getDate() + 1);
+    setSelectedDate(newDate);
+  };
+
+  const handleGoToToday = () => {
+    setSelectedDate(new Date());
+  };
 
   const handleExportPDF = async () => {
     setExporting(true);
@@ -149,7 +186,7 @@ export function AgendamentoCarros() {
 
       const opt = {
         margin: [10, 10, 10, 10],
-        filename: `Relatorio_Frota_${currentMonthName}_${new Date().getFullYear()}.pdf`,
+        filename: `Relatorio_Frota_${MONTHS[selectedDate.getMonth()].toUpperCase()}_${selectedDate.getFullYear()}.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
         html2canvas: { 
           scale: 2, 
@@ -186,7 +223,7 @@ export function AgendamentoCarros() {
       if (data?.message?.includes('Nenhum')) {
         setStatus({ type: 'none', msg: data.message });
       } else {
-        setStatus({ type: 'success', msg: "Equipe SEOM notificada com a lista de amanhã!" });
+        setStatus({ type: 'success', msg: "Equipa SEOM notificada com a lista de amanhã!" });
       }
       fetchSchedules();
     } catch (err: any) {
@@ -210,7 +247,7 @@ export function AgendamentoCarros() {
                             <p style={{ margin: 0, fontSize: '11px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '2px' }}>CONSOLIDADO DE USO MENSAL E CONDUTORES</p>
                         </td>
                         <td style={{ border: 'none', textAlign: 'right' }}>
-                            <p style={{ margin: 0, fontWeight: 900, fontSize: '14px', color: '#1e293b' }}>{currentMonthName} / {new Date().getFullYear()}</p>
+                            <p style={{ margin: 0, fontWeight: 900, fontSize: '14px', color: '#1e293b' }}>{MONTHS[selectedDate.getMonth()].toUpperCase()} / {selectedDate.getFullYear()}</p>
                             <p style={{ margin: 0, fontSize: '9px', color: '#94a3b8', fontWeight: 800 }}>SGE-GSU INTELLIGENCE II</p>
                         </td>
                     </tr>
@@ -365,23 +402,32 @@ export function AgendamentoCarros() {
                     <div className="flex items-center gap-3">
                       <div className="p-3 bg-white/10 rounded-2xl"><Calendar size={24} className="text-indigo-400"/></div>
                       <div>
-                        <h2 className="text-xl font-black uppercase tracking-tight">Saídas de Hoje</h2>
-                        <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">{todayDisplay}</p>
+                        <h2 className="text-xl font-black uppercase tracking-tight">Saídas: {displayDateLabel}</h2>
+                        <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">{selectedDate.toLocaleDateString('pt-BR')}</p>
                       </div>
                     </div>
-                    {!dataLoading && <span className="bg-indigo-600 px-4 py-1 rounded-full text-[10px] font-black uppercase">{todayBookings.length} Viagens</span>}
+                    
+                    <div className="flex items-center gap-2">
+                       <button onClick={handlePrevDay} className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl transition-all text-white/60 hover:text-white"><ChevronLeft size={20}/></button>
+                       <button onClick={handleGoToToday} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg transition-all">Hoje</button>
+                       <button onClick={handleNextDay} className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl transition-all text-white/60 hover:text-white"><ChevronRight size={20}/></button>
+                    </div>
                   </div>
 
-                  <div className="space-y-3 max-h-[220px] overflow-y-auto pr-2 custom-scrollbar">
+                  <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
                     {dataLoading ? (
                       <div className="py-20 flex flex-col items-center justify-center gap-3 text-white/40">
                         <Loader2 className="animate-spin" size={32} />
                         <p className="text-[10px] font-black uppercase tracking-widest">Sincronizando...</p>
                       </div>
-                    ) : todayBookings.length === 0 ? (
-                      <div className="py-10 text-center opacity-30 italic text-sm">Sem veículos escalados para hoje.</div>
-                    ) : todayBookings.map(booking => (
-                      <div key={booking.id} className="bg-white/5 border border-white/10 p-4 rounded-2xl flex items-center justify-between group hover:bg-white/10 transition-all">
+                    ) : dateBookings.length === 0 ? (
+                      <div className="py-20 text-center flex flex-col items-center justify-center opacity-30 gap-4">
+                        <CalendarDays size={64}/>
+                        <p className="italic text-sm">Sem veículos escalados para este dia.</p>
+                        <p className="text-[9px] font-black uppercase tracking-[0.2em]">Navega nas setas acima</p>
+                      </div>
+                    ) : dateBookings.map(booking => (
+                      <div key={booking.id} className="bg-white/5 border border-white/10 p-4 rounded-2xl flex items-center justify-between group hover:bg-white/10 transition-all animate-in slide-in-from-right-2">
                         <div className="flex items-center gap-4">
                            <div className="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-black">{booking.requester_name.charAt(0)}</div>
                            <div>
