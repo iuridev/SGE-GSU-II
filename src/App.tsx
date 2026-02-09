@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Waves, ShieldCheck, ArrowRightLeft, 
   Building2, UserCog, LogOut, Menu, X, 
   BookOpen, ClipboardCheck, Calendar, Car, Building,
-  AlertTriangle, Scan, ShoppingBag, Trophy
+  AlertTriangle, Scan, ShoppingBag, Trophy, Package
 } from 'lucide-react';
 
 import { Dashboard } from './pages/Dashboard';
@@ -23,6 +23,7 @@ import { Demanda } from './pages/Demanda';
 import { RaioXEscola } from './pages/RaioXEscola';
 import { Aquisicao } from './pages/Aquisicao';
 import { RankingEscolas } from './pages/RankingEscolas';
+import { PatrimonioProcessos } from './pages/PatrimonioProcessos';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -92,10 +93,11 @@ export default function App() {
     switch (currentPage) {
       case 'dashboard': return <Dashboard />;
       case 'raiox': return <RaioXEscola />;
-      case 'ranking': return <RankingEscolas />; // ADICIONADO O RETURN AQUI
+      case 'ranking': return <RankingEscolas />;
       case 'reunioes': return <Reunioes />;
       case 'demandas': return <Demanda />;
       case 'aquisicao': return <Aquisicao />;
+      case 'patrimonio': return <PatrimonioProcessos />;
       case 'carros': return <AgendamentoCarros />;
       case 'ambientes': return <AgendamentoAmbientes />;
       case 'tutoriais': return <Tutoriais />;
@@ -116,6 +118,7 @@ export default function App() {
     { id: 'raiox', label: 'Raio-X / Vistoria', icon: <Scan size={20} className="text-indigo-500" />, roles: ['regional_admin'] },
     { id: 'demandas', label: 'Demandas / E-mails', icon: <AlertTriangle size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager'] },
     { id: 'aquisicao', label: 'Aquisição de Itens', icon: <ShoppingBag size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager'] },
+    { id: 'patrimonio', label: 'Processos Património', icon: <Package size={20} className="text-blue-500" />, roles: ['regional_admin', 'school_manager'] },
     { id: 'reunioes', label: 'Agenda de Reuniões', icon: <Calendar size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'carros', label: 'Carros Oficiais', icon: <Car size={20} />, roles: ['regional_admin'] },
     { id: 'ambientes', label: 'Reservas Ambiente', icon: <Building size={20} />, roles: ['regional_admin'] },
