@@ -5,7 +5,8 @@ import {
   ShieldCheck, ArrowRightLeft, FileDown, 
   Loader2, MapPin, Hash, User, GraduationCap,
   ClipboardCheck, Filter, LayoutGrid,
-  ShoppingBag, Star, Package, History 
+  ShoppingBag, Star, Package, History,
+  ArrowUpCircle
 } from 'lucide-react';
 
 interface School {
@@ -18,6 +19,8 @@ interface School {
   address: string;
   phone: string;
   email: string;
+  has_elevator: boolean;
+  is_elevator_operational: boolean;
 }
 
 const SERVICE_TYPES = ["LIMPEZA", "CUIDADOR", "MERENDA", "VIGILANTE", "TELEFONE"];
@@ -283,7 +286,7 @@ export function RaioXEscola() {
           </div>
 
           {/* Cards de Status Crítico */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className={`grid grid-cols-1 md:grid-cols-2 ${selectedSchool?.has_elevator ? 'lg:grid-cols-6' : 'lg:grid-cols-5'} gap-4`}>
              <AuditCard 
                 title="Consumo de Água" 
                 status={analysis.missingWaterDays.length > 0 ? 'ALERT' : 'OK'}
@@ -319,6 +322,16 @@ export function RaioXEscola() {
                 icon={<ShieldCheck size={20}/>}
                 color="emerald"
              />
+             {/* NOVO: Monitoramento de Elevador */}
+             {selectedSchool?.has_elevator && (
+                <AuditCard 
+                  title="Elevador" 
+                  status={selectedSchool.is_elevator_operational ? 'OK' : 'ALERT'}
+                  desc={selectedSchool.is_elevator_operational ? 'Elevador Operante' : 'Elevador Parado'}
+                  icon={<ArrowUpCircle size={20}/>}
+                  color={selectedSchool.is_elevator_operational ? 'emerald' : 'red'}
+                />
+             )}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -532,6 +545,23 @@ export function RaioXEscola() {
                 </table>
               )}
           </div>
+
+          {/* NOVO: Situação do Elevador no PDF */}
+          {selectedSchool.has_elevator && (
+            <div style={{ marginBottom: '30px' }}>
+                <h3 style={{ fontSize: '12px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', borderBottom: '2px solid #f1f5f9', paddingBottom: '8px', marginBottom: '15px' }}>Condição de Acessibilidade (Elevador)</h3>
+                <div style={{ 
+                  padding: '15px', 
+                  borderRadius: '10px', 
+                  background: selectedSchool.is_elevator_operational ? '#ecfdf5' : '#fef2f2',
+                  border: `1px solid ${selectedSchool.is_elevator_operational ? '#a7f3d0' : '#fee2e2'}`
+                }}>
+                   <p style={{ margin: 0, fontSize: '11px', fontWeight: 900, color: selectedSchool.is_elevator_operational ? '#065f46' : '#b91c1c' }}>
+                      STATUS: {selectedSchool.is_elevator_operational ? 'EQUIPAMENTO OPERANTE' : 'EQUIPAMENTO PARADO / EM MANUTENÇÃO'}
+                   </p>
+                </div>
+            </div>
+          )}
 
           <div style={{ marginBottom: '30px' }}>
               <h3 style={{ fontSize: '12px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', borderBottom: '2px solid #f1f5f9', paddingBottom: '8px', marginBottom: '15px' }}>Processos Patrimoniais Pendentes (SEI)</h3>

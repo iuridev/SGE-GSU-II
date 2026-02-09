@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import { 
   LayoutDashboard, Waves, ShieldCheck, ArrowRightLeft, 
   Building2, UserCog, LogOut, Menu, X, 
   BookOpen, ClipboardCheck, Calendar, Car, Building,
   AlertTriangle, Scan, ShoppingBag, Trophy, Package,
-  Star // Adicionado para corrigir o erro ts(2304)
+  Star, ArrowUpCircle
 } from 'lucide-react';
 
 import { Dashboard } from './pages/Dashboard';
@@ -26,6 +26,7 @@ import { Aquisicao } from './pages/Aquisicao';
 import { RankingEscolas } from './pages/RankingEscolas';
 import { PatrimonioProcessos } from './pages/PatrimonioProcessos';
 import { EscolasPrioritarias } from './pages/EscolasPrioritarias';
+import { Elevador } from './pages/Elevador';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -35,14 +36,12 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Busca sessão inicial
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session) fetchUserRole(session.user.id);
       else setLoading(false);
     });
 
-    // Escuta mudanças na autenticação
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       if (session) fetchUserRole(session.user.id);
@@ -90,7 +89,6 @@ export default function App() {
     return <Login />;
   }
 
-  // Lógica de Renderização de Conteúdo (Switch de Rotas)
   const renderContent = () => {
     switch (currentPage) {
       case 'dashboard': return <Dashboard />;
@@ -101,6 +99,7 @@ export default function App() {
       case 'aquisicao': return <Aquisicao />;
       case 'patrimonio': return <PatrimonioProcessos />;
       case 'prioritarias': return <EscolasPrioritarias />;
+      case 'elevadores': return <Elevador />;
       case 'carros': return <AgendamentoCarros />;
       case 'ambientes': return <AgendamentoAmbientes />;
       case 'tutoriais': return <Tutoriais />;
@@ -114,15 +113,15 @@ export default function App() {
     }
   };
 
-  // Definição dos itens do menu com base nas permissões
   const menuItems = [
     { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'prioritarias', label: 'Escolas Prioritárias', icon: <Star size={20} className="text-amber-500" />, roles: ['regional_admin'] },
     { id: 'ranking', label: 'Ranking de Escolas', icon: <Trophy size={20} className="text-amber-500" />, roles: ['regional_admin', 'school_manager'] },
     { id: 'raiox', label: 'Raio-X / Vistoria', icon: <Scan size={20} className="text-indigo-500" />, roles: ['regional_admin'] },
+    { id: 'elevadores', label: 'Gestão de Elevadores', icon: <ArrowUpCircle size={20} className="text-blue-500" />, roles: ['regional_admin'] },
     { id: 'demandas', label: 'Demandas / E-mails', icon: <AlertTriangle size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager'] },
     { id: 'aquisicao', label: 'Aquisição de Itens', icon: <ShoppingBag size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager'] },
-    { id: 'patrimonio', label: 'Processos Património', icon: <Package size={20} className="text-blue-500" />, roles: ['regional_admin', 'school_manager'] },
+    { id: 'patrimonio', label: 'Processos Patrimônio', icon: <Package size={20} className="text-blue-500" />, roles: ['regional_admin', 'school_manager'] },
     { id: 'reunioes', label: 'Agenda de Reuniões', icon: <Calendar size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'carros', label: 'Carros Oficiais', icon: <Car size={20} />, roles: ['regional_admin'] },
     { id: 'ambientes', label: 'Reservas Ambiente', icon: <Building size={20} />, roles: ['regional_admin'] },
@@ -137,7 +136,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] flex font-sans text-slate-900">
-      {/* Sidebar Lateral */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 text-white transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0`}>
         <div className="h-full flex flex-col p-6">
           <div className="flex items-center gap-3 px-2 mb-10">
@@ -184,14 +182,10 @@ export default function App() {
         </div>
       </aside>
 
-      {/* Área de Conteúdo Principal */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden h-screen">
         <header className="h-20 bg-white border-b border-slate-100 flex items-center justify-between px-8 shrink-0">
           <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="p-2 hover:bg-slate-50 rounded-xl text-slate-500 lg:hidden"
-            >
+            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-slate-50 rounded-xl text-slate-500 lg:hidden">
               {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
             </button>
             <h2 className="text-sm font-black text-slate-400 uppercase tracking-[0.2em]">

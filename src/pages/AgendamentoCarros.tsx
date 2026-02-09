@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
   Car, ShieldCheck, FileSpreadsheet, ClipboardList, 
   Loader2, Send, ArrowRight, SearchCheck, BarChart3, 
-  Users, Calendar, Award, Info, MapPin, User,
+  Users, Calendar, Award, Info, 
   FileDown, ChevronLeft, ChevronRight, CalendarDays
 } from 'lucide-react';
 import { 
