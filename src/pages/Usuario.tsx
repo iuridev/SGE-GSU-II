@@ -5,12 +5,12 @@ import {
   Search, UserPlus, X, 
   Trash2, Edit, Save, Building2, Lock,
   ShieldAlert, ShieldCheck, UserCheck, Loader2,
-  AlertCircle
-} from 'lucide-react';
+  AlertCircle, } from 'lucide-react';
 
 interface Profile {
   id: string;
   full_name: string;
+  email?: string; // Campo opcional para carregar o email existente na tabela profiles
   role: 'regional_admin' | 'school_manager';
   school_id: string | null;
   created_at: string;
@@ -30,6 +30,7 @@ export function Usuario() {
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<Profile | null>(null);
+  
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
@@ -47,6 +48,7 @@ export function Usuario() {
   async function fetchData() {
     setLoading(true);
     try {
+      // Busca perfis. Se a coluna 'email' existir na tabela profiles, ela virá aqui.
       const { data: profilesData, error: profilesError } = await (supabase as any)
         .from('profiles')
         .select('*')
@@ -70,7 +72,6 @@ export function Usuario() {
     }
   }
 
-  // --- REGRAS DE NEGÓCIO NO CÓDIGO (VALIDAÇÕES) ---
   function validateForm() {
     const newErrors: string[] = [];
 
@@ -78,12 +79,19 @@ export function Usuario() {
       newErrors.push("Informe o nome completo (nome e sobrenome).");
     }
 
+    // E-mail obrigatório apenas na criação. Na edição, usamos o que já existe ou o que foi carregado.
+    if (!editingUser && !formData.email.includes('@')) {
+      newErrors.push("Informe um e-mail válido.");
+    }
+
+    // Senha obrigatória na criação (min 6 chars). Na edição é opcional.
     if (!editingUser) {
-      if (!formData.email.includes('@')) {
-        newErrors.push("Informe um e-mail válido.");
-      }
       if (formData.password.length < 6) {
         newErrors.push("A senha deve ter pelo menos 6 caracteres.");
+      }
+    } else {
+      if (formData.password && formData.password.length < 6) {
+        newErrors.push("A nova senha deve ter pelo menos 6 caracteres.");
       }
     }
 
@@ -101,8 +109,9 @@ export function Usuario() {
       setEditingUser(user);
       setFormData({
         full_name: user.full_name,
-        email: '', // Email não é editável diretamente no auth pelo client simples
-        password: '', 
+        // Tenta pegar o email do perfil carregado. Se estiver vazio, deixa string vazia.
+        email: user.email || '', 
+        password: '', // Senha sempre começa vazia na edição
         role: user.role,
         school_id: user.school_id || ''
       });
@@ -128,21 +137,33 @@ export function Usuario() {
 
     try {
       if (editingUser) {
-        // Atualização de Perfil Existente
-        const { error } = await (supabase as any)
-          .from('profiles')
-          .update({
+        // --- ATUALIZAÇÃO ---
+        const updatePayload: any = {
             full_name: formData.full_name,
             role: formData.role,
             school_id: formData.role === 'school_manager' ? formData.school_id : null
-          })
+        };
+
+        // Se o campo de email não estiver vazio (e existir a coluna no banco), tentamos atualizar para manter sincronia
+        if (formData.email) {
+            updatePayload.email = formData.email;
+        }
+
+        const { error: profileError } = await (supabase as any)
+          .from('profiles')
+          .update(updatePayload)
           .eq('id', editingUser.id);
 
-        if (error) throw error;
+        if (profileError) throw profileError;
+
+        // Se houve preenchimento de senha, avisa (requer Edge Function para funcionar de verdade para terceiros)
+        if (formData.password) {
+            alert("Aviso: A senha foi preenchida, mas por segurança o Supabase não permite alterar senha de terceiros via Frontend. Configure uma Edge Function ou use o painel Admin do Supabase para resetar senhas.");
+        }
+
       } else {
-        // Fluxo de Criação: Auth -> Profile (Tudo via código)
-        
-        // 1. Criar credencial de autenticação
+        // --- CRIAÇÃO ---
+        // 1. Criar no Auth
         const { data: authData, error: authError } = await supabase.auth.signUp({
           email: formData.email,
           password: formData.password,
@@ -157,12 +178,13 @@ export function Usuario() {
         if (authError) throw authError;
 
         if (authData.user) {
-          // 2. Criar perfil manualmente (Upsert para evitar conflito com triggers fantasmas)
+          // 2. Criar no Profiles (incluindo o email para facilitar visualização futura)
           const { error: profileError } = await (supabase as any)
             .from('profiles')
             .upsert({
               id: authData.user.id,
               full_name: formData.full_name,
+              email: formData.email, // Importante: requer coluna 'email' na tabela profiles
               role: formData.role,
               school_id: formData.role === 'school_manager' ? formData.school_id : null,
               created_at: new Date().toISOString()
@@ -175,19 +197,12 @@ export function Usuario() {
       setIsModalOpen(false);
       fetchData();
       
-      // Feedback amigável para criação
-      if (!editingUser) {
-        alert("Usuário criado com sucesso! Note que, por padrão, o administrador atual pode ser deslogado para confirmar a nova conta se o 'Email Confirmation' estiver ativo no Supabase.");
-      }
+      if (!editingUser) alert("Usuário criado com sucesso!");
 
     } catch (error: any) {
-      console.error('Erro detalhado:', error);
-      
-      if (error.status === 500 || error.message?.includes('schema')) {
-        setErrors([
-          "Erro de Banco de Dados (500): Provavelmente um problema de permissão ou gatilho (trigger) no Supabase.",
-          "Verifique o SQL Editor e rode: ALTER ROLE authenticator SET search_path = public, auth, extensions;"
-        ]);
+      console.error('Erro:', error);
+      if (error.message?.includes('column "email" does not exist')) {
+        setErrors(["Erro de Banco de Dados: A coluna 'email' não existe na tabela 'profiles'. Execute o SQL sugerido."]);
       } else {
         setErrors([error.message || "Erro ao salvar dados."]);
       }
@@ -197,7 +212,7 @@ export function Usuario() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Deseja remover este acesso? O usuário não poderá mais entrar no sistema.')) return;
+    if (!confirm('Deseja remover este perfil? (Nota: O login Auth permanecerá, apenas o perfil de acesso será removido)')) return;
 
     try {
       const { error } = await (supabase as any).from('profiles').delete().eq('id', id);
@@ -210,7 +225,8 @@ export function Usuario() {
   }
 
   const filteredUsers = users.filter(u => 
-    u.full_name.toLowerCase().includes(searchTerm.toLowerCase())
+    u.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (u.email && u.email.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   return (
@@ -234,7 +250,7 @@ export function Usuario() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
           <input 
             type="text" 
-            placeholder="Buscar por nome..." 
+            placeholder="Buscar por nome ou e-mail..." 
             className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -242,7 +258,7 @@ export function Usuario() {
         </div>
         <div className="flex items-center gap-2 text-sm text-slate-500 px-2 font-bold">
             <Users size={16} className="text-blue-500" />
-            <span>{filteredUsers.length} usuários ativos</span>
+            <span>{filteredUsers.length} usuários</span>
         </div>
       </div>
 
@@ -251,10 +267,10 @@ export function Usuario() {
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 border-b border-slate-100">
               <tr>
-                <th className="px-6 py-4 font-bold text-slate-500 uppercase text-[10px]">Nome Completo</th>
-                <th className="px-6 py-4 font-bold text-slate-500 uppercase text-[10px]">Cargo</th>
+                <th className="px-6 py-4 font-bold text-slate-500 uppercase text-[10px]">Usuário</th>
+                <th className="px-6 py-4 font-bold text-slate-500 uppercase text-[10px]">E-mail (Cadastro)</th>
+                <th className="px-6 py-4 font-bold text-slate-500 uppercase text-[10px]">Perfil de Acesso</th>
                 <th className="px-6 py-4 font-bold text-slate-500 uppercase text-[10px]">Vínculo</th>
-                <th className="px-6 py-4 font-bold text-slate-500 uppercase text-[10px]">Data Cadastro</th>
                 <th className="px-6 py-4 font-bold text-slate-500 uppercase text-[10px] text-right">Ações</th>
               </tr>
             </thead>
@@ -279,12 +295,20 @@ export function Usuario() {
                       </div>
                       <div>
                           <div className="font-bold text-slate-900">{user.full_name}</div>
-                          <div className="text-[10px] text-slate-400 font-mono uppercase tracking-tighter">ID: {user.id.substring(0,8)}</div>
+                          <div className="text-[10px] text-slate-400 font-mono uppercase tracking-tighter">ID: {user.id.substring(0,6)}...</div>
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide border ${
+                    {user.email ? (
+                        <span className="text-slate-600 font-medium">{user.email}</span>
+                    ) : (
+                        <span className="text-slate-400 italic text-xs">Não sincronizado</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4">
+                    {/* VISUALIZAÇÃO DO TIPO DE USUÁRIO RESTAURADA AQUI */}
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border ${
                       user.role === 'regional_admin' 
                         ? 'bg-blue-50 text-blue-700 border-blue-100' 
                         : 'bg-emerald-50 text-emerald-700 border-emerald-100'
@@ -298,15 +322,12 @@ export function Usuario() {
                       <div className="flex items-center gap-2 text-slate-600">
                         <Building2 size={14} className="text-slate-400" />
                         <span className="text-xs truncate max-w-[150px] font-medium">
-                          {schools.find(s => s.id === user.school_id)?.name || 'Unidade Pendente'}
+                          {schools.find(s => s.id === user.school_id)?.name || 'Unidade não encontrada'}
                         </span>
                       </div>
                     ) : (
                       <span className="text-xs text-slate-400 italic">Gestão Global</span>
                     )}
-                  </td>
-                  <td className="px-6 py-4 text-slate-500 text-xs">
-                    {new Date(user.created_at).toLocaleDateString()}
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -330,7 +351,7 @@ export function Usuario() {
               ))}
               {filteredUsers.length === 0 && !loading && (
                   <tr>
-                      <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">Nenhum usuário encontrado para esta busca.</td>
+                      <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">Nenhum usuário encontrado.</td>
                   </tr>
               )}
             </tbody>
@@ -350,7 +371,9 @@ export function Usuario() {
                   <h2 className="text-lg font-bold text-slate-800">
                     {editingUser ? 'Editar Perfil' : 'Novo Usuário'}
                   </h2>
-                  <p className="text-xs text-slate-500">Defina as credenciais e permissões</p>
+                  <p className="text-xs text-slate-500">
+                     {editingUser ? 'Atualize os dados ou senha' : 'Defina as credenciais e permissões'}
+                  </p>
                 </div>
               </div>
               <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
@@ -382,16 +405,18 @@ export function Usuario() {
                   />
                 </div>
 
-                {!editingUser && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-slate-500 uppercase mb-1 tracking-wider">E-mail de Acesso</label>
                       <div className="relative">
                         <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                         <input 
-                          required 
+                          required={!editingUser}
+                          disabled={!!editingUser && !!formData.email} // Desabilita se já tem email, para evitar confusão de Auth
                           type="email"
-                          className="w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                          className={`w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl outline-none font-medium ${
+                              editingUser ? 'bg-slate-50 text-slate-500' : 'focus:ring-2 focus:ring-blue-500'
+                          }`}
                           placeholder="usuario@sge.sp.gov.br"
                           value={formData.email}
                           onChange={e => setFormData({...formData, email: e.target.value})}
@@ -399,21 +424,22 @@ export function Usuario() {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1 tracking-wider">Senha Provisória</label>
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1 tracking-wider">
+                          {editingUser ? 'Nova Senha (Opcional)' : 'Senha Provisória'}
+                      </label>
                       <div className="relative">
                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                         <input 
-                          required 
+                          required={!editingUser}
                           type="password"
                           className="w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-                          placeholder="Mín. 6 caracteres"
+                          placeholder={editingUser ? "Vazio para manter" : "Mín. 6 caracteres"}
                           value={formData.password}
                           onChange={e => setFormData({...formData, password: e.target.value})}
                         />
                       </div>
                     </div>
                   </div>
-                )}
 
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1 tracking-wider">Perfil de Acesso</label>
