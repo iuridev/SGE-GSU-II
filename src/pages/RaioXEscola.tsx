@@ -5,8 +5,8 @@ import {
   ShieldCheck, ArrowRightLeft, FileDown, 
   Loader2, MapPin, Hash, User, GraduationCap,
   ClipboardCheck, Filter, LayoutGrid,
-  ShoppingBag, Star, Package, History,
-  ArrowUpCircle
+  ShoppingBag, Star, Package, History, 
+  ArrowUpCircle, ZapOff
 } from 'lucide-react';
 
 interface School {
@@ -40,6 +40,10 @@ export function RaioXEscola() {
   const [remanejamentoData, setRemanejamentoData] = useState<any[]>([]);
   const [acquisitionData, setAcquisitionData] = useState<any[]>([]);
   const [assetProcesses, setAssetProcesses] = useState<any[]>([]);
+  
+  // Novos Estados para Ocorrências
+  const [waterTruckRequests, setWaterTruckRequests] = useState<number>(0);
+  const [powerOutageReports, setPowerOutageReports] = useState<number>(0);
 
   useEffect(() => {
     fetchSchools();
@@ -61,6 +65,7 @@ export function RaioXEscola() {
   async function fetchXRayData() {
     setDataLoading(true);
     const firstDayMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
+    const firstDayYear = new Date(new Date().getFullYear(), 0, 1).toISOString(); // Início do ano atual
 
     try {
       // 1. Água
@@ -127,6 +132,23 @@ export function RaioXEscola() {
         .eq('school_id', selectedSchoolId)
         .not('status', 'eq', 'CONCLUÍDO');
       setAssetProcesses(assetProcs || []);
+
+      // 8. Ocorrências (Caminhão Pipa e Energia) - Total do Ano
+      const { count: wtCount } = await (supabase as any)
+        .from('occurrences')
+        .select('*', { count: 'exact', head: true })
+        .eq('school_id', selectedSchoolId)
+        .eq('type', 'WATER_TRUCK')
+        .gte('created_at', firstDayYear);
+      setWaterTruckRequests(wtCount || 0);
+
+      const { count: poCount } = await (supabase as any)
+        .from('occurrences')
+        .select('*', { count: 'exact', head: true })
+        .eq('school_id', selectedSchoolId)
+        .eq('type', 'POWER_OUTAGE')
+        .gte('created_at', firstDayYear);
+      setPowerOutageReports(poCount || 0);
 
     } catch (err) {
       console.error(err);
@@ -285,8 +307,8 @@ export function RaioXEscola() {
              </div>
           </div>
 
-          {/* Cards de Status Crítico */}
-          <div className={`grid grid-cols-1 md:grid-cols-2 ${selectedSchool?.has_elevator ? 'lg:grid-cols-6' : 'lg:grid-cols-5'} gap-4`}>
+          {/* Cards de Status Crítico (Expandido para 6 colunas se tiver elevador e ocorrências) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-4">
              <AuditCard 
                 title="Consumo de Água" 
                 status={analysis.missingWaterDays.length > 0 ? 'ALERT' : 'OK'}
@@ -322,12 +344,11 @@ export function RaioXEscola() {
                 icon={<ShieldCheck size={20}/>}
                 color="emerald"
              />
-             {/* NOVO: Monitoramento de Elevador */}
              {selectedSchool?.has_elevator && (
                 <AuditCard 
                   title="Elevador" 
                   status={selectedSchool.is_elevator_operational ? 'OK' : 'ALERT'}
-                  desc={selectedSchool.is_elevator_operational ? 'Elevador Operante' : 'Elevador Parado'}
+                  desc={selectedSchool.is_elevator_operational ? 'Operante' : 'Parado'}
                   icon={<ArrowUpCircle size={20}/>}
                   color={selectedSchool.is_elevator_operational ? 'emerald' : 'red'}
                 />
@@ -336,6 +357,24 @@ export function RaioXEscola() {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
              <div className="space-y-6">
+                {/* Ocorrências Emergenciais (NOVO) */}
+                <section className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-xl overflow-hidden relative group">
+                   <div className="absolute top-0 right-0 p-6 opacity-5 pointer-events-none"><History size={100} /></div>
+                   <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest flex items-center gap-2 mb-6"><History size={18} className="text-blue-500"/> Histórico de Solicitações (Ano Atual)</h3>
+                   <div className="grid grid-cols-2 gap-4">
+                      <div className="p-5 bg-blue-50 rounded-3xl border border-blue-100 flex flex-col items-center justify-center text-center">
+                         <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-blue-600 shadow-sm mb-2"><Droplets size={20}/></div>
+                         <h4 className="text-2xl font-black text-blue-800">{waterTruckRequests}</h4>
+                         <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Caminhão Pipa</p>
+                      </div>
+                      <div className="p-5 bg-amber-50 rounded-3xl border border-amber-100 flex flex-col items-center justify-center text-center">
+                         <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-amber-600 shadow-sm mb-2"><ZapOff size={20}/></div>
+                         <h4 className="text-2xl font-black text-amber-800">{powerOutageReports}</h4>
+                         <p className="text-[9px] font-black text-amber-400 uppercase tracking-widest">Queda Energia</p>
+                      </div>
+                   </div>
+                </section>
+
                 {/* Qualidade por Serviço */}
                 <section className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-xl overflow-hidden relative">
                    <div className="absolute top-0 right-0 p-6 opacity-5 pointer-events-none"><Star size={100} /></div>
@@ -382,7 +421,10 @@ export function RaioXEscola() {
                       </div>
                    )}
                 </section>
+             </div>
 
+             <div className="space-y-6">
+                {/* Aquisições FDE */}
                 <section className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-xl">
                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest flex items-center gap-2 mb-6"><ShoppingBag size={18} className="text-emerald-500"/> Aquisições FDE</h3>
                    {acquisitionData.length === 0 ? (
@@ -404,9 +446,7 @@ export function RaioXEscola() {
                       </div>
                    )}
                 </section>
-             </div>
 
-             <div className="space-y-6">
                 {/* Água */}
                 <section className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-xl">
                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest flex items-center gap-2 mb-6"><Droplets size={18} className="text-blue-500"/> Auditoria de Água (Mês Atual)</h3>
@@ -500,8 +540,8 @@ export function RaioXEscola() {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px', marginBottom: '30px' }}>
              <div style={{ border: '1px solid #e2e8f0', padding: '15px', borderRadius: '15px' }}>
-                <h4 style={{ margin: '0 0 10px 0', fontSize: '9px', fontWeight: 900, color: '#ef4444', textTransform: 'uppercase' }}>⚠️ Demandas</h4>
-                <p style={{ margin: 0, fontSize: '11px', fontWeight: 700 }}>{analysis.overdueDemands.length} pendências reais.</p>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '9px', fontWeight: 900, color: '#ef4444', textTransform: 'uppercase' }}>⚠️ Ocorrências Ano</h4>
+                <p style={{ margin: 0, fontSize: '11px', fontWeight: 700 }}>Pipa: {waterTruckRequests} | Energia: {powerOutageReports}</p>
              </div>
              <div style={{ border: '1px solid #e2e8f0', padding: '15px', borderRadius: '15px' }}>
                 <h4 style={{ margin: '0 0 10px 0', fontSize: '9px', fontWeight: 900, color: '#4f46e5', textTransform: 'uppercase' }}>📋 Patrimônio</h4>
@@ -546,7 +586,6 @@ export function RaioXEscola() {
               )}
           </div>
 
-          {/* NOVO: Situação do Elevador no PDF */}
           {selectedSchool.has_elevator && (
             <div style={{ marginBottom: '30px' }}>
                 <h3 style={{ fontSize: '12px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', borderBottom: '2px solid #f1f5f9', paddingBottom: '8px', marginBottom: '15px' }}>Condição de Acessibilidade (Elevador)</h3>
@@ -562,50 +601,6 @@ export function RaioXEscola() {
                 </div>
             </div>
           )}
-
-          <div style={{ marginBottom: '30px' }}>
-              <h3 style={{ fontSize: '12px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', borderBottom: '2px solid #f1f5f9', paddingBottom: '8px', marginBottom: '15px' }}>Processos Patrimoniais Pendentes (SEI)</h3>
-              {assetProcesses.length === 0 ? <p style={{ fontSize: '11px', color: '#94a3b8' }}>Nenhum processo pendente identificado.</p> : (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                        <tr style={{ background: '#f8fafc' }}>
-                            <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'left' }}>PROCESSO / TIPO</th>
-                            <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'left' }}>ETAPA ATUAL</th>
-                            <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'center' }}>DATA</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {assetProcesses.map((p) => (
-                            <tr key={p.id}>
-                                <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', fontWeight: 700 }}>SEI {p.sei_number}<br/><small style={{color:'#64748b'}}>{p.type.replace('_', ' ')}</small></td>
-                                <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', fontWeight: 800 }}>{p.current_step}</td>
-                                <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', textAlign: 'center' }}>{new Date(p.process_date + 'T12:00:00').toLocaleDateString()}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-              )}
-          </div>
-
-          <div style={{ marginBottom: '30px' }}>
-              <h3 style={{ fontSize: '12px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', borderBottom: '2px solid #f1f5f9', paddingBottom: '8px', marginBottom: '15px' }}>Qualidade Percebida nos Serviços</h3>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                      <tr style={{ background: '#f8fafc' }}>
-                          <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'left' }}>CONTRATO</th>
-                          <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'center' }}>NOTA GSU</th>
-                      </tr>
-                  </thead>
-                  <tbody>
-                      {SERVICE_TYPES.map(service => (
-                          <tr key={service}>
-                              <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', fontWeight: 700 }}>{service}</td>
-                              <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', textAlign: 'center', fontWeight: 900 }}>{analysis.satisfactionPerService[service]}</td>
-                          </tr>
-                      ))}
-                  </tbody>
-              </table>
-          </div>
 
           <div style={{ marginTop: 'auto', paddingTop: '40px', textAlign: 'center', borderTop: '1px dashed #cbd5e1' }}>
               <p style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 900, letterSpacing: '4px' }}>RELATÓRIO GERADO PARA USO EXCLUSIVO DA EQUIPE TÉCNICA REGIONAL</p>

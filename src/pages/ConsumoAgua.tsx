@@ -6,7 +6,7 @@ import {
   Search, Building2, Users, Loader2,
   AlertCircle, ArrowRight, ArrowDown, Activity, ShieldCheck,
   TrendingUp, Waves, ListFilter,
-  CalendarDays, FileDown
+  CalendarDays, FileDown, History
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -57,6 +57,7 @@ export function ConsumoAgua() {
   const [userId, setUserId] = useState<string>('');
   const [logs, setLogs] = useState<Record<string, WaterLog>>({}); 
   const [allMonthLogs, setAllMonthLogs] = useState<WaterLog[]>([]); 
+  const [waterTruckCount, setWaterTruckCount] = useState(0); // Novo estado para contagem de pipas
   const [exporting, setExporting] = useState(false);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -84,6 +85,7 @@ export function ConsumoAgua() {
 
   useEffect(() => {
     fetchLogs();
+    fetchWaterTruckStats();
   }, [selectedSchoolId, currentDate]);
 
   async function fetchInitialData() {
@@ -138,6 +140,28 @@ export function ConsumoAgua() {
       }
     } catch (error) {
       console.error('Erro ao buscar consumos:', error);
+    }
+  }
+
+  // Busca a quantidade de caminhões pipa solicitados no ano
+  async function fetchWaterTruckStats() {
+    const firstDayYear = new Date(currentDate.getFullYear(), 0, 1).toISOString();
+    
+    try {
+      let query = (supabase as any)
+        .from('occurrences')
+        .select('*', { count: 'exact', head: true })
+        .eq('type', 'WATER_TRUCK')
+        .gte('created_at', firstDayYear);
+
+      if (selectedSchoolId) {
+        query = query.eq('school_id', selectedSchoolId);
+      }
+
+      const { count, error } = await query;
+      if (!error) setWaterTruckCount(count || 0);
+    } catch (err) {
+      console.error("Erro ao buscar estatísticas de pipa:", err);
     }
   }
 
@@ -437,8 +461,8 @@ export function ConsumoAgua() {
         </div>
       </div>
 
-      {/* Cards de Indicadores */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 print:hidden">
+      {/* Cards de Indicadores Ajustados para 5 colunas */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 print:hidden">
           <div className={`p-6 rounded-[2.5rem] border-2 transition-all flex items-center gap-4 shadow-xl ${isTotalExceeded ? 'bg-red-50 border-red-200 text-red-700' : 'bg-white border-slate-100'}`}>
               <div className={`p-4 rounded-2xl ${isTotalExceeded ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'}`}><Waves size={20} /></div>
               <div><p className="text-[10px] font-black uppercase tracking-widest opacity-60">Total Consumido</p><h3 className="text-xl font-black">{stats.totalConsumption.toFixed(2)} m³</h3></div>
@@ -454,6 +478,15 @@ export function ConsumoAgua() {
           <div className="bg-white p-6 rounded-[2.5rem] border-2 border-slate-100 shadow-xl flex items-center gap-4">
               <div className={`p-4 rounded-2xl ${stats.exceededDays > 0 ? 'bg-amber-500 text-white' : 'bg-emerald-500 text-white'}`}><AlertTriangle size={20} /></div>
               <div><p className="text-[10px] font-black uppercase tracking-widest opacity-40">Alertas Ativos</p><h3 className="text-xl font-black text-slate-800">{stats.exceededDays} dias</h3></div>
+          </div>
+          
+          {/* NOVO CARD: CAMINHÃO PIPA NO ANO */}
+          <div className="bg-white p-6 rounded-[2.5rem] border-2 border-slate-100 shadow-xl flex items-center gap-4 transition-all hover:border-blue-300">
+              <div className="p-4 bg-blue-100 text-blue-700 rounded-2xl"><History size={20} /></div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Caminhão Pipa</p>
+                <h3 className="text-xl font-black text-slate-800">{waterTruckCount} <span className="text-[9px] font-bold text-slate-400">PEDIDOS</span></h3>
+              </div>
           </div>
       </div>
 
@@ -674,3 +707,5 @@ export function ConsumoAgua() {
     </div>
   );
 }
+
+export default ConsumoAgua;
