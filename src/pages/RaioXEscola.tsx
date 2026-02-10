@@ -1,12 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
-  Building2, Droplets, AlertTriangle,  
+  Building2, Droplets, AlertTriangle,
   ShieldCheck, ArrowRightLeft, FileDown, 
   Loader2, MapPin, Hash, User, GraduationCap,
-  ClipboardCheck, Filter, LayoutGrid,
+  ClipboardCheck,  Filter, LayoutGrid,
   ShoppingBag, Star, Package, History, 
-  ArrowUpCircle, ZapOff
+  ArrowUpCircle, ZapOff 
 } from 'lucide-react';
 
 interface School {
@@ -41,7 +41,7 @@ export function RaioXEscola() {
   const [acquisitionData, setAcquisitionData] = useState<any[]>([]);
   const [assetProcesses, setAssetProcesses] = useState<any[]>([]);
   
-  // Novos Estados para Ocorrências
+  // Ocorrências
   const [waterTruckRequests, setWaterTruckRequests] = useState<number>(0);
   const [powerOutageReports, setPowerOutageReports] = useState<number>(0);
 
@@ -65,7 +65,7 @@ export function RaioXEscola() {
   async function fetchXRayData() {
     setDataLoading(true);
     const firstDayMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
-    const firstDayYear = new Date(new Date().getFullYear(), 0, 1).toISOString(); // Início do ano atual
+    const firstDayYear = new Date(new Date().getFullYear(), 0, 1).toISOString();
 
     try {
       // 1. Água
@@ -133,7 +133,7 @@ export function RaioXEscola() {
         .not('status', 'eq', 'CONCLUÍDO');
       setAssetProcesses(assetProcs || []);
 
-      // 8. Ocorrências (Caminhão Pipa e Energia) - Total do Ano
+      // 8. Ocorrências
       const { count: wtCount } = await (supabase as any)
         .from('occurrences')
         .select('*', { count: 'exact', head: true })
@@ -159,12 +159,9 @@ export function RaioXEscola() {
 
   const selectedSchool = schools.find(s => s.id === selectedSchoolId);
 
-  // --- ANÁLISE DE PENDÊNCIAS E QUALIDADE ---
   const analysis = useMemo(() => {
     const today = new Date();
     const currentDay = today.getDate();
-    
-    // Dias sem registro de água
     const recordedDays = waterData.map(w => new Date(w.date + 'T12:00:00').getDate());
     const missingWaterDays: number[] = [];
     for (let i = 1; i <= currentDay; i++) {
@@ -173,7 +170,6 @@ export function RaioXEscola() {
 
     const overdueDemands = demandsData.filter(d => d.deadline < today.toISOString().split('T')[0]);
 
-    // Satisfação por Serviço
     const satisfactionPerService: Record<string, string> = {};
     SERVICE_TYPES.forEach(service => {
       const filtered = fiscalizationData.filter(f => 
@@ -225,7 +221,8 @@ export function RaioXEscola() {
         filename: `RAIO_X_${selectedSchool?.name?.replace(/\s+/g, '_')}.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true, letterRendering: true },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['css', 'legacy'] }
       };
 
       await (window as any).html2pdf().set(opt).from(element).save();
@@ -240,7 +237,7 @@ export function RaioXEscola() {
   if (loading) return <div className="flex items-center justify-center py-40"><Loader2 className="animate-spin text-indigo-600" size={48}/></div>;
 
   return (
-    <div className="space-y-8 pb-20">
+    <div className="space-y-8 pb-20 relative">
       {/* Header com Seletor */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-4">
@@ -307,8 +304,8 @@ export function RaioXEscola() {
              </div>
           </div>
 
-          {/* Cards de Status Crítico (Expandido para 6 colunas se tiver elevador e ocorrências) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-4">
+          {/* Cards de Status Crítico */}
+          <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-4`}>
              <AuditCard 
                 title="Consumo de Água" 
                 status={analysis.missingWaterDays.length > 0 ? 'ALERT' : 'OK'}
@@ -357,7 +354,7 @@ export function RaioXEscola() {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
              <div className="space-y-6">
-                {/* Ocorrências Emergenciais (NOVO) */}
+                {/* Ocorrências Emergenciais */}
                 <section className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-xl overflow-hidden relative group">
                    <div className="absolute top-0 right-0 p-6 opacity-5 pointer-events-none"><History size={100} /></div>
                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest flex items-center gap-2 mb-6"><History size={18} className="text-blue-500"/> Histórico de Solicitações (Ano Atual)</h3>
@@ -586,6 +583,28 @@ export function RaioXEscola() {
               )}
           </div>
 
+          <div style={{ marginBottom: '30px' }}>
+              <h3 style={{ fontSize: '12px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', borderBottom: '2px solid #f1f5f9', paddingBottom: '8px', marginBottom: '15px' }}>Demandas Administrativas Pendentes</h3>
+              {demandsData.length === 0 ? <p style={{ fontSize: '11px', color: '#94a3b8' }}>Nenhuma pendência administrativa em aberto.</p> : (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                        <tr style={{ background: '#f8fafc' }}>
+                            <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'left' }}>TÍTULO DA DEMANDA</th>
+                            <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'center' }}>PRAZO</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {demandsData.map(d => (
+                            <tr key={d.id}>
+                                <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', fontWeight: 700 }}>{d.title}</td>
+                                <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', textAlign: 'center', color: d.deadline < new Date().toISOString() ? '#ef4444' : '#1e293b' }}>{new Date(d.deadline + 'T12:00:00').toLocaleDateString()}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+              )}
+          </div>
+
           {selectedSchool.has_elevator && (
             <div style={{ marginBottom: '30px' }}>
                 <h3 style={{ fontSize: '12px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', borderBottom: '2px solid #f1f5f9', paddingBottom: '8px', marginBottom: '15px' }}>Condição de Acessibilidade (Elevador)</h3>
@@ -601,6 +620,74 @@ export function RaioXEscola() {
                 </div>
             </div>
           )}
+
+          <div style={{ marginBottom: '30px' }}>
+              <h3 style={{ fontSize: '12px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', borderBottom: '2px solid #f1f5f9', paddingBottom: '8px', marginBottom: '15px' }}>Processos Patrimoniais Pendentes (SEI)</h3>
+              {assetProcesses.length === 0 ? <p style={{ fontSize: '11px', color: '#94a3b8' }}>Nenhum processo pendente identificado.</p> : (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                        <tr style={{ background: '#f8fafc' }}>
+                            <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'left' }}>PROCESSO / TIPO</th>
+                            <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'left' }}>ETAPA ATUAL</th>
+                            <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'center' }}>DATA</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {assetProcesses.map((p) => (
+                            <tr key={p.id}>
+                                <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', fontWeight: 700 }}>SEI {p.sei_number}<br/><small style={{color:'#64748b'}}>{p.type.replace('_', ' ')}</small></td>
+                                <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', fontWeight: 800 }}>{p.current_step}</td>
+                                <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', textAlign: 'center' }}>{new Date(p.process_date + 'T12:00:00').toLocaleDateString()}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+              )}
+          </div>
+
+          <div style={{ marginBottom: '30px' }}>
+              <h3 style={{ fontSize: '12px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', borderBottom: '2px solid #f1f5f9', paddingBottom: '8px', marginBottom: '15px' }}>Solicitações de Itens (Aquisição FDE)</h3>
+              {acquisitionData.length === 0 ? <p style={{ fontSize: '11px', color: '#94a3b8' }}>Nenhum item solicitado pela unidade.</p> : (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                        <tr style={{ background: '#f8fafc' }}>
+                            <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'left' }}>EQUIPAMENTO / CÓDIGO</th>
+                            <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'center' }}>PEDIDA</th>
+                            <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'center' }}>PLANEJADO</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {acquisitionData.map((a, idx) => (
+                            <tr key={idx}>
+                                <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', fontWeight: 700 }}>{a.items?.name} <br/><small style={{color:'#64748b'}}>{a.items?.code}</small></td>
+                                <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', textAlign: 'center' }}>{a.requested_qty}</td>
+                                <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', textAlign: 'center', fontWeight: 900, color: '#059669' }}>{a.planned_qty}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+              )}
+          </div>
+
+          <div style={{ marginBottom: '30px' }}>
+              <h3 style={{ fontSize: '12px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', borderBottom: '2px solid #f1f5f9', paddingBottom: '8px', marginBottom: '15px' }}>Qualidade Percebida nos Serviços</h3>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                      <tr style={{ background: '#f8fafc' }}>
+                          <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'left' }}>CONTRATO</th>
+                          <th style={{ padding: '10px', border: '1px solid #e2e8f0', fontSize: '9px', textAlign: 'center' }}>NOTA GSU</th>
+                      </tr>
+                  </thead>
+                  <tbody>
+                      {SERVICE_TYPES.map(service => (
+                          <tr key={service}>
+                              <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', fontWeight: 700 }}>{service}</td>
+                              <td style={{ padding: '8px', border: '1px solid #e2e8f0', fontSize: '10px', textAlign: 'center', fontWeight: 900 }}>{analysis.satisfactionPerService[service]}</td>
+                          </tr>
+                      ))}
+                  </tbody>
+              </table>
+          </div>
 
           <div style={{ marginTop: 'auto', paddingTop: '40px', textAlign: 'center', borderTop: '1px dashed #cbd5e1' }}>
               <p style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 900, letterSpacing: '4px' }}>RELATÓRIO GERADO PARA USO EXCLUSIVO DA EQUIPE TÉCNICA REGIONAL</p>
