@@ -168,8 +168,10 @@ export function PatrimonioProcessos() {
     setSaveLoading(true);
     setFormError(null);
 
+    // CORREÇÃO AQUI: Tratamento do campo de data vazio
     const payload = {
       ...formData,
+      occurrence_date: formData.occurrence_date ? formData.occurrence_date : null,
       items_json: formData.type === 'FURTOS' ? JSON.stringify(sinistroItems) : null
     };
 
