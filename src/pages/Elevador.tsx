@@ -12,13 +12,17 @@ import {
   Power,
   PowerOff,
   Wrench,
-  MapPin
+  MapPin,
+  RefreshCw,
+  Hash,
+  ShieldCheck
 } from 'lucide-react';
 
 interface SchoolElevator {
   id: string;
   name: string;
   address: string | null;
+  cie_code: string | null;
   has_elevator: boolean;
   is_elevator_operational: boolean;
   last_elevator_maintenance: string | null;
@@ -31,6 +35,7 @@ export function Elevador() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filter, setFilter] = useState<'all' | 'operational' | 'stopped'>('all');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     fetchInitialData();
@@ -57,10 +62,11 @@ export function Elevador() {
   }
 
   async function fetchSchools() {
+    setRefreshing(true);
     try {
       const { data, error } = await (supabase as any)
         .from('schools')
-        .select('id, name, address, has_elevator, is_elevator_operational, last_elevator_maintenance')
+        .select('id, name, address, cie_code, has_elevator, is_elevator_operational, last_elevator_maintenance')
         .eq('has_elevator', true)
         .order('name');
       
@@ -68,6 +74,8 @@ export function Elevador() {
       setSchools(data || []);
     } catch (err) {
       console.error("Erro ao buscar escolas com elevador:", err);
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -75,7 +83,8 @@ export function Elevador() {
 
   const filteredSchools = useMemo(() => {
     return schools.filter(s => {
-      const matchesSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                           (s.cie_code && s.cie_code.includes(searchTerm));
       const matchesFilter = 
         filter === 'all' ? true :
         filter === 'operational' ? s.is_elevator_operational :
@@ -93,6 +102,10 @@ export function Elevador() {
 
   async function toggleElevatorStatus(school: SchoolElevator) {
     if (!isAdmin) return;
+    
+    const action = school.is_elevator_operational ? "INTERROMPER o uso" : "REATIVAR o uso";
+    if (!confirm(`Deseja realmente ${action} do elevador da unidade ${school.name}?`)) return;
+
     setActionLoading(school.id);
     try {
       const newStatus = !school.is_elevator_operational;
@@ -120,14 +133,14 @@ export function Elevador() {
     return (
       <div className="flex flex-col items-center justify-center py-40 gap-4">
         <Loader2 className="animate-spin text-indigo-600" size={48} />
-        <p className="font-black text-slate-400 uppercase tracking-widest text-xs">Mapeando Elevadores da Rede...</p>
+        <p className="font-black text-slate-400 uppercase tracking-widest text-xs">Acessando Banco de Dados Regional...</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-8 pb-32 bg-[#f8fafc] min-h-screen">
-      {/* Cabeçalho */}
+      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-5">
           <div className="p-4 bg-indigo-600 rounded-[2rem] text-white shadow-2xl shadow-indigo-100">
@@ -135,29 +148,25 @@ export function Elevador() {
           </div>
           <div>
             <h1 className="text-3xl font-black text-slate-900 tracking-tight uppercase leading-none">Gestão de Elevadores</h1>
-            <p className="text-slate-500 font-medium mt-1 uppercase text-xs tracking-widest italic">Monitoramento de Acessibilidade Regional</p>
+            <p className="text-slate-500 font-medium mt-1 uppercase text-xs tracking-widest italic">Controle Manual de Disponibilidade</p>
           </div>
         </div>
 
-        <div className="flex gap-2 p-2 bg-slate-100 rounded-2xl border border-slate-200">
+        <div className="flex flex-wrap gap-3">
           <button 
-            onClick={() => setFilter('all')}
-            className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${filter === 'all' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+            onClick={fetchSchools}
+            disabled={refreshing}
+            className="bg-white border-2 border-slate-100 p-3 rounded-2xl text-slate-400 hover:text-indigo-600 hover:border-indigo-100 transition-all shadow-sm active:scale-95"
+            title="Atualizar Lista"
           >
-            Todos
+            <RefreshCw size={20} className={refreshing ? "animate-spin" : ""} />
           </button>
-          <button 
-            onClick={() => setFilter('operational')}
-            className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${filter === 'operational' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-          >
-            Operantes
-          </button>
-          <button 
-            onClick={() => setFilter('stopped')}
-            className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${filter === 'stopped' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-          >
-            Parados
-          </button>
+          
+          <div className="flex gap-2 p-2 bg-slate-100 rounded-2xl border border-slate-200 shadow-inner">
+            <button onClick={() => setFilter('all')} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${filter === 'all' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Todos</button>
+            <button onClick={() => setFilter('operational')} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${filter === 'operational' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Operantes</button>
+            <button onClick={() => setFilter('stopped')} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${filter === 'stopped' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Parados</button>
+          </div>
         </div>
       </div>
 
@@ -168,7 +177,7 @@ export function Elevador() {
             <Building2 size={32} />
           </div>
           <div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-2">Unidades com Elevador</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-2">Unidades Totais</p>
             <h3 className="text-3xl font-black text-slate-800">{stats.total}</h3>
           </div>
         </div>
@@ -188,7 +197,7 @@ export function Elevador() {
             <AlertTriangle size={32} />
           </div>
           <div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-2">Em Manutenção / Parados</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-2">Estado de Parada</p>
             <h3 className="text-3xl font-black text-red-600">{stats.stopped}</h3>
           </div>
         </div>
@@ -199,7 +208,7 @@ export function Elevador() {
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
           <input 
             type="text" 
-            placeholder="Filtrar por unidade escolar ou endereço..." 
+            placeholder="Filtrar por unidade escolar, CIE ou endereço..." 
             className="w-full pl-12 pr-4 py-3 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 font-medium text-slate-700 outline-none transition-all"
             value={searchTerm} 
             onChange={(e) => setSearchTerm(e.target.value)} 
@@ -222,7 +231,7 @@ export function Elevador() {
                   <ArrowUpCircle size={32} className={school.is_elevator_operational ? "" : "opacity-40"} />
                 </div>
                 <div className="text-right">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Estado Atual</p>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Status Atual</p>
                   <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${school.is_elevator_operational ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700 animate-pulse'}`}>
                     {school.is_elevator_operational ? 'Operante' : 'Parado'}
                   </span>
@@ -231,14 +240,22 @@ export function Elevador() {
 
               <div>
                 <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight leading-tight group-hover:text-indigo-600 transition-colors line-clamp-2">{school.name}</h3>
-                <div className="flex items-center gap-2 mt-4 text-slate-400">
-                  <MapPin size={14} className="shrink-0"/>
-                  <p className="text-[11px] font-bold uppercase truncate">{school.address || 'Endereço não registrado'}</p>
+                <div className="flex flex-wrap gap-x-4 gap-y-2 mt-4">
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <MapPin size={14} className="shrink-0"/>
+                    <p className="text-[11px] font-bold uppercase truncate max-w-[150px]">{school.address || 'Sem endereço'}</p>
+                  </div>
+                  {school.cie_code && (
+                    <div className="flex items-center gap-2 text-slate-400">
+                      <Hash size={14} className="shrink-0"/>
+                      <p className="text-[11px] font-bold uppercase">{school.cie_code}</p>
+                    </div>
+                  )}
                 </div>
                 {school.last_elevator_maintenance && (
                    <div className="mt-4 p-3 bg-slate-50 rounded-2xl border border-slate-100 flex items-center gap-3 shadow-inner">
                       <Settings2 size={14} className="text-indigo-400"/>
-                      <p className="text-[9px] font-black text-slate-500 uppercase tracking-tighter">Atualizado em: {new Date(school.last_elevator_maintenance).toLocaleDateString('pt-BR')}</p>
+                      <p className="text-[9px] font-black text-slate-500 uppercase tracking-tighter">Última Alteração: {new Date(school.last_elevator_maintenance).toLocaleString('pt-BR')}</p>
                    </div>
                 )}
               </div>
@@ -253,9 +270,9 @@ export function Elevador() {
                     {actionLoading === school.id ? (
                       <Loader2 className="animate-spin" size={18}/>
                     ) : school.is_elevator_operational ? (
-                      <><PowerOff size={18}/> Marcar como Parado</>
+                      <><PowerOff size={18}/> Interromper Uso</>
                     ) : (
-                      <><Power size={18}/> Marcar como Operante</>
+                      <><Power size={18}/> Reativar Uso</>
                     )}
                   </button>
                 ) : (
@@ -274,16 +291,17 @@ export function Elevador() {
         )}
       </div>
 
-      {/* Nota Informativa */}
+      {/* Informativo Técnico Regional */}
       <div className="bg-slate-900 p-10 rounded-[4rem] text-white shadow-2xl relative overflow-hidden group">
-         <Info className="absolute -right-6 -bottom-6 text-white/5 group-hover:scale-110 transition-transform" size={180} />
+         <ShieldCheck className="absolute -right-6 -bottom-6 text-white/5 group-hover:scale-110 transition-transform" size={180} />
          <div className="flex items-start gap-8 relative z-10">
             <div className="p-5 bg-white/10 rounded-[1.8rem] backdrop-blur-md border border-white/5 shadow-xl"><ArrowUpCircle size={32} className="text-indigo-400"/></div>
             <div>
-               <h4 className="text-lg font-black uppercase tracking-tight mb-3">Acessibilidade e Segurança</h4>
+               <h4 className="text-lg font-black uppercase tracking-tight mb-3">Auditoria de Acessibilidade</h4>
                <p className="text-sm text-white/60 leading-relaxed font-medium uppercase italic max-w-3xl">
-                  A sinalização do estado operativo é vital para a <strong className="text-indigo-400">Agenda de Manutenção</strong> e segurança. 
-                  Ao sinalizar um elevador como <strong className="text-red-400">Parado</strong>, o sistema gera um registro histórico para auditoria posterior de intervenções técnicas.
+                  Este painel é a <strong className="text-indigo-400">fonte oficial</strong> de dados sobre o funcionamento de elevadores na rede. 
+                  As alterações feitas aqui refletem instantaneamente no <strong className="text-emerald-400">Raio-X Escolar</strong> e em outros relatórios de vistoria técnica da Regional. 
+                  Mantenha o status atualizado conforme as ordens de serviço e vistorias in loco.
                </p>
             </div>
          </div>
