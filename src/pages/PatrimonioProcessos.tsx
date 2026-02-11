@@ -49,13 +49,12 @@ const PROCESS_TYPES = [
   { id: 'FURTOS', label: 'Sinistros (Furtos/Roubos)', category: 'furtos', color: 'text-red-600 bg-red-50' },
 ];
 
-// ADICIONADO: "SEFISC - BAIXA NO SAM" no fluxo de FURTOS
 const WORKFLOWS: Record<string, string[]> = {
   'DOACAO_PDDE': ["RECEBIDO NO SEI", "ANÁLISE DO SEFISC", "DEVOLVIDO PARA CORREÇÃO", "DOE", "REGISTRO NO SAM", "REGISTRO NÚMERO PATRIMÔNIO"],
   'DOACAO_APM': ["RECEBIDO NO SEI", "ANÁLISE DO SEFISC", "DEVOLVIDO PARA CORREÇÃO", "DOE", "REGISTRO NO SAM", "REGISTRO NÚMERO PATRIMÔNIO"],
   'DOACAO_TERCEIROS': ["RECEBIDO NO SEI", "ANÁLISE DO SEFISC", "DEVOLVIDO PARA CORREÇÃO", "DOE", "REGISTRO NO SAM", "REGISTRO NÚMERO PATRIMÔNIO"],
   'INSERVIVEIS': ["RECEBIDO NO SEI", "ANÁLISE DO SEFISC", "DEVOLVIDO PARA CORREÇÃO", "ENCAMINHAMENTO EAMEX", "BAIXA DE NL NO SAM", "REPROVADO / DEVOLVIDO"],
-  'FURTOS': ["RECEBIDO NO SEI", "ANÁLISE SEFISC", "DEVOLVIDO PARA CORREÇÃO", "ENCAMINHADO PARA ASURE", "SEFISC - BAIXA NO SAM", "CONCLUÍDO"],
+  'FURTOS': ["RECEBIDO NO SEI", "ANÁLISE SEFISC", "DEVOLVIDO PARA CORREÇÃO", "ENCAMINHADO PARA ASURE", "CONCLUÍDO"],
   'BANDEIRAS': ["RECEBIDO", "ANÁLISE SEFISC", "DEVOLVIDO PARA CORREÇÃO", "ENTREGA NO TIRO DE GUERRA", "BAIXA NO SAM"],
 };
 
@@ -169,7 +168,7 @@ export function PatrimonioProcessos() {
     setSaveLoading(true);
     setFormError(null);
 
-    // Tratamento para campos opcionais como data e JSON
+    // CORREÇÃO AQUI: Tratamento do campo de data vazio
     const payload = {
       ...formData,
       occurrence_date: formData.occurrence_date ? formData.occurrence_date : null,
@@ -281,12 +280,16 @@ export function PatrimonioProcessos() {
             <p className="text-slate-500 font-medium mt-1 uppercase text-xs tracking-widest italic">Monitoramento e Fluxo Regional de Bens</p>
           </div>
         </div>
-        <button 
-          onClick={() => openModal()} 
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-10 py-5 rounded-[2rem] font-black flex items-center gap-3 shadow-xl transition-all active:scale-95 group"
-        >
-          <Plus size={20} className="group-hover:rotate-90 transition-transform"/> ABRIR NOVO PROCESSO
-        </button>
+        
+        {/* BOTÃO "ABRIR NOVO PROCESSO" AGORA RESTRITO APENAS PARA ADMINISTRADORES */}
+        {isAdmin && (
+          <button 
+            onClick={() => openModal()} 
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-10 py-5 rounded-[2rem] font-black flex items-center gap-3 shadow-xl transition-all active:scale-95 group"
+          >
+            <Plus size={20} className="group-hover:rotate-90 transition-transform"/> ABRIR NOVO PROCESSO
+          </button>
+        )}
       </div>
 
       {/* Navegação de Abas Principais (Estilo Pílula) */}
@@ -557,16 +560,16 @@ export function PatrimonioProcessos() {
                         const past = WORKFLOWS[formData.type].indexOf(formData.current_step) > idx;
                         return (
                           <button 
-                            key={step} 
-                            type="button" 
-                            onClick={() => setFormData({...formData, current_step: step})} 
-                            className={`p-6 rounded-[2rem] border-2 text-left flex flex-col justify-between h-28 transition-all hover:scale-[1.02] active:scale-95 ${
-                              active 
-                                ? 'bg-indigo-600 border-indigo-600 text-white shadow-2xl shadow-indigo-100' 
-                                : past 
-                                ? 'bg-indigo-50 border-indigo-100 text-indigo-700' 
-                                : 'bg-slate-50 border-slate-100 text-slate-400 opacity-60'
-                            }`}
+                           key={step} 
+                           type="button" 
+                           onClick={() => setFormData({...formData, current_step: step})} 
+                           className={`p-6 rounded-[2rem] border-2 text-left flex flex-col justify-between h-28 transition-all hover:scale-[1.02] active:scale-95 ${
+                             active 
+                               ? 'bg-indigo-600 border-indigo-600 text-white shadow-2xl shadow-indigo-100' 
+                               : past 
+                               ? 'bg-indigo-50 border-indigo-100 text-indigo-700' 
+                               : 'bg-slate-50 border-slate-100 text-slate-400 opacity-60'
+                           }`}
                           >
                              <div className="flex justify-between items-start">
                                 <span className="text-2xl font-black opacity-30 italic">{idx + 1}</span>
@@ -586,14 +589,14 @@ export function PatrimonioProcessos() {
                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-2">
                       {['RECEBIDO', 'EM APURAÇÃO', 'CONCLUÍDO', 'CORREÇÃO'].map(s => (
                         <button 
-                          key={s} 
-                          type="button" 
-                          onClick={() => setFormData({...formData, status: s})} 
-                          className={`p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
-                            formData.status === s 
-                              ? 'bg-slate-900 border-slate-900 text-white shadow-xl' 
-                              : 'bg-white border-slate-100 text-slate-400 hover:border-slate-300'
-                          }`}
+                         key={s} 
+                         type="button" 
+                         onClick={() => setFormData({...formData, status: s})} 
+                         className={`p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
+                           formData.status === s 
+                             ? 'bg-slate-900 border-slate-900 text-white shadow-xl' 
+                             : 'bg-white border-slate-100 text-slate-400 hover:border-slate-300'
+                         }`}
                         >
                           {s}
                         </button>
