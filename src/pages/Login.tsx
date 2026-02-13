@@ -139,7 +139,7 @@ export function Login() {
         </form>
 
         <div className="mt-8 pt-6 border-t border-slate-100 text-[11px] text-slate-400">
-          <p>Suporte Técnico: <b>(11) 2432-5766</b></p>
+          <p>Suporte Técnico: <b>(11) gsu.sefisc@educacao.sp.gov.br</b></p>
         </div>
       </div>
     </div>
