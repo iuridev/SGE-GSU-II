@@ -6,7 +6,7 @@ import {
   Search, Building2, Users, Loader2,
   AlertCircle, ArrowRight, ArrowDown, Activity, ShieldCheck,
   TrendingUp, Waves, ListFilter,
-  CalendarDays, FileDown, History
+  CalendarDays, FileDown, History, CalendarOff
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -57,15 +57,22 @@ export function ConsumoAgua() {
   const [userId, setUserId] = useState<string>('');
   const [logs, setLogs] = useState<Record<string, WaterLog>>({}); 
   const [allMonthLogs, setAllMonthLogs] = useState<WaterLog[]>([]); 
-  const [waterTruckCount, setWaterTruckCount] = useState(0); // Novo estado para contagem de pipas
+  const [waterTruckCount, setWaterTruckCount] = useState(0);
   const [exporting, setExporting] = useState(false);
   
+  // States do Modal Individual
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedDateStr, setSelectedDateStr] = useState('');
   const [saveLoading, setSaveLoading] = useState(false);
   const [prevReadingValue, setPrevReadingValue] = useState<number>(0);
   const [loadingPrev, setLoadingPrev] = useState(false);
   
+  // States do Modal de Suspensão (Global)
+  const [isSuspensionModalOpen, setIsSuspensionModalOpen] = useState(false);
+  const [suspensionReason, setSuspensionReason] = useState('Feriado');
+  const [customSuspensionReason, setCustomSuspensionReason] = useState('');
+  const [existingSuspension, setExistingSuspension] = useState<string | null>(null);
+
   const [formData, setFormData] = useState({
     reading_m3: 0,
     student_count: 0,
@@ -136,7 +143,19 @@ export function ConsumoAgua() {
         });
         setLogs(logsMap);
       } else {
-        setLogs({});
+        // Na visão global, identifica dias com suspensão analisando todos os logs
+        // Se encontrarmos logs com "Suspensão de Expediente", marcamos o dia no calendário global
+        const suspensionDays: Record<string, WaterLog> = {};
+
+        rawLogs.forEach((log: WaterLog) => {
+           if (log.justification && log.justification.startsWith('Suspensão de Expediente:')) {
+              // Guarda apenas um exemplo para o calendário pintar
+              if (!suspensionDays[log.date]) {
+                 suspensionDays[log.date] = log;
+              }
+           }
+        });
+        setLogs(suspensionDays);
       }
     } catch (error) {
       console.error('Erro ao buscar consumos:', error);
@@ -279,33 +298,36 @@ export function ConsumoAgua() {
     const dateStr = formatDateToYMD(date);
     const todayStr = formatDateToYMD(new Date());
     
-    if (userRole === 'regional_admin') {
-      if (logs[dateStr]) {
-        setSelectedDateStr(dateStr);
-        setFormData({
-          reading_m3: logs[dateStr].reading_m3,
-          student_count: logs[dateStr].student_count,
-          staff_count: logs[dateStr].staff_count,
-          justification: logs[dateStr].justification || '',
-          action_plan: logs[dateStr].action_plan || ''
-        });
-        
-        setLoadingPrev(true);
-        const { data: prevData } = await (supabase as any)
-          .from('consumo_agua')
-          .select('reading_m3')
-          .eq('school_id', selectedSchoolId)
-          .lt('date', dateStr)
-          .order('date', { ascending: false })
-          .limit(1);
-        setPrevReadingValue(prevData?.[0]?.reading_m3 || 0);
-        setLoadingPrev(false);
-        setIsModalOpen(true);
+    // Se for admin regional e NÃO tiver escola selecionada (visão global), abre modal de suspensão
+    if (userRole === 'regional_admin' && !selectedSchoolId) {
+      setSelectedDateStr(dateStr);
+      
+      // Verifica se já existe suspensão cadastrada (baseado no log carregado na visão global)
+      const existingLog = logs[dateStr];
+      if (existingLog && existingLog.justification?.startsWith('Suspensão de Expediente:')) {
+         setExistingSuspension(existingLog.justification.replace('Suspensão de Expediente:', '').trim());
+      } else {
+         setExistingSuspension(null);
       }
+
+      setSuspensionReason('Feriado');
+      setCustomSuspensionReason('');
+      setIsSuspensionModalOpen(true);
       return;
     }
-    
-    if (dateStr > todayStr) return;
+
+    // Verifica suspensão para gestores escolares (bloqueio de clique)
+    if (userRole !== 'regional_admin' && logs[dateStr] && logs[dateStr].justification?.startsWith('Suspensão de Expediente:')) {
+      alert("Neste dia não é possível cadastrar o consumo de água devido à suspensão de expediente.");
+      return;
+    }
+
+    // Se for admin, pode editar qualquer dia. Se não, apenas hoje ou passado.
+    if (userRole !== 'regional_admin' && dateStr > todayStr) return;
+
+    // Se não tiver escola selecionada, não faz nada no clique individual (exceto o caso do admin acima)
+    if (!selectedSchoolId) return;
+
     setSelectedDateStr(dateStr);
     
     setLoadingPrev(true);
@@ -336,8 +358,10 @@ export function ConsumoAgua() {
   const currentConsumption = Math.max(0, formData.reading_m3 - prevReadingValue);
   const currentLimit = (formData.student_count + formData.staff_count) * 0.008;
   const isLimitExceeded = currentConsumption > currentLimit && formData.reading_m3 > 0;
+  // Admin não tem bloqueio
   const isHydrometerBlocked = userRole !== 'regional_admin' && (formData.student_count <= 0 || formData.staff_count <= 0);
 
+  // --- Salvar Registro Individual ---
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setSaveLoading(true);
@@ -368,43 +392,163 @@ export function ConsumoAgua() {
     }
   }
 
+  // --- Salvar Suspensão Global ---
+  async function handleSuspensionSave() {
+    setSaveLoading(true);
+    try {
+      // 1. Busca todas as escolas
+      const { data: allSchools, error: schoolsError } = await (supabase as any)
+        .from('schools')
+        .select('id');
+      
+      if (schoolsError) throw schoolsError;
+      if (!allSchools || allSchools.length === 0) throw new Error("Nenhuma escola encontrada.");
+
+      // 2. Busca a última leitura de cada escola antes da data selecionada
+      // Para não fazer N requisições, buscamos dados dos últimos 30 dias de todas as escolas
+      // e processamos em memória para pegar a mais recente.
+      const lookbackDate = new Date(selectedDateStr);
+      lookbackDate.setDate(lookbackDate.getDate() - 30);
+      const lookbackDateStr = formatDateToYMD(lookbackDate);
+
+      const { data: historicalData, error: histError } = await (supabase as any)
+        .from('consumo_agua')
+        .select('school_id, reading_m3, date')
+        .lt('date', selectedDateStr)
+        .gte('date', lookbackDateStr)
+        .order('date', { ascending: false }); // Ordena por data decrescente
+
+      if (histError) throw histError;
+
+      // Mapa para guardar a última leitura de cada escola
+      const lastReadings: Record<string, number> = {};
+      
+      // Como está ordenado por data DESC, a primeira ocorrência de cada escola é a mais recente
+      historicalData?.forEach((record: any) => {
+        if (lastReadings[record.school_id] === undefined) {
+          lastReadings[record.school_id] = record.reading_m3;
+        }
+      });
+
+      const finalReason = suspensionReason === 'Outro' ? customSuspensionReason : suspensionReason;
+      const justificationText = `Suspensão de Expediente: ${finalReason}`;
+
+      // 3. Prepara os dados para inserção em massa
+      const bulkData = allSchools.map((school: any) => {
+        const lastReading = lastReadings[school.id] || 0; // Se não tiver leitura anterior, assume 0
+        return {
+          school_id: school.id,
+          date: selectedDateStr,
+          reading_m3: lastReading, // Repete a leitura anterior
+          consumption_diff: 0,     // Consumo zero
+          student_count: 0,
+          staff_count: 0,
+          limit_exceeded: false,
+          justification: justificationText,
+          action_plan: 'N/A',
+          created_by: userId
+        };
+      });
+
+      // 4. Upsert em massa
+      const { error: upsertError } = await (supabase as any)
+        .from('consumo_agua')
+        .upsert(bulkData, { onConflict: 'school_id,date' });
+
+      if (upsertError) throw upsertError;
+
+      alert(`Suspensão registrada com sucesso para ${bulkData.length} escolas.`);
+      setIsSuspensionModalOpen(false);
+      fetchLogs(); // Atualiza a tela se estiver vendo logs
+
+    } catch (error: any) {
+      console.error(error);
+      alert(`Erro ao registrar suspensão: ${error.message}`);
+    } finally {
+      setSaveLoading(false);
+    }
+  }
+
   const renderDay = (day: number) => {
     const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
     const dateStr = formatDateToYMD(date);
     const log = logs[dateStr];
     const todayStr = formatDateToYMD(new Date());
     const isFuture = dateStr > todayStr;
+    
     let stateClass = "bg-slate-50 text-slate-300"; 
     let showAttention = false;
+    let isSuspension = false;
 
-    if (!isFuture) {
-      if (log) {
-        stateClass = "bg-emerald-50 text-emerald-700 border-emerald-200"; 
-        if (log.limit_exceeded) {
-          showAttention = true;
-          stateClass = "bg-amber-50 text-amber-700 border-amber-300 ring-1 ring-amber-400 ring-inset";
-        }
-      } else if (dateStr < todayStr) {
-        stateClass = "bg-red-50 text-red-700 border-red-200"; 
-      }
+    // Verifica se é um evento de suspensão (baseado na justificativa)
+    if (log && log.justification && log.justification.startsWith('Suspensão de Expediente:')) {
+      isSuspension = true;
     }
 
+    if (log) {
+        if (isSuspension) {
+          stateClass = "bg-purple-50 text-purple-700 border-purple-200";
+        } else {
+          stateClass = "bg-emerald-50 text-emerald-700 border-emerald-200"; 
+          if (log.limit_exceeded) {
+            showAttention = true;
+            stateClass = "bg-amber-50 text-amber-700 border-amber-300 ring-1 ring-amber-400 ring-inset";
+          }
+        }
+    } else {
+        // Estilização para dias sem registro
+        if (!isFuture && dateStr < todayStr) {
+             // Atrasado
+             if (userRole === 'regional_admin' && !selectedSchoolId) {
+                 stateClass = "bg-slate-50 text-slate-400 hover:bg-purple-50 hover:border-purple-200 hover:text-purple-600 border-slate-100";
+             } else {
+                 stateClass = "bg-red-50 text-red-700 border-red-200"; 
+             }
+        } else if (isFuture) {
+             // Futuro
+             if (userRole === 'regional_admin' && !selectedSchoolId) {
+                 // Admin na visão global vê dias futuros como clicáveis/neutros
+                 stateClass = "bg-slate-50 text-slate-300 hover:bg-purple-50 hover:border-purple-200 hover:text-purple-600 border-slate-100";
+             }
+        }
+    }
+
+    // Se estiver na visão global e for admin, todos os dias passados/hoje/futuro são clicáveis (para agendar suspensão)
+    const isClickable = selectedSchoolId || (userRole === 'regional_admin');
+
     return (
-      <div key={day} onClick={() => openRegisterModal(day)} className={`h-28 md:h-32 p-3 border rounded-3xl transition-all cursor-pointer flex flex-col justify-between group relative overflow-hidden ${stateClass} ${!log && !isFuture && dateStr < todayStr ? 'hover:bg-red-100' : 'hover:shadow-md'}`}>
+      <div 
+        key={day} 
+        onClick={() => isClickable ? openRegisterModal(day) : null} 
+        className={`h-28 md:h-32 p-3 border rounded-3xl transition-all flex flex-col justify-between group relative overflow-hidden ${stateClass} ${isClickable ? 'cursor-pointer hover:shadow-md' : 'cursor-default'}`}
+      >
         <div className="flex justify-between items-start z-10">
           <span className="text-sm font-black">{day}</span>
           {showAttention && <div className="p-1 bg-amber-500 text-white rounded-full animate-bounce shadow-lg"><AlertTriangle size={14} /></div>}
-          {log && !log.limit_exceeded && <CheckCircle size={14} className="text-emerald-500" />}
+          {log && !log.limit_exceeded && !isSuspension && <CheckCircle size={14} className="text-emerald-500" />}
+          {isSuspension && <CalendarOff size={14} className="text-purple-500" />}
         </div>
+        
         {log ? (
           <div className="z-10">
-             <div className="text-[14px] font-black text-slate-900 leading-none">{log.reading_m3.toLocaleString()}</div>
-             <div className="text-[9px] font-bold uppercase text-slate-400 mt-1">m³ Registrado</div>
-             <div className={`mt-2 text-[10px] font-black px-2 py-0.5 rounded-full inline-block ${log.limit_exceeded ? 'bg-amber-500 text-white' : 'bg-emerald-200 text-emerald-800'}`}>
-                {log.consumption_diff.toFixed(2)} m³
-             </div>
+             {isSuspension ? (
+               <div className="text-[10px] font-black uppercase text-purple-600 leading-tight">
+                 {log.justification?.replace('Suspensão de Expediente:', '')}
+               </div>
+             ) : (
+               <>
+                 <div className="text-[14px] font-black text-slate-900 leading-none">{log.reading_m3.toLocaleString()}</div>
+                 <div className="text-[9px] font-bold uppercase text-slate-400 mt-1">m³ Registrado</div>
+                 <div className={`mt-2 text-[10px] font-black px-2 py-0.5 rounded-full inline-block ${log.limit_exceeded ? 'bg-amber-500 text-white' : 'bg-emerald-200 text-emerald-800'}`}>
+                   {log.consumption_diff.toFixed(2)} m³
+                 </div>
+               </>
+             )}
           </div>
-        ) : !isFuture && dateStr < todayStr ? <div className="text-[10px] font-black uppercase text-red-500 z-10 italic text-center">Atrasado</div> : null}
+        ) : !isFuture && dateStr < todayStr && selectedSchoolId ? (
+          <div className="text-[10px] font-black uppercase text-red-500 z-10 italic text-center">Atrasado</div>
+        ) : null}
+
         {log && <Droplets className="absolute -bottom-2 -right-2 text-current opacity-5" size={60} />}
       </div>
     );
@@ -536,7 +680,8 @@ export function ConsumoAgua() {
           </div>
       )}
 
-      {selectedSchoolId && (
+      {/* Calendário Principal - Exibido quando tem escola selecionada ou quando o Admin quer ver o calendário geral */}
+      {(selectedSchoolId || userRole === 'regional_admin') && (
           <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-2xl print:hidden">
               <div className="flex items-center justify-between mb-10">
                 <div className="flex items-center gap-6">
@@ -544,6 +689,11 @@ export function ConsumoAgua() {
                     <div className="text-center"><h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter leading-none">{monthName}</h2><span className="text-blue-600 font-bold text-xs">{currentDate.getFullYear()}</span></div>
                     <button onClick={handleNextMonth} className="p-4 hover:bg-slate-50 rounded-3xl border border-slate-100"><ChevronRight /></button>
                 </div>
+                {userRole === 'regional_admin' && !selectedSchoolId && (
+                   <div className="hidden md:block text-xs font-bold text-slate-400 bg-slate-50 px-4 py-2 rounded-xl">
+                      Clique em uma data para registrar suspensão de expediente
+                   </div>
+                )}
               </div>
               <div className="grid grid-cols-7 gap-6">
                   {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(d => (<div key={d} className="text-center text-[11px] font-black text-slate-400 uppercase tracking-widest">{d}</div>))}
@@ -633,6 +783,7 @@ export function ConsumoAgua() {
         </div>
       </div>
 
+      {/* MODAL INDIVIDUAL (Edição de Escola Específica) */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 print:hidden">
           <div className="bg-white rounded-[3rem] w-full max-w-3xl shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden border border-white">
@@ -663,12 +814,14 @@ export function ConsumoAgua() {
                   <label className="text-[11px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-2 mb-2"><Users size={14} /> Quem estava na unidade?</label>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                       <span className="text-[10px] font-black text-slate-500 uppercase ml-1">Qtde Alunos</span>
-                       <input type="number" disabled={userRole === 'regional_admin'} placeholder="0" className="w-full p-4 bg-white border-2 border-blue-200 rounded-2xl font-black text-slate-800 focus:border-blue-600 outline-none transition-all shadow-sm" value={formData.student_count || ''} onChange={(e) => setFormData({...formData, student_count: Number(e.target.value)})} />
+                        <span className="text-[10px] font-black text-slate-500 uppercase ml-1">Qtde Alunos</span>
+                        {/* Admin agora pode editar (removido disabled) */}
+                        <input type="number" placeholder="0" className="w-full p-4 bg-white border-2 border-blue-200 rounded-2xl font-black text-slate-800 focus:border-blue-600 outline-none transition-all shadow-sm" value={formData.student_count || ''} onChange={(e) => setFormData({...formData, student_count: Number(e.target.value)})} />
                     </div>
                     <div className="space-y-2">
-                       <span className="text-[10px] font-black text-slate-500 uppercase ml-1">Funcionários</span>
-                       <input type="number" disabled={userRole === 'regional_admin'} placeholder="0" className="w-full p-4 bg-white border-2 border-blue-200 rounded-2xl font-black text-slate-800 focus:border-blue-600 outline-none transition-all shadow-sm" value={formData.staff_count || ''} onChange={(e) => setFormData({...formData, staff_count: Number(e.target.value)})} />
+                        <span className="text-[10px] font-black text-slate-500 uppercase ml-1">Funcionários</span>
+                        {/* Admin agora pode editar (removido disabled) */}
+                        <input type="number" placeholder="0" className="w-full p-4 bg-white border-2 border-blue-200 rounded-2xl font-black text-slate-800 focus:border-blue-600 outline-none transition-all shadow-sm" value={formData.staff_count || ''} onChange={(e) => setFormData({...formData, staff_count: Number(e.target.value)})} />
                     </div>
                   </div>
                 </div>
@@ -677,33 +830,109 @@ export function ConsumoAgua() {
                   {!isHydrometerBlocked && <div className="absolute -top-3 left-6 px-3 py-1 bg-emerald-600 text-white text-[10px] font-black rounded-full shadow-lg animate-bounce">PASSO 2: HIDRÔMETRO</div>}
                   <label className={`text-[11px] font-black uppercase tracking-widest flex items-center gap-2 transition-colors ${isHydrometerBlocked ? 'text-slate-300' : 'text-emerald-600'}`}><Droplets size={14} /> Leitura Atual do Relógio</label>
                   <div className="relative group">
-                     <input type="number" required disabled={isHydrometerBlocked} className={`w-full p-6 font-mono text-4xl text-center outline-none transition-all placeholder:opacity-20 rounded-[1.5rem] shadow-inner ${isHydrometerBlocked ? 'bg-slate-200 border-slate-200 text-slate-400' : 'bg-slate-900 border-4 border-emerald-500 text-white ring-8 ring-emerald-500/10'}`} placeholder="00000" value={formData.reading_m3 || ''} onChange={(e) => setFormData({...formData, reading_m3: Number(e.target.value)})} />
+                      <input type="number" required disabled={isHydrometerBlocked} className={`w-full p-6 font-mono text-4xl text-center outline-none transition-all placeholder:opacity-20 rounded-[1.5rem] shadow-inner ${isHydrometerBlocked ? 'bg-slate-200 border-slate-200 text-slate-400' : 'bg-slate-900 border-4 border-emerald-500 text-white ring-8 ring-emerald-500/10'}`} placeholder="00000" value={formData.reading_m3 || ''} onChange={(e) => setFormData({...formData, reading_m3: Number(e.target.value)})} />
                   </div>
                 </div>
               </div>
 
               {isLimitExceeded && (
-                 <div className="p-8 bg-amber-50 border-2 border-amber-300 rounded-[2.5rem] space-y-6 animate-in slide-in-from-top-4 shadow-xl shadow-amber-100">
+                  <div className="p-8 bg-amber-50 border-2 border-amber-300 rounded-[2.5rem] space-y-6 animate-in slide-in-from-top-4 shadow-xl shadow-amber-100">
                     <div className="flex items-center gap-3 text-amber-700"><AlertCircle size={32} className="shrink-0" /><div><h4 className="text-lg font-black uppercase tracking-tight leading-none">ALERTA DE EXCESSO</h4><p className="text-xs font-bold opacity-70 mt-1 uppercase">O consumo excedeu o limite operacional diário.</p></div></div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-2"><label className="text-[10px] font-black text-amber-600 uppercase tracking-widest ml-1">Qual o motivo?</label><textarea required disabled={userRole === 'regional_admin'} className="w-full p-4 border-2 border-amber-200 rounded-[1.5rem] bg-white outline-none focus:border-amber-600 text-sm font-medium transition-all" rows={3} placeholder="Descreva o motivo..." value={formData.justification} onChange={(e) => setFormData({...formData, justification: e.target.value})} /></div>
-                        <div className="space-y-2"><label className="text-[10px] font-black text-amber-600 uppercase tracking-widest ml-1">O que será feito?</label><textarea required disabled={userRole === 'regional_admin'} className="w-full p-4 border-2 border-amber-200 rounded-[1.5rem] bg-white outline-none focus:border-amber-600 text-sm font-medium transition-all" rows={3} placeholder="Medidas tomadas..." value={formData.action_plan} onChange={(e) => setFormData({...formData, action_plan: e.target.value})} /></div>
+                        {/* Admin agora pode editar (removido disabled) */}
+                        <div className="space-y-2"><label className="text-[10px] font-black text-amber-600 uppercase tracking-widest ml-1">Qual o motivo?</label><textarea required className="w-full p-4 border-2 border-amber-200 rounded-[1.5rem] bg-white outline-none focus:border-amber-600 text-sm font-medium transition-all" rows={3} placeholder="Descreva o motivo..." value={formData.justification} onChange={(e) => setFormData({...formData, justification: e.target.value})} /></div>
+                        <div className="space-y-2"><label className="text-[10px] font-black text-amber-600 uppercase tracking-widest ml-1">O que será feito?</label><textarea required className="w-full p-4 border-2 border-amber-200 rounded-[1.5rem] bg-white outline-none focus:border-amber-600 text-sm font-medium transition-all" rows={3} placeholder="Medidas tomadas..." value={formData.action_plan} onChange={(e) => setFormData({...formData, action_plan: e.target.value})} /></div>
                     </div>
-                 </div>
+                  </div>
               )}
 
               <div className="pt-6 flex justify-end gap-4 border-t border-slate-100 sticky bottom-0 bg-white">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-8 py-4 text-slate-500 font-black hover:text-slate-800 transition-all uppercase tracking-widest text-[11px]">Cancelar</button>
-                {userRole !== 'regional_admin' && (
-                    <button type="submit" disabled={saveLoading || loadingPrev || isHydrometerBlocked} className="px-14 py-4 bg-blue-600 text-white rounded-[1.5rem] font-black shadow-2xl shadow-blue-200 hover:bg-blue-700 flex items-center gap-3 active:scale-95 disabled:opacity-50 transition-all uppercase tracking-widest text-[11px]">
-                        {saveLoading ? <Loader2 className="animate-spin" size={18}/> : <><Save size={18}/> Salvar Registro</>}
-                    </button>
-                )}
+                {/* Admin agora pode salvar (lógica atualizada no botão) */}
+                <button type="submit" disabled={saveLoading || loadingPrev || isHydrometerBlocked} className="px-14 py-4 bg-blue-600 text-white rounded-[1.5rem] font-black shadow-2xl shadow-blue-200 hover:bg-blue-700 flex items-center gap-3 active:scale-95 disabled:opacity-50 transition-all uppercase tracking-widest text-[11px]">
+                    {saveLoading ? <Loader2 className="animate-spin" size={18}/> : <><Save size={18}/> Salvar Registro</>}
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* MODAL DE SUSPENSÃO DE EXPEDIENTE (Global) */}
+      {isSuspensionModalOpen && (
+         <div className="fixed inset-0 z-50 flex items-center justify-center bg-purple-900/40 backdrop-blur-md p-4 print:hidden">
+             <div className="bg-white rounded-[3rem] w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden border border-white">
+                <div className="p-8 border-b border-purple-100 flex justify-between items-center bg-purple-50/50">
+                    <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-purple-600 rounded-[1.2rem] flex items-center justify-center text-white"><CalendarOff size={24}/></div>
+                        <div><h2 className="text-xl font-black text-slate-900 tracking-tighter text-purple-600">Suspensão de Expediente</h2></div>
+                    </div>
+                    <button onClick={() => setIsSuspensionModalOpen(false)} className="p-3 hover:bg-purple-100 rounded-full transition-all text-purple-400"><X size={20}/></button>
+                </div>
+                
+                <div className="p-8 space-y-6">
+                    {/* Alerta de Existência */}
+                    {existingSuspension ? (
+                       <div className="p-6 bg-red-50 rounded-3xl border-2 border-red-100 flex flex-col items-center text-center gap-3 animate-pulse">
+                          <div className="p-2 bg-red-100 text-red-600 rounded-full"><AlertTriangle size={20} /></div>
+                          <div>
+                             <h4 className="text-sm font-black text-red-700 uppercase">Atenção!</h4>
+                             <p className="text-xs text-red-600 mt-1 font-medium">Já existe um evento cadastrado para este dia:</p>
+                             <div className="mt-2 bg-white px-4 py-2 rounded-xl text-xs font-black text-red-800 shadow-sm border border-red-100">
+                                {existingSuspension}
+                             </div>
+                          </div>
+                          <p className="text-[10px] text-red-400 mt-2 italic">Cadastrar novamente irá sobrescrever para todas as escolas.</p>
+                       </div>
+                    ) : (
+                       <div className="p-4 bg-purple-50 rounded-2xl border border-purple-100">
+                          <p className="text-xs text-purple-800 font-medium leading-relaxed">
+                             Você está registrando uma suspensão para o dia <strong className="font-black">{new Date(selectedDateStr + 'T12:00:00').toLocaleDateString()}</strong>. 
+                             Isso criará registros com <strong>consumo zero</strong> para <strong>TODAS AS ESCOLAS</strong> da rede, baseando-se na leitura do dia anterior.
+                          </p>
+                       </div>
+                    )}
+
+                    <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Motivo da Suspensão</label>
+                        <select 
+                           className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-700 focus:border-purple-500 outline-none"
+                           value={suspensionReason}
+                           onChange={(e) => setSuspensionReason(e.target.value)}
+                        >
+                            <option value="Feriado">Feriado Nacional / Municipal</option>
+                            <option value="Ponto Facultativo">Ponto Facultativo</option>
+                            <option value="Fim de Semana">Fim de Semana</option>
+                            <option value="Recesso Escolar">Recesso Escolar</option>
+                            <option value="Outro">Outro Motivo</option>
+                        </select>
+                    </div>
+
+                    {suspensionReason === 'Outro' && (
+                        <div className="space-y-3">
+                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Descreva o motivo</label>
+                             <input 
+                               type="text" 
+                               className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-700 focus:border-purple-500 outline-none"
+                               value={customSuspensionReason}
+                               onChange={(e) => setCustomSuspensionReason(e.target.value)}
+                               placeholder="Ex: Dedetização Geral"
+                             />
+                        </div>
+                    )}
+
+                    <button 
+                        onClick={handleSuspensionSave}
+                        disabled={saveLoading || (suspensionReason === 'Outro' && !customSuspensionReason)}
+                        className={`w-full py-4 text-white rounded-[1.5rem] font-black shadow-xl active:scale-95 disabled:opacity-50 transition-all uppercase tracking-widest text-[11px] flex items-center justify-center gap-2 ${existingSuspension ? 'bg-red-600 shadow-red-200 hover:bg-red-700' : 'bg-purple-600 shadow-purple-200 hover:bg-purple-700'}`}
+                    >
+                        {saveLoading ? <Loader2 className="animate-spin" size={18}/> : <><Save size={18}/> {existingSuspension ? 'Sobrescrever Suspensão' : 'Confirmar Suspensão'}</>}
+                    </button>
+                </div>
+             </div>
+         </div>
+      )}
+
     </div>
   );
 }
