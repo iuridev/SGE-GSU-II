@@ -5,7 +5,7 @@ import {
   Building2, UserCog, LogOut, Menu, X, 
   BookOpen, ClipboardCheck, Calendar, Car, Building,
   AlertTriangle, Scan, ShoppingBag, Trophy, Package,
-  Star, ArrowUpCircle, HardHat, TreeDeciduous // Adicionado ícone de Obras
+  Star, ArrowUpCircle, HardHat, TreeDeciduous, Ticket // Ticket adicionado
 } from 'lucide-react';
 
 import { Dashboard } from './pages/Dashboard';
@@ -27,9 +27,9 @@ import { RankingEscolas } from './pages/RankingEscolas';
 import { PatrimonioProcessos } from './pages/PatrimonioProcessos';
 import { EscolasPrioritarias } from './pages/EscolasPrioritarias';
 import { Elevador } from './pages/Elevador';
-import { Obras } from './pages/Obras'; // Nova importação
-import ManejoArboreo from './pages/ManejoArboreo';
-
+import { Obras } from './pages/Obras';
+import ManejoArboreo from './pages/ManejoArboreo'; // Default export
+import { Chamados } from './pages/Chamados'; // Nova página
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -103,8 +103,8 @@ export default function App() {
       case 'patrimonio': return <PatrimonioProcessos />;
       case 'prioritarias': return <EscolasPrioritarias />;
       case 'elevadores': return <Elevador />;
-      case 'obras': return <Obras />; // Nova Rota
-      case 'manejo': return <ManejoArboreo />
+      case 'obras': return <Obras />;
+      case 'manejo': return <ManejoArboreo />;
       case 'carros': return <AgendamentoCarros />;
       case 'ambientes': return <AgendamentoAmbientes />;
       case 'tutoriais': return <Tutoriais />;
@@ -114,17 +114,19 @@ export default function App() {
       case 'remanejamento': return <Remanejamento />;
       case 'escolas': return <Escola />;
       case 'usuarios': return <Usuario />;
+      case 'chamados': return <Chamados />;
       default: return <Dashboard />;
     }
   };
 
   const menuItems = [
     { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager'] },
+    { id: 'chamados', label: 'Central de Chamados', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager'] },
     { id: 'prioritarias', label: 'Escolas Prioritárias', icon: <Star size={20} className="text-amber-500" />, roles: ['regional_admin'] },
     { id: 'ranking', label: 'Ranking de Escolas', icon: <Trophy size={20} className="text-amber-500" />, roles: ['regional_admin', 'school_manager'] },
     { id: 'raiox', label: 'Raio-X / Vistoria', icon: <Scan size={20} className="text-indigo-500" />, roles: ['regional_admin'] },
-    { id: 'obras', label: 'Obras e Reformas', icon: <HardHat size={20} className="text-orange-500" />, roles: ['regional_admin'] }, // Novo Item
-    { id: 'manejo', label: 'Manejo Arbóreo', icon: <TreeDeciduous size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager'] }, // Novo Item
+    { id: 'obras', label: 'Obras e Reformas', icon: <HardHat size={20} className="text-orange-500" />, roles: ['regional_admin'] },
+    { id: 'manejo', label: 'Manejo Arbóreo', icon: <TreeDeciduous size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager'] },
     { id: 'elevadores', label: 'Gestão de Elevadores', icon: <ArrowUpCircle size={20} className="text-blue-500" />, roles: ['regional_admin'] },
     { id: 'demandas', label: 'Demandas / E-mails', icon: <AlertTriangle size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager'] },
     { id: 'aquisicao', label: 'Aquisição de Itens', icon: <ShoppingBag size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager'] },
