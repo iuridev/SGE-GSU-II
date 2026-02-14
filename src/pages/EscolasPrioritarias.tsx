@@ -211,7 +211,7 @@ export function EscolasPrioritarias() {
                         </h3>
                         <div className="space-y-6">
                             <RuleInfo title="Ranking Invertido" desc="Notas mais baixas (Coluna F) indicam urgência crítica de intervenção." color="text-red-500" />
-                            <RuleInfo title="Intervenção SEFISC" desc="Status exclusivo para unidades com alto índice de irregularidades." color="text-indigo-500" />
+                            <RuleInfo title="Intervenção SEOM-SEFISC" desc="Status exclusivo para unidades com alto índice de irregularidades." color="text-indigo-500" />
                             <RuleInfo title="Acompanhamento" desc="Unidades monitoradas semanalmente pela Regional." color="text-emerald-500" />
                         </div>
                       </div>

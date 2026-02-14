@@ -80,6 +80,9 @@ export function Login() {
             </svg>
             SGE-GSU
           </div>
+          <p className="text-slate-500 text-sm font-medium">Unidade Regional de Ensino Guarulhos Sul</p>
+          <p className="text-slate-500 text-sm font-medium">Serviço de Obras e Manuntenção Escolar</p>
+          <p className="text-slate-500 text-sm font-medium">Seção de Fiscalização</p>
           <p className="text-slate-500 text-sm font-medium">Gestão de Unidades Escolares</p>
         </div>
 
@@ -139,7 +142,8 @@ export function Login() {
         </form>
 
         <div className="mt-8 pt-6 border-t border-slate-100 text-[11px] text-slate-400">
-          <p>Suporte Técnico: <b>(11) gsu.sefisc@educacao.sp.gov.br</b></p>
+          <p>Suporte Técnico: <b> gsu.seom@educacao.sp.gov.br</b></p>
+          <p>Suporte Técnico: <b> gsu.sefisc@educacao.sp.gov.br</b></p>
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 // Usando importação via CDN para funcionar no ambiente de preview. 
 // No seu projeto local, use: import { createClient } from '@supabase/supabase-js';
 // @ts-ignore
@@ -12,7 +12,7 @@ import {
   Ticket, Plus, X, 
   CheckCircle, Clock, ArrowRightLeft, Paperclip, 
   Send, Building2,
-  PieChart, ListOrdered, CheckCircle2, MessageCircle, AlertTriangle, FileText, Download
+  PieChart, ListOrdered, CheckCircle2, MessageCircle, AlertTriangle, FileText, Download, Activity
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO SUPABASE ---
@@ -77,6 +77,158 @@ const CATEGORIES = [
   'PATRIMÔNIO', 'FISCALIZAÇÃO LIMPEZA', 'FISCALIZAÇÃO VIGILÂNCIA', 
   'CONSUMO DE ÁGUA', 'SERVIÇO DE ENERGIA', 'OUTROS'
 ];
+
+// --- COMPONENTE DE GRÁFICO SVG NATIVO (Visualização em Tela) ---
+function CustomLineChart({ data }: { data: any[] }) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  const height = 300;
+  const padding = 40;
+
+  useEffect(() => {
+    if (containerRef.current) {
+      setWidth(containerRef.current.offsetWidth);
+    }
+    const handleResize = () => {
+        if(containerRef.current) setWidth(containerRef.current.offsetWidth);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  if (data.length === 0) return null;
+
+  // Cálculos de Escala
+  const maxValue = Math.max(...data.map(d => Math.max(d.WhatsApp, d.Chamados, d.Media))) || 10; // Evita divisão por zero
+  const effectiveHeight = height - padding * 2;
+  const effectiveWidth = width - padding * 2;
+  const xStep = effectiveWidth / (data.length - 1 || 1);
+  const yScale = effectiveHeight / maxValue;
+
+  // Geradores de Coordenadas
+  const getX = (index: number) => padding + index * xStep;
+  const getY = (value: number) => height - padding - (value * yScale);
+
+  // Geradores de Caminho (Path d)
+  const createPath = (key: string) => {
+    return data.map((d, i) => 
+      `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(d[key])}`
+    ).join(' ');
+  };
+
+  const pathWhatsApp = createPath('WhatsApp');
+  const pathChamados = createPath('Chamados');
+  const pathMedia = createPath('Media');
+
+  return (
+    <div ref={containerRef} className="w-full h-[300px] relative select-none">
+      <svg width={width} height={height} className="overflow-visible">
+        {/* Grid Lines Horizontal */}
+        {[0, 0.25, 0.5, 0.75, 1].map((t) => {
+            const y = height - padding - (t * effectiveHeight);
+            const val = Math.round(t * maxValue);
+            return (
+                <g key={t}>
+                    <line x1={padding} y1={y} x2={width - padding} y2={y} stroke="#e2e8f0" strokeDasharray="4 4" />
+                    <text x={padding - 10} y={y + 4} textAnchor="end" fontSize="10" fill="#94a3b8">{val}</text>
+                </g>
+            )
+        })}
+
+        {/* Eixo X - Labels */}
+        {data.map((d, i) => (
+            <text key={i} x={getX(i)} y={height - 10} textAnchor="middle" fontSize="10" fontWeight="bold" fill="#94a3b8">
+                {d.name}
+            </text>
+        ))}
+
+        {/* Linhas do Gráfico */}
+        <path d={pathMedia} fill="none" stroke="#f59e0b" strokeWidth="2" strokeDasharray="5 5" />
+        <path d={pathChamados} fill="none" stroke="#6366f1" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={pathWhatsApp} fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+
+        {/* Pontos Interativos e Hover */}
+        {data.map((d, i) => (
+            <g key={i}>
+                <circle cx={getX(i)} cy={getY(d.WhatsApp)} r="4" fill="#22c55e" className="transition-all" />
+                <circle cx={getX(i)} cy={getY(d.Chamados)} r="4" fill="#6366f1" className="transition-all" />
+                <rect 
+                    x={getX(i) - xStep / 2} 
+                    y={0} 
+                    width={xStep} 
+                    height={height} 
+                    fill="transparent" 
+                    onMouseEnter={() => setHoverIndex(i)}
+                    onMouseLeave={() => setHoverIndex(null)}
+                    className="cursor-crosshair"
+                />
+            </g>
+        ))}
+
+        {/* Indicador de Hover (Linha Vertical) */}
+        {hoverIndex !== null && (
+            <line 
+                x1={getX(hoverIndex)} 
+                y1={padding} 
+                x2={getX(hoverIndex)} 
+                y2={height - padding} 
+                stroke="#94a3b8" 
+                strokeWidth="1" 
+                strokeDasharray="4 4"
+            />
+        )}
+      </svg>
+
+      {/* Tooltip HTML Overlay */}
+      {hoverIndex !== null && (
+        <div 
+            className="absolute bg-white p-3 rounded-xl shadow-xl border border-slate-100 z-10 pointer-events-none transition-all"
+            style={{ 
+                left: getX(hoverIndex), 
+                top: 0,
+                transform: 'translate(-50%, -100%) translateY(80px)' // Posiciona acima ou próximo
+            }}
+        >
+            <p className="text-xs font-black text-slate-700 mb-2">{data[hoverIndex].name}</p>
+            <div className="space-y-1">
+                <div className="flex items-center gap-2 text-xs">
+                    <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                    <span className="text-slate-500">WhatsApp:</span>
+                    <span className="font-bold text-slate-800">{data[hoverIndex].WhatsApp}</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                    <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
+                    <span className="text-slate-500">Chamados:</span>
+                    <span className="font-bold text-slate-800">{data[hoverIndex].Chamados}</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                    <div className="w-2 h-2 rounded-full bg-amber-500"></div>
+                    <span className="text-slate-500">Média:</span>
+                    <span className="font-bold text-slate-800">{data[hoverIndex].Media}</span>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* Legenda Fixa */}
+      <div className="absolute top-0 right-0 flex gap-4 bg-white/80 p-2 rounded-lg backdrop-blur-sm">
+          <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-full bg-green-500"></div>
+              <span className="text-[10px] font-bold text-slate-600">WhatsApp</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-full bg-indigo-500"></div>
+              <span className="text-[10px] font-bold text-slate-600">Chamados</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+              <div className="w-3 h-1 bg-amber-500 rounded-full"></div>
+              <span className="text-[10px] font-bold text-slate-600">Média</span>
+          </div>
+      </div>
+    </div>
+  );
+}
 
 export function Chamados() {
   const [tickets, setTickets] = useState<TicketData[]>([]);
@@ -228,6 +380,51 @@ export function Chamados() {
     };
   }, [tickets]);
 
+  // --- Dados do Gráfico (Últimos 12 Meses) ---
+  const chartData = useMemo(() => {
+    const today = new Date();
+    const last12Months: { key: string; name: string; whatsapp: number; chamados: number; WhatsApp: number; Chamados: number; Media: number }[] = [];
+    
+    // 1. Gerar chaves para os últimos 12 meses
+    for (let i = 11; i >= 0; i--) {
+        const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        const key = d.toISOString().slice(0, 7); // YYYY-MM
+        const monthName = d.toLocaleString('pt-BR', { month: 'short' }).toUpperCase().replace('.', '');
+        last12Months.push({
+            key,
+            name: monthName,
+            whatsapp: 0,
+            chamados: 0,
+            WhatsApp: 0,
+            Chamados: 0,
+            Media: 0
+        });
+    }
+
+    // 2. Preencher contagens
+    tickets.forEach(ticket => {
+        const ticketMonth = ticket.created_at.slice(0, 7); // YYYY-MM
+        const monthData = last12Months.find(m => m.key === ticketMonth);
+        
+        if (monthData) {
+            const isWhatsapp = ticket.description && ticket.description.includes('[ATENDIMENTO WHATSAPP]');
+            if (isWhatsapp) {
+                monthData.whatsapp++;
+            } else {
+                monthData.chamados++;
+            }
+        }
+    });
+
+    // 3. Formatar para o gráfico
+    return last12Months.map(m => ({
+        ...m,
+        WhatsApp: m.whatsapp,
+        Chamados: m.chamados,
+        Media: Number(((m.whatsapp + m.chamados) / 2).toFixed(1))
+    }));
+  }, [tickets]);
+
   // Lista Filtrada para Admin (Mesa SEOM vs SEFISC)
   const filteredListTickets = useMemo(() => {
     if (userRole === 'regional_admin') {
@@ -242,7 +439,7 @@ export function Chamados() {
     setIsGeneratingReport(true);
 
     try {
-      // 1. Definir intervalo de datas
+      // 1. Definir intervalo de datas para a tabela
       const startDate = new Date(reportDate.year, reportDate.month - 1, 1).toISOString();
       const endDate = new Date(reportDate.year, reportDate.month, 0, 23, 59, 59).toISOString();
 
@@ -262,8 +459,9 @@ export function Chamados() {
         return;
       }
 
-      // 3. Gerar PDF
+      // 3. Instanciar jsPDF com suporte a autoTable
       const doc = new jsPDF();
+      
       const monthName = new Date(reportDate.year, reportDate.month - 1, 1).toLocaleString('pt-BR', { month: 'long' });
       
       // Cabeçalho
@@ -273,7 +471,7 @@ export function Chamados() {
       doc.text(`Período: ${monthName.charAt(0).toUpperCase() + monthName.slice(1)} de ${reportDate.year}`, 14, 30);
       doc.text(`Gerado em: ${new Date().toLocaleDateString()}`, 14, 36);
 
-      // Resumo
+      // Resumo Estatístico
       const total = reportTickets.length;
       const seom = reportTickets.filter((t: TicketData) => t.department === 'SEOM').length;
       const sefisc = reportTickets.filter((t: TicketData) => t.department === 'SEFISC').length;
@@ -292,7 +490,14 @@ export function Chamados() {
       doc.text(`Concluídos: ${concluded}`, 60, 60);
       doc.text(`Em Aberto: ${total - concluded}`, 100, 60);
 
-      // Tabela
+      // --- Desenhar Gráfico no PDF (Contexto de 12 Meses) ---
+      // Usamos 'chartData' que já contém os dados dos últimos 12 meses
+      let nextY = 75;
+      if (chartData && chartData.length > 0) {
+          nextY = drawPdfChart(doc, chartData, 75);
+      }
+
+      // Tabela Detalhada
       const tableRows = reportTickets.map((t: TicketData) => [
         t.protocol,
         new Date(t.created_at).toLocaleDateString(),
@@ -303,7 +508,7 @@ export function Chamados() {
       ]);
 
       autoTable(doc, {
-        startY: 75,
+        startY: nextY + 10,
         head: [['Protocolo', 'Data', 'Escola', 'Categoria', 'Depto', 'Status']],
         body: tableRows,
         styles: { fontSize: 8 },
@@ -320,6 +525,59 @@ export function Chamados() {
       setIsGeneratingReport(false);
     }
   }
+
+  // --- Função auxiliar para desenhar o gráfico no PDF ---
+  const drawPdfChart = (doc: any, data: any[], startY: number) => {
+    const chartHeight = 50;
+    const chartWidth = 180;
+    const startX = 14;
+    const endY = startY + chartHeight;
+
+    doc.setFontSize(10);
+    doc.setTextColor(50);
+    doc.text("Histórico de Atendimentos (Últimos 12 Meses)", startX, startY - 5);
+
+    const maxVal = Math.max(...data.map(d => Math.max(d.WhatsApp, d.Chamados, d.Media))) || 10;
+    const stepX = chartWidth / (data.length - 1);
+    const scaleY = chartHeight / maxVal;
+
+    const getPX = (i: number) => startX + (i * stepX);
+    const getPY = (val: number) => endY - (val * scaleY);
+
+    doc.setDrawColor(220);
+    doc.setLineWidth(0.1);
+
+    // Eixo X Labels
+    doc.setFontSize(6);
+    doc.setTextColor(150);
+    data.forEach((d, i) => {
+        doc.text(d.name, getPX(i), endY + 4, { align: 'center' });
+    });
+
+    // Função para desenhar linha
+    const drawLine = (key: string, r: number, g: number, b: number) => {
+        doc.setDrawColor(r, g, b);
+        doc.setLineWidth(0.5);
+        for (let i = 0; i < data.length - 1; i++) {
+            doc.line(getPX(i), getPY(data[i][key]), getPX(i+1), getPY(data[i+1][key]));
+        }
+    };
+
+    // Linhas
+    drawLine('Media', 245, 158, 11); // Laranja
+    drawLine('Chamados', 99, 102, 241); // Roxo
+    drawLine('WhatsApp', 34, 197, 94); // Verde
+
+    // Legenda simples
+    doc.setFontSize(7);
+    const legY = endY + 10;
+    doc.setTextColor(34, 197, 94); doc.text('WhatsApp', startX, legY);
+    doc.setTextColor(99, 102, 241); doc.text('Chamados', startX + 20, legY);
+    doc.setTextColor(245, 158, 11); doc.text('Média', startX + 40, legY);
+    doc.setTextColor(0); // Reset
+
+    return legY + 5; // Retorna nova posição Y
+  };
 
   // Criar Chamado (Gestor Escolar)
   async function handleCreateTicket(e: React.FormEvent) {
@@ -646,6 +904,17 @@ export function Chamados() {
                   )}
               </div>
           </div>
+      </div>
+
+      {/* Gráfico de Evolução (SVG NATIVO) */}
+      <div className="col-span-full bg-white p-6 rounded-[2rem] border border-slate-100 shadow-lg">
+          <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-2">
+                  <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><Activity size={18} /></div>
+                  <h3 className="font-black text-slate-800 text-lg">Evolução de Atendimentos (12 Meses)</h3>
+              </div>
+          </div>
+          <CustomLineChart data={chartData} />
       </div>
 
       {/* Admin Tabs */}
