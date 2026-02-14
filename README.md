@@ -1,73 +1,178 @@
-# React + TypeScript + Vite
+SGE-GSU II - Sistema de Gestão Escolar e Urbana
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Bem-vindo ao repositório do SGE-GSU II. Este é um sistema abrangente de gestão desenvolvido para otimizar a administração de recursos, infraestrutura e processos escolares e urbanos. O projeto utiliza uma stack moderna focada em performance e experiência do usuário.
 
-Currently, two official plugins are available:
+🚀 Tecnologias Utilizadas
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+O projeto foi construído utilizando as seguintes tecnologias principais:
 
-## React Compiler
+React (com Vite): Biblioteca para construção da interface de usuário, garantindo rapidez e modularidade.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+TypeScript: Superset do JavaScript que adiciona tipagem estática, aumentando a segurança e manutenibilidade do código.
 
-## Expanding the ESLint configuration
+Tailwind CSS: Framework de CSS utilitário para estilização rápida e responsiva.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+Supabase: Backend-as-a-Service utilizado para autenticação, banco de dados (PostgreSQL) e Edge Functions.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+ESLint: Para padronização e qualidade do código.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+📚 Funcionalidades e Módulos
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+O sistema é dividido em diversas páginas e módulos funcionais. Abaixo está a descrição detalhada de cada seção do projeto:
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+🏠 Painel Principal
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Dashboard (Dashboard.tsx): Visão geral do sistema com indicadores, gráficos e resumos das atividades recentes.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+Login (Login.tsx): Tela de autenticação segura para acesso ao sistema.
+
+📅 Agendamentos e Logística
+
+Agendamento de Ambientes (AgendamentoAmbientes.tsx): Gestão de reservas de salas, auditórios e espaços comuns.
+
+Agendamento de Carros (AgendamentoCarros.tsx): Controle da frota, permitindo reservar veículos para deslocamentos oficiais.
+
+🏫 Gestão Escolar e Infraestrutura
+
+Raio-X da Escola (RaioXEscola.tsx): Visão detalhada e diagnóstica de uma unidade escolar específica.
+
+Ranking de Escolas (RankingEscolas.tsx): Classificação das unidades baseada em métricas definidas (atendimentos, notas, estrutura).
+
+Escolas Prioritárias (EscolasPrioritarias.tsx): Gestão de unidades que necessitam de atenção urgente ou recursos especiais.
+
+Dados da Escola (escola.tsx): Cadastro e visualização de informações gerais das unidades.
+
+🛠️ Manutenção e Serviços
+
+Zeladoria (Zeladoria.tsx): Controle de serviços de limpeza e conservação predial.
+
+Manejo Arbóreo (ManejoArboreo.tsx): Gestão de solicitações de poda e cuidado com áreas verdes.
+
+Elevadores (Elevador.tsx): Monitoramento da manutenção e status dos elevadores.
+
+Consumo de Água (ConsumoAgua.tsx): Acompanhamento de leitura de hidrômetros e gastos.
+
+Caminhão Pipa (WaterTruckModal.tsx): Modal específico para solicitação emergencial de abastecimento de água.
+
+Queda de Energia (PowerOutageModal.tsx): Funcionalidade rápida para reportar falta de luz nas unidades.
+
+🏗️ Obras e Patrimônio
+
+Obras (Obras.tsx): Acompanhamento do status de reformas e construções.
+
+Patrimônio (Patrimonio.tsx): Controle de inventário de bens móveis e equipamentos.
+
+Processos de Patrimônio (PatrimonioProcessos.tsx): Gestão de movimentações, baixas e transferências de bens.
+
+Aquisição (Aquisicao.tsx): Módulo para gestão de compras e novos insumos.
+
+📋 Administrativo e Suporte
+
+Chamados (Chamados.tsx): Sistema de Help Desk para abertura e acompanhamento de tickets de suporte.
+
+Fiscalização (fiscalizacao.tsx): Módulo para registro de vistorias e auditorias.
+
+Demanda (Demanda.tsx): Análise de demandas de vagas ou recursos.
+
+Remanejamento (Remanejamento.tsx): Controle de transferência de alunos ou servidores.
+
+Reuniões (Reunioes.tsx): Pautas e registros de reuniões administrativas.
+
+👤 Usuário e Ajuda
+
+Perfil do Usuário (Usuario.tsx): Gerenciamento de dados da conta e preferências.
+
+Notificações (Notificacoes.tsx): Central de alertas e avisos do sistema.
+
+Tutoriais (Tutoriais.tsx): Base de conhecimento e guias de uso do sistema.
+
+💻 Instalação e Execução Local
+
+Siga os passos abaixo para clonar e rodar o projeto em sua máquina:
+
+Pré-requisitos
+
+Node.js (versão 18 ou superior) instalado.
+
+Git instalado.
+
+Passo a Passo
+
+Clone o repositório:
+Abra seu terminal e execute:
+
+git clone [https://github.com/iuridev/sge-gsu-ii.git](https://github.com/iuridev/sge-gsu-ii.git)
+cd sge-gsu-ii
+
+
+Instale as dependências:
+
+npm install
+# ou, se preferir usar yarn:
+yarn install
+
+
+Configuração de Variáveis de Ambiente:
+O projeto utiliza o Supabase. Você precisará criar um arquivo .env na raiz do projeto com as chaves de acesso. Utilize o arquivo de exemplo (se houver) ou configure conforme abaixo:
+
+VITE_SUPABASE_URL=sua_url_do_supabase
+VITE_SUPABASE_ANON_KEY=sua_chave_anonima_do_supabase
+
+
+Execute o projeto:
+
+npm run dev
+
+
+O terminal mostrará o link local (geralmente http://localhost:5173) para acessar a aplicação.
+
+🤝 Como Contribuir
+
+Quer colaborar com o projeto? Siga este guia para garantir um fluxo de trabalho organizado:
+
+Faça um Fork do projeto:
+Clique no botão "Fork" no canto superior direito da página do repositório no GitHub. Isso criará uma cópia do repositório na sua conta.
+
+Crie uma Branch para sua Feature:
+No seu terminal, dentro da pasta do projeto, crie uma branch com um nome descritivo para o que você vai fazer:
+
+git checkout -b feature/nova-funcionalidade
+# ou para correções de bugs:
+git checkout -b fix/correcao-bug
+
+
+Desenvolva e Comite:
+Faça as alterações necessárias. Ao commitar, use mensagens claras e objetivas:
+
+git add .
+git commit -m "feat: adiciona filtro na tela de chamados"
+
+
+Envie para o seu Fork (Push):
+
+git push origin feature/nova-funcionalidade
+
+
+Abra um Pull Request (PR):
+
+Vá até o repositório original no GitHub.
+
+Você verá um aviso de que sua branch tem alterações recentes. Clique em "Compare & pull request".
+
+Descreva detalhadamente o que foi feito, quais arquivos foram alterados e, se possível, anexe prints das mudanças visuais.
+
+Aguarde a revisão da equipe.
+
+Padrões de Código
+
+Mantenha a estrutura de pastas existente.
+
+Utilize o ESLint configurado no projeto para garantir a formatação correta.
+
+Evite commitar arquivos de configuração local (como .env).
+
+📄 Licença
+
+Este projeto está sob a licença MIT (ou a licença definida pelo proprietário).
+
+Desenvolvido por Iuri Dev.
