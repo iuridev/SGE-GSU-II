@@ -12,7 +12,7 @@ import {
   Ticket, Plus, X, 
   CheckCircle, Clock, ArrowRightLeft, Paperclip, 
   Send, Building2,
-  PieChart, ListOrdered, CheckCircle2, MessageCircle, AlertTriangle, FileText, Download, Activity
+  PieChart, ListOrdered, CheckCircle2, MessageCircle, AlertTriangle, FileText, Download, Activity, History, Save, RefreshCw, Filter
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO SUPABASE ---
@@ -238,6 +238,9 @@ export function Chamados() {
   const [userId, setUserId] = useState('');
   const [userSchoolId, setUserSchoolId] = useState<string | null>(null);
   
+  // Filtro de Status
+  const [statusFilter, setStatusFilter] = useState<'EM_ATENDIMENTO' | 'AGUARDANDO_ESCOLA' | 'CONCLUIDO'>('EM_ATENDIMENTO');
+
   // Lista de escolas para o dropdown do Admin
   const [schoolsList, setSchoolsList] = useState<SchoolOption[]>([]);
 
@@ -265,6 +268,8 @@ export function Chamados() {
     department: 'SEOM' as 'SEOM' | 'SEFISC',
     description: ''
   });
+  // Estado para armazenar histórico da escola selecionada no modal de WhatsApp
+  const [schoolHistory, setSchoolHistory] = useState<TicketData[]>([]);
 
   // Modal Relatório (Admin)
   const [isReportOpen, setIsReportOpen] = useState(false);
@@ -287,6 +292,29 @@ export function Chamados() {
     }
     fetchUserAndTickets();
   }, [adminDeptFilter]); 
+
+  // Efeito para carregar histórico da escola quando selecionada no modal WhatsApp
+  useEffect(() => {
+    async function fetchSchoolHistory() {
+        if (!supabase || !whatsappTicket.school_id) {
+            setSchoolHistory([]);
+            return;
+        }
+        
+        const { data } = await (supabase as any)
+            .from('internal_tickets')
+            .select('*, schools(name)')
+            .eq('school_id', whatsappTicket.school_id)
+            .order('created_at', { ascending: false })
+            .limit(5); // Pega os últimos 5 atendimentos
+        
+        setSchoolHistory(data || []);
+    }
+    
+    if (isWhatsappOpen) {
+        fetchSchoolHistory();
+    }
+  }, [whatsappTicket.school_id, isWhatsappOpen]);
 
   async function fetchUserAndTickets() {
     if (!supabase) return;
@@ -383,6 +411,7 @@ export function Chamados() {
   // --- Dados do Gráfico (Últimos 12 Meses) ---
   const chartData = useMemo(() => {
     const today = new Date();
+    // Definindo explicitamente o tipo do array para evitar o erro ts(7034)
     const last12Months: { key: string; name: string; whatsapp: number; chamados: number; WhatsApp: number; Chamados: number; Media: number }[] = [];
     
     // 1. Gerar chaves para os últimos 12 meses
@@ -425,13 +454,26 @@ export function Chamados() {
     }));
   }, [tickets]);
 
-  // Lista Filtrada para Admin (Mesa SEOM vs SEFISC)
+  // Lista Filtrada para Admin (Mesa SEOM vs SEFISC) E Status
   const filteredListTickets = useMemo(() => {
+    let result = tickets;
+
+    // 1. Filtro de Departamento (apenas para Admin)
     if (userRole === 'regional_admin') {
-      return tickets.filter(t => t.department === adminDeptFilter);
+      result = result.filter(t => t.department === adminDeptFilter);
     }
-    return tickets;
-  }, [tickets, userRole, adminDeptFilter]);
+
+    // 2. Filtro de Status
+    if (statusFilter === 'EM_ATENDIMENTO') {
+        result = result.filter(t => ['ABERTO', 'EM_ANDAMENTO'].includes(t.status));
+    } else if (statusFilter === 'AGUARDANDO_ESCOLA') {
+        result = result.filter(t => t.status === 'AGUARDANDO_ESCOLA');
+    } else if (statusFilter === 'CONCLUIDO') {
+        result = result.filter(t => t.status === 'CONCLUIDO');
+    }
+
+    return result;
+  }, [tickets, userRole, adminDeptFilter, statusFilter]);
 
   // Funções de PDF
   async function handleGenerateReport() {
@@ -612,7 +654,8 @@ export function Chamados() {
   }
 
   // Criar Chamado Manualmente (Admin / WhatsApp)
-  async function handleRegisterWhatsApp(e: React.FormEvent) {
+  // addAnother: Se verdadeiro, limpa campos parciais e mantem o modal aberto
+  async function handleRegisterWhatsApp(e: React.FormEvent, addAnother: boolean = false) {
     e.preventDefault();
     if (!supabase) return alert('Sistema não configurado.');
     if (!whatsappTicket.school_id) return alert('Selecione uma escola.');
@@ -638,19 +681,45 @@ export function Chamados() {
       const { error } = await (supabase as any).from('internal_tickets').insert([payload]);
       if (error) throw error;
 
-      alert(`Atendimento WhatsApp registrado: ${protocol}`);
-      setIsWhatsappOpen(false);
-      // Resetar form
-      setWhatsappTicket({
-        date: new Date().toISOString().slice(0, 16),
-        school_id: '',
-        phone: '',
-        title: '',
-        category: 'MANUTENÇÕES',
-        department: 'SEOM',
-        description: ''
-      });
+      alert(`Atendimento ${protocol} registrado!`);
+      
+      // Recarrega a lista principal para atualizar dashboard
       fetchUserAndTickets();
+
+      if (addAnother) {
+          // Mantém Data, Escola e Telefone. Limpa o resto.
+          setWhatsappTicket(prev => ({
+              ...prev,
+              title: '',
+              description: '',
+              // Categoria e Depto mantêm ou reseta? Vamos manter padrão.
+              category: 'MANUTENÇÕES',
+              department: 'SEOM'
+          }));
+          
+          // Atualiza o histórico da escola manualmente para aparecer o novo item
+          const { data: updatedHistory } = await (supabase as any)
+            .from('internal_tickets')
+            .select('*, schools(name)')
+            .eq('school_id', whatsappTicket.school_id)
+            .order('created_at', { ascending: false })
+            .limit(5);
+          setSchoolHistory(updatedHistory || []);
+
+      } else {
+          // Fecha e limpa tudo
+          setIsWhatsappOpen(false);
+          setWhatsappTicket({
+            date: new Date().toISOString().slice(0, 16),
+            school_id: '',
+            phone: '',
+            title: '',
+            category: 'MANUTENÇÕES',
+            department: 'SEOM',
+            description: ''
+          });
+      }
+
     } catch (error: any) {
       alert('Erro ao registrar: ' + error.message);
     }
@@ -917,23 +986,47 @@ export function Chamados() {
           <CustomLineChart data={chartData} />
       </div>
 
-      {/* Admin Tabs */}
-      {userRole === 'regional_admin' && (
-          <div className="bg-white p-2 rounded-2xl inline-flex border-2 border-slate-100">
-              <button 
-                onClick={() => setAdminDeptFilter('SEOM')}
-                className={`px-6 py-2 rounded-xl text-xs font-black transition-all ${adminDeptFilter === 'SEOM' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
-              >
-                MESA SEOM
-              </button>
-              <button 
-                onClick={() => setAdminDeptFilter('SEFISC')}
-                className={`px-6 py-2 rounded-xl text-xs font-black transition-all ${adminDeptFilter === 'SEFISC' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
-              >
-                MESA SEFISC
-              </button>
-          </div>
-      )}
+      <div className="flex flex-col md:flex-row gap-4 justify-between items-end">
+        {/* Admin Tabs */}
+        {userRole === 'regional_admin' && (
+            <div className="bg-white p-2 rounded-2xl inline-flex border-2 border-slate-100">
+                <button 
+                    onClick={() => setAdminDeptFilter('SEOM')}
+                    className={`px-6 py-2 rounded-xl text-xs font-black transition-all ${adminDeptFilter === 'SEOM' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
+                >
+                    MESA SEOM
+                </button>
+                <button 
+                    onClick={() => setAdminDeptFilter('SEFISC')}
+                    className={`px-6 py-2 rounded-xl text-xs font-black transition-all ${adminDeptFilter === 'SEFISC' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
+                >
+                    MESA SEFISC
+                </button>
+            </div>
+        )}
+
+        {/* Filtros de Status */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
+            <button 
+                onClick={() => setStatusFilter('EM_ATENDIMENTO')}
+                className={`px-4 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap flex items-center gap-2 ${statusFilter === 'EM_ATENDIMENTO' ? 'bg-slate-800 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+            >
+                <Filter size={14} /> EM ATENDIMENTO
+            </button>
+            <button 
+                onClick={() => setStatusFilter('AGUARDANDO_ESCOLA')}
+                className={`px-4 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap ${statusFilter === 'AGUARDANDO_ESCOLA' ? 'bg-purple-600 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+            >
+                AGUARDANDO ESCOLA
+            </button>
+            <button 
+                onClick={() => setStatusFilter('CONCLUIDO')}
+                className={`px-4 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap ${statusFilter === 'CONCLUIDO' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+            >
+                CONCLUÍDOS
+            </button>
+        </div>
+      </div>
 
       {/* Lista de Chamados */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -965,7 +1058,7 @@ export function Chamados() {
               </div>
           ))}
           {filteredListTickets.length === 0 && (
-              <div className="col-span-full py-20 text-center text-slate-300 font-black text-xl uppercase">Nenhum chamado encontrado nesta mesa.</div>
+              <div className="col-span-full py-20 text-center text-slate-300 font-black text-xl uppercase">Nenhum chamado encontrado nesta categoria.</div>
           )}
       </div>
 
@@ -1022,6 +1115,131 @@ export function Chamados() {
                         REGISTRAR OCORRÊNCIA
                     </button>
                 </form>
+            </div>
+        </div>
+      )}
+
+      {/* MODAL REGISTRAR WHATSAPP (ADMIN) */}
+      {isWhatsappOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
+            <div className="bg-white rounded-[2.5rem] w-full max-w-2xl h-[90vh] shadow-2xl animate-in zoom-in-95 overflow-hidden border-4 border-green-500 flex flex-col">
+                {/* Header Modal */}
+                <div className="p-6 border-b border-green-100 flex justify-between items-center bg-green-50 shrink-0">
+                    <div className="flex items-center gap-2">
+                        <MessageCircle size={24} className="text-green-600" />
+                        <div>
+                            <h2 className="text-xl font-black text-green-800">Registrar WhatsApp</h2>
+                            <p className="text-xs text-green-600 font-bold">Atendimento rápido administrativo</p>
+                        </div>
+                    </div>
+                    <button onClick={() => setIsWhatsappOpen(false)}><X className="text-green-400 hover:text-green-600" /></button>
+                </div>
+
+                {/* Corpo Rolável */}
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
+                    <form className="space-y-6">
+                        
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Data do Atendimento</label>
+                                <input required type="datetime-local" className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-green-500" 
+                                    value={whatsappTicket.date} onChange={e => setWhatsappTicket({...whatsappTicket, date: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Número/Contato</label>
+                                <input required type="text" className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-green-500" 
+                                    value={whatsappTicket.phone} onChange={e => setWhatsappTicket({...whatsappTicket, phone: e.target.value})} placeholder="(11) 99999-9999" />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Escola Solicitante</label>
+                            <select required className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-green-500"
+                                value={whatsappTicket.school_id} onChange={e => setWhatsappTicket({...whatsappTicket, school_id: e.target.value})}>
+                                <option value="">Selecione uma escola...</option>
+                                {schoolsList.map(school => (
+                                    <option key={school.id} value={school.id}>{school.name}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="p-6 bg-slate-50 rounded-3xl border-2 border-slate-100">
+                            <h4 className="text-xs font-black uppercase text-slate-400 mb-4 flex items-center gap-2">
+                                <Ticket size={14} /> Detalhes do Chamado
+                            </h4>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Assunto</label>
+                                    <input required type="text" className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-green-500" 
+                                        value={whatsappTicket.title} onChange={e => setWhatsappTicket({...whatsappTicket, title: e.target.value})} placeholder="Resumo da solicitação" />
+                                </div>
+                                
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Departamento</label>
+                                        <select className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-green-500"
+                                            value={whatsappTicket.department} onChange={e => setWhatsappTicket({...whatsappTicket, department: e.target.value as any})}>
+                                            <option value="SEOM">SEOM</option>
+                                            <option value="SEFISC">SEFISC</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Categoria</label>
+                                        <select className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-green-500"
+                                            value={whatsappTicket.category} onChange={e => setWhatsappTicket({...whatsappTicket, category: e.target.value})}>
+                                            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Descrição da Conversa</label>
+                                    <textarea required rows={3} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-medium text-slate-700 outline-none focus:border-green-500" 
+                                        value={whatsappTicket.description} onChange={e => setWhatsappTicket({...whatsappTicket, description: e.target.value})} placeholder="Cole ou descreva o que foi tratado..." />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Botões de Ação */}
+                        <div className="flex gap-3 pt-2">
+                            <button 
+                                onClick={(e) => handleRegisterWhatsApp(e, false)}
+                                className="flex-1 py-4 bg-green-600 text-white rounded-2xl font-black shadow-lg hover:bg-green-700 active:scale-95 transition-all flex items-center justify-center gap-2"
+                            >
+                                <Save size={18} /> REGISTRAR E FINALIZAR
+                            </button>
+                            <button 
+                                onClick={(e) => handleRegisterWhatsApp(e, true)}
+                                className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg hover:bg-indigo-700 active:scale-95 transition-all flex items-center justify-center gap-2"
+                            >
+                                <RefreshCw size={18} /> REGISTRAR E CONTINUAR
+                            </button>
+                        </div>
+                    </form>
+
+                    {/* Histórico Recente */}
+                    {schoolHistory.length > 0 && (
+                        <div className="mt-8 pt-8 border-t border-slate-100">
+                            <div className="flex items-center gap-2 mb-4">
+                                <History size={16} className="text-slate-400" />
+                                <h4 className="text-xs font-black uppercase text-slate-400 tracking-widest">Histórico Recente desta Escola</h4>
+                            </div>
+                            <div className="space-y-3">
+                                {schoolHistory.map(ticket => (
+                                    <div key={ticket.id} className="p-4 bg-white border border-slate-100 rounded-2xl shadow-sm flex justify-between items-center">
+                                        <div>
+                                            <span className="text-[10px] font-bold text-slate-400 block mb-1">{new Date(ticket.created_at).toLocaleDateString()} • {ticket.protocol}</span>
+                                            <p className="text-xs font-bold text-slate-700">{ticket.title}</p>
+                                        </div>
+                                        <div className={`px-2 py-1 rounded-lg text-[10px] font-bold border ${getStatusColor(ticket.status)}`}>
+                                            {ticket.status.replace('_', ' ')}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
       )}
@@ -1083,81 +1301,6 @@ export function Chamados() {
                         {isGeneratingReport ? 'GERANDO PDF...' : 'BAIXAR RELATÓRIO'}
                     </button>
                 </div>
-            </div>
-        </div>
-      )}
-
-      {/* MODAL REGISTRAR WHATSAPP (ADMIN) */}
-      {isWhatsappOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
-            <div className="bg-white rounded-[2.5rem] w-full max-w-2xl shadow-2xl animate-in zoom-in-95 overflow-hidden border-4 border-green-500">
-                <div className="p-8 border-b border-green-100 flex justify-between items-center bg-green-50">
-                    <div className="flex items-center gap-2">
-                        <MessageCircle size={24} className="text-green-600" />
-                        <h2 className="text-xl font-black text-green-800">Registrar WhatsApp</h2>
-                    </div>
-                    <button onClick={() => setIsWhatsappOpen(false)}><X className="text-green-400 hover:text-green-600" /></button>
-                </div>
-                <form onSubmit={handleRegisterWhatsApp} className="p-8 space-y-6 overflow-y-auto max-h-[70vh] custom-scrollbar">
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Data do Atendimento</label>
-                            <input required type="datetime-local" className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-green-500" 
-                                value={whatsappTicket.date} onChange={e => setWhatsappTicket({...whatsappTicket, date: e.target.value})} />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Número/Contato</label>
-                            <input required type="text" className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-green-500" 
-                                value={whatsappTicket.phone} onChange={e => setWhatsappTicket({...whatsappTicket, phone: e.target.value})} placeholder="(11) 99999-9999" />
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Escola Solicitante</label>
-                        <select required className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-green-500"
-                            value={whatsappTicket.school_id} onChange={e => setWhatsappTicket({...whatsappTicket, school_id: e.target.value})}>
-                            <option value="">Selecione uma escola...</option>
-                            {schoolsList.map(school => (
-                                <option key={school.id} value={school.id}>{school.name}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Assunto</label>
-                        <input required type="text" className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-green-500" 
-                            value={whatsappTicket.title} onChange={e => setWhatsappTicket({...whatsappTicket, title: e.target.value})} placeholder="Resumo da solicitação" />
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Departamento</label>
-                            <select className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-green-500"
-                                value={whatsappTicket.department} onChange={e => setWhatsappTicket({...whatsappTicket, department: e.target.value as any})}>
-                                <option value="SEOM">SEOM</option>
-                                <option value="SEFISC">SEFISC</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Categoria</label>
-                            <select className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-green-500"
-                                value={whatsappTicket.category} onChange={e => setWhatsappTicket({...whatsappTicket, category: e.target.value})}>
-                                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Descrição da Conversa</label>
-                        <textarea required rows={4} className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-medium text-slate-700 outline-none focus:border-green-500" 
-                            value={whatsappTicket.description} onChange={e => setWhatsappTicket({...whatsappTicket, description: e.target.value})} placeholder="Cole ou descreva o que foi tratado..." />
-                    </div>
-
-                    <button type="submit" className="w-full py-4 bg-green-600 text-white rounded-2xl font-black shadow-xl hover:bg-green-700 active:scale-95 transition-all flex items-center justify-center gap-2">
-                        <MessageCircle size={20} /> SALVAR ATENDIMENTO
-                    </button>
-                </form>
             </div>
         </div>
       )}
