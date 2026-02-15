@@ -144,12 +144,10 @@ export function ConsumoAgua() {
         setLogs(logsMap);
       } else {
         // Na visão global, identifica dias com suspensão analisando todos os logs
-        // Se encontrarmos logs com "Suspensão de Expediente", marcamos o dia no calendário global
         const suspensionDays: Record<string, WaterLog> = {};
 
         rawLogs.forEach((log: WaterLog) => {
            if (log.justification && log.justification.startsWith('Suspensão de Expediente:')) {
-              // Guarda apenas um exemplo para o calendário pintar
               if (!suspensionDays[log.date]) {
                  suspensionDays[log.date] = log;
               }
@@ -298,44 +296,39 @@ export function ConsumoAgua() {
     const dateStr = formatDateToYMD(date);
     const todayStr = formatDateToYMD(new Date());
     
-    // Se for admin regional e NÃO tiver escola selecionada (visão global), abre modal de suspensão
     if (userRole === 'regional_admin' && !selectedSchoolId) {
       setSelectedDateStr(dateStr);
-      
-      // Verifica se já existe suspensão cadastrada (baseado no log carregado na visão global)
       const existingLog = logs[dateStr];
       if (existingLog && existingLog.justification?.startsWith('Suspensão de Expediente:')) {
          setExistingSuspension(existingLog.justification.replace('Suspensão de Expediente:', '').trim());
       } else {
          setExistingSuspension(null);
       }
-
       setSuspensionReason('Feriado');
       setCustomSuspensionReason('');
       setIsSuspensionModalOpen(true);
       return;
     }
 
-    // Verifica suspensão para gestores escolares (bloqueio de clique)
     if (userRole !== 'regional_admin' && logs[dateStr] && logs[dateStr].justification?.startsWith('Suspensão de Expediente:')) {
       alert("Neste dia não é possível cadastrar o consumo de água devido à suspensão de expediente.");
       return;
     }
 
-    // Se for admin, pode editar qualquer dia. Se não, apenas hoje ou passado.
     if (userRole !== 'regional_admin' && dateStr > todayStr) return;
-
-    // Se não tiver escola selecionada, não faz nada no clique individual (exceto o caso do admin acima)
     if (!selectedSchoolId) return;
 
     setSelectedDateStr(dateStr);
     
     setLoadingPrev(true);
+    // CORREÇÃO AQUI: Adicionado filtro .gt('reading_m3', 0) para ignorar leituras zeradas
+    // Isso garante que se o dia de suspensão tiver ficado com 0 por erro, ele pega o anterior a ele.
     const { data: prevData } = await (supabase as any)
       .from('consumo_agua')
       .select('reading_m3')
       .eq('school_id', selectedSchoolId)
       .lt('date', dateStr)
+      .gt('reading_m3', 0) // <--- FILTRO DE SEGURANÇA
       .order('date', { ascending: false })
       .limit(1);
     
@@ -358,7 +351,6 @@ export function ConsumoAgua() {
   const currentConsumption = Math.max(0, formData.reading_m3 - prevReadingValue);
   const currentLimit = (formData.student_count + formData.staff_count) * 0.008;
   const isLimitExceeded = currentConsumption > currentLimit && formData.reading_m3 > 0;
-  // Admin não tem bloqueio
   const isHydrometerBlocked = userRole !== 'regional_admin' && (formData.student_count <= 0 || formData.staff_count <= 0);
 
   // --- Salvar Registro Individual ---
@@ -396,7 +388,6 @@ export function ConsumoAgua() {
   async function handleSuspensionSave() {
     setSaveLoading(true);
     try {
-      // 1. Busca todas as escolas
       const { data: allSchools, error: schoolsError } = await (supabase as any)
         .from('schools')
         .select('id');
@@ -404,26 +395,23 @@ export function ConsumoAgua() {
       if (schoolsError) throw schoolsError;
       if (!allSchools || allSchools.length === 0) throw new Error("Nenhuma escola encontrada.");
 
-      // 2. Busca a última leitura de cada escola antes da data selecionada
-      // Para não fazer N requisições, buscamos dados dos últimos 30 dias de todas as escolas
-      // e processamos em memória para pegar a mais recente.
       const lookbackDate = new Date(selectedDateStr);
       lookbackDate.setDate(lookbackDate.getDate() - 30);
       const lookbackDateStr = formatDateToYMD(lookbackDate);
 
+      // CORREÇÃO AQUI TAMBÉM: Busca apenas leituras válidas (>0) para a suspensão não gravar 0
       const { data: historicalData, error: histError } = await (supabase as any)
         .from('consumo_agua')
         .select('school_id, reading_m3, date')
         .lt('date', selectedDateStr)
         .gte('date', lookbackDateStr)
-        .order('date', { ascending: false }); // Ordena por data decrescente
+        .gt('reading_m3', 0) // <--- FILTRO DE SEGURANÇA NA SUSPENSÃO
+        .order('date', { ascending: false });
 
       if (histError) throw histError;
 
-      // Mapa para guardar a última leitura de cada escola
       const lastReadings: Record<string, number> = {};
       
-      // Como está ordenado por data DESC, a primeira ocorrência de cada escola é a mais recente
       historicalData?.forEach((record: any) => {
         if (lastReadings[record.school_id] === undefined) {
           lastReadings[record.school_id] = record.reading_m3;
@@ -433,14 +421,13 @@ export function ConsumoAgua() {
       const finalReason = suspensionReason === 'Outro' ? customSuspensionReason : suspensionReason;
       const justificationText = `Suspensão de Expediente: ${finalReason}`;
 
-      // 3. Prepara os dados para inserção em massa
       const bulkData = allSchools.map((school: any) => {
-        const lastReading = lastReadings[school.id] || 0; // Se não tiver leitura anterior, assume 0
+        const lastReading = lastReadings[school.id] || 0; 
         return {
           school_id: school.id,
           date: selectedDateStr,
-          reading_m3: lastReading, // Repete a leitura anterior
-          consumption_diff: 0,     // Consumo zero
+          reading_m3: lastReading, 
+          consumption_diff: 0,
           student_count: 0,
           staff_count: 0,
           limit_exceeded: false,
@@ -450,7 +437,6 @@ export function ConsumoAgua() {
         };
       });
 
-      // 4. Upsert em massa
       const { error: upsertError } = await (supabase as any)
         .from('consumo_agua')
         .upsert(bulkData, { onConflict: 'school_id,date' });
@@ -459,7 +445,7 @@ export function ConsumoAgua() {
 
       alert(`Suspensão registrada com sucesso para ${bulkData.length} escolas.`);
       setIsSuspensionModalOpen(false);
-      fetchLogs(); // Atualiza a tela se estiver vendo logs
+      fetchLogs(); 
 
     } catch (error: any) {
       console.error(error);
@@ -480,7 +466,6 @@ export function ConsumoAgua() {
     let showAttention = false;
     let isSuspension = false;
 
-    // Verifica se é um evento de suspensão (baseado na justificativa)
     if (log && log.justification && log.justification.startsWith('Suspensão de Expediente:')) {
       isSuspension = true;
     }
@@ -496,24 +481,19 @@ export function ConsumoAgua() {
           }
         }
     } else {
-        // Estilização para dias sem registro
         if (!isFuture && dateStr < todayStr) {
-             // Atrasado
              if (userRole === 'regional_admin' && !selectedSchoolId) {
                  stateClass = "bg-slate-50 text-slate-400 hover:bg-purple-50 hover:border-purple-200 hover:text-purple-600 border-slate-100";
              } else {
                  stateClass = "bg-red-50 text-red-700 border-red-200"; 
              }
         } else if (isFuture) {
-             // Futuro
              if (userRole === 'regional_admin' && !selectedSchoolId) {
-                 // Admin na visão global vê dias futuros como clicáveis/neutros
                  stateClass = "bg-slate-50 text-slate-300 hover:bg-purple-50 hover:border-purple-200 hover:text-purple-600 border-slate-100";
              }
         }
     }
 
-    // Se estiver na visão global e for admin, todos os dias passados/hoje/futuro são clicáveis (para agendar suspensão)
     const isClickable = selectedSchoolId || (userRole === 'regional_admin');
 
     return (
@@ -531,19 +511,19 @@ export function ConsumoAgua() {
         
         {log ? (
           <div className="z-10">
-             {isSuspension ? (
-               <div className="text-[10px] font-black uppercase text-purple-600 leading-tight">
-                 {log.justification?.replace('Suspensão de Expediente:', '')}
-               </div>
-             ) : (
-               <>
-                 <div className="text-[14px] font-black text-slate-900 leading-none">{log.reading_m3.toLocaleString()}</div>
-                 <div className="text-[9px] font-bold uppercase text-slate-400 mt-1">m³ Registrado</div>
-                 <div className={`mt-2 text-[10px] font-black px-2 py-0.5 rounded-full inline-block ${log.limit_exceeded ? 'bg-amber-500 text-white' : 'bg-emerald-200 text-emerald-800'}`}>
-                   {log.consumption_diff.toFixed(2)} m³
-                 </div>
-               </>
-             )}
+              {isSuspension ? (
+                <div className="text-[10px] font-black uppercase text-purple-600 leading-tight">
+                  {log.justification?.replace('Suspensão de Expediente:', '')}
+                </div>
+              ) : (
+                <>
+                  <div className="text-[14px] font-black text-slate-900 leading-none">{log.reading_m3.toLocaleString()}</div>
+                  <div className="text-[9px] font-bold uppercase text-slate-400 mt-1">m³ Registrado</div>
+                  <div className={`mt-2 text-[10px] font-black px-2 py-0.5 rounded-full inline-block ${log.limit_exceeded ? 'bg-amber-500 text-white' : 'bg-emerald-200 text-emerald-800'}`}>
+                    {log.consumption_diff.toFixed(2)} m³
+                  </div>
+                </>
+              )}
           </div>
         ) : !isFuture && dateStr < todayStr && selectedSchoolId ? (
           <div className="text-[10px] font-black uppercase text-red-500 z-10 italic text-center">Atrasado</div>
@@ -690,9 +670,9 @@ export function ConsumoAgua() {
                     <button onClick={handleNextMonth} className="p-4 hover:bg-slate-50 rounded-3xl border border-slate-100"><ChevronRight /></button>
                 </div>
                 {userRole === 'regional_admin' && !selectedSchoolId && (
-                   <div className="hidden md:block text-xs font-bold text-slate-400 bg-slate-50 px-4 py-2 rounded-xl">
-                      Clique em uma data para registrar suspensão de expediente
-                   </div>
+                    <div className="hidden md:block text-xs font-bold text-slate-400 bg-slate-50 px-4 py-2 rounded-xl">
+                       Clique em uma data para registrar suspensão de expediente
+                    </div>
                 )}
               </div>
               <div className="grid grid-cols-7 gap-6">
