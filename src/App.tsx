@@ -5,7 +5,9 @@ import {
   Building2, UserCog, LogOut, Menu, X, 
   BookOpen, ClipboardCheck, Calendar, Car, Building,
   AlertTriangle, Scan, ShoppingBag, Trophy, Package,
-  Star, ArrowUpCircle, HardHat, TreeDeciduous, Ticket // Ticket adicionado
+  Star, ArrowUpCircle, HardHat, TreeDeciduous, Ticket,
+  School,
+  ShieldAlert
 } from 'lucide-react';
 
 import { Dashboard } from './pages/Dashboard';
@@ -28,8 +30,10 @@ import { PatrimonioProcessos } from './pages/PatrimonioProcessos';
 import { EscolasPrioritarias } from './pages/EscolasPrioritarias';
 import { Elevador } from './pages/Elevador';
 import { Obras } from './pages/Obras';
-import ManejoArboreo from './pages/ManejoArboreo'; // Default export
-import { Chamados } from './pages/Chamados'; // Nova página
+import ManejoArboreo from './pages/ManejoArboreo'; 
+import { Chamados } from './pages/Chamados'; 
+import ListaEscolas from './pages/listaescolas';
+import EducacaoPatrimonial from './pages/EducacaoPatrimonial';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -113,6 +117,8 @@ export default function App() {
       case 'zeladoria': return <Zeladoria />;
       case 'remanejamento': return <Remanejamento />;
       case 'escolas': return <Escola />;
+      case 'lista-escolas': return <ListaEscolas />;
+      case 'educacao-patrimonial': return <EducacaoPatrimonial />;
       case 'usuarios': return <Usuario />;
       case 'chamados': return <Chamados />;
       default: return <Dashboard />;
@@ -121,6 +127,8 @@ export default function App() {
 
   const menuItems = [
     { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager'] },
+    { id: 'lista-escolas', label: 'Lista de Escolas', icon: <School size={20} />, roles: ['regional_admin'] },
+    { id: 'educacao-patrimonial', label: 'Educação Patrimonial', icon: <ShieldAlert size={20} className="text-orange-500" />, roles: ['regional_admin', 'school_manager'] },
     { id: 'chamados', label: 'Central de Chamados', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager'] },
     { id: 'prioritarias', label: 'Escolas Prioritárias', icon: <Star size={20} className="text-amber-500" />, roles: ['regional_admin'] },
     { id: 'ranking', label: 'Ranking de Escolas', icon: <Trophy size={20} className="text-amber-500" />, roles: ['regional_admin', 'school_manager'] },
@@ -139,14 +147,14 @@ export default function App() {
     { id: 'consumo', label: 'Consumo de Água', icon: <Waves size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'zeladoria', label: 'Zeladoria', icon: <ShieldCheck size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'remanejamento', label: 'Remanejamento', icon: <ArrowRightLeft size={20} />, roles: ['regional_admin', 'school_manager'] },
-    { id: 'escolas', label: 'Escolas', icon: <Building2 size={20} />, roles: ['regional_admin', 'school_manager'] },
+    { id: 'escolas', label: 'Escolas (Detalhes)', icon: <Building2 size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'usuarios', label: 'Gestão de Usuários', icon: <UserCog size={20} />, roles: ['regional_admin'] },
   ];
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] flex font-sans text-slate-900">
-      {/* Sidebar Lateral */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 text-white transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0`}>
+    <div className="min-h-screen bg-[#f8fafc] flex font-sans text-slate-900 print:bg-white print:block">
+      {/* Sidebar Lateral - Classe print:hidden garante que suma na impressão */}
+      <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 text-white transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0 print:hidden`}>
         <div className="h-full flex flex-col p-6">
           <div className="flex items-center gap-3 px-2 mb-10">
             <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20 text-white">
@@ -193,8 +201,9 @@ export default function App() {
       </aside>
 
       {/* Área de Conteúdo Principal */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden h-screen">
-        <header className="h-20 bg-white border-b border-slate-100 flex items-center justify-between px-8 shrink-0">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden h-screen print:h-auto print:overflow-visible print:w-full print:block">
+        {/* Header Superior - Classe print:hidden garante que suma na impressão */}
+        <header className="h-20 bg-white border-b border-slate-100 flex items-center justify-between px-8 shrink-0 print:hidden">
           <div className="flex items-center gap-4">
             <button 
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -220,8 +229,8 @@ export default function App() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-[#f8fafc]">
-          <div className="max-w-7xl mx-auto">
+        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-[#f8fafc] print:p-0 print:bg-white print:overflow-visible print:w-full">
+          <div className="max-w-7xl mx-auto print:max-w-none print:w-full">
             {renderContent()}
           </div>
         </div>

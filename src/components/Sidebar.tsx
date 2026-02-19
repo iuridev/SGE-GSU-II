@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Home, Users, LogOut, ChevronLeft, FileText, Menu, GraduationCap } from 'lucide-react';
+import { Home, Users, LogOut, ChevronLeft, FileText, Menu, GraduationCap, School } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 
@@ -52,7 +52,17 @@ export function Sidebar({ userRole }: SidebarProps) {
           active={isActive('/painel-regional')} 
         />
         
-        {/* CORREÇÃO AQUI: Link agora corresponde exatamente à rota no App.tsx */}
+        {/* Item adicionado: Lista de Escolas (Apenas Admin Regional) */}
+        {userRole === 'regional_admin' && (
+          <NavItem 
+            to="/lista-escolas" 
+            icon={<School size={20} />} 
+            label="Lista de Escolas" 
+            collapsed={isCollapsed} 
+            active={isActive('/lista-escolas')} 
+          />
+        )}
+
         <NavItem 
           to="/consumo-agua" 
           icon={<FileText size={20} />} 
