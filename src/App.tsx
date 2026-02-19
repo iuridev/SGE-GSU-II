@@ -32,7 +32,7 @@ import { Elevador } from './pages/Elevador';
 import { Obras } from './pages/Obras';
 import ManejoArboreo from './pages/ManejoArboreo'; 
 import { Chamados } from './pages/Chamados'; 
-import ListaEscolas from './pages/listaescolas';
+import ListaEscolas from './pages/escolasbombril';
 import EducacaoPatrimonial from './pages/EducacaoPatrimonial';
 
 //atualizado
