@@ -35,6 +35,8 @@ import { Chamados } from './pages/Chamados';
 import ListaEscolas from './pages/listaescolas';
 import EducacaoPatrimonial from './pages/EducacaoPatrimonial';
 
+//atualizado
+
 export default function App() {
   const [session, setSession] = useState<any>(null);
   const [userRole, setUserRole] = useState<string>('');
