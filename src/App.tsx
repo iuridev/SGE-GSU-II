@@ -6,7 +6,7 @@ import {
   BookOpen, ClipboardCheck, Calendar, Car, Building,
   AlertTriangle, Scan, ShoppingBag, Trophy, Package,
   Star, ArrowUpCircle, HardHat, TreeDeciduous, Ticket,
-  School,
+  School, Map,
   ShieldAlert
 } from 'lucide-react';
 
@@ -34,6 +34,7 @@ import ManejoArboreo from './pages/ManejoArboreo';
 import { Chamados } from './pages/Chamados'; 
 import ListaEscolas from './pages/escolasbombril';
 import EducacaoPatrimonial from './pages/EducacaoPatrimonial';
+import Plantas from './pages/Plantas'; // <-- Importe a nova página aqui
 
 //atualizado
 
@@ -123,6 +124,7 @@ export default function App() {
       case 'educacao-patrimonial': return <EducacaoPatrimonial />;
       case 'usuarios': return <Usuario />;
       case 'chamados': return <Chamados />;
+      case 'plantas': return <Plantas />; // <-- Adicione esta linha
       default: return <Dashboard />;
     }
   };
@@ -150,6 +152,7 @@ export default function App() {
     { id: 'zeladoria', label: 'Zeladoria', icon: <ShieldCheck size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'remanejamento', label: 'Remanejamento', icon: <ArrowRightLeft size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'escolas', label: 'Escolas (Detalhes)', icon: <Building2 size={20} />, roles: ['regional_admin', 'school_manager'] },
+    { id: 'plantas', label: 'Plantas Prediais', icon: <Map size={20} />, roles: ['regional_admin', 'school_manager'] }, // <-- Novo item do menu
     { id: 'usuarios', label: 'Gestão de Usuários', icon: <UserCog size={20} />, roles: ['regional_admin'] },
   ];
 
