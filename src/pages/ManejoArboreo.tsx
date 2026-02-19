@@ -10,7 +10,6 @@ import {
   AlertCircle, 
   HelpCircle,
   Triangle,
-  Edit2,
   Loader2,
   Star,
   Search
@@ -120,22 +119,11 @@ const getMarkerIcon = (status: StatusManejo, isMinhaEscola: boolean) => {
 export default function ManejoArboreo() {
   const [escolas, setEscolas] = useState<Escola[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [modoVisao, setModoVisao] = useState<'MAPA' | 'LISTA'>('MAPA');
   const [termoBusca, setTermoBusca] = useState(''); 
   
   const [userRole, setUserRole] = useState<string | null>(null);
   const [userSchoolId, setUserSchoolId] = useState<string | null>(null);
-
-  const [escolaSelecionada, setEscolaSelecionada] = useState<Escola | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  
-  const [formData, setFormData] = useState({
-    validadeAutorizacao: '',
-    qtdRemocao: 0,
-    qtdPoda: 0,
-    naoSeAplica: false
-  });
 
   const carregarContextoEDados = async () => {
     setLoading(true);
@@ -209,12 +197,6 @@ export default function ManejoArboreo() {
     return 'VALIDO';
   };
 
-  const podeEditarEscola = (escolaId: string) => {
-    if (userRole === 'regional_admin') return true;
-    if (userRole === 'school_manager' && userSchoolId === escolaId) return true;
-    return false;
-  };
-
   const escolasFiltradas = useMemo(() => {
     if (!termoBusca.trim()) return escolas;
     const termo = termoBusca.toLowerCase();
@@ -235,54 +217,6 @@ export default function ManejoArboreo() {
     });
     return stats;
   }, [escolasFiltradas]);
-
-  const abrirModal = (escola: Escola) => {
-    if (!podeEditarEscola(escola.id)) return;
-    setEscolaSelecionada(escola);
-    setFormData({
-      validadeAutorizacao: escola.validadeAutorizacao || '',
-      qtdRemocao: escola.qtdRemocao,
-      qtdPoda: escola.qtdPoda,
-      naoSeAplica: escola.naoSeAplica
-    });
-    setIsModalOpen(true);
-  };
-
-  const fecharModal = () => {
-    if (saving) return;
-    setIsModalOpen(false);
-    setEscolaSelecionada(null);
-  };
-
-  const salvarDados = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!escolaSelecionada) return;
-
-    setSaving(true);
-    try {
-      const payload = {
-        escola_id: escolaSelecionada.id,
-        validade_autorizacao: formData.naoSeAplica ? null : (formData.validadeAutorizacao || null),
-        qtd_remocao: formData.naoSeAplica ? 0 : formData.qtdRemocao,
-        qtd_poda: formData.naoSeAplica ? 0 : formData.qtdPoda,
-        nao_se_aplica: formData.naoSeAplica
-      };
-
-      if (escolaSelecionada.manejo_id) {
-        await (supabase as any).from('manejo_arboreo').update(payload).eq('id', escolaSelecionada.manejo_id);
-      } else {
-        await (supabase as any).from('manejo_arboreo').insert([payload]);
-      }
-
-      await carregarContextoEDados();
-      fecharModal();
-    } catch (err) {
-      console.error("Erro ao salvar:", err);
-      alert("Ocorreu um erro ao guardar os dados.");
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const IconeNaoSeAplica = () => (
     <div className="relative flex items-center justify-center w-8 h-8">
@@ -469,7 +403,6 @@ export default function ManejoArboreo() {
 
                 {escolasComCoordenadas.map(escola => {
                   const isMinhaEscola = escola.id === userSchoolId;
-                  const canEdit = podeEditarEscola(escola.id);
                   const icon = getMarkerIcon(determinarStatus(escola), isMinhaEscola);
 
                   return (
@@ -481,21 +414,7 @@ export default function ManejoArboreo() {
                       <Popup className="custom-popup" closeButton={false}>
                         <div className="text-center p-1 min-w-[180px]">
                           <p className="font-bold text-slate-800 text-[13px] mb-1">{escola.nome}</p>
-                          {isMinhaEscola && <p className="text-blue-600 font-bold text-[11px] mb-3 flex items-center justify-center gap-1"><Star size={12} fill="currentColor"/> A sua Escola</p>}
-                          
-                          {canEdit ? (
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                abrirModal(escola);
-                              }}
-                              className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors shadow-sm"
-                            >
-                              <Edit2 size={12} /> Atualizar Manejo
-                            </button>
-                          ) : (
-                            <p className="text-red-600 font-semibold text-[11px] mt-3 bg-red-50 p-2 rounded-lg border border-red-100">Somente visualização</p>
-                          )}
+                          {isMinhaEscola && <p className="text-blue-600 font-bold text-[11px] mb-1 flex items-center justify-center gap-1"><Star size={12} fill="currentColor"/> A sua Escola</p>}
                         </div>
                       </Popup>
                     </Marker>
@@ -520,14 +439,12 @@ export default function ManejoArboreo() {
                     <th className="py-4 px-6">Validade</th>
                     <th className="py-4 px-6 text-center">Remover</th>
                     <th className="py-4 px-6 text-center">Podar</th>
-                    <th className="py-4 px-6 text-center">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {escolasFiltradas.map(escola => {
                     const status = determinarStatus(escola);
                     const isMinhaEscola = escola.id === userSchoolId;
-                    const canEdit = podeEditarEscola(escola.id);
 
                     return (
                       <tr key={escola.id} className={`transition-colors ${isMinhaEscola ? 'bg-blue-50/40 hover:bg-blue-50/80' : 'hover:bg-slate-50/80'}`}>
@@ -567,20 +484,6 @@ export default function ManejoArboreo() {
                         <td className="py-4 px-6 text-center">
                           {escola.naoSeAplica ? '-' : <span className="font-bold text-slate-700 bg-slate-100/80 px-3 py-1 rounded-md">{escola.qtdPoda}</span>}
                         </td>
-                        <td className="py-4 px-6 text-center">
-                          {canEdit ? (
-                            <button 
-                              onClick={() => abrirModal(escola)}
-                              className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors"
-                            >
-                              <Edit2 size={14} /> Atualizar
-                            </button>
-                          ) : (
-                            <span className="text-xs font-medium text-slate-400 bg-slate-100 px-3 py-1.5 rounded-lg cursor-not-allowed" title="Apenas o gestor desta unidade ou o Administrador podem editar.">
-                              Sem Permissão
-                            </span>
-                          )}
-                        </td>
                       </tr>
                     );
                   })}
@@ -590,104 +493,6 @@ export default function ManejoArboreo() {
           </div>
         )}
       </div>
-
-      {/* MODAL DE REGISTO/EDIÇÃO */}
-      {isModalOpen && escolaSelecionada && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[10000] p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-100 bg-slate-50/50">
-              <h2 className="text-xl font-bold text-slate-800">Autorização de Manejo</h2>
-              <button disabled={saving} onClick={fecharModal} className="text-slate-400 hover:text-slate-600 hover:bg-slate-200 p-1.5 rounded-full transition-colors">
-                <X size={20} />
-              </button>
-            </div>
-            
-            <form onSubmit={salvarDados} className="p-6 space-y-6">
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                <div className="flex items-center gap-2">
-                  <p className="font-bold text-slate-800">{escolaSelecionada.nome}</p>
-                  {escolaSelecionada.id === userSchoolId && (
-                     <Star size={14} className="text-blue-500" fill="currentColor" />
-                  )}
-                </div>
-                <p className="text-sm text-slate-500 mt-1">{escolaSelecionada.endereco}</p>
-              </div>
-
-              {/* Opção Não se Aplica */}
-              <label className="flex items-start gap-3 p-4 bg-orange-50/50 border border-orange-100 rounded-xl cursor-pointer hover:bg-orange-50 transition-colors">
-                <input 
-                  type="checkbox" 
-                  className="w-5 h-5 mt-0.5 accent-orange-500 rounded cursor-pointer"
-                  checked={formData.naoSeAplica}
-                  onChange={(e) => setFormData({...formData, naoSeAplica: e.target.checked})}
-                />
-                <div>
-                  <span className="font-bold text-orange-900 block">Não se aplica</span>
-                  <p className="text-sm text-orange-700/80 mt-0.5">A unidade escolar não possui árvores, canteiros ou área verde que requeira manejo arbóreo.</p>
-                </div>
-              </label>
-
-              <div className={`space-y-5 transition-opacity duration-300 ${formData.naoSeAplica ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Data de Validade da Autorização</label>
-                  <input 
-                    type="date" 
-                    required={!formData.naoSeAplica}
-                    value={formData.validadeAutorizacao}
-                    onChange={(e) => setFormData({...formData, validadeAutorizacao: e.target.value})}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Qtd. Remoção</label>
-                    <input 
-                      type="number" 
-                      min="0"
-                      required={!formData.naoSeAplica}
-                      value={formData.qtdRemocao}
-                      onChange={(e) => setFormData({...formData, qtdRemocao: parseInt(e.target.value) || 0})}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Qtd. Poda</label>
-                    <input 
-                      type="number" 
-                      min="0"
-                      required={!formData.naoSeAplica}
-                      value={formData.qtdPoda}
-                      onChange={(e) => setFormData({...formData, qtdPoda: parseInt(e.target.value) || 0})}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-4 flex justify-end gap-3">
-                <button 
-                  type="button" 
-                  disabled={saving}
-                  onClick={fecharModal}
-                  className="px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  type="submit"
-                  disabled={saving}
-                  className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-70 rounded-xl shadow-md shadow-emerald-500/20 transition-all"
-                >
-                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                  {saving ? 'A Guardar...' : 'Atualizar Dados'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }
