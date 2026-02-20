@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { X, Zap, Send, Loader2, CheckCircle2, ClipboardCheck } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, Zap, Send, Loader2, CheckCircle2, ClipboardCheck, Building2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface PowerOutageModalProps {
@@ -9,6 +9,12 @@ interface PowerOutageModalProps {
   schoolId: string | null;
   userName: string;
   edpCode: string;
+}
+
+interface SchoolOption {
+  id: string;
+  name: string;
+  edp_installation_id: string;
 }
 
 export function PowerOutageModal({ isOpen, onClose, schoolName, schoolId, userName, edpCode }: PowerOutageModalProps) {
@@ -21,7 +27,51 @@ export function PowerOutageModal({ isOpen, onClose, schoolName, schoolId, userNa
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
 
-  if (!isOpen) return null;
+  // Estados para Admin selecionar escola
+  const [schoolsList, setSchoolsList] = useState<SchoolOption[]>([]);
+  const [selectedSchoolId, setSelectedSchoolId] = useState<string>(schoolId || '');
+  const [selectedSchoolName, setSelectedSchoolName] = useState<string>(schoolName || '');
+  const [selectedEdp, setSelectedEdp] = useState<string>(edpCode || '');
+
+  // Busca lista de escolas se for Admin (não tem schoolId fixo)
+  useEffect(() => {
+    if (isOpen && !schoolId) {
+      fetchSchools();
+    }
+  }, [isOpen, schoolId]);
+
+  // Sincroniza estados se os props mudarem (ex: usuário comum logado)
+  useEffect(() => {
+    if (schoolId) {
+      setSelectedSchoolId(schoolId);
+      setSelectedSchoolName(schoolName);
+      setSelectedEdp(edpCode);
+    }
+  }, [schoolId, schoolName, edpCode]);
+
+  async function fetchSchools() {
+    try {
+      const { data, error } = await (supabase as any)
+        .from('schools')
+        .select('id, name, edp_installation_id')
+        .order('name');
+      
+      if (error) throw error;
+      setSchoolsList(data || []);
+    } catch (err) {
+      console.error("Erro ao carregar escolas:", err);
+    }
+  }
+
+  const handleSchoolChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const sId = e.target.value;
+    setSelectedSchoolId(sId);
+    const school = schoolsList.find(s => s.id === sId);
+    if (school) {
+      setSelectedSchoolName(school.name);
+      setSelectedEdp(school.edp_installation_id || 'N/A');
+    }
+  };
 
   const formatReport = () => {
     return `1 - Verificou o Disjuntor? O problema foi resolvido? ${formData.q1_disjuntor}
@@ -33,6 +83,11 @@ ${formData.q3_descricao}`.trim();
   };
 
   const handleSendNotification = async () => {
+    if (!selectedSchoolId) {
+      alert("Por favor, selecione uma unidade escolar.");
+      return;
+    }
+
     if (!formData.q1_disjuntor || !formData.q2_vizinhanca || !formData.q3_descricao.trim()) {
       alert("Por favor, responda todas as perguntas do checklist antes de enviar.");
       return;
@@ -43,12 +98,12 @@ ${formData.q3_descricao}`.trim();
       const { data, error } = await supabase.functions.invoke('send-outage-email', {
         body: { 
           type: 'POWER_OUTAGE',
-          schoolName,
-          schoolId, // CORREÇÃO: Enviando o ID para o banco
+          schoolName: selectedSchoolName,
+          schoolId: selectedSchoolId,
           userName,
           data: { 
             notes: formatReport(),
-            edpCode 
+            edpCode: selectedEdp 
           }
         }
       });
@@ -59,13 +114,19 @@ ${formData.q3_descricao}`.trim();
       }
 
       setSent(true);
-      setTimeout(onClose, 3000);
+      setTimeout(() => {
+        onClose();
+        setSent(false);
+        setFormData({ q1_disjuntor: '', q2_vizinhanca: '', q3_descricao: '' });
+      }, 3000);
     } catch (error: any) {
       alert("ERRO NO ENVIO:\n" + error.message);
     } finally {
       setLoading(false);
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4">
@@ -93,14 +154,32 @@ ${formData.q3_descricao}`.trim();
             </div>
           ) : (
             <>
+              {/* Seletor de Escola para Admin */}
+              {!schoolId && (
+                <div className="p-6 bg-slate-50 rounded-3xl border-2 border-slate-100">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block flex items-center gap-2">
+                    <Building2 size={12}/> Selecione a Unidade Escolar
+                  </label>
+                  <select 
+                    required 
+                    className="w-full p-4 rounded-2xl border-2 border-slate-200 font-bold text-slate-700 focus:border-amber-500 outline-none transition-all"
+                    value={selectedSchoolId}
+                    onChange={handleSchoolChange}
+                  >
+                    <option value="">-- Selecione na lista --</option>
+                    {schoolsList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+              )}
+
               <div className="flex flex-col md:flex-row gap-4">
                 <div className="flex-1 bg-slate-50 p-4 rounded-2xl border border-slate-100">
                   <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Unidade Escolar</p>
-                  <p className="text-[13px] font-bold text-slate-700 truncate uppercase">{schoolName}</p>
+                  <p className="text-[13px] font-bold text-slate-700 truncate uppercase">{selectedSchoolName || 'Nenhuma selecionada'}</p>
                 </div>
                 <div className="w-full md:w-48 bg-amber-50 p-4 rounded-2xl border border-amber-100 text-center">
                   <p className="text-[10px] font-black text-amber-600 uppercase mb-1">Instalação EDP</p>
-                  <p className="text-[13px] font-bold text-slate-700 font-mono">{edpCode}</p>
+                  <p className="text-[13px] font-bold text-slate-700 font-mono">{selectedEdp || '---'}</p>
                 </div>
               </div>
 
