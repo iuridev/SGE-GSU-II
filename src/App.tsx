@@ -34,6 +34,7 @@ import ManejoArboreo from './pages/ManejoArboreo';
 import { Chamados } from './pages/Chamados'; 
 import ListaEscolas from './pages/escolasbombril';
 import EducacaoPatrimonial from './pages/EducacaoPatrimonial';
+import CadastroFurtos from './pages/Furtos'; // <-- Importe a página de Furtos
 import Plantas from './pages/Plantas'; // <-- Importe a nova página aqui
 
 //atualizado
@@ -124,7 +125,8 @@ export default function App() {
       case 'educacao-patrimonial': return <EducacaoPatrimonial />;
       case 'usuarios': return <Usuario />;
       case 'chamados': return <Chamados />;
-      case 'plantas': return <Plantas />; // <-- Adicione esta linha
+      case 'plantas': return <Plantas />;
+      case 'furtos': return <CadastroFurtos /> // <-- Adicione esta linha
       default: return <Dashboard />;
     }
   };
@@ -153,6 +155,7 @@ export default function App() {
     { id: 'remanejamento', label: 'Remanejamento', icon: <ArrowRightLeft size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'escolas', label: 'Escolas (Detalhes)', icon: <Building2 size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'plantas', label: 'Plantas Prediais', icon: <Map size={20} />, roles: ['regional_admin', 'school_manager'] }, // <-- Novo item do menu
+    { id: 'furtos', label: 'Cadastro de Furtos', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin'] }, // <-- Novo item no menu restrito a manage_admin
     { id: 'usuarios', label: 'Gestão de Usuários', icon: <UserCog size={20} />, roles: ['regional_admin'] },
   ];
 
