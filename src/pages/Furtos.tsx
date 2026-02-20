@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Plus, Trash2, Save, FileText, AlertTriangle, ShieldAlert, Building2, 
-  Calculator, BarChart3, TrendingUp, Clock, CheckCircle, Search, Pencil, X
+  Calculator, BarChart3, TrendingUp, Clock, CheckCircle, Search, Pencil, X, CalendarClock
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
@@ -47,6 +47,7 @@ interface ProcessoHistorico {
   nl_baixa?: string;
   itens?: Item[];
   valor_total: number;
+  updated_at?: string; // Nova propriedade adicionada
 }
 
 const FORM_INITIAL_STATE = {
@@ -62,11 +63,11 @@ const FORM_INITIAL_STATE = {
 };
 
 export default function CadastroFurtos() {
-  // Estado principal do formulário e controle de edição
+  // Estado principal do formulário e controlo de edição
   const [formData, setFormData] = useState(FORM_INITIAL_STATE);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // Estados para dados do Supabase e Usuário
+  // Estados para dados do Supabase e Utilizador
   const [escolas, setEscolas] = useState<Escola[]>([]);
   const [isLoadingEscolas, setIsLoadingEscolas] = useState(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -75,11 +76,11 @@ export default function CadastroFurtos() {
   const [historico, setHistorico] = useState<ProcessoHistorico[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Efeito para buscar usuário logado, lista de escolas e histórico real do banco
+  // Efeito para buscar utilizador logado, lista de escolas e histórico real do banco
   useEffect(() => {
     async function loadData() {
       try {
-        // 1. Buscar usuário logado
+        // 1. Buscar utilizador logado
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           const { data: profile } = await supabase
@@ -99,7 +100,7 @@ export default function CadastroFurtos() {
         if (schoolsError) throw schoolsError;
         if (schoolsData) setEscolas(schoolsData as Escola[]);
 
-        // 3. Buscar Histórico Real da tabela processos_furtos (agora puxando todas as colunas para a edição funcionar)
+        // 3. Buscar Histórico Real da tabela processos_furtos
         const { data: processosData, error: processosError } = await (supabase as any)
           .from('processos_furtos')
           .select(`
@@ -115,9 +116,11 @@ export default function CadastroFurtos() {
             itens,
             situacao,
             valor_total,
+            updated_at,
+            created_at,
             schools ( name )
           `)
-          .order('created_at', { ascending: false });
+          .order('updated_at', { ascending: false }); // Ordena pelos mais recentemente atualizados no geral
 
         if (processosError) throw processosError;
 
@@ -135,7 +138,8 @@ export default function CadastroFurtos() {
             status: proc.status,
             nl_baixa: proc.nl_baixa,
             itens: proc.itens,
-            valor_total: Number(proc.valor_total) || 0
+            valor_total: Number(proc.valor_total) || 0,
+            updated_at: proc.updated_at || proc.created_at // Fallback para created_at se updated_at for nulo
           }));
           setHistorico(historicoFormatado);
         }
@@ -192,7 +196,7 @@ export default function CadastroFurtos() {
       status: processo.status || 'NÃO INSTAURADO',
     });
     setItens(processo.itens && processo.itens.length > 0 ? processo.itens : [{ id: 1, descricao: '', patrimonio: '', valorUnitario: '' }]);
-    window.scrollTo({ top: 0, behavior: 'smooth' }); // Rola a tela suavemente até o formulário
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const cancelEdit = () => {
@@ -211,8 +215,6 @@ export default function CadastroFurtos() {
       if (error) throw error;
 
       setHistorico(prev => prev.filter(proc => proc.id !== id));
-      
-      // Se estava editando o mesmo processo que foi apagado, limpa o form
       if (editingId === id) cancelEdit();
 
       alert("Processo excluído com sucesso!");
@@ -234,8 +236,17 @@ export default function CadastroFurtos() {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
   };
 
-  // Cálculos para o Dashboard
-  const stats = useMemo(() => {
+  // Funções Utilitárias para Datas
+  const calcularDiasAtraso = (dataIso?: string) => {
+    if (!dataIso) return 0;
+    const dataAtual = new Date();
+    const dataAtualizacao = new Date(dataIso);
+    const diffTime = Math.abs(dataAtual.getTime() - dataAtualizacao.getTime());
+    return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  };
+
+  // Cálculos para o Dashboard e Alertas
+  const { stats, processosDesatualizados } = useMemo(() => {
     const totalOcorrencias = historico.length;
     const prejuizoTotal = historico.reduce((acc, curr) => acc + curr.valor_total, 0);
     const emApuracao = historico.filter(h => h.situacao === 'Em Apuração').length;
@@ -252,7 +263,21 @@ export default function CadastroFurtos() {
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
 
-    return { totalOcorrencias, prejuizoTotal, emApuracao, concluidos, top5 };
+    // Calcular Processos Pendentes sem atualização há > 7 dias
+    const desatualizados = historico
+      .filter(h => h.situacao !== 'Concluído') // Apenas os não concluídos
+      .filter(h => calcularDiasAtraso(h.updated_at) > 7) // Mais de 7 dias
+      .sort((a, b) => {
+        // Ordenar do mais antigo (maior atraso) para o mais recente
+        const dataA = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+        const dataB = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+        return dataA - dataB;
+      });
+
+    return { 
+      stats: { totalOcorrencias, prejuizoTotal, emApuracao, concluidos, top5 },
+      processosDesatualizados: desatualizados
+    };
   }, [historico]);
 
   // Salvando/Atualizando dados no Supabase
@@ -264,6 +289,7 @@ export default function CadastroFurtos() {
     }
 
     setIsSaving(true);
+    const agoraIso = new Date().toISOString();
     
     try {
       const payload = {
@@ -277,19 +303,18 @@ export default function CadastroFurtos() {
         status: formData.status,
         nl_baixa: formData.nlBaixa,
         valor_total: valorTotal,
-        itens: itens
+        itens: itens,
+        updated_at: agoraIso // Captura a data exata da atualização
       };
 
       let query;
 
       if (editingId) {
-        // Modo Edição: UPDATE
         query = (supabase as any)
           .from('processos_furtos')
           .update(payload)
           .eq('id', editingId);
       } else {
-        // Modo Inserção: INSERT
         query = (supabase as any)
           .from('processos_furtos')
           .insert([payload]);
@@ -309,6 +334,7 @@ export default function CadastroFurtos() {
           itens,
           situacao,
           valor_total,
+          updated_at,
           schools ( name )
         `)
         .single();
@@ -329,15 +355,18 @@ export default function CadastroFurtos() {
           status: registroSalvo.status,
           nl_baixa: registroSalvo.nl_baixa,
           itens: registroSalvo.itens,
-          valor_total: Number(registroSalvo.valor_total) || 0
+          valor_total: Number(registroSalvo.valor_total) || 0,
+          updated_at: registroSalvo.updated_at
         };
 
         if (editingId) {
-          // Atualiza a linha na tabela existente
-          setHistorico(prev => prev.map(p => p.id === editingId ? processoFormatado : p));
+          // Substitui e reordena colocando o atualizado no topo
+          setHistorico(prev => {
+            const novaLista = prev.filter(p => p.id !== editingId);
+            return [processoFormatado, ...novaLista];
+          });
           alert("Processo atualizado com sucesso!");
         } else {
-          // Adiciona ao topo
           setHistorico([processoFormatado, ...historico]);
           alert("Processo cadastrado com sucesso!");
         }
@@ -347,7 +376,7 @@ export default function CadastroFurtos() {
 
     } catch (error) {
       console.error("Erro ao salvar processo:", error);
-      alert("Erro ao salvar o processo. Verifique sua conexão.");
+      alert("Erro ao salvar o processo. Verifique a sua ligação.");
     } finally {
       setIsSaving(false);
     }
@@ -359,7 +388,7 @@ export default function CadastroFurtos() {
       <header className="bg-slate-900 text-white p-4 flex justify-between items-center shadow-md print:hidden">
         <div className="flex items-center gap-2">
           <ShieldAlert className="w-6 h-6 text-blue-400" />
-          <h1 className="text-xl font-bold tracking-tight">GSE-GSU-II <span className="text-slate-400 font-normal text-sm ml-2 hidden sm:inline">Módulo de Patrimônio e Segurança</span></h1>
+          <h1 className="text-xl font-bold tracking-tight">GSE-GSU-II <span className="text-slate-400 font-normal text-sm ml-2 hidden sm:inline">Módulo de Património e Segurança</span></h1>
         </div>
         <div className="flex items-center gap-3">
           <span className="bg-blue-600 px-3 py-1 rounded-full text-xs font-medium uppercase tracking-wider">
@@ -367,7 +396,7 @@ export default function CadastroFurtos() {
           </span>
           <div 
             className="w-8 h-8 rounded-full bg-slate-700 border-2 border-slate-600 flex items-center justify-center font-bold text-sm"
-            title={userProfile?.full_name || 'Usuário Logado'}
+            title={userProfile?.full_name || 'Utilizador Logado'}
           >
             {userProfile?.full_name ? userProfile.full_name.substring(0, 2).toUpperCase() : 'US'}
           </div>
@@ -376,6 +405,40 @@ export default function CadastroFurtos() {
 
       <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-8">
         
+        {/* ==================== ALERTA DE PROCESSOS DESATUALIZADOS ==================== */}
+        {processosDesatualizados.length > 0 && (
+          <section className="bg-red-50 border-l-4 border-red-500 rounded-xl p-5 shadow-sm animate-in fade-in slide-in-from-top-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-100 rounded-lg text-red-600">
+                <CalendarClock className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-red-800 font-bold text-lg">Atenção: Processos Sem Atualização</h3>
+                <p className="text-red-600 text-sm">Existem {processosDesatualizados.length} processos não concluídos parados há mais de 7 dias (Ordenados do mais antigo).</p>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {processosDesatualizados.map((proc) => {
+                const dias = calcularDiasAtraso(proc.updated_at);
+                return (
+                  <div key={`alert-${proc.id}`} className="bg-white border border-red-100 rounded-lg p-3 flex justify-between items-center shadow-sm">
+                    <div className="min-w-0">
+                      <p className="font-bold text-sm text-gray-800 truncate">{proc.numero_sei}</p>
+                      <p className="text-xs text-gray-500 truncate">{proc.escolaNome}</p>
+                    </div>
+                    <div className="text-right ml-3 shrink-0">
+                      <span className="inline-block bg-red-100 text-red-700 font-bold px-2 py-1 rounded text-xs">
+                        {dias} dias
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         {/* ==================== DASHBOARD SECTION ==================== */}
         <section>
           <div className="mb-4">
@@ -383,7 +446,6 @@ export default function CadastroFurtos() {
               <BarChart3 className="w-6 h-6 text-blue-600" />
               Painel de Ocorrências (Últimos 12 meses)
             </h2>
-            <p className="text-gray-500 text-sm">Resumo estatístico dos furtos e sinistros registrados no sistema.</p>
           </div>
 
           {/* Cards de KPIs */}
@@ -450,7 +512,7 @@ export default function CadastroFurtos() {
                   </div>
                 )
               }) : (
-                <p className="text-sm text-gray-500 text-center py-4">Nenhum dado registrado para gerar o ranking.</p>
+                <p className="text-sm text-gray-500 text-center py-4">Nenhum dado registado para gerar o ranking.</p>
               )}
             </div>
           </div>
@@ -462,7 +524,7 @@ export default function CadastroFurtos() {
             <div className="mb-6 border-b pb-4 flex justify-between items-center">
               <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
                 {editingId ? <Pencil className="w-6 h-6 text-amber-500" /> : <Plus className="w-6 h-6 text-blue-600" />}
-                {editingId ? 'Editar Registro de Ocorrência' : 'Novo Registro de Ocorrência'}
+                {editingId ? 'Editar Registo de Ocorrência' : 'Novo Registo de Ocorrência'}
               </h2>
               {editingId && (
                 <span className="bg-amber-100 text-amber-800 px-3 py-1 rounded-full text-xs font-bold animate-pulse">
@@ -473,110 +535,56 @@ export default function CadastroFurtos() {
 
             <form onSubmit={handleSubmit} className="space-y-6">
               
-              {/* SEÇÃO 1: Dados Principais */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Nº do SEI <span className="text-red-500">*</span></label>
-                  <input
-                    type="text"
-                    name="numeroSEI"
-                    required
-                    placeholder="Ex: 00000.00000/0000-00"
-                    value={formData.numeroSEI}
-                    onChange={handleInputChange}
-                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                  />
+                  <input type="text" name="numeroSEI" required placeholder="Ex: 00000.00000/0000-00" value={formData.numeroSEI} onChange={handleInputChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" />
                 </div>
 
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
                     <Building2 className="w-4 h-4 text-gray-400" /> Escola <span className="text-red-500">*</span>
                   </label>
-                  <select
-                    name="escola"
-                    required
-                    value={formData.escola}
-                    onChange={handleInputChange}
-                    disabled={isLoadingEscolas}
-                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all bg-white disabled:bg-gray-100"
-                  >
-                    <option value="" disabled>
-                      {isLoadingEscolas ? "Carregando escolas..." : "Selecione uma escola..."}
-                    </option>
-                    {escolas.map(esc => (
-                      <option key={esc.id} value={esc.id}>{esc.name}</option>
-                    ))}
+                  <select name="escola" required value={formData.escola} onChange={handleInputChange} disabled={isLoadingEscolas} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all bg-white disabled:bg-gray-100">
+                    <option value="" disabled>{isLoadingEscolas ? "A carregar escolas..." : "Selecione uma escola..."}</option>
+                    {escolas.map(esc => <option key={esc.id} value={esc.id}>{esc.name}</option>)}
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Data da Ocorrência <span className="text-red-500">*</span></label>
-                  <input
-                    type="date"
-                    name="dataOcorrencia"
-                    required
-                    value={formData.dataOcorrencia}
-                    onChange={handleInputChange}
-                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
+                  <input type="date" name="dataOcorrencia" required value={formData.dataOcorrencia} onChange={handleInputChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Ocorrência</label>
-                  <select
-                    name="tipoOcorrencia"
-                    value={formData.tipoOcorrencia}
-                    onChange={handleInputChange}
-                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                  >
+                  <select name="tipoOcorrencia" value={formData.tipoOcorrencia} onChange={handleInputChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white">
                     {TIPOS_OCORRENCIA.map(tipo => <option key={tipo} value={tipo}>{tipo}</option>)}
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Nº do B.O.</label>
-                  <input
-                    type="text"
-                    name="numeroBO"
-                    placeholder="Boletim Opcional"
-                    value={formData.numeroBO}
-                    onChange={handleInputChange}
-                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
+                  <input type="text" name="numeroBO" placeholder="Boletim Opcional" value={formData.numeroBO} onChange={handleInputChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Autoria</label>
-                  <select
-                    name="autoria"
-                    value={formData.autoria}
-                    onChange={handleInputChange}
-                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                  >
+                  <select name="autoria" value={formData.autoria} onChange={handleInputChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white">
                     {AUTORIAS.map(aut => <option key={aut} value={aut}>{aut}</option>)}
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Situação (Triagem)</label>
-                  <select
-                    name="situacao"
-                    value={formData.situacao}
-                    onChange={handleInputChange}
-                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                  >
+                  <select name="situacao" value={formData.situacao} onChange={handleInputChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white">
                     {SITUACOES.map(sit => <option key={sit} value={sit}>{sit}</option>)}
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Status Final do Processo</label>
-                  <select
-                    name="status"
-                    value={formData.status}
-                    onChange={handleInputChange}
-                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm"
-                  >
+                  <select name="status" value={formData.status} onChange={handleInputChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm">
                     {STATUS_OPCOES.map(stat => <option key={stat} value={stat}>{stat}</option>)}
                   </select>
                 </div>
@@ -589,11 +597,7 @@ export default function CadastroFurtos() {
                     <Calculator className="w-5 h-5 text-green-600" />
                     Itens Subtraídos/Danificados
                   </h3>
-                  <button
-                    type="button"
-                    onClick={addItem}
-                    className="flex items-center gap-1 bg-green-50 text-green-700 hover:bg-green-100 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border border-green-200"
-                  >
+                  <button type="button" onClick={addItem} className="flex items-center gap-1 bg-green-50 text-green-700 hover:bg-green-100 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border border-green-200">
                     <Plus className="w-4 h-4" /> Add Item
                   </button>
                 </div>
@@ -602,10 +606,10 @@ export default function CadastroFurtos() {
                   {itens.map((item) => (
                     <div key={item.id} className="flex flex-col md:flex-row gap-3 items-start md:items-center bg-gray-50 p-3 rounded-lg border border-gray-200">
                       <div className="w-full md:w-5/12">
-                        <input type="text" required placeholder="Descrição do Item (Ex: Fiação, Desktop)" value={item.descricao} onChange={(e) => handleItemChange(item.id, 'descricao', e.target.value)} className="w-full p-2 border border-gray-300 rounded bg-white focus:ring-2 focus:ring-green-500 outline-none text-sm" />
+                        <input type="text" required placeholder="Descrição do Item" value={item.descricao} onChange={(e) => handleItemChange(item.id, 'descricao', e.target.value)} className="w-full p-2 border border-gray-300 rounded bg-white focus:ring-2 focus:ring-green-500 outline-none text-sm" />
                       </div>
                       <div className="w-full md:w-3/12">
-                        <input type="text" placeholder="Nº Patrimônio (Opcional)" value={item.patrimonio} onChange={(e) => handleItemChange(item.id, 'patrimonio', e.target.value)} className="w-full p-2 border border-gray-300 rounded bg-white focus:ring-2 focus:ring-green-500 outline-none text-sm" />
+                        <input type="text" placeholder="Nº Património (Opcional)" value={item.patrimonio} onChange={(e) => handleItemChange(item.id, 'patrimonio', e.target.value)} className="w-full p-2 border border-gray-300 rounded bg-white focus:ring-2 focus:ring-green-500 outline-none text-sm" />
                       </div>
                       <div className="w-full md:w-3/12">
                         <input type="number" step="0.01" min="0" placeholder="Valor Un. R$ (Opcional)" value={item.valorUnitario} onChange={(e) => handleItemChange(item.id, 'valorUnitario', e.target.value)} className="w-full p-2 border border-gray-300 rounded bg-white focus:ring-2 focus:ring-green-500 outline-none text-sm" />
@@ -628,26 +632,12 @@ export default function CadastroFurtos() {
               {/* Ações do Formulário */}
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
                 {editingId && (
-                  <button 
-                    type="button" 
-                    onClick={cancelEdit}
-                    disabled={isSaving}
-                    className="px-6 py-3 text-gray-600 bg-gray-100 font-medium rounded-lg transition-colors hover:bg-gray-200 flex items-center gap-2"
-                  >
+                  <button type="button" onClick={cancelEdit} disabled={isSaving} className="px-6 py-3 text-gray-600 bg-gray-100 font-medium rounded-lg transition-colors hover:bg-gray-200 flex items-center gap-2">
                     <X className="w-5 h-5" /> Cancelar
                   </button>
                 )}
-                <button 
-                  type="submit" 
-                  disabled={isSaving}
-                  className={`px-8 py-3 text-white font-medium rounded-lg transition-colors flex items-center gap-2 shadow-md justify-center ${
-                    isSaving 
-                      ? 'bg-slate-600 cursor-not-allowed' 
-                      : editingId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-slate-900 hover:bg-slate-800'
-                  }`}
-                >
-                  <Save className="w-5 h-5" /> 
-                  {isSaving ? 'Salvando...' : editingId ? 'Atualizar Processo' : 'Salvar Processo'}
+                <button type="submit" disabled={isSaving} className={`px-8 py-3 text-white font-medium rounded-lg transition-colors flex items-center gap-2 shadow-md justify-center ${isSaving ? 'bg-slate-600 cursor-not-allowed' : editingId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-slate-900 hover:bg-slate-800'}`}>
+                  <Save className="w-5 h-5" /> {isSaving ? 'A Guardar...' : editingId ? 'Atualizar Processo' : 'Guardar Processo'}
                 </button>
               </div>
 
@@ -661,18 +651,13 @@ export default function CadastroFurtos() {
             <div>
               <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                 <FileText className="w-5 h-5 text-gray-500" />
-                Processos Cadastrados
+                Processos Registados
               </h3>
-              <p className="text-sm text-gray-500">Lista dos últimos registros de ocorrências.</p>
             </div>
             
             <div className="relative w-full sm:w-64">
               <Search className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
-              <input 
-                type="text" 
-                placeholder="Buscar SEI ou Escola..." 
-                className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-              />
+              <input type="text" placeholder="Pesquisar SEI ou Escola..." className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
             </div>
           </div>
 
@@ -682,61 +667,51 @@ export default function CadastroFurtos() {
                 <tr>
                   <th className="px-4 py-3">Nº SEI</th>
                   <th className="px-4 py-3">Escola</th>
-                  <th className="px-4 py-3">Data</th>
-                  <th className="px-4 py-3">Tipo</th>
                   <th className="px-4 py-3">Situação</th>
                   <th className="px-4 py-3 text-right">Valor R$</th>
+                  <th className="px-4 py-3">Última Atualização</th>
                   <th className="px-4 py-3 text-center">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {historico.length > 0 ? historico.map((proc) => (
-                  <tr key={proc.id} className={`transition-colors ${editingId === proc.id ? 'bg-amber-50' : 'hover:bg-gray-50'}`}>
-                    <td className="px-4 py-3 font-medium text-blue-600">{proc.numero_sei}</td>
-                    <td className="px-4 py-3 truncate max-w-[200px]" title={proc.escolaNome}>{proc.escolaNome}</td>
-                    <td className="px-4 py-3">
-                      {new Date(proc.data_ocorrencia + "T00:00:00").toLocaleDateString('pt-BR')}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="bg-gray-100 px-2 py-1 rounded text-xs font-medium text-gray-600">
-                        {proc.tipo_ocorrencia}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                        proc.situacao === 'Concluído' ? 'bg-green-100 text-green-700' :
-                        proc.situacao === 'Em Apuração' ? 'bg-amber-100 text-amber-700' :
-                        'bg-blue-100 text-blue-700'
-                      }`}>
-                        {proc.situacao}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right font-medium">
-                      {formatarMoeda(proc.valor_total)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-center gap-2">
-                        <button 
-                          onClick={() => handleEdit(proc)}
-                          className={`p-1.5 rounded-md transition-colors ${editingId === proc.id ? 'bg-amber-200 text-amber-800' : 'text-blue-600 hover:bg-blue-50'}`}
-                          title="Editar Processo"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button 
-                          onClick={() => handleDelete(proc.id)}
-                          className="p-1.5 rounded-md text-red-500 hover:bg-red-50 transition-colors"
-                          title="Excluir Processo"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )) : (
+                {historico.length > 0 ? historico.map((proc) => {
+                  const dataAtualizacao = proc.updated_at ? new Date(proc.updated_at) : null;
+                  return (
+                    <tr key={proc.id} className={`transition-colors ${editingId === proc.id ? 'bg-amber-50' : 'hover:bg-gray-50'}`}>
+                      <td className="px-4 py-3 font-medium text-blue-600">{proc.numero_sei}</td>
+                      <td className="px-4 py-3 truncate max-w-[200px]" title={proc.escolaNome}>{proc.escolaNome}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${proc.situacao === 'Concluído' ? 'bg-green-100 text-green-700' : proc.situacao === 'Em Apuração' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
+                          {proc.situacao}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-medium">
+                        {formatarMoeda(proc.valor_total)}
+                      </td>
+                      <td className="px-4 py-3 text-xs">
+                        {dataAtualizacao ? (
+                          <>
+                            <span className="block text-gray-800 font-medium">{dataAtualizacao.toLocaleDateString('pt-BR')}</span>
+                            <span className="block text-gray-400">{dataAtualizacao.toLocaleTimeString('pt-BR', { hour: '2-digit', minute:'2-digit' })}</span>
+                          </>
+                        ) : '-'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-center gap-2">
+                          <button onClick={() => handleEdit(proc)} className={`p-1.5 rounded-md transition-colors ${editingId === proc.id ? 'bg-amber-200 text-amber-800' : 'text-blue-600 hover:bg-blue-50'}`} title="Editar Processo">
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => handleDelete(proc.id)} className="p-1.5 rounded-md text-red-500 hover:bg-red-50 transition-colors" title="Excluir Processo">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }) : (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                      Nenhum processo encontrado. Os dados aparecerão aqui após o primeiro cadastro.
+                    <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                      Nenhum processo encontrado. Os dados aparecerão aqui após o primeiro registo.
                     </td>
                   </tr>
                 )}
