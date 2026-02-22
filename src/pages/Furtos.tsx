@@ -47,7 +47,7 @@ interface ProcessoHistorico {
   nl_baixa?: string;
   itens?: Item[];
   valor_total: number;
-  updated_at?: string; // Nova propriedade adicionada
+  updated_at?: string; 
 }
 
 const FORM_INITIAL_STATE = {
@@ -75,6 +75,11 @@ export default function CadastroFurtos() {
   // Estado para o histórico (tabela e dashboards)
   const [historico, setHistorico] = useState<ProcessoHistorico[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+
+  // ================= NOVOS ESTADOS PARA OS FILTROS =================
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterEscola, setFilterEscola] = useState('');
+  const [filterSituacao, setFilterSituacao] = useState('');
 
   // Efeito para buscar utilizador logado, lista de escolas e histórico real do banco
   useEffect(() => {
@@ -120,7 +125,7 @@ export default function CadastroFurtos() {
             created_at,
             schools ( name )
           `)
-          .order('updated_at', { ascending: false }); // Ordena pelos mais recentemente atualizados no geral
+          .order('updated_at', { ascending: false }); 
 
         if (processosError) throw processosError;
 
@@ -139,7 +144,7 @@ export default function CadastroFurtos() {
             nl_baixa: proc.nl_baixa,
             itens: proc.itens,
             valor_total: Number(proc.valor_total) || 0,
-            updated_at: proc.updated_at || proc.created_at // Fallback para created_at se updated_at for nulo
+            updated_at: proc.updated_at || proc.created_at
           }));
           setHistorico(historicoFormatado);
         }
@@ -265,10 +270,9 @@ export default function CadastroFurtos() {
 
     // Calcular Processos Pendentes sem atualização há > 7 dias
     const desatualizados = historico
-      .filter(h => h.situacao !== 'Concluído') // Apenas os não concluídos
-      .filter(h => calcularDiasAtraso(h.updated_at) > 7) // Mais de 7 dias
+      .filter(h => h.situacao !== 'Concluído') 
+      .filter(h => calcularDiasAtraso(h.updated_at) > 7) 
       .sort((a, b) => {
-        // Ordenar do mais antigo (maior atraso) para o mais recente
         const dataA = a.updated_at ? new Date(a.updated_at).getTime() : 0;
         const dataB = b.updated_at ? new Date(b.updated_at).getTime() : 0;
         return dataA - dataB;
@@ -279,6 +283,24 @@ export default function CadastroFurtos() {
       processosDesatualizados: desatualizados
     };
   }, [historico]);
+
+  // ================= FILTRO LÓGICO DA TABELA =================
+  const historicoFiltrado = useMemo(() => {
+    return historico.filter((proc) => {
+      // Filtra por Busca de texto (SEI ou Nome da Escola)
+      const matchSearch = searchTerm === '' || 
+        (proc.numero_sei && proc.numero_sei.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (proc.escolaNome && proc.escolaNome.toLowerCase().includes(searchTerm.toLowerCase()));
+        
+      // Filtra por Escola no Select
+      const matchEscola = filterEscola === '' || proc.escola_id === filterEscola;
+      
+      // Filtra por Situação no Select
+      const matchSituacao = filterSituacao === '' || proc.situacao === filterSituacao;
+
+      return matchSearch && matchEscola && matchSituacao;
+    });
+  }, [historico, searchTerm, filterEscola, filterSituacao]);
 
   // Salvando/Atualizando dados no Supabase
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -304,7 +326,7 @@ export default function CadastroFurtos() {
         nl_baixa: formData.nlBaixa,
         valor_total: valorTotal,
         itens: itens,
-        updated_at: agoraIso // Captura a data exata da atualização
+        updated_at: agoraIso 
       };
 
       let query;
@@ -360,7 +382,6 @@ export default function CadastroFurtos() {
         };
 
         if (editingId) {
-          // Substitui e reordena colocando o atualizado no topo
           setHistorico(prev => {
             const novaLista = prev.filter(p => p.id !== editingId);
             return [processoFormatado, ...novaLista];
@@ -448,7 +469,6 @@ export default function CadastroFurtos() {
             </h2>
           </div>
 
-          {/* Cards de KPIs */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-start gap-4">
               <div className="p-3 bg-blue-50 text-blue-600 rounded-lg"><AlertTriangle className="w-6 h-6" /></div>
@@ -483,7 +503,6 @@ export default function CadastroFurtos() {
             </div>
           </div>
 
-          {/* Ranking Top 5 Escolas */}
           <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
             <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-5 flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-gray-400" />
@@ -655,9 +674,36 @@ export default function CadastroFurtos() {
               </h3>
             </div>
             
-            <div className="relative w-full sm:w-64">
-              <Search className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
-              <input type="text" placeholder="Pesquisar SEI ou Escola..." className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            {/* ==================== SEÇÃO DE FILTROS ==================== */}
+            <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+              <select 
+                value={filterEscola} 
+                onChange={(e) => setFilterEscola(e.target.value)}
+                className="w-full sm:w-auto p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+              >
+                <option value="">Todas as Escolas</option>
+                {escolas.map(esc => <option key={esc.id} value={esc.id}>{esc.name}</option>)}
+              </select>
+
+              <select 
+                value={filterSituacao} 
+                onChange={(e) => setFilterSituacao(e.target.value)}
+                className="w-full sm:w-auto p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+              >
+                <option value="">Todas as Situações</option>
+                {SITUACOES.map(sit => <option key={sit} value={sit}>{sit}</option>)}
+              </select>
+
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
+                <input 
+                  type="text" 
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Pesquisar Nº SEI ou Escola..." 
+                  className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
+                />
+              </div>
             </div>
           </div>
 
@@ -674,7 +720,7 @@ export default function CadastroFurtos() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {historico.length > 0 ? historico.map((proc) => {
+                {historicoFiltrado.length > 0 ? historicoFiltrado.map((proc) => {
                   const dataAtualizacao = proc.updated_at ? new Date(proc.updated_at) : null;
                   return (
                     <tr key={proc.id} className={`transition-colors ${editingId === proc.id ? 'bg-amber-50' : 'hover:bg-gray-50'}`}>
@@ -711,7 +757,7 @@ export default function CadastroFurtos() {
                 }) : (
                   <tr>
                     <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                      Nenhum processo encontrado. Os dados aparecerão aqui após o primeiro registo.
+                      Nenhum processo encontrado com estes filtros.
                     </td>
                   </tr>
                 )}
