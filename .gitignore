@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+
+# Ignorar imagens reais da planta da URE por segurança
+public/lot*.png

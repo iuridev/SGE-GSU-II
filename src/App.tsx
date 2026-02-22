@@ -37,6 +37,8 @@ import EducacaoPatrimonial from './pages/EducacaoPatrimonial';
 import CadastroFurtos from './pages/Furtos'; // <-- Importe a página de Furtos
 import Plantas from './pages/Plantas'; // <-- Importe a nova página aqui
 import Servicos from './pages/Servicos'; // <-- Importe a nova página aqui
+import FiscalizacaoURE from './pages/FiscalizacaoURE'; // <-- Importe a nova página aqui
+
 
 
 //atualizado
@@ -129,6 +131,7 @@ export default function App() {
       case 'chamados': return <Chamados />;
       case 'plantas': return <Plantas />;
       case 'servicos': return <Servicos />;
+      case 'fiscalizacaoURE': return <FiscalizacaoURE />;
       case 'furtos': return <CadastroFurtos /> // <-- Adicione esta linha
       default: return <Dashboard />;
     }
@@ -159,6 +162,7 @@ export default function App() {
     { id: 'escolas', label: 'Escolas (Detalhes)', icon: <Building2 size={20} />, roles: ['regional_admin', 'school_manager'] },
     { id: 'plantas', label: 'Plantas Prediais', icon: <Map size={20} />, roles: ['regional_admin', 'school_manager'] }, // <-- Novo item do menu
     { id: 'servicos', label: 'Intervenção URE', icon: <Map size={20} />, roles: ['regional_admin'] }, // <-- Novo item do menu
+    { id: 'fiscalizacaoURE', label: 'URE Limpeza', icon: <Map size={20} />, roles: ['regional_admin'] }, // <-- Novo item do menu
     { id: 'furtos', label: 'Cadastro de Furtos', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin'] }, // <-- Novo item no menu restrito a manage_admin
     { id: 'usuarios', label: 'Gestão de Usuários', icon: <UserCog size={20} />, roles: ['regional_admin'] },
   ];
