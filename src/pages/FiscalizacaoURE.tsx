@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
-  Map, CheckCircle, AlertTriangle, 
+  Map, CheckCircle, AlertTriangle,  
   Info, Calendar, Save, X, Star, Layers,
   Check, Image as ImageIcon, PenTool, Copy,
   ChevronLeft, ChevronRight, FileSignature, Printer, Wand2
@@ -409,15 +409,15 @@ export default function FiscalizacaoLimpeza() {
 
     const mesFormatado = new Date(parseInt(selectedMonth.split('-')[0]), parseInt(selectedMonth.split('-')[1]) - 1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' });
 
-    let texto = `A fiscalização de zeladoria e limpeza referente a ${mesFormatado} foi concluída com sucesso, cobrindo 100% dos ${PLANTA_URE_DEFINITIVA.length} ambientes mapeados na unidade. A avaliação resultou numa média geral de ${mediaStr} (em 10 pontos possíveis).\n\n`;
+    let texto = `A fiscalização da execução do serviço de limpeza referente a ${mesFormatado} foi concluída com sucesso, cobrindo 100% dos ${PLANTA_URE_DEFINITIVA.length} ambientes mapeados na unidade. A avaliação resultou numa média geral de ${mediaStr} (em 10 pontos possíveis).\n\n`;
 
     if (excelentes.length === PLANTA_URE_DEFINITIVA.length) {
-      texto += `O desempenho da equipa de limpeza foi considerado excepcional neste período, com todos os ambientes avaliados com nota de Excelência.`;
+      texto += `O desempenho da equipe de limpeza foi considerado excepcional neste período, com todos os ambientes avaliados com nota de Excelência.`;
     } else {
       texto += `Na distribuição global, observou-se que ${excelentes.length} ambiente(s) estão em estado Excelente, ${regulares.length} Regular(es) e ${criticos.length} classificado(s) como Ruim.\n\n`;
       
       if (criticos.length > 0) {
-        texto += `É necessária intervenção imediata e notificação da equipa de limpeza responsável pelos seguintes locais com estado crítico: ${nomesCriticos}.\n\n`;
+        texto += `É necessária orientação a equipe de limpeza responsável pelos seguintes locais classificados com qualidade do serviço Ruim: ${nomesCriticos}.\n\n`;
       }
       
       if (piorFalha && piorFalha[1] > 0) {
@@ -436,7 +436,8 @@ export default function FiscalizacaoLimpeza() {
   if (isRegionalAdmin === false) return <div className="min-h-screen flex items-center justify-center">Acesso Negado.</div>;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans pb-10 print:bg-white print:pb-0">
+    // Adicionado style para garantir a impressão das cores de fundo exatas (suporte nativo aos navegadores Chromium)
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans pb-10 print:bg-white print:pb-0" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
       
       {/* HEADER PRINCIPAL (Oculto na impressão) */}
       <header className="bg-slate-900 text-white p-5 shadow-lg flex flex-col md:flex-row justify-between items-center gap-4 relative z-10 print:hidden">
@@ -672,7 +673,7 @@ export default function FiscalizacaoLimpeza() {
               <div className="flex items-center gap-3">
                 <FileSignature className="w-8 h-8 print:text-slate-800" />
                 <div>
-                  <h2 className="text-2xl font-bold">Relatório de Fechamento</h2>
+                  <h2 className="text-2xl font-bold">Relatório de Fiscalização de Limpeza</h2>
                   <p className="text-slate-400 print:text-slate-500">Mês de Referência: {new Date(parseInt(selectedMonth.split('-')[0]), parseInt(selectedMonth.split('-')[1]) - 1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase()}</p>
                 </div>
               </div>
@@ -694,7 +695,7 @@ export default function FiscalizacaoLimpeza() {
                   <Wand2 className="w-3 h-3" /> Resumo Automático (Sistema)
                 </div>
                 <h3 className="font-bold text-slate-800 text-lg mb-3 flex items-center gap-2">
-                  <CheckCircle className="w-5 h-5 text-blue-600" /> Parecer de Qualidade
+                  <CheckCircle className="w-5 h-5 text-blue-600" /> Relatório SEFISC
                 </h3>
                 <p className="text-slate-700 leading-relaxed whitespace-pre-wrap text-justify">
                   {geradorResumoTexto}
@@ -712,7 +713,7 @@ export default function FiscalizacaoLimpeza() {
                   <p className="text-3xl font-black text-slate-800">{stats.concluidos}</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-sm font-bold text-slate-500 uppercase">Atenção Crítica</p>
+                  <p className="text-sm font-bold text-slate-500 uppercase">Ambientes classificação Ruim</p>
                   <p className={`text-3xl font-black ${stats.criticos > 0 ? 'text-red-600' : 'text-slate-800'}`}>{stats.criticos}</p>
                 </div>
               </div>
@@ -727,7 +728,7 @@ export default function FiscalizacaoLimpeza() {
                   <textarea 
                     value={reportObservation}
                     onChange={(e) => setReportObservation(e.target.value)}
-                    placeholder="Escreva aqui observações adicionais, apontamentos para a equipa de limpeza ou solicitações de materiais..."
+                    placeholder="Escreva aqui observações adicionais, apontamentos para a equipe de limpeza ou solicitações de materiais..."
                     className="w-full min-h-[150px] p-4 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 resize-y bg-slate-50/50"
                   />
                   <p className="text-xs text-slate-400 mt-2">* Este texto será anexado ao documento impresso/PDF.</p>
@@ -738,15 +739,51 @@ export default function FiscalizacaoLimpeza() {
                 </div>
               </div>
 
+              {/* Mapas para Impressão (Itera sobre todos os pavimentos mapeados) */}
+              <div className="hidden print:block mt-12 space-y-12">
+                {PAVIMENTOS.filter(pav => PLANTA_URE_DEFINITIVA.some(amb => amb.pavimento === pav.nome)).map(pav => {
+                  const salasDoPavimento = PLANTA_URE_DEFINITIVA.filter(amb => amb.pavimento === pav.nome);
+                  return (
+                    <div key={`print-mapa-${pav.nome}`} className="break-inside-avoid">
+                      <h3 className="font-bold text-slate-800 text-lg mb-3 flex items-center gap-2 border-b-2 border-slate-200 pb-2">
+                        <Map className="w-5 h-5 text-slate-500" /> Mapa de Status: {pav.nome}
+                      </h3>
+                      <div className="relative w-full border-2 border-slate-200 rounded-xl overflow-hidden bg-slate-50">
+                        {pav.imagemUrl && (
+                          <img src={pav.imagemUrl} alt={`Planta ${pav.nome}`} className="w-full h-auto block" />
+                        )}
+                        {salasDoPavimento.map(amb => {
+                          const statusInfo = getAmbienteStatusInfo(amb.id);
+                          return (
+                            <div 
+                              key={`print-${amb.id}`}
+                              className={`absolute flex flex-col items-center justify-center text-center p-1 border-2 rounded-lg ${statusInfo.bgClass} ${statusInfo.borderClass} ${statusInfo.textClass}`}
+                              style={{ top: `${amb.top}%`, left: `${amb.left}%`, width: `${amb.width}%`, height: `${amb.height}%` }}
+                            >
+                              <span className="font-bold text-[6px] sm:text-[8px] leading-tight drop-shadow-md bg-white/70 px-1 rounded truncate max-w-full">
+                                {amb.name}
+                              </span>
+                              {statusInfo.nota !== null && (
+                                <div className="mt-0.5 font-black text-[8px] sm:text-xs drop-shadow-md bg-white/80 px-1 rounded-md">★ {statusInfo.nota.toFixed(1)}</div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
               {/* Assinaturas */}
-              <div className="mt-16 pt-16 grid grid-cols-2 gap-8 print:grid">
+              <div className="mt-16 pt-16 grid grid-cols-2 gap-8 print:grid break-inside-avoid">
                 <div className="border-t border-slate-400 pt-4 text-center">
                   <p className="font-bold text-slate-800 uppercase">{userName}</p>
-                  <p className="text-sm text-slate-500">Administração Regional</p>
+                  <p className="text-sm text-slate-500">Chefe de Seção - SEFISC</p>
                 </div>
                 <div className="border-t border-slate-400 pt-4 text-center">
-                  <p className="font-bold text-slate-800 uppercase">Equipa de Limpeza / Zeladoria</p>
-                  <p className="text-sm text-slate-500">Assinatura de Ciência</p>
+                  <p className="font-bold text-slate-800 uppercase">THIAGO OLIVEIRA BARREIROS</p>
+                  <p className="text-sm text-slate-500">Chefe de Serviço - SEOM</p>
                 </div>
               </div>
 
@@ -757,7 +794,7 @@ export default function FiscalizacaoLimpeza() {
 
       {/* MODAL DE EXPORTAÇÃO DO CÓDIGO (Só p/ Mapeamento) */}
       {showExportModal && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
             <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
               <h3 className="font-bold flex items-center gap-2"><Copy className="w-5 h-5"/> Código da Planta Gerado</h3>
@@ -782,7 +819,7 @@ ${mappedRooms.map(r => `  { id: '${r.id}', name: '${r.name}', pavimento: '${r.pa
 
       {/* MODAL DE AVALIAÇÃO (Só p/ Modo Normal) */}
       {selectedAmbiente && !isMappingMode && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
             <div className="bg-slate-900 text-white p-5 flex justify-between items-center relative overflow-hidden sticky top-0 z-20">
               <h3 className="text-xl font-bold relative z-10">{selectedAmbiente.name}</h3>
