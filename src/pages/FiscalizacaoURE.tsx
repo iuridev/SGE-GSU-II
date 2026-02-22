@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
-  Map, CheckCircle, AlertTriangle,
+  Map, CheckCircle, AlertTriangle, 
   Info, Calendar, Save, X, Star, Layers,
   Check, Image as ImageIcon, PenTool, Copy,
   ChevronLeft, ChevronRight, FileSignature, Printer, Wand2
@@ -8,11 +8,8 @@ import {
 import { supabase } from '../lib/supabase';
 
 // ============================================================================
-// CONFIGURAÇÃO DAS IMAGENS DA PLANTA (VIA SUPABASE STORAGE)
-// 1. Crie um Bucket no Supabase Storage chamado "plantas" (modo Public).
-// 2. Faça o upload das suas imagens (lot1.png até lot7.png).
-// 3. Pegue o link de cada uma clicando em "Get URL" no Supabase e cole abaixo.
-// Exemplo: 'https://SEU-PROJETO.supabase.co/storage/v1/object/public/plantas/lot1.png'
+// CONFIGURAÇÃO DAS IMAGENS DA PLANTA (VIA SUPABASE STORAGE / ENV VARS)
+// As URLs agora são carregadas de forma segura através das variáveis de ambiente
 // ============================================================================
 const PAVIMENTOS = [
   { 
@@ -369,6 +366,9 @@ export default function FiscalizacaoLimpeza() {
     return { bgClass: 'bg-red-400/60', borderClass: 'border-red-600 border-solid', textClass: 'text-red-900', nota: aval.nota_final };
   };
 
+  // Identifica se a sala atual no modal é um banheiro (para alternar as perguntas)
+  const isSanitario = selectedAmbiente?.name.toLowerCase().includes('sanitário') || selectedAmbiente?.name.toLowerCase().includes('wc');
+
   // Cálculos de Estatísticas e Progresso
   const stats = useMemo(() => {
     const totalAmbientes = PLANTA_URE_DEFINITIVA.length;
@@ -394,14 +394,14 @@ export default function FiscalizacaoLimpeza() {
 
     const nomesCriticos = criticos.map(c => PLANTA_URE_DEFINITIVA.find(p => p.id === c.ambiente_id)?.name).join(", ");
 
-    // Contabilizar as falhas mais comuns
+    // Contabilizar as falhas mais comuns (nomes ajustados para englobar as variantes dos banheiros)
     const falhas = {
-      "falta de lavagem pesada": avaliacoes.filter(a => !a.q1_lavagem).length,
-      "falha na limpeza semanal": avaliacoes.filter(a => !a.q2_semanal).length,
-      "acúmulo de lixo": avaliacoes.filter(a => !a.q3_lixo).length,
-      "excesso de poeira": avaliacoes.filter(a => a.q4_poeira).length,
-      "ventiladores sujos": avaliacoes.filter(a => !a.q5_ventilador).length,
-      "vidros e janelas sujos": avaliacoes.filter(a => !a.q6_vidro).length,
+      "falha na lavagem pesada ou limpeza de vasos sanitários": avaliacoes.filter(a => !a.q1_lavagem).length,
+      "falha na limpeza semanal ou de pias": avaliacoes.filter(a => !a.q2_semanal).length,
+      "acúmulo de lixo ou falta de suprimentos": avaliacoes.filter(a => !a.q3_lixo).length,
+      "excesso de poeira ou ambiente mal cheiroso": avaliacoes.filter(a => a.q4_poeira).length,
+      "ventiladores, pisos ou paredes sujas": avaliacoes.filter(a => !a.q5_ventilador).length,
+      "vidros e espelhos/janelas sujos": avaliacoes.filter(a => !a.q6_vidro).length,
     };
 
     // Descobrir a pior falha
@@ -611,16 +611,18 @@ export default function FiscalizacaoLimpeza() {
             onPointerLeave={handlePointerUp}
             className={`relative w-full max-w-5xl mx-auto rounded-xl border-4 overflow-hidden shadow-inner bg-slate-100 select-none ${isMappingMode ? 'border-amber-400 cursor-crosshair touch-none' : 'border-slate-200'}`}
           >
-            {/* Aviso de Imagem Ausente - Oculto quando as imagens começam com "/" ou "http" válido */}
-            {pavimentoAtualInfo.imagemUrl.includes('placehold.co') && (
+            {/* Aviso de Imagem Ausente - Oculto quando as imagens não estão vazias */}
+            {(!pavimentoAtualInfo.imagemUrl) && (
               <div className="absolute inset-x-0 top-0 bg-blue-100 text-blue-800 text-xs text-center p-2 z-30 font-bold flex items-center justify-center gap-2">
                 <ImageIcon className="w-4 h-4" /> 
-                Aviso: Coloque o link do Supabase na variável PAVIMENTOS para ver a imagem real da planta.
+                Aviso: Variável de ambiente não encontrada. Verifique o seu ficheiro .env ou as configurações do Vercel.
               </div>
             )}
 
             {/* A IMAGEM DE FUNDO */}
-            <img src={pavimentoAtualInfo.imagemUrl} alt="Planta" className="w-full h-auto block pointer-events-none" draggable="false"/>
+            {pavimentoAtualInfo.imagemUrl && (
+              <img src={pavimentoAtualInfo.imagemUrl} alt="Planta" className="w-full h-auto block pointer-events-none" draggable="false"/>
+            )}
 
             {/* AS ZONAS CLICÁVEIS / SALAS */}
             {salasVisiveis.map(amb => {
@@ -692,7 +694,7 @@ export default function FiscalizacaoLimpeza() {
                   <Wand2 className="w-3 h-3" /> Resumo Automático (Sistema)
                 </div>
                 <h3 className="font-bold text-slate-800 text-lg mb-3 flex items-center gap-2">
-                  <CheckCircle className="w-5 h-5 text-blue-600" /> Relatório de Fiscalização - SEFISC
+                  <CheckCircle className="w-5 h-5 text-blue-600" /> Parecer de Qualidade
                 </h3>
                 <p className="text-slate-700 leading-relaxed whitespace-pre-wrap text-justify">
                   {geradorResumoTexto}
@@ -780,7 +782,7 @@ ${mappedRooms.map(r => `  { id: '${r.id}', name: '${r.name}', pavimento: '${r.pa
 
       {/* MODAL DE AVALIAÇÃO (Só p/ Modo Normal) */}
       {selectedAmbiente && !isMappingMode && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 z-50">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
             <div className="bg-slate-900 text-white p-5 flex justify-between items-center relative overflow-hidden sticky top-0 z-20">
               <h3 className="text-xl font-bold relative z-10">{selectedAmbiente.name}</h3>
@@ -796,53 +798,87 @@ ${mappedRooms.map(r => `  { id: '${r.id}', name: '${r.name}', pavimento: '${r.pa
               </div>
 
               <div className="space-y-3">
+                
+                {/* Pergunta 1 */}
                 <label className="flex items-center justify-between p-3 rounded-lg border border-slate-200 cursor-pointer">
                   <div className="flex items-center gap-3">
                     <div className={`w-6 h-6 rounded border flex items-center justify-center ${formData.q1_lavagem ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300'}`}>{formData.q1_lavagem && <Check className="w-4 h-4"/>}</div>
-                    <div><span className="font-medium">Houve lavagem pesada no mês?</span><p className="text-xs text-slate-400">+2.0 pts</p></div>
+                    <div>
+                      <span className="font-medium text-slate-800">
+                        {isSanitario ? 'Limpeza de vasos sanitários realizada?' : 'Houve lavagem pesada no mês?'}
+                      </span>
+                      <p className="text-xs text-slate-400">+2.0 pts</p>
+                    </div>
                   </div>
                   <input type="checkbox" className="hidden" checked={formData.q1_lavagem} onChange={() => handleCheckboxChange('q1_lavagem')} />
                 </label>
 
+                {/* Pergunta 2 */}
                 <label className="flex items-center justify-between p-3 rounded-lg border border-slate-200 cursor-pointer">
                   <div className="flex items-center gap-3">
                     <div className={`w-6 h-6 rounded border flex items-center justify-center ${formData.q2_semanal ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300'}`}>{formData.q2_semanal && <Check className="w-4 h-4"/>}</div>
-                    <div><span className="font-medium">Sala limpa com frequência semanal?</span><p className="text-xs text-slate-400">+2.0 pts</p></div>
+                    <div>
+                      <span className="font-medium text-slate-800">
+                        {isSanitario ? 'Pias e bancadas limpas?' : 'Sala limpa com frequência semanal?'}
+                      </span>
+                      <p className="text-xs text-slate-400">+2.0 pts</p>
+                    </div>
                   </div>
                   <input type="checkbox" className="hidden" checked={formData.q2_semanal} onChange={() => handleCheckboxChange('q2_semanal')} />
                 </label>
 
+                {/* Pergunta 3 */}
                 <label className="flex items-center justify-between p-3 rounded-lg border border-slate-200 cursor-pointer">
                   <div className="flex items-center gap-3">
                     <div className={`w-6 h-6 rounded border flex items-center justify-center ${formData.q3_lixo ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300'}`}>{formData.q3_lixo && <Check className="w-4 h-4"/>}</div>
-                    <div><span className="font-medium">O lixo é recolhido adequadamente?</span><p className="text-xs text-slate-400">+1.5 pts</p></div>
+                    <div>
+                      <span className="font-medium text-slate-800">
+                        {isSanitario ? 'Esvaziamento de lixeiras e reposição de suprimentos?' : 'O lixo é recolhido adequadamente?'}
+                      </span>
+                      <p className="text-xs text-slate-400">+1.5 pts</p>
+                    </div>
                   </div>
                   <input type="checkbox" className="hidden" checked={formData.q3_lixo} onChange={() => handleCheckboxChange('q3_lixo')} />
                 </label>
 
+                {/* Pergunta 4 (Inversa) */}
                 <label className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer ${formData.q4_poeira ? 'bg-red-50 border-red-200' : 'border-slate-200'}`}>
                   <div className="flex items-center gap-3">
                     <div className={`w-6 h-6 rounded border flex items-center justify-center ${formData.q4_poeira ? 'bg-red-600 border-red-600 text-white' : 'border-slate-300'}`}>{formData.q4_poeira && <X className="w-4 h-4"/>}</div>
                     <div>
-                      <span className="font-medium">O lugar está visivelmente empoeirado?</span>
+                      <span className="font-medium text-slate-800">
+                        {isSanitario ? 'O ambiente apresenta mau cheiro?' : 'O lugar está visivelmente empoeirado?'}
+                      </span>
                       <p className={`text-xs ${formData.q4_poeira ? 'text-red-500 font-bold' : 'text-slate-400'}`}>{formData.q4_poeira ? 'Perde 1.5 pts' : '+1.5 pts se não estiver'}</p>
                     </div>
                   </div>
                   <input type="checkbox" className="hidden" checked={formData.q4_poeira} onChange={() => handleCheckboxChange('q4_poeira')} />
                 </label>
 
+                {/* Pergunta 5 */}
                 <label className="flex items-center justify-between p-3 rounded-lg border border-slate-200 cursor-pointer">
                   <div className="flex items-center gap-3">
                     <div className={`w-6 h-6 rounded border flex items-center justify-center ${formData.q5_ventilador ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300'}`}>{formData.q5_ventilador && <Check className="w-4 h-4"/>}</div>
-                    <div><span className="font-medium">Os ventiladores estão limpos?</span><p className="text-xs text-slate-400">+1.5 pts</p></div>
+                    <div>
+                      <span className="font-medium text-slate-800">
+                        {isSanitario ? 'Pisos e paredes estão limpos?' : 'Os ventiladores estão limpos?'}
+                      </span>
+                      <p className="text-xs text-slate-400">+1.5 pts</p>
+                    </div>
                   </div>
                   <input type="checkbox" className="hidden" checked={formData.q5_ventilador} onChange={() => handleCheckboxChange('q5_ventilador')} />
                 </label>
 
+                {/* Pergunta 6 */}
                 <label className="flex items-center justify-between p-3 rounded-lg border border-slate-200 cursor-pointer">
                   <div className="flex items-center gap-3">
                     <div className={`w-6 h-6 rounded border flex items-center justify-center ${formData.q6_vidro ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300'}`}>{formData.q6_vidro && <Check className="w-4 h-4"/>}</div>
-                    <div><span className="font-medium">Os vidros e janelas estão limpos?</span><p className="text-xs text-slate-400">+1.5 pts</p></div>
+                    <div>
+                      <span className="font-medium text-slate-800">
+                        {isSanitario ? 'Vidros e espelhos estão limpos?' : 'Os vidros e janelas estão limpos?'}
+                      </span>
+                      <p className="text-xs text-slate-400">+1.5 pts</p>
+                    </div>
                   </div>
                   <input type="checkbox" className="hidden" checked={formData.q6_vidro} onChange={() => handleCheckboxChange('q6_vidro')} />
                 </label>
