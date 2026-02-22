@@ -692,7 +692,7 @@ export default function FiscalizacaoLimpeza() {
                   <Wand2 className="w-3 h-3" /> Resumo Automático (Sistema)
                 </div>
                 <h3 className="font-bold text-slate-800 text-lg mb-3 flex items-center gap-2">
-                  <CheckCircle className="w-5 h-5 text-blue-600" /> Parecer de Qualidade
+                  <CheckCircle className="w-5 h-5 text-blue-600" /> Relatório de Fiscalização - SEFISC
                 </h3>
                 <p className="text-slate-700 leading-relaxed whitespace-pre-wrap text-justify">
                   {geradorResumoTexto}
