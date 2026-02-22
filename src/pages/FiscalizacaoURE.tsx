@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
-  Map, CheckCircle, AlertTriangle,  
+  Map, CheckCircle, AlertTriangle,
   Info, Calendar, Save, X, Star, Layers,
   Check, Image as ImageIcon, PenTool, Copy,
   ChevronLeft, ChevronRight, FileSignature, Printer, Wand2
@@ -8,18 +8,41 @@ import {
 import { supabase } from '../lib/supabase';
 
 // ============================================================================
-// CONFIGURAÇÃO DAS IMAGENS DA PLANTA
-// 1. Coloque as suas imagens (.jpg ou .png) dentro da pasta "public" do projeto.
-// 2. Altere o imagemUrl para "/nome-da-sua-imagem.jpg" (precisa da / no início).
+// CONFIGURAÇÃO DAS IMAGENS DA PLANTA (VIA SUPABASE STORAGE)
+// 1. Crie um Bucket no Supabase Storage chamado "plantas" (modo Public).
+// 2. Faça o upload das suas imagens (lot1.png até lot7.png).
+// 3. Pegue o link de cada uma clicando em "Get URL" no Supabase e cole abaixo.
+// Exemplo: 'https://SEU-PROJETO.supabase.co/storage/v1/object/public/plantas/lot1.png'
 // ============================================================================
 const PAVIMENTOS = [
-  { nome: 'Entrada', imagemUrl: '/lot1.png' },
-  { nome: 'Supervisão e Dirigente', imagemUrl: '/lot2.png' },
-  { nome: 'SEOM - SEAFIN', imagemUrl: '/lot3.png' },
-  { nome: 'SEINTEC - SEVESC', imagemUrl: '/lot4.png' },
-  { nome: 'SEPES', imagemUrl: '/lot5.png' },
-  { nome: 'ECC', imagemUrl: '/lot6.png' },
-  { nome: 'ECC - auditorio', imagemUrl: '/lot7.png' }
+  { 
+    nome: 'Entrada', 
+    imagemUrl: import.meta.env.VITE_PLANTA_ENTRADA || '' 
+  },
+  { 
+    nome: 'Supervisão e Dirigente', 
+    imagemUrl: import.meta.env.VITE_PLANTA_SUPERVISAO || '' 
+  },
+  { 
+    nome: 'SEOM - SEAFIN', 
+    imagemUrl: import.meta.env.VITE_PLANTA_SEOM || '' 
+  },
+  { 
+    nome: 'SEINTEC - SEVESC', 
+    imagemUrl: import.meta.env.VITE_PLANTA_SEINTEC || '' 
+  },
+  { 
+    nome: 'SEPES', 
+    imagemUrl: import.meta.env.VITE_PLANTA_SEPES || '' 
+  },
+  { 
+    nome: 'ECC', 
+    imagemUrl: import.meta.env.VITE_PLANTA_ECC || '' 
+  },
+  { 
+    nome: 'ECC - auditorio', 
+    imagemUrl: import.meta.env.VITE_PLANTA_AUDITORIO || '' 
+  }
 ];
 
 interface Ambiente {
@@ -33,7 +56,7 @@ interface Ambiente {
 }
 
 // ============================================================================
-// COLE AQUI AS COORDENADAS QUE VOCÊ GEROU NO MODO "MAPEAR SALAS"
+// COORDENADAS MAPEADAS DAS SALAS
 // ============================================================================
 const PLANTA_URE_DEFINITIVA: Ambiente[] = [
   { id: 'almoxarifado_5197', name: 'Almoxarifado', pavimento: 'Entrada', top: 4.9, left: 2.9, width: 22, height: 42.6 },
@@ -386,15 +409,15 @@ export default function FiscalizacaoLimpeza() {
 
     const mesFormatado = new Date(parseInt(selectedMonth.split('-')[0]), parseInt(selectedMonth.split('-')[1]) - 1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' });
 
-    let texto = `A fiscalização de limpeza referente a ${mesFormatado} foi concluída com sucesso, cobrindo 100% dos ${PLANTA_URE_DEFINITIVA.length} ambientes mapeados na unidade. A avaliação resultou numa média geral de ${mediaStr} (em 10 pontos possíveis).\n\n`;
+    let texto = `A fiscalização de zeladoria e limpeza referente a ${mesFormatado} foi concluída com sucesso, cobrindo 100% dos ${PLANTA_URE_DEFINITIVA.length} ambientes mapeados na unidade. A avaliação resultou numa média geral de ${mediaStr} (em 10 pontos possíveis).\n\n`;
 
     if (excelentes.length === PLANTA_URE_DEFINITIVA.length) {
-      texto += `O desempenho da equipe de limpeza foi considerado excepcional neste período, com todos os ambientes avaliados com nota de Excelência.`;
+      texto += `O desempenho da equipa de limpeza foi considerado excepcional neste período, com todos os ambientes avaliados com nota de Excelência.`;
     } else {
       texto += `Na distribuição global, observou-se que ${excelentes.length} ambiente(s) estão em estado Excelente, ${regulares.length} Regular(es) e ${criticos.length} classificado(s) como Ruim.\n\n`;
       
       if (criticos.length > 0) {
-        texto += `É necessária intervenção imediata e notificação da equipe de limpeza responsável pelos seguintes locais com estado crítico: ${nomesCriticos}.\n\n`;
+        texto += `É necessária intervenção imediata e notificação da equipa de limpeza responsável pelos seguintes locais com estado crítico: ${nomesCriticos}.\n\n`;
       }
       
       if (piorFalha && piorFalha[1] > 0) {
@@ -588,11 +611,11 @@ export default function FiscalizacaoLimpeza() {
             onPointerLeave={handlePointerUp}
             className={`relative w-full max-w-5xl mx-auto rounded-xl border-4 overflow-hidden shadow-inner bg-slate-100 select-none ${isMappingMode ? 'border-amber-400 cursor-crosshair touch-none' : 'border-slate-200'}`}
           >
-            {/* Aviso de Imagem Ausente */}
+            {/* Aviso de Imagem Ausente - Oculto quando as imagens começam com "/" ou "http" válido */}
             {pavimentoAtualInfo.imagemUrl.includes('placehold.co') && (
               <div className="absolute inset-x-0 top-0 bg-blue-100 text-blue-800 text-xs text-center p-2 z-30 font-bold flex items-center justify-center gap-2">
                 <ImageIcon className="w-4 h-4" /> 
-                Aviso: Coloque as suas imagens na pasta "public" e edite a variável PAVIMENTOS no código para as exibir aqui.
+                Aviso: Coloque o link do Supabase na variável PAVIMENTOS para ver a imagem real da planta.
               </div>
             )}
 
@@ -717,11 +740,11 @@ export default function FiscalizacaoLimpeza() {
               <div className="mt-16 pt-16 grid grid-cols-2 gap-8 print:grid">
                 <div className="border-t border-slate-400 pt-4 text-center">
                   <p className="font-bold text-slate-800 uppercase">{userName}</p>
-                  <p className="text-sm text-slate-500">Chefe de Seção</p>
+                  <p className="text-sm text-slate-500">Administração Regional</p>
                 </div>
                 <div className="border-t border-slate-400 pt-4 text-center">
-                  <p className="font-bold text-slate-800 uppercase">THIAGO OLIVEIRA BARREIROS</p>
-                  <p className="text-sm text-slate-500">Chefe de Serviço</p>
+                  <p className="font-bold text-slate-800 uppercase">Equipa de Limpeza / Zeladoria</p>
+                  <p className="text-sm text-slate-500">Assinatura de Ciência</p>
                 </div>
               </div>
 
