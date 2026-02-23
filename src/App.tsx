@@ -59,8 +59,8 @@ const MENU_GROUPS = [
     title: 'Fiscalização',
     items: [
       { id: 'consumo', label: 'Consumo de Água', icon: <Waves size={20} />, roles: ['regional_admin', 'school_manager'] },
-      { id: 'fiscalizacao', label: 'Fiscalização Escolar', icon: <ClipboardCheck size={20} />, roles: ['regional_admin', 'school_manager'] },
-      { id: 'fiscalizacaoURE', label: 'Fiscalização URE', icon: <Map size={20} />, roles: ['regional_admin'] },
+      { id: 'fiscalizacao', label: 'Contratos Gov', icon: <ClipboardCheck size={20} />, roles: ['regional_admin', 'school_manager'] },
+      { id: 'fiscalizacaoURE', label: 'Limpeza URE', icon: <Map size={20} />, roles: ['regional_admin'] },
     ]
   },
   {
@@ -96,7 +96,7 @@ const MENU_GROUPS = [
     items: [
       { id: 'ambientes', label: 'Reservas Ambiente', icon: <Building size={20} />, roles: ['regional_admin'] },
       { id: 'carros', label: 'Carros Oficiais', icon: <Car size={20} />, roles: ['regional_admin'] },
-      { id: 'reunioes', label: 'Agenda de Reuniões', icon: <Calendar size={20} />, roles: ['regional_admin', 'school_manager'] },
+      { id: 'reunioes', label: 'Calendário', icon: <Calendar size={20} />, roles: ['regional_admin', 'school_manager'] },
     ]
   },
   
