@@ -26,7 +26,7 @@ serve(async (req: Request) => {
 
     let subject = ""
     let htmlContent = ""
-    let recipients = ['gsu.seom@educacao.sp.gov.br'] // Destinatário padrão
+    let recipients = ['gsu.seom@educacao.sp.gov.br', 'gsu.sefisc@educacao.sp.gov.br'] // Destinatário padrão
 
     const now = new Date();
     // Ajuste manual: Londres (UTC) para Brasília (-3h) e soma 24h para amanhã
