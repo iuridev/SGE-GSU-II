@@ -157,7 +157,7 @@ export function EscolasPrioritarias() {
     
     setRankedSchools(Object.entries(schoolMap).map(([name, data]) => ({
       name, finalScore: data.total, details: data.details
-    })).sort((a, b) => b.finalScore - a.finalScore));
+    })).sort((a, b) => a.finalScore - b.finalScore)); // Ordem Crescente (menor nota primeiro)
   }
 
   // --- Lógica de Pesos Dinâmicos e Modais ---
@@ -445,7 +445,7 @@ export function EscolasPrioritarias() {
             </div>
             <div className="space-y-4">
               {rankedSchools.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase())).map((school, idx) => (
-                <div key={idx} onClick={() => setSelectedSchool(school)} className="flex flex-col sm:flex-row items-center justify-between p-6 bg-slate-50 rounded-[2.5rem] hover:bg-white hover:shadow-xl transition-all border border-transparent hover:border-amber-400 cursor-pointer group">
+                <div key={idx} onClick={() => setSelectedSchool(school)} className={`flex flex-col sm:flex-row items-center justify-between p-6 rounded-[2.5rem] hover:shadow-xl transition-all border cursor-pointer group ${school.finalScore < 45 ? 'bg-red-50/50 border-red-100 hover:bg-white hover:border-red-400' : 'bg-slate-50 border-transparent hover:bg-white hover:border-amber-400'}`}>
                   <div className="flex items-center gap-6 flex-1 min-w-0">
                     <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-xl shadow-inner shrink-0 ${
                         idx === 0 ? 'bg-red-600 text-white' : 
@@ -453,16 +453,23 @@ export function EscolasPrioritarias() {
                         idx === 2 ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-400'
                     }`}>{idx + 1}º</div>
                     <div className="min-w-0">
-                      <h4 className="font-black text-slate-800 uppercase text-sm group-hover:text-amber-600 transition-colors truncate" title={school.name}>{school.name}</h4>
+                      <div className="flex items-center gap-3">
+                        <h4 className={`font-black uppercase text-sm transition-colors truncate ${school.finalScore < 45 ? 'text-red-900 group-hover:text-red-600' : 'text-slate-800 group-hover:text-amber-600'}`} title={school.name}>{school.name}</h4>
+                        {school.finalScore < 45 && (
+                          <span className="px-2 py-1 bg-red-100 text-red-700 text-[9px] font-black rounded-full uppercase tracking-widest border border-red-200 whitespace-nowrap">
+                            Prioritária
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[9px] text-slate-400 font-bold uppercase italic mt-1">Clique para ver detalhes do cálculo</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-6 shrink-0 border-t sm:border-t-0 sm:border-l border-slate-200 pt-4 sm:pt-0 sm:pl-8 w-full sm:w-auto mt-4 sm:mt-0">
                     <div className="text-center sm:text-right flex-1 sm:flex-none">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Índice</p>
-                      <p className="text-2xl font-black text-slate-900 tabular-nums">{school.finalScore.toFixed(2)}</p>
+                      <p className={`text-[9px] font-black uppercase tracking-widest mb-1 ${school.finalScore < 45 ? 'text-red-400' : 'text-slate-400'}`}>Índice</p>
+                      <p className={`text-2xl font-black tabular-nums ${school.finalScore < 45 ? 'text-red-600' : 'text-slate-900'}`}>{school.finalScore.toFixed(2)}</p>
                     </div>
-                    <div className="p-3 bg-white text-slate-300 rounded-xl group-hover:bg-amber-500 group-hover:text-white transition-all shadow-sm">
+                    <div className={`p-3 rounded-xl transition-all shadow-sm ${school.finalScore < 45 ? 'bg-white text-red-300 group-hover:bg-red-600 group-hover:text-white' : 'bg-white text-slate-300 group-hover:bg-amber-500 group-hover:text-white'}`}>
                       <ArrowUpRight size={20}/>
                     </div>
                   </div>
