@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { 
   Star, Search, LayoutGrid, Loader2, Target, 
   ShieldAlert, ArrowUpRight, RefreshCw, BarChart3, 
-  Lock, Plus, Settings, CheckCircle2, AlertCircle, X, SlidersHorizontal
+  Lock, Plus, Settings, CheckCircle2, AlertCircle, X, SlidersHorizontal, Pencil, Trash2, AlertTriangle
 } from 'lucide-react';
 
 // --- Interfaces ---
@@ -50,10 +50,12 @@ export function EscolasPrioritarias() {
   const [params, setParams] = useState<RankingParam[]>([]);
   const [rankedSchools, setRankedSchools] = useState<SchoolScore[]>([]);
 
-  // Estados dos Modais
-  const [showModal, setShowModal] = useState(false); // Modal de Novo Parâmetro
+  // Estados dos Modais e Edição/Exclusão
+  const [showModal, setShowModal] = useState(false); // Modal de Novo/Editar Parâmetro
   const [showWeightModal, setShowWeightModal] = useState(false); // Modal de Ajuste de Pesos
   const [step, setStep] = useState(1);
+  const [paramToDelete, setParamToDelete] = useState<RankingParam | null>(null); // Controle de Exclusão
+  const [editingParamId, setEditingParamId] = useState<string | null>(null); // Controle de Edição
   const [newParam, setNewParam] = useState<Partial<RankingParam>>({
     nome_parametro: '',
     spreadsheet_id: '',
@@ -155,10 +157,10 @@ export function EscolasPrioritarias() {
     
     setRankedSchools(Object.entries(schoolMap).map(([name, data]) => ({
       name, finalScore: data.total, details: data.details
-    })).sort((a, b) => a.finalScore - b.finalScore));
+    })).sort((a, b) => b.finalScore - a.finalScore));
   }
 
-  // --- Lógica de Pesos Dinâmicos ---
+  // --- Lógica de Pesos Dinâmicos e Modais ---
   const handleWeightChange = (id: string | 'new', newValue: number) => {
     let updated = tempWeights.map(w => w.id === id ? { ...w, peso: newValue } : w);
     const otherItems = updated.filter(w => w.id !== id);
@@ -182,15 +184,41 @@ export function EscolasPrioritarias() {
     setTempWeights(updated);
   };
 
+  const openEditModal = (paramToEdit: RankingParam) => {
+    setEditingParamId(paramToEdit.id);
+    setNewParam(paramToEdit);
+    setStep(1);
+    setShowModal(true);
+  };
+
+  const closeModal = () => {
+    setShowModal(false);
+    setEditingParamId(null);
+    setNewParam({ nome_parametro: '', spreadsheet_id: '', aba_nome: '', coluna_escola: '', coluna_pontuacao: '', peso: 0 });
+    setStep(1);
+    setTestStatus({ loading: false });
+  };
+
   const handleTestAndNext = async () => {
-    setTestStatus({ loading: true });
+    setTestStatus({ loading: true, error: undefined });
     try {
       await fetchSheetData(newParam);
       setTestStatus({ loading: false });
-      setTempWeights([
-        ...params.map(p => ({ id: p.id, nome: p.nome_parametro, peso: p.peso })),
-        { id: 'new', nome: newParam.nome_parametro || '', peso: 0 }
-      ]);
+      
+      if (editingParamId) {
+        // Se estiver editando, mantemos os IDs corretos e atualizamos apenas o nome do parâmetro editado
+        setTempWeights(params.map(p => 
+          p.id === editingParamId 
+            ? { id: p.id, nome: newParam.nome_parametro || '', peso: p.peso }
+            : { id: p.id, nome: p.nome_parametro, peso: p.peso }
+        ));
+      } else {
+        // Se for novo, adicionamos um item 'new'
+        setTempWeights([
+          ...params.map(p => ({ id: p.id, nome: p.nome_parametro, peso: p.peso })),
+          { id: 'new', nome: newParam.nome_parametro || '', peso: 0 }
+        ]);
+      }
       setStep(2);
     } catch (e) {
       setTestStatus({ loading: false, error: "Falha na conexão. Verifique o link e a aba." });
@@ -200,25 +228,48 @@ export function EscolasPrioritarias() {
   const saveAll = async () => {
     setRefreshing(true);
     try {
-      const newWeight = tempWeights.find(w => w.id === 'new')?.peso || 0;
-      const { error: insertError } = await (supabase as any)
-        .from('ranking_parameters')
-        .insert([{ ...newParam, peso: newWeight }]);
+      if (editingParamId) {
+        // FLUXO DE EDIÇÃO (UPDATE)
+        const editedWeight = tempWeights.find(w => w.id === editingParamId)?.peso || 0;
+        const { error: updateError } = await (supabase as any)
+          .from('ranking_parameters')
+          .update({
+            nome_parametro: newParam.nome_parametro,
+            spreadsheet_id: newParam.spreadsheet_id,
+            aba_nome: newParam.aba_nome,
+            coluna_escola: newParam.coluna_escola,
+            coluna_pontuacao: newParam.coluna_pontuacao,
+            peso: editedWeight
+          })
+          .eq('id', editingParamId);
+        
+        if (updateError) throw updateError;
+
+        const updates = tempWeights.filter(w => w.id !== editingParamId).map(w => 
+          (supabase as any).from('ranking_parameters').update({ peso: w.peso }).eq('id', w.id)
+        );
+        await Promise.all(updates);
+
+      } else {
+        // FLUXO DE CRIAÇÃO (INSERT)
+        const newWeight = tempWeights.find(w => w.id === 'new')?.peso || 0;
+        const { error: insertError } = await (supabase as any)
+          .from('ranking_parameters')
+          .insert([{ ...newParam, peso: newWeight }]);
+        
+        if (insertError) throw insertError;
+        
+        const updates = tempWeights.filter(w => w.id !== 'new').map(w => 
+          (supabase as any).from('ranking_parameters').update({ peso: w.peso }).eq('id', w.id)
+        );
+        await Promise.all(updates);
+      }
       
-      if (insertError) throw insertError;
-      
-      const updates = tempWeights.filter(w => w.id !== 'new').map(w => 
-        (supabase as any).from('ranking_parameters').update({ peso: w.peso }).eq('id', w.id)
-      );
-      await Promise.all(updates);
-      
-      setShowModal(false);
-      setNewParam({ nome_parametro: '', spreadsheet_id: '', aba_nome: '', coluna_escola: '', coluna_pontuacao: '', peso: 0 });
-      setStep(1);
+      closeModal();
       await loadParamsAndCalculate();
     } catch (error: any) { 
         console.error("Erro na operação:", error);
-        alert("Erro ao salvar dados.");
+        setTestStatus({ loading: false, error: "Ocorreu um erro ao salvar os dados. Tente novamente." });
     } finally {
         setRefreshing(false);
     }
@@ -236,9 +287,57 @@ export function EscolasPrioritarias() {
       await loadParamsAndCalculate();
     } catch (error: any) { 
         console.error("Erro na operação:", error);
-        alert("Erro ao atualizar pesos.");
     } finally {
         setRefreshing(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!paramToDelete) return;
+    setRefreshing(true);
+    try {
+      // 1. Calcula os novos pesos para os parâmetros restantes
+      const remainingParams = params.filter(p => p.id !== paramToDelete.id);
+      
+      if (remainingParams.length > 0) {
+        const totalRemainingWeight = remainingParams.reduce((acc, p) => acc + p.peso, 0);
+        const weightToDistribute = paramToDelete.peso;
+
+        let updatedWeights = remainingParams.map(p => {
+          if (totalRemainingWeight > 0) {
+            // Distribui proporcionalmente
+            return { ...p, peso: p.peso + Math.round((p.peso / totalRemainingWeight) * weightToDistribute) };
+          } else {
+            // Fallback se todos estiverem zerados
+            return { ...p, peso: Math.floor(100 / remainingParams.length) };
+          }
+        });
+
+        // Garante que a soma é exatamente 100%
+        const sum = updatedWeights.reduce((acc, p) => acc + p.peso, 0);
+        if (sum !== 100 && updatedWeights.length > 0) {
+           updatedWeights[0].peso += (100 - sum);
+        }
+
+        // 2. Exclui o parâmetro do banco de dados real
+        await (supabase as any).from('ranking_parameters').delete().eq('id', paramToDelete.id);
+
+        // 3. Atualiza os pesos dos parâmetros restantes
+        const updates = updatedWeights.map(w => 
+          (supabase as any).from('ranking_parameters').update({ peso: w.peso }).eq('id', w.id)
+        );
+        await Promise.all(updates);
+      } else {
+        // Se for o único parâmetro, apenas o exclui
+        await (supabase as any).from('ranking_parameters').delete().eq('id', paramToDelete.id);
+      }
+      
+      setParamToDelete(null);
+      await loadParamsAndCalculate();
+    } catch (error: any) {
+      console.error("Erro na exclusão:", error);
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -385,7 +484,7 @@ export function EscolasPrioritarias() {
                   }} className="px-6 py-3 bg-slate-900 text-white rounded-2xl flex items-center gap-2 hover:bg-black transition-all shadow-lg font-black text-[10px] uppercase">
                       <SlidersHorizontal size={16} /> Ajustar Pesos
                   </button>
-                  <button onClick={() => {setShowModal(true); setStep(1);}} className="p-3 bg-amber-500 text-white rounded-2xl hover:scale-110 transition-all shadow-lg">
+                  <button onClick={() => { setShowModal(true); setStep(1); setEditingParamId(null); }} className="p-3 bg-amber-500 text-white rounded-2xl hover:scale-110 transition-all shadow-lg">
                       <Plus size={24} />
                   </button>
                 </div>
@@ -403,7 +502,21 @@ export function EscolasPrioritarias() {
                     </p>
                   </div>
                   <div className="flex flex-col items-end gap-2">
-                      <span className="text-xs font-black text-amber-600">{p.peso}%</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs font-black text-amber-600">{p.peso}%</span>
+                        <button 
+                          onClick={() => openEditModal(p)} 
+                          className="text-slate-300 hover:text-amber-500 transition-colors p-1" 
+                          title="Editar Parâmetro">
+                          <Pencil size={16} />
+                        </button>
+                        <button 
+                          onClick={() => setParamToDelete(p)} 
+                          className="text-slate-300 hover:text-red-500 transition-colors p-1" 
+                          title="Excluir Parâmetro">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                       <div className="h-1.5 w-24 bg-slate-200 rounded-full overflow-hidden">
                         <div className="h-full bg-amber-500" style={{ width: `${p.peso}%` }}></div>
                       </div>
@@ -434,11 +547,13 @@ export function EscolasPrioritarias() {
         </div>
       )}
 
-      {/* Modal Wizard de Configuração de Parâmetro */}
+      {/* Modal Wizard de Configuração de Parâmetro (Criação e Edição) */}
       {showModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-xl rounded-[3rem] p-10 shadow-2xl animate-in zoom-in-95 relative">
-            <h2 className="text-2xl font-black uppercase mb-2 tracking-tight">Novo Parâmetro</h2>
+            <h2 className="text-2xl font-black uppercase mb-2 tracking-tight">
+              {editingParamId ? 'Editar Parâmetro' : 'Novo Parâmetro'}
+            </h2>
             <p className="text-slate-400 text-[10px] font-black uppercase mb-8 tracking-widest">Passo {step} de 2</p>
 
             {step === 1 ? (
@@ -478,7 +593,9 @@ export function EscolasPrioritarias() {
                     <div key={tw.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 shadow-sm transition-all hover:border-amber-200">
                       <div className="flex justify-between items-center mb-2">
                         <span className="text-[10px] font-black uppercase text-slate-700">
-                          {tw.nome} {tw.id === 'new' && <span className="ml-2 text-amber-500">★ NOVO</span>}
+                          {tw.nome} 
+                          {tw.id === 'new' && <span className="ml-2 text-amber-500">★ NOVO</span>}
+                          {tw.id === editingParamId && <span className="ml-2 text-indigo-500">✏️ EDITANDO</span>}
                         </span>
                         <span className="text-sm font-black text-amber-600">{tw.peso}%</span>
                       </div>
@@ -486,6 +603,14 @@ export function EscolasPrioritarias() {
                     </div>
                   ))}
                 </div>
+                
+                {testStatus.error && (
+                  <div className="p-4 bg-red-50 text-red-600 rounded-xl flex items-center gap-3">
+                    <AlertCircle size={20} className="shrink-0"/> 
+                    <p className="text-[10px] font-bold uppercase leading-tight">{testStatus.error}</p>
+                  </div>
+                )}
+
                 <div className="flex gap-4 pt-4">
                    <button onClick={() => setStep(1)} className="flex-1 py-4 border-2 border-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-50 transition-all">Voltar</button>
                    <button onClick={saveAll} disabled={refreshing} className="flex-[2] py-4 bg-amber-500 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-amber-200 flex items-center justify-center gap-2 hover:bg-amber-600 transition-all disabled:opacity-50">
@@ -494,7 +619,7 @@ export function EscolasPrioritarias() {
                 </div>
               </div>
             )}
-            <button onClick={() => {setShowModal(false); setStep(1); setTestStatus({ loading: false });}} className="absolute top-6 right-6 text-slate-400 hover:text-red-500 transition-colors">
+            <button onClick={closeModal} className="absolute top-6 right-6 text-slate-400 hover:text-red-500 transition-colors">
               <X size={24} />
             </button>
           </div>
@@ -537,7 +662,29 @@ export function EscolasPrioritarias() {
         </div>
       )}
 
-      {/* AQUI ESTÁ A CHAMADA DO MODAL DE DETALHES DA PONTUAÇÃO */}
+      {/* Modal de Confirmação de Exclusão */}
+      {paramToDelete && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl animate-in zoom-in-95 relative text-center">
+            <div className="w-20 h-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+              <AlertTriangle size={40} />
+            </div>
+            <h2 className="text-2xl font-black uppercase mb-4 text-slate-800">Excluir Parâmetro?</h2>
+            <p className="text-sm font-medium text-slate-500 mb-8 leading-relaxed">
+              Você está prestes a remover o parâmetro <strong className="text-slate-800 uppercase">{paramToDelete.nome_parametro}</strong>. 
+              {params.length > 1 && " O peso dele será distribuído proporcionalmente entre os parâmetros restantes para manter o total de 100%."}
+            </p>
+            <div className="flex gap-4">
+              <button onClick={() => setParamToDelete(null)} disabled={refreshing} className="flex-1 py-4 border-2 border-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-50 transition-all">Cancelar</button>
+              <button onClick={confirmDelete} disabled={refreshing} className="flex-1 py-4 bg-red-500 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-red-200 flex items-center justify-center gap-2 hover:bg-red-600 transition-all disabled:opacity-50">
+                {refreshing ? <Loader2 className="animate-spin" size={16}/> : 'Sim, Excluir'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE DETALHES DA PONTUAÇÃO */}
       {renderDetailsModal()}
 
     </div>
