@@ -144,7 +144,6 @@ export function Usuario() {
             school_id: formData.role === 'school_manager' ? formData.school_id : null
         };
 
-        // Se o campo de email não estiver vazio (e existir a coluna no banco), tentamos atualizar para manter sincronia
         if (formData.email) {
             updatePayload.email = formData.email;
         }
@@ -156,9 +155,23 @@ export function Usuario() {
 
         if (profileError) throw profileError;
 
-        // Se houve preenchimento de senha, avisa (requer Edge Function para funcionar de verdade para terceiros)
+        // --- NOVA CHAMADA PARA ALTERAR A SENHA ---
         if (formData.password) {
-            alert("Aviso: A senha foi preenchida, mas por segurança o Supabase não permite alterar senha de terceiros via Frontend. Configure uma Edge Function ou use o painel Admin do Supabase para resetar senhas.");
+          const { error: invokeError } = await supabase.functions.invoke('update-user-password', {
+            body: { 
+              targetUserId: editingUser.id, 
+              newPassword: formData.password 
+            }
+          });
+
+          if (invokeError) {
+            console.error('Erro ao alterar senha:', invokeError);
+            throw new Error('O perfil foi atualizado, mas houve um erro ao alterar a senha.');
+          }
+          
+          alert("Perfil e senha atualizados com sucesso!");
+        } else {
+          alert("Perfil atualizado com sucesso!");
         }
 
       } else {
