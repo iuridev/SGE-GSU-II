@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
   Package, Plus, Search, FileText, 
@@ -7,8 +7,12 @@ import {
   Calendar, 
   AlertCircle, History, Flag, ShieldAlert, Gift, 
   ClipboardList, DollarSign, ListPlus, Calculator,
-  LayoutGrid, CheckCircle
+  LayoutGrid, CheckCircle, Download, BarChart2, TrendingUp
 } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import html2canvas from 'html2canvas';
 
 interface PatrimonioItem {
   name: string;
@@ -63,10 +67,18 @@ export function PatrimonioProcessos() {
   const [schools, setSchools] = useState<School[]>([]);
   const [loading, setLoading] = useState(true);
   const [saveLoading, setSaveLoading] = useState(false);
+  
+  // Estados de Exportação
+  const [isExporting, setIsExporting] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportTargetSchool, setExportTargetSchool] = useState('');
+
   const [userRole, setUserRole] = useState('');
   const [userSchoolId, setUserSchoolId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   
+  const dashboardRef = useRef<HTMLDivElement>(null);
+
   // Controle de Abas
   const [activeMainTab, setActiveMainTab] = useState<'doacao' | 'furtos' | 'inserviveis' | 'bandeiras'>('doacao');
   const [activeSubTab, setActiveSubTab] = useState<'pendente' | 'concluido'>('pendente');
@@ -97,7 +109,7 @@ export function PatrimonioProcessos() {
   }, []);
 
   useEffect(() => {
-    if (!editingProcess) {
+    if (!editingProcess && formData.type) {
       const defaultStep = WORKFLOWS[formData.type][0];
       setFormData(prev => ({ ...prev, current_step: defaultStep }));
     }
@@ -141,20 +153,153 @@ export function PatrimonioProcessos() {
 
   const isAdmin = userRole === 'regional_admin';
 
-  // Lógica de filtragem por abas
+  // ---------------------------------------------------------
+  // LÓGICA DE FILTRO PARA A EXPORTAÇÃO
+  // ---------------------------------------------------------
+  
+  // Esta variável ajusta os dados dinamicamente se estivermos gerando o PDF
+  const activeProcesses = useMemo(() => {
+    if (isExporting && exportTargetSchool !== '') {
+      return processes.filter(p => p.school_id === exportTargetSchool);
+    }
+    return processes;
+  }, [processes, isExporting, exportTargetSchool]);
+
+  const dashboardMetrics = useMemo(() => {
+    const total = activeProcesses.length;
+    const concluidos = activeProcesses.filter(p => p.status === 'CONCLUÍDO').length;
+    const pendentes = total - concluidos;
+    
+    // Gráfico 1: Processos por Tipo
+    const chartData = PROCESS_TYPES.map(type => {
+      const typeProcesses = activeProcesses.filter(p => p.type === type.id);
+      let xAxisName = type.label;
+      if (type.id === 'FURTOS') xAxisName = 'Sinistros';
+
+      return {
+        name: xAxisName, 
+        Total: typeProcesses.length,
+        Concluídos: typeProcesses.filter(p => p.status === 'CONCLUÍDO').length,
+        Pendentes: typeProcesses.filter(p => p.status !== 'CONCLUÍDO').length,
+      };
+    });
+
+    // Gráfico 2: Ranking de Escolas
+    const schoolCounts: Record<string, { name: string, Processos: number }> = {};
+    activeProcesses.forEach(p => {
+      const fullName = p.schools?.name || 'Não informada';
+      if (!schoolCounts[fullName]) schoolCounts[fullName] = { name: fullName, Processos: 0 };
+      schoolCounts[fullName].Processos += 1;
+    });
+
+    const schoolRankingData = Object.values(schoolCounts)
+      .sort((a, b) => b.Processos - a.Processos)
+      .slice(0, 10); 
+
+    return { total, concluidos, pendentes, chartData, schoolRankingData };
+  }, [activeProcesses]);
+
+  // Efeito que captura a tela e gera o PDF assim que o filtro de exportação entra em ação
+  useEffect(() => {
+    if (!isExporting) return;
+
+    const generatePDF = async () => {
+      // Dá 500ms para o React renderizar os novos dados na tela (filtro) e pausar animações
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      try {
+        const doc = new jsPDF('landscape');
+        const pdfWidth = doc.internal.pageSize.getWidth();
+        const margin = 14;
+        let currentY = 22;
+        
+        doc.setFontSize(20);
+        doc.setTextColor(79, 70, 229);
+        doc.text('Relatório Mensal - Processos de Patrimônio (SGE-GSU-II)', margin, currentY);
+        
+        currentY += 8;
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+
+        const schoolName = exportTargetSchool 
+          ? schools.find(s => s.id === exportTargetSchool)?.name 
+          : 'Todas as Unidades Escolares';
+        
+        doc.text(`Filtro Aplicado: ${schoolName}`, margin, currentY);
+        currentY += 6;
+        doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`, margin, currentY);
+        
+        currentY += 10;
+
+        if (dashboardRef.current) {
+          const canvas = await html2canvas(dashboardRef.current, { 
+            scale: 2, 
+            useCORS: true,
+            backgroundColor: '#ffffff' 
+          });
+          const imgData = canvas.toDataURL('image/png');
+          
+          let printWidth = pdfWidth - (margin * 2);
+          let printHeight = (canvas.height * printWidth) / canvas.width;
+
+          // Proteção para a imagem não cortar na página
+          const maxAvailableHeight = doc.internal.pageSize.getHeight() - currentY - margin;
+          if (printHeight > maxAvailableHeight) {
+            const ratio = maxAvailableHeight / printHeight;
+            printHeight = maxAvailableHeight;
+            printWidth = printWidth * ratio;
+          }
+
+          const xOffset = (pdfWidth - printWidth) / 2;
+          doc.addImage(imgData, 'PNG', xOffset, currentY, printWidth, printHeight);
+          currentY += printHeight + 10;
+        }
+
+        if (currentY > doc.internal.pageSize.getHeight() - 40) {
+          doc.addPage();
+          currentY = margin;
+        }
+
+        const tableData = activeProcesses.map(p => [
+          p.sei_number,
+          p.schools?.name || 'Não informada',
+          PROCESS_TYPES.find(t => t.id === p.type)?.label || p.type,
+          p.status,
+          new Date(p.process_date + 'T12:00:00').toLocaleDateString('pt-BR'),
+          p.current_step
+        ]);
+
+        autoTable(doc, {
+          startY: currentY,
+          head: [['Nº SEI', 'Unidade Escolar', 'Tipo de Fluxo', 'Status', 'Data', 'Etapa Atual']],
+          body: tableData,
+          theme: 'grid',
+          headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
+          styles: { fontSize: 8, cellPadding: 3 },
+          alternateRowStyles: { fillColor: [248, 250, 252] },
+        });
+
+        doc.save(`Relatorio_Patrimonio_${new Date().toISOString().split('T')[0]}.pdf`);
+      } catch (error) {
+        console.error("Erro ao gerar PDF:", error);
+        alert("Ocorreu um erro ao gerar o relatório.");
+      } finally {
+        setIsExporting(false); // Retorna a tela ao normal (sem filtros)
+        setShowExportModal(false);
+      }
+    };
+
+    generatePDF();
+  }, [isExporting, activeProcesses, exportTargetSchool, schools]);
+  // ---------------------------------------------------------
+
   const filteredProcesses = useMemo(() => {
     return processes.filter(p => {
-      // 1. Filtro de Busca
       const matchesSearch = p.sei_number.includes(searchTerm) || p.schools?.name.toLowerCase().includes(searchTerm.toLowerCase());
-      
-      // 2. Filtro de Categoria (Aba Principal)
       const typeInfo = PROCESS_TYPES.find(t => t.id === p.type);
       const matchesMainTab = typeInfo?.category === activeMainTab;
-
-      // 3. Filtro de Conclusão (Sub-aba)
       const isConcluido = p.status === 'CONCLUÍDO';
       const matchesSubTab = activeSubTab === 'concluido' ? isConcluido : !isConcluido;
-
       return matchesSearch && matchesMainTab && matchesSubTab;
     });
   }, [processes, searchTerm, activeMainTab, activeSubTab]);
@@ -168,7 +313,6 @@ export function PatrimonioProcessos() {
     setSaveLoading(true);
     setFormError(null);
 
-    // CORREÇÃO AQUI: Tratamento do campo de data vazio
     const payload = {
       ...formData,
       occurrence_date: formData.occurrence_date ? formData.occurrence_date : null,
@@ -281,19 +425,105 @@ export function PatrimonioProcessos() {
           </div>
         </div>
         
-        {/* BOTÃO "ABRIR NOVO PROCESSO" AGORA RESTRITO APENAS PARA ADMINISTRADORES */}
-        {isAdmin && (
+        <div className="flex gap-4">
           <button 
-            onClick={() => openModal()} 
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-10 py-5 rounded-[2rem] font-black flex items-center gap-3 shadow-xl transition-all active:scale-95 group"
+            onClick={() => setShowExportModal(true)} 
+            disabled={isExporting}
+            className="bg-slate-800 hover:bg-slate-900 disabled:opacity-70 text-white px-8 py-5 rounded-[2rem] font-black flex items-center gap-3 shadow-xl transition-all active:scale-95"
           >
-            <Plus size={20} className="group-hover:rotate-90 transition-transform"/> ABRIR NOVO PROCESSO
+            {isExporting ? <Loader2 size={20} className="animate-spin" /> : <Download size={20} />} 
+            {isExporting ? 'GERANDO PDF...' : 'PDF CHEFIA'}
           </button>
-        )}
+
+          {isAdmin && (
+            <button 
+              onClick={() => openModal()} 
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-10 py-5 rounded-[2rem] font-black flex items-center gap-3 shadow-xl transition-all active:scale-95 group"
+            >
+              <Plus size={20} className="group-hover:rotate-90 transition-transform"/> ABRIR NOVO PROCESSO
+            </button>
+          )}
+        </div>
       </div>
 
+      {/* ÁREA DO DASHBOARD CAPTURADA PARA O PDF */}
+      <div ref={dashboardRef} className="space-y-6 bg-[#f8fafc] p-2 rounded-[3.5rem]">
+        
+        {/* CARDS DE MÉTRICAS */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-lg flex items-center gap-6">
+            <div className="p-4 bg-indigo-50 text-indigo-600 rounded-2xl"><ClipboardList size={32}/></div>
+            <div>
+              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Total de Processos</p>
+              <h2 className="text-4xl font-black text-slate-800">{dashboardMetrics.total}</h2>
+            </div>
+          </div>
+          <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-lg flex items-center gap-6">
+            <div className="p-4 bg-emerald-50 text-emerald-600 rounded-2xl"><CheckCircle size={32}/></div>
+            <div>
+              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Concluídos</p>
+              <h2 className="text-4xl font-black text-emerald-600">{dashboardMetrics.concluidos}</h2>
+            </div>
+          </div>
+          <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-lg flex items-center gap-6">
+            <div className="p-4 bg-amber-50 text-amber-600 rounded-2xl"><History size={32}/></div>
+            <div>
+              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Em Andamento</p>
+              <h2 className="text-4xl font-black text-amber-600">{dashboardMetrics.pendentes}</h2>
+            </div>
+          </div>
+        </div>
+
+        {/* GRÁFICOS */}
+        <div className="grid grid-cols-1 gap-6">
+          
+          {/* Gráfico 1: Processos por Tipo */}
+          <div className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-xl">
+            <div className="flex items-center gap-3 mb-8">
+              <BarChart2 className="text-indigo-600" size={24} />
+              <h2 className="text-lg font-black text-slate-800 uppercase tracking-tight">Distribuição de Processos</h2>
+            </div>
+            <div className="h-80 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={dashboardMetrics.chartData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 700 }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 700 }} />
+                  <RechartsTooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
+                  <Legend wrapperStyle={{ paddingTop: '20px', fontWeight: 700, fontSize: '12px' }} />
+                  {/* Desliga a animação apenas no momento exato do print para não capturar a barra "subindo" */}
+                  <Bar dataKey="Pendentes" stackId="a" fill="#fbbf24" radius={[0, 0, 4, 4]} maxBarSize={60} isAnimationActive={!isExporting}/>
+                  <Bar dataKey="Concluídos" stackId="a" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={60} isAnimationActive={!isExporting}/>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Gráfico 2: Ranking de Escolas */}
+          <div className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-xl">
+            <div className="flex items-center gap-3 mb-8">
+              <TrendingUp className="text-blue-500" size={24} />
+              <h2 className="text-lg font-black text-slate-800 uppercase tracking-tight">Número Processos por Escola</h2>
+            </div>
+            <div className="h-96 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={dashboardMetrics.schoolRankingData} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                  <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 700 }} />
+                  <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#475569', fontSize: 10, fontWeight: 700 }} width={250} />
+                  <RechartsTooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
+                  <Bar dataKey="Processos" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={24} isAnimationActive={!isExporting}/>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+        </div>
+      </div>
+      {/* FIM DA ÁREA DO DASHBOARD */}
+
       {/* Navegação de Abas Principais (Estilo Pílula) */}
-      <div className="bg-white p-3 rounded-[3rem] border border-slate-100 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
+      <div className="bg-white p-3 rounded-[3rem] border border-slate-100 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4 mt-8">
         <div className="flex flex-wrap gap-2 p-1.5 bg-slate-100/50 rounded-[2.5rem] w-full md:w-auto">
            {mainTabs.map(tab => (
              <button
@@ -434,6 +664,52 @@ export function PatrimonioProcessos() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* MODAL DE SELEÇÃO PARA EXPORTAÇÃO */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/90 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-[3rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-indigo-100"><FileText size={24}/></div>
+                <div>
+                  <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight leading-none">Exportar Relatório</h2>
+                  <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest mt-1">Geração de PDF</p>
+                </div>
+              </div>
+              <button onClick={() => setShowExportModal(false)} className="p-2 hover:bg-white rounded-full transition-all text-slate-400"><X size={24}/></button>
+            </div>
+            
+            <div className="p-8 space-y-6">
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Building2 size={14}/> Selecione a Abrangência
+                </label>
+                <select 
+                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-indigo-500 transition-all shadow-inner"
+                  value={exportTargetSchool}
+                  onChange={(e) => setExportTargetSchool(e.target.value)}
+                >
+                  <option value="">Todas as Unidades Escolares</option>
+                  {schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="p-8 border-t border-slate-100 bg-white flex justify-end gap-4">
+              <button onClick={() => setShowExportModal(false)} className="px-6 py-4 font-black text-slate-400 uppercase text-[11px] hover:text-slate-700 tracking-widest">
+                Cancelar
+              </button>
+              <button 
+                onClick={() => setIsExporting(true)} 
+                className="px-8 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[11px] flex items-center gap-3 shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95 tracking-widest"
+              >
+                <Download size={18}/> Confirmar e Gerar
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
