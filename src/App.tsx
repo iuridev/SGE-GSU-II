@@ -91,7 +91,7 @@ const MENU_GROUPS = [
       { id: 'remanejamento', label: 'Remanejamento', icon: <ArrowRightLeft size={20} />, roles: ['regional_admin', 'school_manager'] },
       { id: 'furtos', label: 'Cadastro de Furtos', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin'] },
       { id: 'Chapa', label: 'Chapa Patrimonial', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin'] },
-      { id: 'listchapa', label: 'listar Patrimônio', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin'] },
+      { id: 'listchapa', label: 'listar Patrimônio', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin','school_manager'] },
     ]
   },
  
