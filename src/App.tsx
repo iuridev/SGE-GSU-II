@@ -6,7 +6,7 @@ import {
   BookOpen, ClipboardCheck, Calendar, Car, Building,
   AlertTriangle, Scan, ShoppingBag, Trophy, Package,
   Star, ArrowUpCircle, HardHat, TreeDeciduous, Ticket,
-  School, Map, ShieldAlert, ChevronLeft, ChevronDown
+  School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown
 } from 'lucide-react';
 
 import { Dashboard } from './pages/Dashboard';
@@ -39,6 +39,9 @@ import Servicos from './pages/Servicos';
 import FiscalizacaoURE from './pages/FiscalizacaoURE';
 //import AdicionarItemAoPatrimonio from './pages/patrimoniochapa';
 import ListagemPatrimonio from './pages/ListagemPatrimonio';
+import Avcb from './pages/avcb';
+import RelatorioAtividades from './pages/atividades';
+
 
 // ========================================================================
 // CONFIGURAÇÃO DO MENU AGRUPADO (Movido para fora do componente)
@@ -47,7 +50,8 @@ const MENU_GROUPS = [
   {
     title: 'Principal',
     items: [
-      { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager'] }
+      { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager'] },
+      { id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <LayoutDashboard size={20} />, roles: ['regional_admin'] }
     ]
   },
   {
@@ -80,6 +84,7 @@ const MENU_GROUPS = [
       { id: 'manejo', label: 'Manejo Arbóreo', icon: <TreeDeciduous size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager'] },
       { id: 'elevadores', label: 'Gestão de Elevadores', icon: <ArrowUpCircle size={20} className="text-blue-500" />, roles: ['regional_admin'] },
       { id: 'plantas', label: 'Plantas Prediais', icon: <Map size={20} />, roles: ['regional_admin', 'school_manager'] },
+      { id: 'avcb', label: 'AVCB', icon: <Flame size={20} className="text-red-500"/>, roles: ['regional_admin'] },
     ]
   },
   {
@@ -91,7 +96,7 @@ const MENU_GROUPS = [
       { id: 'remanejamento', label: 'Remanejamento', icon: <ArrowRightLeft size={20} />, roles: ['regional_admin', 'school_manager'] },
       { id: 'furtos', label: 'Cadastro de Furtos', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin'] },
       //{ id: 'Chapa', label: 'Chapa Patrimonial', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin'] },
-      { id: 'listchapa', label: 'listar Patrimônio', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin','school_manager'] },
+      { id: 'listchapa', label: 'listar Patrimônio', icon: <Package size={20} className="text-red-500" />, roles: ['regional_admin','school_manager'] },
     ]
   },
  
@@ -235,6 +240,8 @@ export default function App() {
       case 'furtos': return <CadastroFurtos />;
       //case 'Chapa': return <AdicionarItemAoPatrimonio />;
       case 'listchapa': return <ListagemPatrimonio />;
+      case 'avcb': return <Avcb />;
+      case 'atividades': return <RelatorioAtividades />;
       default: return <Dashboard />;
     }
   };
