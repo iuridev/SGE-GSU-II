@@ -37,7 +37,7 @@ import CadastroFurtos from './pages/Furtos';
 import Plantas from './pages/Plantas'; 
 import Servicos from './pages/Servicos';
 import FiscalizacaoURE from './pages/FiscalizacaoURE';
-import AdicionarItemAoPatrimonio from './pages/patrimoniochapa';
+//import AdicionarItemAoPatrimonio from './pages/patrimoniochapa';
 import ListagemPatrimonio from './pages/ListagemPatrimonio';
 
 // ========================================================================
@@ -90,7 +90,7 @@ const MENU_GROUPS = [
       { id: 'aquisicao', label: 'Aquisição de Itens', icon: <ShoppingBag size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager'] },
       { id: 'remanejamento', label: 'Remanejamento', icon: <ArrowRightLeft size={20} />, roles: ['regional_admin', 'school_manager'] },
       { id: 'furtos', label: 'Cadastro de Furtos', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin'] },
-      { id: 'Chapa', label: 'Chapa Patrimonial', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin'] },
+      //{ id: 'Chapa', label: 'Chapa Patrimonial', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin'] },
       { id: 'listchapa', label: 'listar Patrimônio', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin','school_manager'] },
     ]
   },
@@ -233,7 +233,7 @@ export default function App() {
       case 'servicos': return <Servicos />;
       case 'fiscalizacaoURE': return <FiscalizacaoURE />;
       case 'furtos': return <CadastroFurtos />;
-      case 'Chapa': return <AdicionarItemAoPatrimonio />;
+      //case 'Chapa': return <AdicionarItemAoPatrimonio />;
       case 'listchapa': return <ListagemPatrimonio />;
       default: return <Dashboard />;
     }
