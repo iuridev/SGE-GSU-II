@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { 
   Building2, Droplets, Zap, ShieldCheck, AlertTriangle, ArrowRight,
   Calendar, CheckCircle2, Waves, ZapOff, History, ChevronRight,
-  ArrowRightLeft, ClipboardCheck, Map as MapIcon, Loader2
+  ArrowRightLeft, Map as MapIcon, Loader2
   
 } from 'lucide-react';
 import { WaterTruckModal } from '../components/WaterTruckModal';
@@ -25,7 +25,6 @@ interface Stats {
   waterTruckRequests: number; 
   powerOutageRecords: number;
   inventoryItems: number;
-  pendingFiscalizations: number;
 }
 
 interface MapSchool {
@@ -42,7 +41,7 @@ export function Dashboard() {
   const [stats, setStats] = useState<Stats>({
     schools: 0, activeZeladorias: 0, waterAlerts: 0, activeWorks: 0,
     avgConsumption: 0, exceededDays: 0, waterTruckRequests: 0, powerOutageRecords: 0,
-    inventoryItems: 0, pendingFiscalizations: 0
+    inventoryItems: 0
   });
   const [mapSchools, setMapSchools] = useState<MapSchool[]>([]);
   const [loading, setLoading] = useState(true);
@@ -332,7 +331,6 @@ export function Dashboard() {
             <StatCard title="Escolas" value={stats.schools} icon={<Building2 size={20} />} color="blue" loading={loading} label="Cadastradas" />
             <StatCard title="Zeladorias" value={stats.activeZeladorias} icon={<ShieldCheck size={20} />} color="emerald" loading={loading} label="Ativas" />
             <StatCard title="Média Rede" value={`${stats.avgConsumption.toFixed(2)} m³`} icon={<Waves size={20} />} color="blue" loading={loading} label="Consumo Mês" />
-            <StatCard title="Fiscalizações" value={stats.pendingFiscalizations} icon={<ClipboardCheck size={20} />} color="amber" loading={loading} label="Pendentes Rede" alert={stats.pendingFiscalizations > 0} />
             <StatCard title="Falta Energia" value={stats.powerOutageRecords} icon={<ZapOff size={20} />} color="slate" loading={loading} label="Total Ano" />
             <StatCard title="Banco Remaneja" value={stats.inventoryItems} icon={<ArrowRightLeft size={20} />} color="indigo" loading={loading} label="Itens Livres" />
           </>
@@ -340,7 +338,6 @@ export function Dashboard() {
           <>
             <StatCard title="Média Consumo" value={`${stats.avgConsumption.toFixed(2)} m³`} icon={<Waves size={22} />} color="blue" loading={loading} label="Média diária" />
             <StatCard title="Dias Excesso" value={stats.exceededDays} icon={<AlertTriangle size={22} />} color="amber" loading={loading} label="No mês atual" alert={stats.exceededDays > 0} />
-            <StatCard title="Fiscalização" value={stats.pendingFiscalizations} icon={<ClipboardCheck size={22} />} color="amber" loading={loading} label="Entregas Pendentes" alert={stats.pendingFiscalizations > 0} />
             <StatCard title="Falta Energia" value={stats.powerOutageRecords} icon={<ZapOff size={22} />} color="slate" loading={loading} label="Registros no ano" />
             <StatCard title="Caminhão Pipa" value={stats.waterTruckRequests} icon={<History size={22} />} color="blue" loading={loading} label="Pedidos no ano" />
             <StatCard title="Banco Remaneja" value={stats.inventoryItems} icon={<ArrowRightLeft size={22} />} color="indigo" loading={loading} label="Itens Disponíveis" />
@@ -456,7 +453,6 @@ export function Dashboard() {
 
           <div className="flex items-center gap-3 mt-8"><div className="w-1 h-6 bg-slate-400 rounded-full"></div><h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Controle</h2></div>
           <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-xl p-4 space-y-2">
-            <QuickLink icon={<ClipboardCheck size={18}/>} title="Fiscalização Terceirizados" desc="Acompanhe entregas e prazos" href="/fiscalizacao" color="amber" />
             <QuickLink icon={<ArrowRightLeft size={18}/>} title="Remanejamento" desc="Banco regional de itens" href="/remanejamento" color="indigo" />
           </div>
         </div>
