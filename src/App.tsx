@@ -41,6 +41,7 @@ import FiscalizacaoURE from './pages/FiscalizacaoURE';
 import ListagemPatrimonio from './pages/ListagemPatrimonio';
 import Avcb from './pages/avcb';
 import RelatorioAtividades from './pages/atividades';
+import VincularSetores from './pages/VincularSetores';
 
 
 // ========================================================================
@@ -130,7 +131,8 @@ const MENU_GROUPS = [
       { id: 'lista-escolas', label: 'Lista de Escolas', icon: <School size={20} />, roles: ['regional_admin'] },
       { id: 'usuarios', label: 'Gestão de Usuários', icon: <UserCog size={20} />, roles: ['regional_admin'] },
       { id: 'tutoriais', label: 'Manuais e Tutoriais', icon: <BookOpen size={20} />, roles: ['regional_admin', 'school_manager'] },
-      ]
+      { id: 'chefes', label: 'Chefes', icon: <BookOpen size={20} />, roles: ['regional_admin'] },
+    ]
   },
 ];
 
@@ -242,6 +244,8 @@ export default function App() {
       case 'listchapa': return <ListagemPatrimonio />;
       case 'avcb': return <Avcb />;
       case 'atividades': return <RelatorioAtividades />;
+      case 'chefes': return <VincularSetores />;
+
       default: return <Dashboard />;
     }
   };
