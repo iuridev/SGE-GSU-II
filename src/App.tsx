@@ -42,6 +42,8 @@ import ListagemPatrimonio from './pages/ListagemPatrimonio';
 import Avcb from './pages/avcb';
 import RelatorioAtividades from './pages/atividades';
 import VincularSetores from './pages/VincularSetores';
+import Chat from './pages/chat';
+
 
 
 // ========================================================================
@@ -58,6 +60,7 @@ const MENU_GROUPS = [
   {
     title: 'Atendimento',
     items: [
+      { id: 'chat', label: 'Chat', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager'] },
       { id: 'chamados', label: 'Central de Chamados', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager'] },
       { id: 'demandas', label: 'Demandas / E-mails', icon: <AlertTriangle size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager'] },
     ]
@@ -245,6 +248,8 @@ export default function App() {
       case 'avcb': return <Avcb />;
       case 'atividades': return <RelatorioAtividades />;
       case 'chefes': return <VincularSetores />;
+      case 'chat': return <Chat />;
+
 
       default: return <Dashboard />;
     }
