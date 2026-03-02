@@ -1,7 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { GoogleGenerativeAI } from '@google/generative-ai'; // IMPORTAÇÃO DA IA
+import { MANUAL_DO_SISTEMA } from '../lib/manualIA';
 
-// 1. Interfaces
+// Configuração segura da Chave da API (Busca do arquivo .env)
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY || 'AIzaSyAmusJrD2DZqUPduwGpF7yjSD6bxVLH6iM';
+const genAI = new GoogleGenerativeAI(apiKey);
+
+// Interfaces
 export interface Profile {
   id: string;
   full_name: string;
@@ -15,7 +21,7 @@ export interface Mensagem {
   conversa_id: string;
   sender_id: string;
   content: string;
-  is_read?: boolean; // Adicionado o status de leitura
+  is_read?: boolean;
   created_at: string;
 }
 
@@ -27,7 +33,6 @@ export interface Conversa {
   participante2_id: string;
 }
 
-// Interface auxiliar para a tela
 interface ContatoRenderizado extends Profile {
   conversaAberta?: Conversa;
   mensagensNaoLidas: number;
@@ -38,7 +43,6 @@ export default function Chat() {
   const [contatos, setContatos] = useState<ContatoRenderizado[]>([]);
   const [mensagens, setMensagens] = useState<Mensagem[]>([]);
   
-  // Estados Globais de Monitoramento
   const [todasConversasAbertas, setTodasConversasAbertas] = useState<Conversa[]>([]);
   const [todasMensagensNaoLidas, setTodasMensagensNaoLidas] = useState<Mensagem[]>([]);
   
@@ -48,20 +52,21 @@ export default function Chat() {
   const [statusConversa, setStatusConversa] = useState<string>('');
   const [novaMensagem, setNovaMensagem] = useState<string>('');
   
+  // Estado de carregamento da IA
+  const [carregandoIA, setCarregandoIA] = useState<boolean>(false);
+  
   const mensagensFimRef = useRef<HTMLDivElement>(null);
 
-  // 1. Carrega o utilizador logado e os seus dados globais (Conversas e Não Lidas)
+  // 1. Carrega Utilizador e Dados Globais
   useEffect(() => {
     async function carregarDadosIniciais() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Pega Perfil
       const { data: perfilData } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       const perfil = perfilData as unknown as Profile;
       setCurrentUser(perfil);
 
-      // Pega Conversas Abertas Globais
       const { data: convsData } = await (supabase.from('conversas') as any)
         .select('*')
         .eq('status', 'aberta')
@@ -70,14 +75,13 @@ export default function Chat() {
       const conversas = (convsData || []) as Conversa[];
       setTodasConversasAbertas(conversas);
 
-      // Se tem conversas abertas, busca as mensagens não lidas delas
       if (conversas.length > 0) {
         const convIds = conversas.map(c => c.id);
         const { data: naoLidasData } = await (supabase.from('messages') as any)
           .select('*')
           .in('conversa_id', convIds)
           .eq('is_read', false)
-          .neq('sender_id', user.id); // Mensagens que NÃO fui eu que enviei
+          .neq('sender_id', user.id);
         
         if (naoLidasData) setTodasMensagensNaoLidas(naoLidasData as Mensagem[]);
       }
@@ -85,7 +89,7 @@ export default function Chat() {
     carregarDadosIniciais();
   }, []);
 
-  // 2. Carrega e Ordena a lista de contactos
+  // 2. Carrega Contactos
   useEffect(() => {
     async function fetchContatos() {
       if (!currentUser) return;
@@ -101,19 +105,13 @@ export default function Chat() {
       if (!error && data) {
         const baseContatos = data.filter((c: any) => c.id !== currentUser.id) as unknown as Profile[];
         
-        // Mapeia os contatos inserindo as informações de protocolo e leitura
         let contatosMapeados: ContatoRenderizado[] = baseContatos.map(contato => {
           const conversa = todasConversasAbertas.find(c => c.participante1_id === contato.id || c.participante2_id === contato.id);
           const naoLidasCount = todasMensagensNaoLidas.filter(m => conversa && m.conversa_id === conversa.id).length;
           
-          return {
-            ...contato,
-            conversaAberta: conversa,
-            mensagensNaoLidas: naoLidasCount
-          };
+          return { ...contato, conversaAberta: conversa, mensagensNaoLidas: naoLidasCount };
         });
 
-        // ORDENAÇÃO: 1º Não Lidas | 2º Protocolos Abertos | 3º Restante
         contatosMapeados = contatosMapeados.sort((a, b) => {
           if (a.mensagensNaoLidas > 0 && b.mensagensNaoLidas === 0) return -1;
           if (a.mensagensNaoLidas === 0 && b.mensagensNaoLidas > 0) return 1;
@@ -126,9 +124,9 @@ export default function Chat() {
       }
     }
     fetchContatos();
-  }, [currentUser, todasConversasAbertas, todasMensagensNaoLidas]); // Recalcula se chegar msg nova
+  }, [currentUser, todasConversasAbertas, todasMensagensNaoLidas]);
 
-  // 3. Clica no contato
+  // 3. Abrir Conversa
   const abrirConversa = async (contato: ContatoRenderizado) => {
     setContatoAtivo(contato);
     setMensagens([]);
@@ -144,14 +142,8 @@ export default function Chat() {
       setStatusConversa(contato.conversaAberta.status);
       carregarMensagens(contato.conversaAberta.id);
 
-      // Marca como lida no banco de dados
       if (contato.mensagensNaoLidas > 0) {
-        await (supabase.from('messages') as any)
-          .update({ is_read: true })
-          .eq('conversa_id', contato.conversaAberta.id)
-          .neq('sender_id', currentUser.id);
-        
-        // Remove as mensagens não lidas deste contato do estado global (limpa a bolinha vermelha)
+        await (supabase.from('messages') as any).update({ is_read: true }).eq('conversa_id', contato.conversaAberta.id).neq('sender_id', currentUser.id);
         setTodasMensagensNaoLidas(prev => prev.filter(m => m.conversa_id !== contato.conversaAberta?.id));
       }
     }
@@ -162,7 +154,7 @@ export default function Chat() {
     if (data) setMensagens(data as unknown as Mensagem[]);
   };
 
-  // 4. Realtime Global (Escuta tudo para atualizar os alertas)
+  // 4. Realtime Global
   useEffect(() => {
     if (!currentUser) return;
 
@@ -172,24 +164,18 @@ export default function Chat() {
       (payload: any) => { 
         const novaMsg = payload.new as Mensagem; 
         
-        // A) Se for para a conversa que estou olhando AGORA
         if (conversaAtivaId && novaMsg.conversa_id === conversaAtivaId) {
           setMensagens((prev) => {
             if (prev.find(m => m.id === novaMsg.id)) return prev;
             return [...prev, novaMsg];
           });
           
-          // Como estou com a tela aberta, já marco como lido no banco
           if (novaMsg.sender_id !== currentUser.id) {
              (supabase.from('messages') as any).update({ is_read: true }).eq('id', novaMsg.id).then();
           }
-        } 
-        // B) Se for para OUTRA conversa e eu for o destinatário
-        else if (novaMsg.sender_id !== currentUser.id) {
-          // Checa se essa mensagem pertence a alguma conversa minha
+        } else if (novaMsg.sender_id !== currentUser.id) {
           const ehMinhaConversa = todasConversasAbertas.some(c => c.id === novaMsg.conversa_id);
           if (ehMinhaConversa) {
-             // Adiciona na lista de não lidas para fazer a bolinha vermelha aparecer
              setTodasMensagensNaoLidas(prev => [...prev, novaMsg]);
           }
         }
@@ -202,7 +188,39 @@ export default function Chat() {
     mensagensFimRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [mensagens]);
 
-  // 5. ENVIAR MENSAGEM (Optimistic UI)
+// ==========================================
+  // 5. INTELIGÊNCIA ARTIFICIAL (GEMINI 2.5)
+  // ==========================================
+  const sugerirRespostaIA = async () => {
+    if (mensagens.length === 0) return;
+    setCarregandoIA(true);
+    try {
+      const ultimasMensagens = mensagens.slice(-5).map(m => {
+        const quem = m.sender_id === currentUser?.id ? "Administrador" : "Escola";
+        return `${quem}: ${m.content}`;
+      }).join("\n");
+
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+      // Olha como o prompt fica limpo agora! Ele puxa o texto gigante do outro arquivo.
+      const prompt = `${MANUAL_DO_SISTEMA}
+      
+Histórico da conversa atual:
+${ultimasMensagens}
+
+Sua sugestão de resposta:`;
+
+      const result = await model.generateContent(prompt);
+      setNovaMensagem(result.response.text().trim());
+
+    } catch (error) {
+      console.error("Erro no Gemini:", error);
+    } finally {
+      setCarregandoIA(false);
+    }
+  };
+  
+  // 6. ENVIAR MENSAGEM
   const enviarMensagem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!novaMensagem.trim() || !currentUser || !contatoAtivo) return;
@@ -227,8 +245,6 @@ export default function Chat() {
       
       setConversaAtivaId(nova.id);
       setProtocoloAtual(nova.protocolo);
-      
-      // Adiciona a nova conversa na lista global para a Sidebar atualizar e mostrar o protocolo
       setTodasConversasAbertas(prev => [...prev, nova]);
     }
 
@@ -236,7 +252,7 @@ export default function Chat() {
       conversa_id: idDaConversaAtual,
       sender_id: currentUser.id,
       content: textoMensagem,
-      is_read: false // A mensagem nasce como "não lida" para o destinatário
+      is_read: false 
     }]).select().single();
 
     if (!error && msgInserida) {
@@ -247,7 +263,7 @@ export default function Chat() {
     }
   };
 
-  // 6. FINALIZAR CONVERSA
+  // 7. FINALIZAR CONVERSA
   const finalizarAtendimento = async () => {
     if (!conversaAtivaId || !currentUser) return;
     const confirmar = window.confirm("Deseja realmente finalizar este atendimento?");
@@ -260,21 +276,19 @@ export default function Chat() {
         conversa_id: conversaAtivaId,
         sender_id: currentUser.id,
         content: "⚠️ Este atendimento foi finalizado pelo administrador.",
-        is_read: true // Mensagem do sistema não precisa apitar
+        is_read: true
       }]);
 
       setStatusConversa('concluido');
       setConversaAtivaId(null); 
       setProtocoloAtual('Atendimento Concluído. Envie mensagem para novo protocolo.');
-      
-      // Remove da lista de conversas ativas na Sidebar
       setTodasConversasAbertas(prev => prev.filter(c => c.id !== conversaAtivaId));
     }
   };
 
   return (
     <div className="flex h-screen bg-gray-100">
-      {/* BARRA LATERAL (SIDEBAR) */}
+      {/* BARRA LATERAL */}
       <div className="w-1/3 bg-white border-r border-gray-300 flex flex-col">
         <div className="p-4 bg-blue-900 text-white font-bold text-lg">
           Atendimentos SGE-GSU-II
@@ -290,7 +304,6 @@ export default function Chat() {
                 <p className="font-semibold text-gray-800">{contato.full_name}</p>
                 <div className="flex items-center gap-2 mt-1">
                    <p className="text-xs text-gray-500">{contato.setor ? `Setor: ${contato.setor}` : 'Escola'}</p>
-                   {/* DESTAQUE: Badge de Protocolo Aberto */}
                    {contato.conversaAberta && (
                      <span className="bg-orange-100 text-orange-700 text-[10px] px-2 py-0.5 rounded font-mono font-bold">
                        {contato.conversaAberta.protocolo}
@@ -299,7 +312,6 @@ export default function Chat() {
                 </div>
               </div>
 
-              {/* ALERTA VISUAL: Bolinha de Mensagens Não Lidas */}
               {contato.mensagensNaoLidas > 0 && (
                 <div className="bg-red-500 text-white text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full shadow-md animate-pulse">
                   {contato.mensagensNaoLidas}
@@ -349,9 +361,8 @@ export default function Chat() {
                 return (
                   <div key={msg.id} className={`flex mb-4 ${isMine ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[70%] rounded-lg p-3 shadow-sm relative ${isMine ? 'bg-[#dcf8c6] rounded-tr-none' : 'bg-white rounded-tl-none'}`}>
-                      <p className="text-gray-800">{msg.content}</p>
+                      <p className="text-gray-800 whitespace-pre-line">{msg.content}</p>
                       
-                      {/* Checkmarks de lido/não lido para quem enviou */}
                       <div className="flex justify-end items-center gap-1 mt-1">
                         <span className="text-[10px] text-gray-500 block text-right">
                           {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -369,8 +380,23 @@ export default function Chat() {
               <div ref={mensagensFimRef} />
             </div>
 
+            {/* INPUT DE MENSAGENS COM O BOTÃO DA IA */}
             <div className="p-4 bg-gray-100 border-t border-gray-300">
               <form onSubmit={enviarMensagem} className="flex gap-2">
+                
+                {/* BOTÃO DA INTELIGÊNCIA ARTIFICIAL */}
+                {currentUser?.role === 'regional_admin' && mensagens.length > 0 && (
+                  <button 
+                    type="button" 
+                    onClick={sugerirRespostaIA}
+                    disabled={carregandoIA}
+                    className="bg-purple-100 text-purple-700 border border-purple-300 px-3 py-2 rounded-full font-semibold hover:bg-purple-200 transition flex items-center gap-1 text-sm disabled:opacity-50"
+                    title="Pedir sugestão baseada no manual"
+                  >
+                    {carregandoIA ? '⏳' : '✨ IA'}
+                  </button>
+                )}
+
                 <input
                   type="text"
                   value={novaMensagem}
