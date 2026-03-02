@@ -26,3 +26,7 @@ dist-ssr
 
 # Ignorar imagens reais da planta da URE por segurança
 public/lot*.png
+
+
+.env
+.env.*
