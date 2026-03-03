@@ -6,7 +6,7 @@ import {
   Search, Building2, Users, Loader2,
   AlertCircle, ArrowRight, ArrowDown, Activity, ShieldCheck,
   TrendingUp, Waves, ListFilter,
-  CalendarDays, FileDown, History, CalendarOff
+  CalendarDays, FileDown, History, CalendarOff, Trash2
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -143,7 +143,6 @@ export function ConsumoAgua() {
         });
         setLogs(logsMap);
       } else {
-        // Na visão global, identifica dias com suspensão analisando todos os logs
         const suspensionDays: Record<string, WaterLog> = {};
 
         rawLogs.forEach((log: WaterLog) => {
@@ -160,7 +159,6 @@ export function ConsumoAgua() {
     }
   }
 
-  // Busca a quantidade de caminhões pipa solicitados no ano
   async function fetchWaterTruckStats() {
     const firstDayYear = new Date(currentDate.getFullYear(), 0, 1).toISOString();
     
@@ -182,7 +180,6 @@ export function ConsumoAgua() {
     }
   }
 
-  // --- Cálculos de Resumo ---
   const stats = useMemo(() => {
     const totalConsumption = allMonthLogs.reduce((acc, curr) => acc + (curr.consumption_diff || 0), 0);
     const totalLimit = allMonthLogs.reduce((acc, curr) => acc + (curr.student_count + curr.staff_count) * 0.008, 0);
@@ -198,7 +195,6 @@ export function ConsumoAgua() {
 
   const isTotalExceeded = stats.totalConsumption > stats.totalLimit && stats.totalLimit > 0;
 
-  // --- Dados para Exibição ---
   const chartData = useMemo(() => {
     const dailyMap: Record<string, { date: string, consumo: number, limite: number }> = {};
     allMonthLogs.forEach(log => {
@@ -225,7 +221,6 @@ export function ConsumoAgua() {
       .sort((a, b) => a.school_name.localeCompare(b.school_name));
   }, [allMonthLogs, schools]);
 
-  // --- Exportação PDF ---
   const handleExportPDF = async () => {
     setExporting(true);
     try {
@@ -277,15 +272,11 @@ export function ConsumoAgua() {
   };
 
   const handleMonthChange = (monthIdx: number) => {
-    const newDate = new Date(currentDate);
-    newDate.setMonth(monthIdx);
-    setCurrentDate(newDate);
+    setCurrentDate(new Date(currentDate.getFullYear(), monthIdx, 1));
   };
 
   const handleYearChange = (year: number) => {
-    const newDate = new Date(currentDate);
-    newDate.setFullYear(year);
-    setCurrentDate(newDate);
+    setCurrentDate(new Date(year, currentDate.getMonth(), 1));
   };
 
   const handlePrevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
@@ -321,14 +312,14 @@ export function ConsumoAgua() {
     setSelectedDateStr(dateStr);
     
     setLoadingPrev(true);
-    // CORREÇÃO AQUI: Adicionado filtro .gt('reading_m3', 0) para ignorar leituras zeradas
-    // Isso garante que se o dia de suspensão tiver ficado com 0 por erro, ele pega o anterior a ele.
+    
+    // Busca a leitura anterior perfeitamente baseada na ordenação de texto do banco
     const { data: prevData } = await (supabase as any)
       .from('consumo_agua')
       .select('reading_m3')
       .eq('school_id', selectedSchoolId)
       .lt('date', dateStr)
-      .gt('reading_m3', 0) // <--- FILTRO DE SEGURANÇA
+      .gt('reading_m3', 0) 
       .order('date', { ascending: false })
       .limit(1);
     
@@ -384,7 +375,30 @@ export function ConsumoAgua() {
     }
   }
 
-  // --- Salvar Suspensão Global ---
+  // --- Excluir Registro (Lixeira) ---
+  async function handleDelete() {
+    if (!window.confirm("Tem certeza que deseja excluir este registro hídrico?")) return;
+    
+    setSaveLoading(true);
+    try {
+      const { error } = await (supabase as any)
+        .from('consumo_agua')
+        .delete()
+        .eq('school_id', selectedSchoolId)
+        .eq('date', selectedDateStr);
+
+      if (error) throw error;
+      
+      setIsModalOpen(false);
+      fetchLogs();
+    } catch (error: any) {
+      alert(`Erro ao excluir: ${error.message}`);
+    } finally {
+      setSaveLoading(false);
+    }
+  }
+
+  // --- Salvar Suspensão Global (CORRIGIDO PARA FURAR O LIMITE DO BANCO) ---
   async function handleSuspensionSave() {
     setSaveLoading(true);
     try {
@@ -395,34 +409,22 @@ export function ConsumoAgua() {
       if (schoolsError) throw schoolsError;
       if (!allSchools || allSchools.length === 0) throw new Error("Nenhuma escola encontrada.");
 
-      const lookbackDate = new Date(selectedDateStr);
-      lookbackDate.setDate(lookbackDate.getDate() - 30);
-      const lookbackDateStr = formatDateToYMD(lookbackDate);
+      // Faz uma busca isolada da última leitura de cada escola usando Promise.all
+      // Isso impede que a consulta seja truncada pelo limite de 1000 linhas do Supabase
+      const bulkDataPromises = allSchools.map(async (school: any) => {
+        const { data: prevData } = await (supabase as any)
+          .from('consumo_agua')
+          .select('reading_m3')
+          .eq('school_id', school.id)
+          .lt('date', selectedDateStr)
+          .gt('reading_m3', 0)
+          .order('date', { ascending: false })
+          .limit(1);
 
-      // CORREÇÃO AQUI TAMBÉM: Busca apenas leituras válidas (>0) para a suspensão não gravar 0
-      const { data: historicalData, error: histError } = await (supabase as any)
-        .from('consumo_agua')
-        .select('school_id, reading_m3, date')
-        .lt('date', selectedDateStr)
-        .gte('date', lookbackDateStr)
-        .gt('reading_m3', 0) // <--- FILTRO DE SEGURANÇA NA SUSPENSÃO
-        .order('date', { ascending: false });
+        const lastReading = prevData?.[0]?.reading_m3 || 0;
+        const finalReason = suspensionReason === 'Outro' ? customSuspensionReason : suspensionReason;
+        const justificationText = `Suspensão de Expediente: ${finalReason}`;
 
-      if (histError) throw histError;
-
-      const lastReadings: Record<string, number> = {};
-      
-      historicalData?.forEach((record: any) => {
-        if (lastReadings[record.school_id] === undefined) {
-          lastReadings[record.school_id] = record.reading_m3;
-        }
-      });
-
-      const finalReason = suspensionReason === 'Outro' ? customSuspensionReason : suspensionReason;
-      const justificationText = `Suspensão de Expediente: ${finalReason}`;
-
-      const bulkData = allSchools.map((school: any) => {
-        const lastReading = lastReadings[school.id] || 0; 
         return {
           school_id: school.id,
           date: selectedDateStr,
@@ -436,6 +438,8 @@ export function ConsumoAgua() {
           created_by: userId
         };
       });
+
+      const bulkData = await Promise.all(bulkDataPromises);
 
       const { error: upsertError } = await (supabase as any)
         .from('consumo_agua')
@@ -585,7 +589,6 @@ export function ConsumoAgua() {
         </div>
       </div>
 
-      {/* Cards de Indicadores Ajustados para 5 colunas */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 print:hidden">
           <div className={`p-6 rounded-[2.5rem] border-2 transition-all flex items-center gap-4 shadow-xl ${isTotalExceeded ? 'bg-red-50 border-red-200 text-red-700' : 'bg-white border-slate-100'}`}>
               <div className={`p-4 rounded-2xl ${isTotalExceeded ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'}`}><Waves size={20} /></div>
@@ -603,8 +606,6 @@ export function ConsumoAgua() {
               <div className={`p-4 rounded-2xl ${stats.exceededDays > 0 ? 'bg-amber-500 text-white' : 'bg-emerald-500 text-white'}`}><AlertTriangle size={20} /></div>
               <div><p className="text-[10px] font-black uppercase tracking-widest opacity-40">Alertas Ativos</p><h3 className="text-xl font-black text-slate-800">{stats.exceededDays} dias</h3></div>
           </div>
-          
-          {/* NOVO CARD: CAMINHÃO PIPA NO ANO */}
           <div className="bg-white p-6 rounded-[2.5rem] border-2 border-slate-100 shadow-xl flex items-center gap-4 transition-all hover:border-blue-300">
               <div className="p-4 bg-blue-100 text-blue-700 rounded-2xl"><History size={20} /></div>
               <div>
@@ -660,7 +661,6 @@ export function ConsumoAgua() {
           </div>
       )}
 
-      {/* Calendário Principal - Exibido quando tem escola selecionada ou quando o Admin quer ver o calendário geral */}
       {(selectedSchoolId || userRole === 'regional_admin') && (
           <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-2xl print:hidden">
               <div className="flex items-center justify-between mb-10">
@@ -671,7 +671,7 @@ export function ConsumoAgua() {
                 </div>
                 {userRole === 'regional_admin' && !selectedSchoolId && (
                     <div className="hidden md:block text-xs font-bold text-slate-400 bg-slate-50 px-4 py-2 rounded-xl">
-                       Clique em uma data para registrar suspensão de expediente
+                        Clique em uma data para registrar suspensão de expediente
                     </div>
                 )}
               </div>
@@ -795,12 +795,10 @@ export function ConsumoAgua() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                         <span className="text-[10px] font-black text-slate-500 uppercase ml-1">Qtde Alunos</span>
-                        {/* Admin agora pode editar (removido disabled) */}
                         <input type="number" placeholder="0" className="w-full p-4 bg-white border-2 border-blue-200 rounded-2xl font-black text-slate-800 focus:border-blue-600 outline-none transition-all shadow-sm" value={formData.student_count || ''} onChange={(e) => setFormData({...formData, student_count: Number(e.target.value)})} />
                     </div>
                     <div className="space-y-2">
                         <span className="text-[10px] font-black text-slate-500 uppercase ml-1">Funcionários</span>
-                        {/* Admin agora pode editar (removido disabled) */}
                         <input type="number" placeholder="0" className="w-full p-4 bg-white border-2 border-blue-200 rounded-2xl font-black text-slate-800 focus:border-blue-600 outline-none transition-all shadow-sm" value={formData.staff_count || ''} onChange={(e) => setFormData({...formData, staff_count: Number(e.target.value)})} />
                     </div>
                   </div>
@@ -819,19 +817,31 @@ export function ConsumoAgua() {
                   <div className="p-8 bg-amber-50 border-2 border-amber-300 rounded-[2.5rem] space-y-6 animate-in slide-in-from-top-4 shadow-xl shadow-amber-100">
                     <div className="flex items-center gap-3 text-amber-700"><AlertCircle size={32} className="shrink-0" /><div><h4 className="text-lg font-black uppercase tracking-tight leading-none">ALERTA DE EXCESSO</h4><p className="text-xs font-bold opacity-70 mt-1 uppercase">O consumo excedeu o limite operacional diário.</p></div></div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Admin agora pode editar (removido disabled) */}
                         <div className="space-y-2"><label className="text-[10px] font-black text-amber-600 uppercase tracking-widest ml-1">Qual o motivo?</label><textarea required className="w-full p-4 border-2 border-amber-200 rounded-[1.5rem] bg-white outline-none focus:border-amber-600 text-sm font-medium transition-all" rows={3} placeholder="Descreva o motivo..." value={formData.justification} onChange={(e) => setFormData({...formData, justification: e.target.value})} /></div>
                         <div className="space-y-2"><label className="text-[10px] font-black text-amber-600 uppercase tracking-widest ml-1">O que será feito?</label><textarea required className="w-full p-4 border-2 border-amber-200 rounded-[1.5rem] bg-white outline-none focus:border-amber-600 text-sm font-medium transition-all" rows={3} placeholder="Medidas tomadas..." value={formData.action_plan} onChange={(e) => setFormData({...formData, action_plan: e.target.value})} /></div>
                     </div>
                   </div>
               )}
 
-              <div className="pt-6 flex justify-end gap-4 border-t border-slate-100 sticky bottom-0 bg-white">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-8 py-4 text-slate-500 font-black hover:text-slate-800 transition-all uppercase tracking-widest text-[11px]">Cancelar</button>
-                {/* Admin agora pode salvar (lógica atualizada no botão) */}
-                <button type="submit" disabled={saveLoading || loadingPrev || isHydrometerBlocked} className="px-14 py-4 bg-blue-600 text-white rounded-[1.5rem] font-black shadow-2xl shadow-blue-200 hover:bg-blue-700 flex items-center gap-3 active:scale-95 disabled:opacity-50 transition-all uppercase tracking-widest text-[11px]">
-                    {saveLoading ? <Loader2 className="animate-spin" size={18}/> : <><Save size={18}/> Salvar Registro</>}
-                </button>
+              <div className="pt-6 flex items-center justify-between border-t border-slate-100 sticky bottom-0 bg-white">
+                <div>
+                  {userRole === 'regional_admin' && logs[selectedDateStr] && (
+                    <button 
+                      type="button" 
+                      onClick={handleDelete} 
+                      disabled={saveLoading}
+                      className="px-6 py-4 text-red-500 font-black hover:bg-red-50 hover:text-red-700 rounded-2xl transition-all flex items-center gap-2 uppercase tracking-widest text-[11px]"
+                    >
+                      <Trash2 size={16} /> Excluir
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-4">
+                  <button type="button" onClick={() => setIsModalOpen(false)} className="px-8 py-4 text-slate-500 font-black hover:text-slate-800 transition-all uppercase tracking-widest text-[11px]">Cancelar</button>
+                  <button type="submit" disabled={saveLoading || loadingPrev || isHydrometerBlocked} className="px-14 py-4 bg-blue-600 text-white rounded-[1.5rem] font-black shadow-2xl shadow-blue-200 hover:bg-blue-700 flex items-center gap-3 active:scale-95 disabled:opacity-50 transition-all uppercase tracking-widest text-[11px]">
+                      {saveLoading ? <Loader2 className="animate-spin" size={18}/> : <><Save size={18}/> Salvar Registro</>}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
