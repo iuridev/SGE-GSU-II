@@ -346,34 +346,98 @@ export function ConsumoAgua() {
 
   // --- Salvar Registro Individual ---
   async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    setSaveLoading(true);
-    try {
-      if (isLimitExceeded && (!formData.justification || !formData.action_plan)) {
+  e.preventDefault();
+  setSaveLoading(true);
+  try {
+    if (isLimitExceeded && (!formData.justification || !formData.action_plan)) {
         throw new Error("Preencha justificativa e ação para excessos.");
-      }
-      const logData = {
-        school_id: selectedSchoolId,
-        date: selectedDateStr,
-        reading_m3: formData.reading_m3,
-        consumption_diff: currentConsumption,
-        student_count: formData.student_count,
-        staff_count: formData.staff_count, 
-        limit_exceeded: isLimitExceeded,
-        justification: isLimitExceeded ? formData.justification : null,
-        action_plan: isLimitExceeded ? formData.action_plan : null,
-        created_by: userId
-      };
-      const { error } = await (supabase as any).from('consumo_agua').upsert([logData], { onConflict: 'school_id,date' });
-      if (error) throw error;
-      setIsModalOpen(false);
-      fetchLogs();
-    } catch (error: any) {
-      alert(error.message);
-    } finally {
-      setSaveLoading(false);
     }
+
+    // Garante que se estiver bloqueado (suspensão), usa a leitura anterior
+    const finalReading = isHydrometerBlocked ? prevReadingValue : formData.reading_m3;
+    const finalConsumption = isHydrometerBlocked ? 0 : currentConsumption;
+
+      // 1. SALVA O DIA ATUAL
+    const logData = {
+      school_id: selectedSchoolId,
+      date: selectedDateStr,
+      reading_m3: finalReading,
+      consumption_diff: finalConsumption,
+      student_count: formData.student_count,
+      staff_count: formData.staff_count, 
+      limit_exceeded: isLimitExceeded,
+      justification: isLimitExceeded ? formData.justification : null,
+      action_plan: isLimitExceeded ? formData.action_plan : null,
+      created_by: userId
+    };
+
+const { error: saveError } = await (supabase as any)
+      .from('consumo_agua')
+      .upsert([logData], { onConflict: 'school_id,date' });
+      
+    if (saveError) throw saveError;
+
+    // 2. LÓGICA DE CASCATA (Atualiza os dias seguintes automaticamente)
+    const { data: futureLogs, error: fetchError } = await (supabase as any)
+      .from('consumo_agua')
+      .select('*')
+      .eq('school_id', selectedSchoolId)
+      .gt('date', selectedDateStr)
+      .order('date', { ascending: true });
+
+    if (!fetchError && futureLogs && futureLogs.length > 0) {
+      const logsToUpdate = [];
+      let cascadeReading = finalReading;
+
+      for (const futureLog of futureLogs) {
+        const isFutureSuspension = futureLog.student_count === 0 && futureLog.staff_count === 0;
+
+        if (isFutureSuspension) {
+          // É fim de semana/feriado: empurra a leitura nova e zera o consumo
+          logsToUpdate.push({
+            ...futureLog,
+            reading_m3: cascadeReading,
+            consumption_diff: 0,
+            limit_exceeded: false
+          });
+        } else {
+          // Chegou no próximo dia útil! Recalcula o consumo desse dia.
+          const newDiff = Math.max(0, futureLog.reading_m3 - cascadeReading);
+          const newLimit = (futureLog.student_count + futureLog.staff_count) * 0.008;
+          const newExceeded = newDiff > newLimit && futureLog.reading_m3 > 0;
+
+          logsToUpdate.push({
+            ...futureLog,
+            consumption_diff: newDiff,
+            limit_exceeded: newExceeded,
+            justification: newExceeded ? futureLog.justification : null,
+            action_plan: newExceeded ? futureLog.action_plan : null
+          });
+          
+          // Para a cascata, pois os dias seguintes já estarão corretos
+          break; 
+        }
+      }
+
+      if (logsToUpdate.length > 0) {
+        const { error: cascadeError } = await (supabase as any)
+          .from('consumo_agua')
+          .upsert(logsToUpdate, { onConflict: 'school_id,date' });
+          
+        if (cascadeError) {
+          console.error("Erro na atualização em cascata:", cascadeError);
+        }
+      }
+    }
+
+    setIsModalOpen(false);
+    fetchLogs();
+  } catch (error: any) {
+    alert(`Erro ao salvar: ${error.message}`);
+  } finally {
+    setSaveLoading(false);
   }
+}
 
   // --- Excluir Registro (Lixeira) ---
   async function handleDelete() {
