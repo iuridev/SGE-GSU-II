@@ -44,6 +44,7 @@ export function Obras() {
   const [saveLoading, setSaveLoading] = useState(false);
   const [userRole, setUserRole] = useState('');
   const [userSchoolId, setUserSchoolId] = useState<string | null>(null);
+  const [supervisorSchoolIds, setSupervisorSchoolIds] = useState<string[]>([]); // <- Adicionado para Supervisor
   
   // Novos estados de filtro visual
   const [searchTerm, setSearchTerm] = useState('');
@@ -87,24 +88,34 @@ export function Obras() {
       const { data: { user } } = await supabase.auth.getUser();
       let role = '';
       let sId = null;
+      let supSchools: string[] = [];
 
       if (user) {
         const { data: profile } = await (supabase as any)
           .from('profiles')
-          .select('role, school_id')
+          .select('role, school_id, supervisor_schools')
           .eq('id', user.id)
           .single();
         
         role = profile?.role || '';
         sId = profile?.school_id || null;
+        supSchools = profile?.supervisor_schools || [];
+
         setUserRole(role);
         setUserSchoolId(sId);
+        setSupervisorSchoolIds(supSchools);
       }
 
       const { data: schoolsData } = await (supabase as any).from('schools').select('id, name').order('name');
-      setSchools(schoolsData || []);
+      
+      // Se for supervisor, exibe na lista apenas as escolas dele
+      if (role === 'supervisor') {
+        setSchools((schoolsData || []).filter((s: any) => supSchools.includes(s.id)));
+      } else {
+        setSchools(schoolsData || []);
+      }
 
-      await fetchWorks(role, sId);
+      await fetchWorks(role, sId, supSchools);
     } catch (error) {
       console.error(error);
     } finally {
@@ -112,13 +123,21 @@ export function Obras() {
     }
   }
 
-  async function fetchWorks(role: string, sId: string | null) {
+  // Lógica corrigida para buscar as obras respeitando o papel do Supervisor
+  async function fetchWorks(role: string, sId: string | null, supSchools: string[] = []) {
     let query = (supabase as any)
       .from('construction_works')
       .select('*, school:schools(name)');
 
     if (role === 'school_manager' && sId) {
       query = query.eq('school_id', sId);
+    } else if (role === 'supervisor') {
+      if (supSchools.length > 0) {
+         query = query.in('school_id', supSchools);
+      } else {
+         setWorks([]); // Se não tem escolas vinculadas, retorna vazio
+         return;
+      }
     }
 
     const { data, error } = await query.order('created_at', { ascending: false });
@@ -231,7 +250,7 @@ export function Obras() {
         await (supabase as any).from('construction_works').insert([payload]);
       }
       setIsModalOpen(false);
-      fetchWorks(userRole, userSchoolId);
+      fetchWorks(userRole, userSchoolId, supervisorSchoolIds);
     } catch (error: any) {
       alert("Erro ao salvar: " + error.message);
     } finally {
@@ -242,13 +261,13 @@ export function Obras() {
   async function handleDelete(id: string) {
     if (!confirm("Tem certeza que deseja excluir este registo de obra?")) return;
     await (supabase as any).from('construction_works').delete().eq('id', id);
-    fetchWorks(userRole, userSchoolId);
+    fetchWorks(userRole, userSchoolId, supervisorSchoolIds);
   }
 
   async function markAsComplete(work: ConstructionWork) {
     if (!confirm(`Confirmar conclusão da obra "${work.title}"?`)) return;
     await (supabase as any).from('construction_works').update({ status: 'CONCLUÍDO' }).eq('id', work.id);
-    fetchWorks(userRole, userSchoolId);
+    fetchWorks(userRole, userSchoolId, supervisorSchoolIds);
   }
 
   function openModal(work: ConstructionWork | null = null) {
@@ -282,7 +301,7 @@ export function Obras() {
     setIsModalOpen(true);
   }
 
-  const isAdmin = userRole === 'regional_admin';
+  const isAdminOrDirigente = userRole === 'regional_admin' || userRole === 'dirigente';
 
   return (
     <div className="min-h-screen space-y-8 pb-32 bg-[#f8fafc] p-6 font-sans">
@@ -294,7 +313,7 @@ export function Obras() {
            <p className="text-slate-500 mt-1">Visão geral do cronograma físico e status das intervenções.</p>
         </div>
         
-        {isAdmin && (
+        {isAdminOrDirigente && (
           <button 
             onClick={() => openModal()}
             className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-orange-100 flex items-center gap-2 transition-all active:scale-95"
@@ -315,29 +334,35 @@ export function Obras() {
       {/* Gráficos e Filtros */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* Gráfico de Status */}
+        {/* Gráfico de Status com correção do erro Recharts */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 lg:col-span-1">
           <h3 className="text-lg font-bold text-slate-800 mb-4">Distribuição por Status</h3>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={chartDataStatus}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {chartDataStatus.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />
-                <Legend verticalAlign="bottom" height={36} iconType="circle"/>
-              </PieChart>
-            </ResponsiveContainer>
+          <div style={{ width: '100%', height: 256, minHeight: 256 }}>
+            {chartDataStatus.length > 0 ? (
+              <ResponsiveContainer width="100%" height={256}>
+                <PieChart>
+                  <Pie
+                    data={chartDataStatus}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {chartDataStatus.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />
+                  <Legend verticalAlign="bottom" height={36} iconType="circle"/>
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full w-full flex items-center justify-center text-slate-300 text-xs font-bold uppercase tracking-widest text-center px-4 border-2 border-dashed border-slate-100 rounded-2xl">
+                Nenhuma obra<br/>para gerar gráfico
+              </div>
+            )}
           </div>
         </div>
 
@@ -402,7 +427,7 @@ export function Obras() {
                     <th className="p-4 border-b border-slate-100">Empresa</th>
                     <th className="p-4 border-b border-slate-100">Cronograma (Tempo)</th>
                     <th className="p-4 border-b border-slate-100">Status</th>
-                    {isAdmin && <th className="p-4 border-b border-slate-100 text-right">Ações</th>}
+                    {isAdminOrDirigente && <th className="p-4 border-b border-slate-100 text-right">Ações</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -441,7 +466,7 @@ export function Obras() {
                                />
                              </div>
                              <div className="text-[10px] text-right font-medium text-slate-500">
-                                Prev: {endDate.toLocaleDateString()}
+                               Prev: {endDate.toLocaleDateString()}
                              </div>
                           </div>
                         </td>
@@ -452,7 +477,7 @@ export function Obras() {
                              {statusInfo.label}
                           </div>
                         </td>
-                        {isAdmin && (
+                        {isAdminOrDirigente && (
                           <td className="p-4 text-right">
                             <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                <button onClick={() => openModal(work)} className="p-1.5 hover:bg-orange-50 text-slate-400 hover:text-orange-600 rounded-lg transition-colors"><Edit size={16}/></button>
@@ -496,7 +521,7 @@ export function Obras() {
 
                          <div className="flex justify-between items-center pt-3 border-t border-slate-50">
                             <span className="text-xs text-slate-500 font-medium">{work.company_name}</span>
-                            {isAdmin && (
+                            {isAdminOrDirigente && (
                                <div className="flex gap-2">
                                   {work.status !== 'CONCLUÍDO' && (
                                      <button onClick={() => markAsComplete(work)} className="text-[10px] font-bold text-emerald-600 hover:underline uppercase">Concluir</button>

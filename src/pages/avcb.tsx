@@ -21,6 +21,7 @@ interface AvcbData {
 }
 
 export default function Avcb() {
+  const [isMounted, setIsMounted] = useState(false); // Adicionado controle de renderização
   const [data, setData] = useState<AvcbData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -29,25 +30,31 @@ export default function Avcb() {
   const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1AaxxhCNUYJwI4xgsGsAmFkk0VDMoKIN0fpYjHmfSof8/gviz/tq?tqx=out:csv&sheet=avcb";
 
   useEffect(() => {
+    setIsMounted(true); // Garante que o Recharts só renderize após a tela calcular a largura
     fetchAvcbData();
   }, []);
 
-const fetchAvcbData = () => {
+  const fetchAvcbData = () => {
     setLoading(true);
     Papa.parse(SHEET_CSV_URL, {
       download: true,
       header: true,
       skipEmptyLines: true,
+      transformHeader: (header) => {
+        // Remove espaços e normaliza o cabeçalho antes mesmo do PapaParse processar
+        return header.toLowerCase()
+                     .normalize("NFD")
+                     .replace(/[\u0300-\u036f]/g, "")
+                     .trim();
+      },
       complete: (results) => {
         const planData: any[] = results.data;
         
         const formattedData: AvcbData[] = planData.map((row) => {
-          // Função inteligente para achar a coluna
+          // Função auxiliar para buscar valor em chaves que podem ter sido renomeadas (ex: statuscontr_1)
           const getVal = (searchTerms: string[]) => {
             const key = Object.keys(row).find(k => {
-              const cleanKey = k.toLowerCase()
-                                .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-                                .replace(/\s+/g, '');
+              const cleanKey = k.split('_')[0].replace(/\s+/g, ''); // Ignora o "_1" que o PapaParse adiciona
               return searchTerms.some(term => cleanKey.includes(term));
             });
             return key ? row[key]?.trim() : '-';
@@ -55,8 +62,7 @@ const fetchAvcbData = () => {
 
           return {
             codigoFde: getVal(['codigofde']),
-            // Deixei apenas 'nomedopredio' para evitar conflito com números de outras colunas de escola
-            nomePredio: getVal(['nomedopredio']), 
+            nomePredio: getVal(['nomedopredio', 'escola', 'unidade']), 
             areaConstruida: getVal(['areaconstruida']),
             pavimentos: getVal(['pavimento']),
             emissao: getVal(['emissao']),
@@ -79,7 +85,6 @@ const fetchAvcbData = () => {
   // --- CÁLCULOS DE INDICADORES ---
   const stats = useMemo(() => {
     const total = data.length;
-    // Considera com AVCB se tiver validade preenchida e não for um traço
     const regulares = data.filter(z => z.validade && z.validade !== '-').length;
     const pendentes = total - regulares;
 
@@ -97,7 +102,7 @@ const fetchAvcbData = () => {
     return Object.keys(statusCount)
       .map(key => ({ name: key, quantidade: statusCount[key] }))
       .sort((a, b) => b.quantidade - a.quantidade)
-      .slice(0, 5); // Pega os 5 principais status
+      .slice(0, 5); 
   }, [data]);
 
   const regularizacaoChartData = useMemo(() => {
@@ -168,51 +173,67 @@ const fetchAvcbData = () => {
 
       {/* GRÁFICOS ANALÍTICOS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        {/* Gráfico 1: Status Contratual */}
         <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl shadow-slate-200/40">
           <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight mb-8 flex items-center gap-2">
             <BarChart3 size={18} className="text-blue-600" /> Distribuição por Status Contratual
           </h3>
-          <div className="h-[250px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={statusChartData} margin={{ left: -20, bottom: -10 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 9, fontWeight: 700, fill: '#94a3b8'}} interval={0} angle={-15} textAnchor="end" />
-                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}} />
-                <RechartsTooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px rgba(0,0,0,0.1)'}} />
-                <Bar dataKey="quantidade" radius={[6, 6, 0, 0]}>
-                  {statusChartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.name.includes('Sem AVCB') ? '#f87171' : '#3b82f6'} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+          <div style={{ width: '100%', height: 250 }}>
+            {isMounted && statusChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={statusChartData} margin={{ left: -20, bottom: -10 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 9, fontWeight: 700, fill: '#94a3b8'}} interval={0} angle={-15} textAnchor="end" />
+                  <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}} />
+                  <RechartsTooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px rgba(0,0,0,0.1)'}} />
+                  <Bar dataKey="quantidade" radius={[6, 6, 0, 0]}>
+                    {statusChartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.name.includes('Sem AVCB') ? '#f87171' : '#3b82f6'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full w-full flex items-center justify-center text-slate-300 text-xs font-bold uppercase tracking-widest text-center px-4 border-2 border-dashed border-slate-100 rounded-2xl">
+                Nenhum dado<br/>para gerar gráfico
+              </div>
+            )}
           </div>
         </div>
 
+        {/* Gráfico 2: Regularidade */}
         <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl shadow-slate-200/40">
           <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight mb-8 flex items-center gap-2">
             <PieIcon size={18} className="text-emerald-600" /> Visão Geral de Regularidade
           </h3>
-          <div className="h-[250px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={regularizacaoChartData}
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {regularizacaoChartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <RechartsTooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px rgba(0,0,0,0.1)'}} />
-                <Legend iconType="circle" wrapperStyle={{fontSize: '11px', fontWeight: 700, paddingTop: '20px'}} />
-              </PieChart>
-            </ResponsiveContainer>
+          <div style={{ width: '100%', height: 250 }}>
+            {isMounted && regularizacaoChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <PieChart>
+                  <Pie
+                    data={regularizacaoChartData}
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {regularizacaoChartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <RechartsTooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px rgba(0,0,0,0.1)'}} />
+                  <Legend iconType="circle" wrapperStyle={{fontSize: '11px', fontWeight: 700, paddingTop: '20px'}} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full w-full flex items-center justify-center text-slate-300 text-xs font-bold uppercase tracking-widest text-center px-4 border-2 border-dashed border-slate-100 rounded-2xl">
+                Nenhum dado<br/>para gerar gráfico
+              </div>
+            )}
           </div>
         </div>
+
       </div>
 
       {/* BUSCA E TABELA */}

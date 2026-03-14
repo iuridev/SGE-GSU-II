@@ -3,24 +3,27 @@ import { createClient } from '@supabase/supabase-js';
 export type Database = {
   public: {
     Tables: {
-      profiles: {
+      profiles: {  // TIPOS DE USUARIOS
         Row: {
           id: string;
           full_name: string | null;
-          role: 'regional_admin' | 'school_manager';
+          role: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente';
           school_id: string | null;
+          supervisor_schools: string[] | null;
           created_at: string;
         };
         Insert: {
           id: string;
           full_name?: string | null;
-          role?: 'regional_admin' | 'school_manager';
+          role?: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente';
           school_id?: string | null;
+          supervisor_schools: string[] | null;
         };
         Update: {
           full_name?: string | null;
-          role?: 'regional_admin' | 'school_manager';
+          role?: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente';
           school_id?: string | null;
+          supervisor_schools: string[] | null;
         };
       };
       // ESTA É A PARTE QUE ESTAVA FALTANDO OU ERRADA:

@@ -11,8 +11,9 @@ interface Profile {
   id: string;
   full_name: string;
   email?: string; // Campo opcional para carregar o email existente na tabela profiles
-  role: 'regional_admin' | 'school_manager';
+  role: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente';
   school_id: string | null;
+  supervisor_schools?: string[] | null;
   created_at: string;
 }
 
@@ -35,8 +36,9 @@ export function Usuario() {
     full_name: '',
     email: '',
     password: '',
-    role: 'school_manager' as 'regional_admin' | 'school_manager',
-    school_id: ''
+    role: 'school_manager' as 'regional_admin' | 'school_manager' | 'supervisor' | 'dirigente',
+    school_id: '',
+    supervisor_schools: [] as string[]
   });
 
   const [errors, setErrors] = useState<string[]>([]);
@@ -79,6 +81,10 @@ export function Usuario() {
       newErrors.push("Informe o nome completo (nome e sobrenome).");
     }
 
+    if (formData.role === 'supervisor' && formData.supervisor_schools.length === 0) {
+    newErrors.push("Supervisores devem ser vinculados a pelo menos uma unidade escolar.");
+  }
+
     // E-mail obrigatório apenas na criação. Na edição, usamos o que já existe ou o que foi carregado.
     if (!editingUser && !formData.email.includes('@')) {
       newErrors.push("Informe um e-mail válido.");
@@ -113,7 +119,8 @@ export function Usuario() {
         email: user.email || '', 
         password: '', // Senha sempre começa vazia na edição
         role: user.role,
-        school_id: user.school_id || ''
+        school_id: user.school_id || '',
+        supervisor_schools: user.supervisor_schools || []
       });
     } else {
       setEditingUser(null);
@@ -122,7 +129,8 @@ export function Usuario() {
         email: '',
         password: '',
         role: 'school_manager',
-        school_id: ''
+        school_id: '',
+        supervisor_schools: []
       });
     }
     setIsModalOpen(true);
@@ -141,7 +149,8 @@ export function Usuario() {
         const updatePayload: any = {
             full_name: formData.full_name,
             role: formData.role,
-            school_id: formData.role === 'school_manager' ? formData.school_id : null
+            school_id: formData.role === 'school_manager' ? formData.school_id : null,
+            supervisor_schools: formData.role === 'supervisor' ? formData.supervisor_schools : null
         };
 
         if (formData.email) {
@@ -200,6 +209,7 @@ export function Usuario() {
               email: formData.email, // Importante: requer coluna 'email' na tabela profiles
               role: formData.role,
               school_id: formData.role === 'school_manager' ? formData.school_id : null,
+              supervisor_schools: formData.role === 'supervisor' ? formData.supervisor_schools : null, 
               created_at: new Date().toISOString()
             });
           
@@ -322,12 +332,16 @@ export function Usuario() {
                   <td className="px-6 py-4">
                     {/* VISUALIZAÇÃO DO TIPO DE USUÁRIO RESTAURADA AQUI */}
                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border ${
-                      user.role === 'regional_admin' 
-                        ? 'bg-blue-50 text-blue-700 border-blue-100' 
-                        : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                      user.role === 'regional_admin' ? 'bg-blue-50 text-blue-700 border-blue-100' : 
+                      user.role === 'dirigente' ? 'bg-purple-50 text-purple-700 border-purple-100' :
+                      user.role === 'supervisor' ? 'bg-orange-50 text-orange-700 border-orange-100' :
+                      'bg-emerald-50 text-emerald-700 border-emerald-100'
                     }`}>
                       {user.role === 'regional_admin' ? <ShieldCheck size={12}/> : <UserCheck size={12}/>}
-                      {user.role === 'regional_admin' ? 'Regional' : 'Gestor'}
+                      
+                      {user.role === 'regional_admin' ? 'Regional' : 
+                       user.role === 'dirigente' ? 'Dirigente' :
+                       user.role === 'supervisor' ? 'Supervisor' : 'Gestor'}
                     </span>
                   </td>
                   <td className="px-6 py-4">
@@ -336,6 +350,15 @@ export function Usuario() {
                         <Building2 size={14} className="text-slate-400" />
                         <span className="text-xs truncate max-w-[150px] font-medium">
                           {schools.find(s => s.id === user.school_id)?.name || 'Unidade não encontrada'}
+                        </span>
+                      </div>
+                    ) : user.role === 'supervisor' ? (
+                      <div className="flex items-center gap-2 text-slate-600">
+                        <Building2 size={14} className="text-slate-400" />
+                        <span className="text-xs truncate max-w-[150px] font-medium text-orange-600">
+                          {user.supervisor_schools?.length 
+                            ? `${user.supervisor_schools.length} escola(s) vinculada(s)` 
+                            : 'Nenhuma escola'}
                         </span>
                       </div>
                     ) : (
@@ -456,34 +479,41 @@ export function Usuario() {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1 tracking-wider">Perfil de Acesso</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button 
-                      type="button"
-                      onClick={() => setFormData({...formData, role: 'school_manager'})}
-                      className={`flex items-center justify-center gap-2 p-3 border rounded-xl text-sm font-bold transition-all ${
-                        formData.role === 'school_manager' 
-                          ? 'bg-emerald-50 border-emerald-500 text-emerald-700 shadow-inner' 
-                          : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
-                      }`}
-                    >
-                      <UserCheck size={18} />
-                      Gestor Escolar
-                    </button>
-                    <button 
-                      type="button"
-                      onClick={() => setFormData({...formData, role: 'regional_admin'})}
-                      className={`flex items-center justify-center gap-2 p-3 border rounded-xl text-sm font-bold transition-all ${
-                        formData.role === 'regional_admin' 
-                          ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-inner' 
-                          : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
-                      }`}
-                    >
-                      <ShieldAlert size={18} />
-                      Admin Regional
-                    </button>
-                  </div>
+                  <select 
+                    className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium bg-white text-slate-700"
+                    value={formData.role}
+                    onChange={(e: any) => setFormData({...formData, role: e.target.value})}
+                  >
+                    <option value="school_manager">Gestor Escolar</option>
+                    <option value="regional_admin">Admin Regional</option>
+                    <option value="supervisor">Supervisor</option>
+                    <option value="dirigente">Dirigente</option>
+                  </select>
                 </div>
 
+                {formData.role === 'school_manager' && (
+                  <div className="animate-in slide-in-from-top-2 duration-200">
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1 tracking-wider">Unidade Escolar Vinculada</label>
+                    <div className="relative">
+                      <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                      <select 
+                        required
+                        className="w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-white font-bold text-slate-700 shadow-sm"
+                        value={formData.school_id}
+                        onChange={e => setFormData({...formData, school_id: e.target.value})}
+                      >
+                        <option value="">Selecione a escola...</option>
+                        {schools.map(school => (
+                          <option key={school.id} value={school.id}>{school.name}</option>
+                        ))}
+                        
+                    
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* --- ESTE É O BLOCO ANTIGO DO GESTOR (NÃO APAGUE, DEIXE ELE AQUI) --- */}
                 {formData.role === 'school_manager' && (
                   <div className="animate-in slide-in-from-top-2 duration-200">
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1 tracking-wider">Unidade Escolar Vinculada</label>
@@ -503,6 +533,37 @@ export function Usuario() {
                     </div>
                   </div>
                 )}
+
+                {/* --- COLE O CÓDIGO DO SUPERVISOR EXATAMENTE AQUI, ABAIXO DO GESTOR --- */}
+                {formData.role === 'supervisor' && (
+                  <div className="animate-in slide-in-from-top-2 duration-200">
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1 tracking-wider">Unidades Escolares do Supervisor</label>
+                    <div className="border border-slate-300 rounded-xl max-h-48 overflow-y-auto p-2 bg-white space-y-1 custom-scrollbar">
+                      {schools.map(school => (
+                        <label key={school.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors">
+                          <input 
+                            type="checkbox"
+                            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                            checked={formData.supervisor_schools.includes(school.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                // Adiciona a escola na lista
+                                setFormData({...formData, supervisor_schools: [...formData.supervisor_schools, school.id]});
+                              } else {
+                                // Remove a escola da lista
+                                setFormData({...formData, supervisor_schools: formData.supervisor_schools.filter(id => id !== school.id)});
+                              }
+                            }}
+                          />
+                          <span className="text-sm font-medium text-slate-700">{school.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">Marque todas as escolas que este supervisor irá gerenciar.</p>
+                  </div>
+                )}
+               
+
               </div>
 
               <div className="pt-6 flex justify-end gap-3 border-t border-slate-100 mt-6">

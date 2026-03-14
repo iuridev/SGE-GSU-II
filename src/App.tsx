@@ -53,22 +53,22 @@ const MENU_GROUPS = [
   {
     title: 'Principal',
     items: [
-      { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager'] },
-      { id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <LayoutDashboard size={20} />, roles: ['regional_admin'] }
+      { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
+      { id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'dirigente'] }
     ]
   },
   {
     title: 'Atendimento',
     items: [
-      { id: 'chat', label: 'Chat', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager'] },
-      { id: 'chamados', label: 'Central de Chamados', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager'] },
-      { id: 'demandas', label: 'Demandas / E-mails', icon: <AlertTriangle size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager'] },
+      { id: 'chat', label: 'Chat', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager', 'dirigente'] },
+      { id: 'chamados', label: 'Central de Chamados', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
+      { id: 'demandas', label: 'Demandas / E-mails', icon: <AlertTriangle size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager', 'dirigente'] },
     ]
   },
   {
     title: 'Fiscalização',
     items: [
-      { id: 'consumo', label: 'Consumo de Água', icon: <Waves size={20} />, roles: ['regional_admin', 'school_manager'] },
+      { id: 'consumo', label: 'Consumo de Água', icon: <Waves size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
       { id: 'fiscalizacao', label: 'Contratos Gov', icon: <ClipboardCheck size={20} />, roles: ['regional_admin', 'school_manager'] },
       { id: 'fiscalizacaoURE', label: 'Limpeza URE', icon: <Map size={20} />, roles: ['regional_admin'] },
     ]
@@ -76,40 +76,40 @@ const MENU_GROUPS = [
   {
     title: 'Vistoria',
     items: [
-      { id: 'raiox', label: 'Raio-X / Vistoria', icon: <Scan size={20} className="text-indigo-500" />, roles: ['regional_admin'] },
+      { id: 'raiox', label: 'Raio-X / Vistoria', icon: <Scan size={20} className="text-indigo-500" />, roles: ['regional_admin','supervisor', 'dirigente'] },
     ]
   },
   
   {
     title: 'Infraestrutura',
     items: [
-      { id: 'obras', label: 'Obras e Reformas', icon: <HardHat size={20} className="text-orange-500" />, roles: ['regional_admin'] },
-      { id: 'servicos', label: 'Intervenção URE', icon: <Map size={20} />, roles: ['regional_admin'] },
-      { id: 'manejo', label: 'Manejo Arbóreo', icon: <TreeDeciduous size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager'] },
-      { id: 'elevadores', label: 'Gestão de Elevadores', icon: <ArrowUpCircle size={20} className="text-blue-500" />, roles: ['regional_admin'] },
-      { id: 'plantas', label: 'Plantas Prediais', icon: <Map size={20} />, roles: ['regional_admin', 'school_manager'] },
-      { id: 'avcb', label: 'AVCB', icon: <Flame size={20} className="text-red-500"/>, roles: ['regional_admin'] },
+      { id: 'obras', label: 'Obras e Reformas', icon: <HardHat size={20} className="text-orange-500" />, roles: ['regional_admin','supervisor', 'dirigente'] },
+      { id: 'servicos', label: 'Intervenção URE', icon: <Map size={20} />, roles: ['regional_admin','supervisor', 'dirigente'] },
+      { id: 'manejo', label: 'Manejo Arbóreo', icon: <TreeDeciduous size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
+      { id: 'elevadores', label: 'Gestão de Elevadores', icon: <ArrowUpCircle size={20} className="text-blue-500" />, roles: ['regional_admin','supervisor', 'dirigente'] },
+      { id: 'plantas', label: 'Plantas Prediais', icon: <Map size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
+      { id: 'avcb', label: 'AVCB', icon: <Flame size={20} className="text-red-500"/>, roles: ['regional_admin','supervisor', 'dirigente'] },
     ]
   },
   {
     title: 'Patrimônio',
     items: [
-      { id: 'educacao-patrimonial', label: 'Educação Patrimonial', icon: <ShieldAlert size={20} className="text-orange-500" />, roles: ['regional_admin', 'school_manager'] },
-      { id: 'patrimonio', label: 'Processos Patrimônio', icon: <Package size={20} className="text-blue-500" />, roles: ['regional_admin', 'school_manager'] },
-      { id: 'aquisicao', label: 'Aquisição de Itens', icon: <ShoppingBag size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager'] },
-      { id: 'remanejamento', label: 'Remanejamento', icon: <ArrowRightLeft size={20} />, roles: ['regional_admin', 'school_manager'] },
-      { id: 'furtos', label: 'Cadastro de Furtos', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin'] },
+      { id: 'educacao-patrimonial', label: 'Educação Patrimonial', icon: <ShieldAlert size={20} className="text-orange-500" />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
+      { id: 'patrimonio', label: 'Processos Patrimônio', icon: <Package size={20} className="text-blue-500" />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
+      { id: 'aquisicao', label: 'Aquisição de Itens', icon: <ShoppingBag size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
+      { id: 'remanejamento', label: 'Remanejamento', icon: <ArrowRightLeft size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
+      { id: 'furtos', label: 'Cadastro de Furtos', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin','supervisor', 'dirigente'] },
       //{ id: 'Chapa', label: 'Chapa Patrimonial', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin'] },
-      { id: 'listchapa', label: 'listar Patrimônio', icon: <Package size={20} className="text-red-500" />, roles: ['regional_admin','school_manager'] },
+      { id: 'listchapa', label: 'listar Patrimônio', icon: <Package size={20} className="text-red-500" />, roles: ['regional_admin','school_manager','supervisor', 'dirigente'] },
     ]
   },
  
   {
     title: 'Gestão da URE',
     items: [
-      { id: 'ambientes', label: 'Reservas Ambiente', icon: <Building size={20} />, roles: ['regional_admin'] },
-      { id: 'carros', label: 'Carros Oficiais', icon: <Car size={20} />, roles: ['regional_admin'] },
-      { id: 'reunioes', label: 'Calendário', icon: <Calendar size={20} />, roles: ['regional_admin', 'school_manager'] },
+      { id: 'ambientes', label: 'Reservas Ambiente', icon: <Building size={20} />, roles: ['regional_admin','supervisor', 'dirigente'] },
+      { id: 'carros', label: 'Carros Oficiais', icon: <Car size={20} />, roles: ['regional_admin','supervisor', 'dirigente'] },
+      { id: 'reunioes', label: 'Calendário', icon: <Calendar size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
     ]
   },
   
@@ -117,23 +117,23 @@ const MENU_GROUPS = [
    {
     title: 'Zeladoria',
     items: [
-      { id: 'zeladoria', label: 'Zeladoria', icon: <ShieldCheck size={20} />, roles: ['regional_admin', 'school_manager'] },
+      { id: 'zeladoria', label: 'Zeladoria', icon: <ShieldCheck size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
       ]
   },
    {
     title: 'Gamificação',
     items: [
-      { id: 'prioritarias', label: 'Escolas Prioritárias', icon: <Star size={20} className="text-amber-500" />, roles: ['regional_admin'] },
-      { id: 'ranking', label: 'Ranking de Escolas', icon: <Trophy size={20} className="text-amber-500" />, roles: ['regional_admin', 'school_manager'] },
+      { id: 'prioritarias', label: 'Escolas Prioritárias', icon: <Star size={20} className="text-amber-500" />, roles: ['regional_admin', 'dirigente'] },
+      { id: 'ranking', label: 'Ranking de Escolas', icon: <Trophy size={20} className="text-amber-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
     ]
   },
   {
     title: 'Sistema',
     items: [
-      { id: 'escolas', label: 'Escolas (Detalhes)', icon: <Building2 size={20} />, roles: ['regional_admin', 'school_manager'] },
+      { id: 'escolas', label: 'Escolas (Detalhes)', icon: <Building2 size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'lista-escolas', label: 'Lista de Escolas', icon: <School size={20} />, roles: ['regional_admin'] },
       { id: 'usuarios', label: 'Gestão de Usuários', icon: <UserCog size={20} />, roles: ['regional_admin'] },
-      { id: 'tutoriais', label: 'Manuais e Tutoriais', icon: <BookOpen size={20} />, roles: ['regional_admin', 'school_manager'] },
+      { id: 'tutoriais', label: 'Manuais e Tutoriais', icon: <BookOpen size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
       { id: 'chefes', label: 'Chefes', icon: <BookOpen size={20} />, roles: ['regional_admin'] },
     ]
   },
@@ -403,7 +403,9 @@ export default function App() {
              <div className="text-right hidden sm:block">
                <p className="text-xs font-black text-slate-900 uppercase">{session.user.email?.split('@')[0]}</p>
                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">
-                {userRole === 'regional_admin' ? 'Administrador Regional' : 'Gestor Unidade'}
+                {userRole === 'regional_admin' ? 'Administrador Regional' : 
+   userRole === 'supervisor' ? 'Supervisor' :
+   userRole === 'dirigente' ? 'Dirigente' : 'Gestor Unidade'}
                </p>
              </div>
              <div className="w-10 h-10 bg-slate-100 rounded-full border-2 border-white shadow-sm flex items-center justify-center font-black text-blue-600">

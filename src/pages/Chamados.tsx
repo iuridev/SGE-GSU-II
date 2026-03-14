@@ -97,13 +97,23 @@ function CustomLineChart({ data }: { data: any[] }) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Se não tem dados, não mostra nada
   if (data.length === 0) return null;
 
+  // CORREÇÃO: Aguarda o React medir a div antes de tentar calcular larguras!
+  // Isso evita o erro de "negative value" (-7.27) no <rect>
+  if (width === 0) {
+      return <div ref={containerRef} className="w-full h-[300px]"></div>;
+  }
+
   // Cálculos de Escala
-  const maxValue = Math.max(...data.map(d => Math.max(d.WhatsApp, d.Chamados, d.Media))) || 10; // Evita divisão por zero
+  const maxValue = Math.max(...data.map(d => Math.max(d.WhatsApp, d.Chamados, d.Media))) || 10;
   const effectiveHeight = height - padding * 2;
   const effectiveWidth = width - padding * 2;
-  const xStep = effectiveWidth / (data.length - 1 || 1);
+  
+  const dataPointsCount = Math.max(1, data.length - 1); 
+  const xStep = effectiveWidth / dataPointsCount;
+  
   const yScale = effectiveHeight / maxValue;
 
   // Geradores de Coordenadas
@@ -149,22 +159,27 @@ function CustomLineChart({ data }: { data: any[] }) {
         <path d={pathWhatsApp} fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
 
         {/* Pontos Interativos e Hover */}
-        {data.map((d, i) => (
-            <g key={i}>
-                <circle cx={getX(i)} cy={getY(d.WhatsApp)} r="4" fill="#22c55e" className="transition-all" />
-                <circle cx={getX(i)} cy={getY(d.Chamados)} r="4" fill="#6366f1" className="transition-all" />
-                <rect 
-                    x={getX(i) - xStep / 2} 
-                    y={0} 
-                    width={xStep} 
-                    height={height} 
-                    fill="transparent" 
-                    onMouseEnter={() => setHoverIndex(i)}
-                    onMouseLeave={() => setHoverIndex(null)}
-                    className="cursor-crosshair"
-                />
-            </g>
-        ))}
+        {data.map((d, i) => {
+            const hoverWidth = xStep === 0 ? effectiveWidth : Math.max(0, xStep);
+            const hoverX = xStep === 0 ? padding : Math.max(0, getX(i) - xStep / 2);
+
+            return (
+                <g key={i}>
+                    <circle cx={getX(i)} cy={getY(d.WhatsApp)} r="4" fill="#22c55e" className="transition-all" />
+                    <circle cx={getX(i)} cy={getY(d.Chamados)} r="4" fill="#6366f1" className="transition-all" />
+                    <rect 
+                        x={hoverX} 
+                        y={0} 
+                        width={hoverWidth} 
+                        height={height} 
+                        fill="transparent" 
+                        onMouseEnter={() => setHoverIndex(i)}
+                        onMouseLeave={() => setHoverIndex(null)}
+                        className="cursor-crosshair"
+                    />
+                </g>
+            )
+        })}
 
         {/* Indicador de Hover (Linha Vertical) */}
         {hoverIndex !== null && (
@@ -187,7 +202,7 @@ function CustomLineChart({ data }: { data: any[] }) {
             style={{ 
                 left: getX(hoverIndex), 
                 top: 0,
-                transform: 'translate(-50%, -100%) translateY(80px)' // Posiciona acima ou próximo
+                transform: 'translate(-50%, -100%) translateY(80px)'
             }}
         >
             <p className="text-xs font-black text-slate-700 mb-2">{data[hoverIndex].name}</p>
@@ -237,6 +252,7 @@ export function Chamados() {
   const [userRole, setUserRole] = useState('');
   const [userId, setUserId] = useState('');
   const [userSchoolId, setUserSchoolId] = useState<string | null>(null);
+  const [supervisorSchoolIds, setSupervisorSchoolIds] = useState<string[]>([]);
   
   // Filtro de Status
   const [statusFilter, setStatusFilter] = useState<'EM_ATENDIMENTO' | 'AGUARDANDO_ESCOLA' | 'CONCLUIDO'>('EM_ATENDIMENTO');
@@ -284,6 +300,8 @@ export function Chamados() {
   const [messages, setMessages] = useState<TicketMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
 
+  const isAdminOrDirigente = userRole === 'regional_admin' || userRole === 'dirigente';
+
   useEffect(() => {
     if (!supabase) {
         setConfigError(true);
@@ -328,12 +346,13 @@ export function Chamados() {
       // Buscar perfil
       const { data: profile } = await (supabase as any)
         .from('profiles')
-        .select('role, school_id')
+        .select('role, school_id, supervisor_schools')
         .eq('id', user.id)
         .single();
       
       setUserRole(profile?.role || '');
       setUserSchoolId(profile?.school_id || null);
+      setSupervisorSchoolIds(profile?.supervisor_schools || []);
 
       // Se for Admin, buscar lista de escolas para o dropdown
       if (profile?.role === 'regional_admin') {
@@ -352,8 +371,17 @@ export function Chamados() {
 
       if (profile?.role === 'school_manager') {
         query = query.eq('school_id', profile.school_id);
-      } 
-      // Admin vê todos para o dashboard, mas a lista pode ser filtrada visualmente
+      } else if (profile?.role === 'supervisor') {
+          if (profile.supervisor_schools && profile.supervisor_schools.length > 0) {
+              query = query.in('school_id', profile.supervisor_schools);
+          } else {
+              // Supervisor sem escolas, retorna lista vazia
+              setTickets([]);
+              setLoading(false);
+              return;
+          }
+      }
+      // Admin e Dirigente veem todos
 
       const { data, error } = await query;
       if (error) throw error;
@@ -454,12 +482,12 @@ export function Chamados() {
     }));
   }, [tickets]);
 
-  // Lista Filtrada para Admin (Mesa SEOM vs SEFISC) E Status
+  // Lista Filtrada para Admin/Dirigente (Mesa SEOM vs SEFISC) E Status
   const filteredListTickets = useMemo(() => {
     let result = tickets;
 
-    // 1. Filtro de Departamento (apenas para Admin)
-    if (userRole === 'regional_admin') {
+    // 1. Filtro de Departamento (apenas para Admin e Dirigente)
+    if (isAdminOrDirigente) {
       result = result.filter(t => t.department === adminDeptFilter);
     }
 
@@ -473,7 +501,7 @@ export function Chamados() {
     }
 
     return result;
-  }, [tickets, userRole, adminDeptFilter, statusFilter]);
+  }, [tickets, isAdminOrDirigente, adminDeptFilter, statusFilter]);
 
   // Funções de PDF
   async function handleGenerateReport() {
@@ -486,12 +514,19 @@ export function Chamados() {
       const endDate = new Date(reportDate.year, reportDate.month, 0, 23, 59, 59).toISOString();
 
       // 2. Buscar dados do período
-      const { data: reportTickets, error } = await (supabase as any)
+      let query = (supabase as any)
         .from('internal_tickets')
         .select('*, schools(name)')
         .gte('created_at', startDate)
         .lte('created_at', endDate)
         .order('created_at', { ascending: false });
+        
+      // Se supervisor for tentar gerar (opcional, adicionei a trava visualmente, mas protejo a query também)
+      if (userRole === 'supervisor' && supervisorSchoolIds.length > 0) {
+          query = query.in('school_id', supervisorSchoolIds);
+      }
+
+      const { data: reportTickets, error } = await query;
 
       if (error) throw error;
 
@@ -533,7 +568,6 @@ export function Chamados() {
       doc.text(`Em Aberto: ${total - concluded}`, 100, 60);
 
       // --- Desenhar Gráfico no PDF (Contexto de 12 Meses) ---
-      // Usamos 'chartData' que já contém os dados dos últimos 12 meses
       let nextY = 75;
       if (chartData && chartData.length > 0) {
           nextY = drawPdfChart(doc, chartData, 75);
@@ -580,7 +614,7 @@ export function Chamados() {
     doc.text("Histórico de Atendimentos (Últimos 12 Meses)", startX, startY - 5);
 
     const maxVal = Math.max(...data.map(d => Math.max(d.WhatsApp, d.Chamados, d.Media))) || 10;
-    const stepX = chartWidth / (data.length - 1);
+    const stepX = chartWidth / Math.max(1, data.length - 1);
     const scaleY = chartHeight / maxVal;
 
     const getPX = (i: number) => startX + (i * stepX);
@@ -754,7 +788,7 @@ export function Chamados() {
       if (type === 'CONCLUSION') {
         newStatus = 'CONCLUIDO';
       } else {
-        if (userRole === 'regional_admin') {
+        if (isAdminOrDirigente) {
            newStatus = 'AGUARDANDO_ESCOLA'; 
         } else {
            newStatus = 'EM_ANDAMENTO';
@@ -869,8 +903,8 @@ export function Chamados() {
             </button>
         )}
 
-        {/* Botões para Admin */}
-        {userRole === 'regional_admin' && (
+        {/* Botões para Admin e Dirigente */}
+        {isAdminOrDirigente && (
             <div className="flex gap-2">
                 <button 
                     onClick={() => setIsReportOpen(true)}
@@ -987,8 +1021,8 @@ export function Chamados() {
       </div>
 
       <div className="flex flex-col md:flex-row gap-4 justify-between items-end">
-        {/* Admin Tabs */}
-        {userRole === 'regional_admin' && (
+        {/* Admin/Dirigente Tabs */}
+        {isAdminOrDirigente && (
             <div className="bg-white p-2 rounded-2xl inline-flex border-2 border-slate-100">
                 <button 
                     onClick={() => setAdminDeptFilter('SEOM')}
@@ -1343,8 +1377,8 @@ export function Chamados() {
                             </div>
                         )}
 
-                        {/* Ações de Admin */}
-                        {userRole === 'regional_admin' && (
+                        {/* Ações de Admin/Dirigente */}
+                        {isAdminOrDirigente && (
                             <div className="pt-6 border-t border-slate-200 space-y-3">
                                 <p className="text-[10px] font-black text-slate-400 uppercase">Ações Administrativas</p>
                                 <button onClick={handleForwardTicket} className="w-full py-3 bg-white border-2 border-slate-200 hover:border-indigo-200 text-slate-600 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all">

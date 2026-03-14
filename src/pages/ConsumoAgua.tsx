@@ -55,6 +55,8 @@ export function ConsumoAgua() {
   const [selectedSchoolId, setSelectedSchoolId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string>('');
   const [userId, setUserId] = useState<string>('');
+  const [supervisorSchoolIds, setSupervisorSchoolIds] = useState<string[]>([]);
+  
   const [logs, setLogs] = useState<Record<string, WaterLog>>({}); 
   const [allMonthLogs, setAllMonthLogs] = useState<WaterLog[]>([]); 
   const [waterTruckCount, setWaterTruckCount] = useState(0);
@@ -81,35 +83,56 @@ export function ConsumoAgua() {
     action_plan: ''
   });
 
-  // --- Constantes de Calendário ---
+  // --- Constantes de Calendário e Papéis ---
   const monthName = currentDate.toLocaleString('pt-BR', { month: 'long' });
   const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getDay();
   const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+  
+  // Variáveis de Controle de Acesso
+  const isManagerRole = ['regional_admin', 'dirigente', 'supervisor'].includes(userRole);
+  const canRegisterSuspension = ['regional_admin', 'dirigente'].includes(userRole); 
 
   useEffect(() => {
     fetchInitialData();
   }, []);
 
+  // Recarrega sempre que o mês, a escola ou os acessos de supervisor mudarem
   useEffect(() => {
+    if (!userRole) return;
     fetchLogs();
     fetchWaterTruckStats();
-  }, [selectedSchoolId, currentDate]);
+  }, [selectedSchoolId, currentDate, userRole, supervisorSchoolIds]);
 
   async function fetchInitialData() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      let currentRole = '';
+      let currentSupSchools: string[] = [];
+
       if (user) {
         setUserId(user.id);
-        const { data: profile } = await (supabase as any).from('profiles').select('role, school_id').eq('id', user.id).single();
-        setUserRole(profile?.role || '');
+        const { data: profile } = await (supabase as any).from('profiles').select('role, school_id, supervisor_schools').eq('id', user.id).single();
+        currentRole = profile?.role || '';
+        currentSupSchools = profile?.supervisor_schools || [];
+
+        setUserRole(currentRole);
         
-        if (profile?.role === 'school_manager') {
+        if (currentRole === 'school_manager') {
           setSelectedSchoolId(profile.school_id);
+        }
+        if (currentRole === 'supervisor') {
+          setSupervisorSchoolIds(currentSupSchools);
         }
       }
 
       const { data: schoolsData } = await (supabase as any).from('schools').select('id, name').order('name');
-      setSchools(schoolsData || []);
+      
+      // Se for supervisor, exibe na lista apenas as escolas dele
+      if (currentRole === 'supervisor') {
+        setSchools((schoolsData || []).filter((s: any) => currentSupSchools.includes(s.id)));
+      } else {
+        setSchools(schoolsData || []);
+      }
     } catch (error) {
       console.error('Erro ao carregar dados iniciais:', error);
     }
@@ -124,6 +147,14 @@ export function ConsumoAgua() {
       
       if (selectedSchoolId) {
         query = query.eq('school_id', selectedSchoolId);
+      } else if (userRole === 'supervisor') {
+        if (supervisorSchoolIds.length > 0) {
+          query = query.in('school_id', supervisorSchoolIds);
+        } else {
+          setAllMonthLogs([]);
+          setLogs({});
+          return;
+        }
       }
       
       const { data, error } = await query
@@ -171,6 +202,13 @@ export function ConsumoAgua() {
 
       if (selectedSchoolId) {
         query = query.eq('school_id', selectedSchoolId);
+      } else if (userRole === 'supervisor') {
+        if (supervisorSchoolIds.length > 0) {
+           query = query.in('school_id', supervisorSchoolIds);
+        } else {
+           setWaterTruckCount(0);
+           return;
+        }
       }
 
       const { count, error } = await query;
@@ -208,6 +246,10 @@ export function ConsumoAgua() {
       dailyMap[log.date].consumo += (log.consumption_diff || 0);
       dailyMap[log.date].limite += ((log.student_count + log.staff_count) * 0.008);
     });
+    
+    if (Object.values(dailyMap).length === 0) {
+        return [{ date: 'Sem dados', consumo: 0, limite: 0 }];
+    }
     return Object.values(dailyMap);
   }, [allMonthLogs]);
 
@@ -240,13 +282,13 @@ export function ConsumoAgua() {
       const element = document.getElementById('pdf-print-template');
       if (!element) throw new Error("Template de impressão não encontrado.");
 
-      const schoolName = selectedSchoolId 
+      const pdfNameScope = selectedSchoolId 
         ? schools.find(s => s.id === selectedSchoolId)?.name 
-        : 'Rede_Global';
+        : (userRole === 'supervisor' ? 'Supervisao' : 'Rede_Global');
 
       const opt = {
         margin: [5, 5, 5, 5],
-        filename: `Relatorio_Executivo_Consumo_${schoolName}_${monthName}.pdf`,
+        filename: `Relatorio_Executivo_Consumo_${pdfNameScope}_${monthName}.pdf`,
         image: { type: 'jpeg', quality: 1 },
         html2canvas: { 
           scale: 2, 
@@ -287,7 +329,9 @@ export function ConsumoAgua() {
     const dateStr = formatDateToYMD(date);
     const todayStr = formatDateToYMD(new Date());
     
-    if (userRole === 'regional_admin' && !selectedSchoolId) {
+    const isGlobalView = canRegisterSuspension && !selectedSchoolId;
+
+    if (isGlobalView) {
       setSelectedDateStr(dateStr);
       const existingLog = logs[dateStr];
       if (existingLog && existingLog.justification?.startsWith('Suspensão de Expediente:')) {
@@ -301,19 +345,19 @@ export function ConsumoAgua() {
       return;
     }
 
-    if (userRole !== 'regional_admin' && logs[dateStr] && logs[dateStr].justification?.startsWith('Suspensão de Expediente:')) {
+    if (!canRegisterSuspension && logs[dateStr] && logs[dateStr].justification?.startsWith('Suspensão de Expediente:')) {
       alert("Neste dia não é possível cadastrar o consumo de água devido à suspensão de expediente.");
       return;
     }
 
-    if (userRole !== 'regional_admin' && dateStr > todayStr) return;
-    if (!selectedSchoolId) return;
+    if (!canRegisterSuspension && dateStr > todayStr) return;
+    
+    if (!selectedSchoolId) return; 
 
     setSelectedDateStr(dateStr);
     
     setLoadingPrev(true);
     
-    // Busca a leitura anterior perfeitamente baseada na ordenação de texto do banco
     const { data: prevData } = await (supabase as any)
       .from('consumo_agua')
       .select('reading_m3')
@@ -342,7 +386,7 @@ export function ConsumoAgua() {
   const currentConsumption = Math.max(0, formData.reading_m3 - prevReadingValue);
   const currentLimit = (formData.student_count + formData.staff_count) * 0.008;
   const isLimitExceeded = currentConsumption > currentLimit && formData.reading_m3 > 0;
-  const isHydrometerBlocked = userRole !== 'regional_admin' && (formData.student_count <= 0 || formData.staff_count <= 0);
+  const isHydrometerBlocked = !isManagerRole && (formData.student_count <= 0 || formData.staff_count <= 0);
 
   // --- Salvar Registro Individual ---
   async function handleSave(e: React.FormEvent) {
@@ -353,11 +397,9 @@ export function ConsumoAgua() {
         throw new Error("Preencha justificativa e ação para excessos.");
     }
 
-    // Garante que se estiver bloqueado (suspensão), usa a leitura anterior
     const finalReading = isHydrometerBlocked ? prevReadingValue : formData.reading_m3;
     const finalConsumption = isHydrometerBlocked ? 0 : currentConsumption;
 
-      // 1. SALVA O DIA ATUAL
     const logData = {
       school_id: selectedSchoolId,
       date: selectedDateStr,
@@ -371,13 +413,12 @@ export function ConsumoAgua() {
       created_by: userId
     };
 
-const { error: saveError } = await (supabase as any)
+    const { error: saveError } = await (supabase as any)
       .from('consumo_agua')
       .upsert([logData], { onConflict: 'school_id,date' });
       
     if (saveError) throw saveError;
 
-    // 2. LÓGICA DE CASCATA (Atualiza os dias seguintes automaticamente)
     const { data: futureLogs, error: fetchError } = await (supabase as any)
       .from('consumo_agua')
       .select('*')
@@ -393,7 +434,6 @@ const { error: saveError } = await (supabase as any)
         const isFutureSuspension = futureLog.student_count === 0 && futureLog.staff_count === 0;
 
         if (isFutureSuspension) {
-          // É fim de semana/feriado: empurra a leitura nova e zera o consumo
           logsToUpdate.push({
             ...futureLog,
             reading_m3: cascadeReading,
@@ -401,7 +441,6 @@ const { error: saveError } = await (supabase as any)
             limit_exceeded: false
           });
         } else {
-          // Chegou no próximo dia útil! Recalcula o consumo desse dia.
           const newDiff = Math.max(0, futureLog.reading_m3 - cascadeReading);
           const newLimit = (futureLog.student_count + futureLog.staff_count) * 0.008;
           const newExceeded = newDiff > newLimit && futureLog.reading_m3 > 0;
@@ -414,7 +453,6 @@ const { error: saveError } = await (supabase as any)
             action_plan: newExceeded ? futureLog.action_plan : null
           });
           
-          // Para a cascata, pois os dias seguintes já estarão corretos
           break; 
         }
       }
@@ -462,20 +500,13 @@ const { error: saveError } = await (supabase as any)
     }
   }
 
-  // --- Salvar Suspensão Global (CORRIGIDO PARA FURAR O LIMITE DO BANCO) ---
+  // --- Salvar Suspensão Global ---
   async function handleSuspensionSave() {
     setSaveLoading(true);
     try {
-      const { data: allSchools, error: schoolsError } = await (supabase as any)
-        .from('schools')
-        .select('id');
-      
-      if (schoolsError) throw schoolsError;
-      if (!allSchools || allSchools.length === 0) throw new Error("Nenhuma escola encontrada.");
+      if (!schools || schools.length === 0) throw new Error("Nenhuma escola encontrada no seu escopo.");
 
-      // Faz uma busca isolada da última leitura de cada escola usando Promise.all
-      // Isso impede que a consulta seja truncada pelo limite de 1000 linhas do Supabase
-      const bulkDataPromises = allSchools.map(async (school: any) => {
+      const bulkDataPromises = schools.map(async (school: any) => {
         const { data: prevData } = await (supabase as any)
           .from('consumo_agua')
           .select('reading_m3')
@@ -550,19 +581,23 @@ const { error: saveError } = await (supabase as any)
         }
     } else {
         if (!isFuture && dateStr < todayStr) {
-             if (userRole === 'regional_admin' && !selectedSchoolId) {
+             if (canRegisterSuspension && !selectedSchoolId) {
                  stateClass = "bg-slate-50 text-slate-400 hover:bg-purple-50 hover:border-purple-200 hover:text-purple-600 border-slate-100";
+             } else if (!selectedSchoolId) {
+                 // Supervisor na visão geral (apenas cor neutra, pois não pode registrar)
+                 stateClass = "bg-slate-50 text-slate-300 border-slate-100";
              } else {
                  stateClass = "bg-red-50 text-red-700 border-red-200"; 
              }
         } else if (isFuture) {
-             if (userRole === 'regional_admin' && !selectedSchoolId) {
+             if (canRegisterSuspension && !selectedSchoolId) {
                  stateClass = "bg-slate-50 text-slate-300 hover:bg-purple-50 hover:border-purple-200 hover:text-purple-600 border-slate-100";
              }
         }
     }
 
-    const isClickable = selectedSchoolId || (userRole === 'regional_admin');
+    // Define se o quadro do dia é clicável. Apenas se tiver escola selecionada ou for Admin/Dirigente na visão global.
+    const isClickable = !!selectedSchoolId || canRegisterSuspension;
 
     return (
       <div 
@@ -617,7 +652,7 @@ const { error: saveError } = await (supabase as any)
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3">
-            {userRole === 'regional_admin' && (
+            {isManagerRole && (
                 <button 
                     onClick={handleExportPDF}
                     disabled={exporting}
@@ -628,7 +663,7 @@ const { error: saveError } = await (supabase as any)
                 </button>
             )}
 
-            {userRole === 'regional_admin' && (
+            {isManagerRole && (
                 <div className="flex flex-col sm:flex-row gap-3">
                     <div className="bg-white p-2 rounded-2xl border-2 border-slate-100 shadow-sm flex items-center gap-2">
                         <CalendarDays size={18} className="text-blue-500 ml-2" />
@@ -644,7 +679,7 @@ const { error: saveError } = await (supabase as any)
                     <div className="w-full sm:w-64 bg-white p-2 rounded-2xl border-2 border-slate-100 shadow-sm flex items-center gap-3">
                         <Search size={18} className="text-slate-400 ml-2" />
                         <select className="w-full bg-transparent border-none outline-none font-bold text-slate-700 text-xs py-2 truncate" value={selectedSchoolId || ''} onChange={(e) => setSelectedSchoolId(e.target.value || null)}>
-                            <option value="">REDE REGIONAL GLOBAL (TODAS)</option>
+                            <option value="">{userRole === 'supervisor' ? 'VISÃO GERAL (MINHAS UNIDADES)' : 'REDE REGIONAL GLOBAL (TODAS)'}</option>
                             {schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
                     </div>
@@ -683,8 +718,8 @@ const { error: saveError } = await (supabase as any)
           <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight flex items-center gap-2 mb-8">
               <Activity className="text-blue-600" size={20} /> Evolução Mensal de Consumo
           </h3>
-          <div className="h-[280px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
+          <div style={{ width: '100%', height: 280 }}>
+              <ResponsiveContainer width="100%" height={280}>
                   <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                       <defs><linearGradient id="colorConsumo" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient></defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -698,7 +733,7 @@ const { error: saveError } = await (supabase as any)
           </div>
       </div>
 
-      {(!selectedSchoolId || userRole === 'regional_admin') && justificationsList.length > 0 && (
+      {(!selectedSchoolId || isManagerRole) && justificationsList.length > 0 && (
           <div className="space-y-6 print:hidden">
               <div className="flex items-center gap-3 px-6"><ListFilter className="text-blue-600" /><h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Ocorrências da Rede</h2></div>
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -725,7 +760,7 @@ const { error: saveError } = await (supabase as any)
           </div>
       )}
 
-      {(selectedSchoolId || userRole === 'regional_admin') && (
+      {(selectedSchoolId || isManagerRole) && (
           <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-2xl print:hidden">
               <div className="flex items-center justify-between mb-10">
                 <div className="flex items-center gap-6">
@@ -733,7 +768,7 @@ const { error: saveError } = await (supabase as any)
                     <div className="text-center"><h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter leading-none">{monthName}</h2><span className="text-blue-600 font-bold text-xs">{currentDate.getFullYear()}</span></div>
                     <button onClick={handleNextMonth} className="p-4 hover:bg-slate-50 rounded-3xl border border-slate-100"><ChevronRight /></button>
                 </div>
-                {userRole === 'regional_admin' && !selectedSchoolId && (
+                {canRegisterSuspension && !selectedSchoolId && (
                     <div className="hidden md:block text-xs font-bold text-slate-400 bg-slate-50 px-4 py-2 rounded-xl">
                         Clique em uma data para registrar suspensão de expediente
                     </div>
@@ -768,7 +803,7 @@ const { error: saveError } = await (supabase as any)
 
         <div style={{ background: '#f8fafc', padding: '15px', borderRadius: '15px', border: '1px solid #e2e8f0', marginBottom: '30px' }}>
             <span style={{ fontSize: '10px', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase' }}>Unidade Analisada:</span>
-            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#1e293b' }}>{selectedSchoolId ? schools.find(s => s.id === selectedSchoolId)?.name : 'REDE REGIONAL GLOBAL (TODAS AS UNIDADES)'}</h2>
+            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#1e293b' }}>{selectedSchoolId ? schools.find(s => s.id === selectedSchoolId)?.name : (userRole === 'supervisor' ? 'VISÃO DE SUPERVISÃO (UNIDADES SELECIONADAS)' : 'REDE REGIONAL GLOBAL (TODAS AS UNIDADES)')}</h2>
         </div>
 
         <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '10px', marginBottom: '30px' }}>
@@ -889,7 +924,7 @@ const { error: saveError } = await (supabase as any)
 
               <div className="pt-6 flex items-center justify-between border-t border-slate-100 sticky bottom-0 bg-white">
                 <div>
-                  {userRole === 'regional_admin' && logs[selectedDateStr] && (
+                  {isManagerRole && logs[selectedDateStr] && (
                     <button 
                       type="button" 
                       onClick={handleDelete} 
@@ -936,13 +971,13 @@ const { error: saveError } = await (supabase as any)
                                 {existingSuspension}
                              </div>
                           </div>
-                          <p className="text-[10px] text-red-400 mt-2 italic">Cadastrar novamente irá sobrescrever para todas as escolas.</p>
+                          <p className="text-[10px] text-red-400 mt-2 italic">Cadastrar novamente irá sobrescrever para todas as suas escolas.</p>
                        </div>
                     ) : (
                        <div className="p-4 bg-purple-50 rounded-2xl border border-purple-100">
                           <p className="text-xs text-purple-800 font-medium leading-relaxed">
                              Você está registrando uma suspensão para o dia <strong className="font-black">{new Date(selectedDateStr + 'T12:00:00').toLocaleDateString()}</strong>. 
-                             Isso criará registros com <strong>consumo zero</strong> para <strong>TODAS AS ESCOLAS</strong> da rede, baseando-se na leitura do dia anterior.
+                             Isso criará registros com <strong>consumo zero</strong> para <strong>TODAS AS SUAS ESCOLAS</strong>, baseando-se na leitura do dia anterior.
                           </p>
                        </div>
                     )}

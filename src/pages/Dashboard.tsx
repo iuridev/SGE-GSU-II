@@ -51,9 +51,15 @@ export function Dashboard() {
   const [sabespCode, setSabespCode] = useState('');
   const [edpCode, setEdpCode] = useState('');
   const [schoolId, setSchoolId] = useState<string | null>(null);
+  
+  // Estados para o Filtro do Supervisor
+  const [supervisorSchoolsList, setSupervisorSchoolsList] = useState<{id: string, name: string}[]>([]);
+  const [selectedSupervisorSchool, setSelectedSupervisorSchool] = useState<string>('all');
+  const [supervisorSchoolIds, setSupervisorSchoolIds] = useState<string[]>([]);
+
   const [isWaterTruckModalOpen, setIsWaterTruckModalOpen] = useState(false);
   const [isPowerOutageModalOpen, setIsPowerOutageModalOpen] = useState(false);
-  
+
   // Filtros do Mapa
   const [selectedPeriods, setSelectedPeriods] = useState<string[]>(PERIOD_OPTIONS);
   const [filterOnlyElevator, setFilterOnlyElevator] = useState(false);
@@ -109,7 +115,7 @@ export function Dashboard() {
       });
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
       }).addTo(map);
 
       markersLayerRef.current = L.layerGroup().addTo(map);
@@ -148,26 +154,50 @@ export function Dashboard() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: profile } = await (supabase as any).from('profiles').select('full_name, role, school_id').eq('id', user.id).single();
+      
+      const { data: profile } = await (supabase as any).from('profiles').select('full_name, role, school_id, supervisor_schools').eq('id', user.id).single();
       
       if (profile) {
         setUserRole(profile.role);
         setUserName(profile.full_name || 'Gestor');
         setSchoolId(profile.school_id);
         
-        if (profile.school_id) {
+        if (profile.role === 'supervisor') {
+           const supSchools = profile.supervisor_schools || [];
+           setSupervisorSchoolIds(supSchools);
+
+           if (supSchools.length > 0) {
+             const { data: sSchools } = await (supabase as any)
+               .from('schools')
+               .select('id, name')
+               .in('id', supSchools)
+               .order('name');
+             setSupervisorSchoolsList(sSchools || []);
+           }
+           await fetchStats('supervisor', null, supSchools);
+        } else if (profile.school_id) {
           const { data: school } = await (supabase as any).from('schools').select('name, sabesp_supply_id, edp_installation_id').eq('id', profile.school_id).single();
           if (school) {
             setSchoolName(school.name);
             setSabespCode(school.sabesp_supply_id || 'N/A');
             setEdpCode(school.edp_installation_id || 'N/A');
           }
+          await fetchStats(profile.role, profile.school_id);
+        } else {
+          await fetchStats(profile.role, null);
         }
         
-        await fetchStats(profile.role, profile.school_id);
         await fetchMapData();
       }
     } catch (error) { console.error(error); } finally { setLoading(false); }
+  }
+
+  function handleSupervisorFilterChange(value: string) {
+    setSelectedSupervisorSchool(value);
+    setSchoolId(value === 'all' ? null : value);
+    setLoading(true);
+    const idsToFetch = value === 'all' ? supervisorSchoolIds : [value];
+    fetchStats('supervisor', null, idsToFetch).finally(() => setLoading(false));
   }
 
   async function fetchMapData() {
@@ -184,7 +214,7 @@ export function Dashboard() {
     }
   }
 
-  async function fetchStats(role: string, sId: string | null) {
+  async function fetchStats(role: string, sId: string | null, supervisorIds: string[] = []) {
     const firstDayMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
     const firstDayYear = new Date(new Date().getFullYear(), 0, 1).toISOString();
     
@@ -192,15 +222,18 @@ export function Dashboard() {
       const { count: ic } = await (supabase as any).from('inventory_items').select('*', { count: 'exact', head: true }).eq('status', 'DISPONÍVEL');
 
       let pendingFisc = 0;
-      if (role === 'regional_admin') {
+      if (role === 'regional_admin' || role === 'dirigente') {
         const { data: submissions } = await (supabase as any).from('monitoring_submissions').select('is_completed');
         pendingFisc = (submissions || []).filter((s: any) => !s.is_completed).length;
-      } else {
+      } else if (role === 'supervisor' && supervisorIds.length > 0) {
+        const { data: submissions } = await (supabase as any).from('monitoring_submissions').select('is_completed').in('school_id', supervisorIds);
+        pendingFisc = (submissions || []).filter((s: any) => !s.is_completed).length;
+      } else if (sId) { 
         const { data: submissions } = await (supabase as any).from('monitoring_submissions').select('is_completed').eq('school_id', sId);
         pendingFisc = (submissions || []).filter((s: any) => !s.is_completed).length;
       }
 
-      if (role === 'regional_admin') {
+      if (role === 'regional_admin' || role === 'dirigente') {
         const { count: sc } = await (supabase as any).from('schools').select('*', { count: 'exact', head: true });
         const { count: zc } = await (supabase as any).from('zeladorias').select('*', { count: 'exact', head: true }).not('ocupada', 'in', '("NÃO POSSUI", "NÃO HABITÁVEL")');
         const { data: globalCons } = await (supabase as any).from('consumo_agua').select('consumption_diff').gte('date', firstDayMonth);
@@ -217,7 +250,24 @@ export function Dashboard() {
           waterTruckRequests: wtGlobal, powerOutageRecords: poGlobal, inventoryItems: ic || 0,
           pendingFiscalizations: pendingFisc
         }));
-      } else {
+      } else if (role === 'supervisor') {
+        if (supervisorIds.length === 0) return; 
+        
+        const { data: cons } = await (supabase as any).from('consumo_agua').select('consumption_diff, limit_exceeded').in('school_id', supervisorIds).gte('date', firstDayMonth);
+        const logs = cons || [];
+        const avg = logs.length > 0 ? logs.reduce((acc: number, curr: any) => acc + (curr.consumption_diff || 0), 0) / logs.length : 0;
+        const exc = logs.filter((l: any) => l.limit_exceeded).length;
+        
+        const { data: occs } = await (supabase as any).from('occurrences').select('type').in('school_id', supervisorIds).gte('created_at', firstDayYear);
+        const wt = (occs || []).filter((o: any) => o.type === 'WATER_TRUCK').length;
+        const po = (occs || []).filter((o: any) => o.type === 'POWER_OUTAGE').length;
+        
+        setStats(prev => ({ 
+          ...prev, 
+          avgConsumption: avg, exceededDays: exc, waterTruckRequests: wt, powerOutageRecords: po, inventoryItems: ic || 0,
+          pendingFiscalizations: pendingFisc
+        }));
+      } else if (sId) {
         const { data: cons } = await (supabase as any).from('consumo_agua').select('consumption_diff, limit_exceeded').eq('school_id', sId).gte('date', firstDayMonth);
         const logs = cons || [];
         const avg = logs.length > 0 ? logs.reduce((acc: number, curr: any) => acc + (curr.consumption_diff || 0), 0) / logs.length : 0;
@@ -318,15 +368,43 @@ export function Dashboard() {
           <div className="pr-4">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider leading-none">Acesso</p>
             <p className="text-sm font-bold text-slate-700 truncate max-w-[200px] uppercase">
-              {userRole === 'regional_admin' ? 'Regional Administrativo' : (schoolName || 'Gestão')}
+              {userRole === 'regional_admin' ? 'Regional Administrativo' : 
+               userRole === 'dirigente' ? 'Dirigente Regional' :
+               userRole === 'supervisor' ? 'Supervisão Escolar' :
+               (schoolName || 'Gestão')}
             </p>
           </div>
         </div>
       </div>
 
+      {/* Barra de Filtro Exclusiva do Supervisor */}
+      {userRole === 'supervisor' && supervisorSchoolsList.length > 0 && (
+        <div className="bg-orange-50/50 border border-orange-100 p-4 rounded-2xl flex flex-col md:flex-row md:items-center gap-4 justify-between shadow-sm animate-in slide-in-from-top-2">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-orange-100 rounded-lg text-orange-600">
+              <Building2 size={20} />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-800">Painel de Supervisão</h3>
+              <p className="text-xs text-slate-500">Filtre os dados por unidade ou veja o resumo de todas</p>
+            </div>
+          </div>
+          <select
+            className="w-full md:w-auto min-w-[300px] bg-white border border-orange-200 text-slate-700 text-sm font-bold rounded-xl p-3 outline-none focus:ring-2 focus:ring-orange-500 shadow-sm cursor-pointer"
+            value={selectedSupervisorSchool}
+            onChange={(e) => handleSupervisorFilterChange(e.target.value)}
+          >
+            <option value="all">📊 Resumo Geral ({supervisorSchoolsList.length} escolas)</option>
+            {supervisorSchoolsList.map(school => (
+              <option key={school.id} value={school.id}>🏫 {school.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* Estatísticas */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-4">
-        {userRole === 'regional_admin' ? (
+        {userRole === 'regional_admin' || userRole === 'dirigente' ? (
           <>
             <StatCard title="Escolas" value={stats.schools} icon={<Building2 size={20} />} color="blue" loading={loading} label="Cadastradas" />
             <StatCard title="Zeladorias" value={stats.activeZeladorias} icon={<ShieldCheck size={20} />} color="emerald" loading={loading} label="Ativas" />
@@ -458,8 +536,8 @@ export function Dashboard() {
         </div>
       </div>
 
-      {isWaterTruckModalOpen && <WaterTruckModal isOpen={isWaterTruckModalOpen} onClose={() => { setIsWaterTruckModalOpen(false); initDashboard(); }} schoolName={schoolName} schoolId={schoolId} userName={userName} sabespCode={sabespCode} />}
-      {isPowerOutageModalOpen && <PowerOutageModal isOpen={isPowerOutageModalOpen} onClose={() => { setIsPowerOutageModalOpen(false); initDashboard(); }} schoolName={schoolName} schoolId={schoolId} userName={userName} edpCode={edpCode} />}
+      {isWaterTruckModalOpen && <WaterTruckModal isOpen={isWaterTruckModalOpen} onClose={() => { setIsWaterTruckModalOpen(false); initDashboard(); }} schoolName={selectedSupervisorSchool !== 'all' ? supervisorSchoolsList.find(s => s.id === selectedSupervisorSchool)?.name || schoolName : schoolName} schoolId={schoolId} userName={userName} sabespCode={sabespCode} />}
+      {isPowerOutageModalOpen && <PowerOutageModal isOpen={isPowerOutageModalOpen} onClose={() => { setIsPowerOutageModalOpen(false); initDashboard(); }} schoolName={selectedSupervisorSchool !== 'all' ? supervisorSchoolsList.find(s => s.id === selectedSupervisorSchool)?.name || schoolName : schoolName} schoolId={schoolId} userName={userName} edpCode={edpCode} />}
     </div>
   );
 }
