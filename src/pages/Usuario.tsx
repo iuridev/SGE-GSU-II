@@ -4,7 +4,7 @@ import {
   Users, Mail, 
   Search, UserPlus, X, 
   Trash2, Edit, Save, Building2, Lock,
-  ShieldAlert, ShieldCheck, UserCheck, Loader2,
+  ShieldCheck, UserCheck, Loader2,
   AlertCircle, } from 'lucide-react';
 
 interface Profile {
