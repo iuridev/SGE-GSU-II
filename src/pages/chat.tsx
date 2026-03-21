@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { GoogleGenerativeAI } from '@google/generative-ai'; // IMPORTAÇÃO DA IA
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { MANUAL_DO_SISTEMA } from '../lib/manualIA';
+import { Loader2, History, MessageSquare } from 'lucide-react';
 
-// Configuração segura da Chave da API (Busca do arquivo .env)
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY || 'AIzaSyAmusJrD2DZqUPduwGpF7yjSD6bxVLH6iM';
 const genAI = new GoogleGenerativeAI(apiKey);
 
-// Interfaces
 export interface Profile {
   id: string;
   full_name: string;
@@ -43,7 +42,7 @@ export default function Chat() {
   const [contatos, setContatos] = useState<ContatoRenderizado[]>([]);
   const [mensagens, setMensagens] = useState<Mensagem[]>([]);
   
-  const [todasConversasAbertas, setTodasConversasAbertas] = useState<Conversa[]>([]);
+  const [todasConversas, setTodasConversas] = useState<Conversa[]>([]);
   const [todasMensagensNaoLidas, setTodasMensagensNaoLidas] = useState<Mensagem[]>([]);
   
   const [contatoAtivo, setContatoAtivo] = useState<Profile | null>(null);
@@ -52,12 +51,13 @@ export default function Chat() {
   const [statusConversa, setStatusConversa] = useState<string>('');
   const [novaMensagem, setNovaMensagem] = useState<string>('');
   
-  // Estado de carregamento da IA
   const [carregandoIA, setCarregandoIA] = useState<boolean>(false);
+  const [carregandoHistorico, setCarregandoHistorico] = useState<boolean>(false);
+  const [showingHistory, setShowingHistory] = useState<boolean>(false);
   
   const mensagensFimRef = useRef<HTMLDivElement>(null);
 
-  // 1. Carrega Utilizador e Dados Globais
+  // 1. Carrega Utilizador e Dados Globais (CORRIGIDO ERRO 400)
   useEffect(() => {
     async function carregarDadosIniciais() {
       const { data: { user } } = await supabase.auth.getUser();
@@ -67,13 +67,16 @@ export default function Chat() {
       const perfil = perfilData as unknown as Profile;
       setCurrentUser(perfil);
 
-      const { data: convsData } = await (supabase.from('conversas') as any)
-        .select('*')
-        .eq('status', 'aberta')
-        .or(`participante1_id.eq.${user.id},participante2_id.eq.${user.id}`);
+      // Removemos o order e limit que causavam o erro na tabela conversas
+      let queryConvs = supabase.from('conversas').select('*');
       
+      if (perfil.role !== 'regional_admin') {
+         queryConvs = queryConvs.or(`participante1_id.eq.${user.id},participante2_id.eq.${user.id}`);
+      }
+      
+      const { data: convsData } = await queryConvs as any;
       const conversas = (convsData || []) as Conversa[];
-      setTodasConversasAbertas(conversas);
+      setTodasConversas(conversas);
 
       if (conversas.length > 0) {
         const convIds = conversas.map(c => c.id);
@@ -89,7 +92,7 @@ export default function Chat() {
     carregarDadosIniciais();
   }, []);
 
-  // 2. Carrega Contactos
+  // 2. Carrega Contactos e Associa Conversas
   useEffect(() => {
     async function fetchContatos() {
       if (!currentUser) return;
@@ -106,10 +109,16 @@ export default function Chat() {
         const baseContatos = data.filter((c: any) => c.id !== currentUser.id) as unknown as Profile[];
         
         let contatosMapeados: ContatoRenderizado[] = baseContatos.map(contato => {
-          const conversa = todasConversasAbertas.find(c => c.participante1_id === contato.id || c.participante2_id === contato.id);
-          const naoLidasCount = todasMensagensNaoLidas.filter(m => conversa && m.conversa_id === conversa.id).length;
+          const conversasDoContato = todasConversas.filter(c => c.participante1_id === contato.id || c.participante2_id === contato.id);
           
-          return { ...contato, conversaAberta: conversa, mensagensNaoLidas: naoLidasCount };
+          let conversaVisivel = conversasDoContato.find(c => c.status === 'aberta');
+          if (!conversaVisivel) {
+             conversaVisivel = conversasDoContato.find(c => todasMensagensNaoLidas.some(m => m.conversa_id === c.id));
+          }
+
+          const naoLidasCount = todasMensagensNaoLidas.filter(m => conversaVisivel && m.conversa_id === conversaVisivel.id).length;
+          
+          return { ...contato, conversaAberta: conversaVisivel, mensagensNaoLidas: naoLidasCount };
         });
 
         contatosMapeados = contatosMapeados.sort((a, b) => {
@@ -124,7 +133,7 @@ export default function Chat() {
       }
     }
     fetchContatos();
-  }, [currentUser, todasConversasAbertas, todasMensagensNaoLidas]);
+  }, [currentUser, todasConversas, todasMensagensNaoLidas]);
 
   // 3. Abrir Conversa
   const abrirConversa = async (contato: ContatoRenderizado) => {
@@ -133,12 +142,13 @@ export default function Chat() {
     setConversaAtivaId(null); 
     setProtocoloAtual('Nova Conversa (A aguardar envio)');
     setStatusConversa('aberta');
+    setShowingHistory(false); 
 
     if (!currentUser) return;
 
     if (contato.conversaAberta) {
       setConversaAtivaId(contato.conversaAberta.id);
-      setProtocoloAtual(contato.conversaAberta.protocolo);
+      setProtocoloAtual(contato.conversaAberta.status === 'concluido' ? `${contato.conversaAberta.protocolo} (CONCLUÍDO)` : contato.conversaAberta.protocolo);
       setStatusConversa(contato.conversaAberta.status);
       carregarMensagens(contato.conversaAberta.id);
 
@@ -150,11 +160,47 @@ export default function Chat() {
   };
 
   const carregarMensagens = async (conversaId: string) => {
+    // A tabela messages tem created_at, então aqui não tem problema ordenar
     const { data } = await (supabase.from('messages') as any).select('*').eq('conversa_id', conversaId).order('created_at', { ascending: true });
     if (data) setMensagens(data as unknown as Mensagem[]);
   };
 
-  // 4. Realtime Global
+  // 4. CARREGAR HISTÓRICO COMPLETO (On-Demand)
+  const carregarHistorico = async () => {
+    if (!currentUser || !contatoAtivo) return;
+    setCarregandoHistorico(true);
+
+    try {
+      let queryHist = supabase.from('conversas').select('id');
+      
+      if (currentUser.role === 'regional_admin') {
+        queryHist = queryHist.or(`participante1_id.eq.${contatoAtivo.id},participante2_id.eq.${contatoAtivo.id}`);
+      } else {
+        queryHist = queryHist.or(`and(participante1_id.eq.${currentUser.id},participante2_id.eq.${contatoAtivo.id}),and(participante1_id.eq.${contatoAtivo.id},participante2_id.eq.${currentUser.id})`);
+      }
+
+      const { data: convs } = await queryHist as any;
+
+      if (convs && convs.length > 0) {
+        const convIds = convs.map((c: any) => c.id);
+        const { data: msgs } = await (supabase.from('messages') as any)
+          .select('*')
+          .in('conversa_id', convIds)
+          .order('created_at', { ascending: true });
+
+        if (msgs) {
+          setMensagens(msgs as unknown as Mensagem[]);
+          setShowingHistory(true);
+        }
+      }
+    } catch (error) {
+      console.error("Erro ao carregar histórico:", error);
+    } finally {
+      setCarregandoHistorico(false);
+    }
+  };
+
+  // 5. Realtime Global
   useEffect(() => {
     if (!currentUser) return;
 
@@ -174,7 +220,7 @@ export default function Chat() {
              (supabase.from('messages') as any).update({ is_read: true }).eq('id', novaMsg.id).then();
           }
         } else if (novaMsg.sender_id !== currentUser.id) {
-          const ehMinhaConversa = todasConversasAbertas.some(c => c.id === novaMsg.conversa_id);
+          const ehMinhaConversa = currentUser.role === 'regional_admin' || todasConversas.some(c => c.id === novaMsg.conversa_id);
           if (ehMinhaConversa) {
              setTodasMensagensNaoLidas(prev => [...prev, novaMsg]);
           }
@@ -182,15 +228,13 @@ export default function Chat() {
       }).subscribe();
 
     return () => { supabase.removeChannel(canal); };
-  }, [conversaAtivaId, currentUser, todasConversasAbertas]);
+  }, [conversaAtivaId, currentUser, todasConversas]);
 
   useEffect(() => {
     mensagensFimRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [mensagens]);
 
-// ==========================================
-  // 5. INTELIGÊNCIA ARTIFICIAL (GEMINI 2.5)
-  // ==========================================
+  // 6. INTELIGÊNCIA ARTIFICIAL
   const sugerirRespostaIA = async () => {
     if (mensagens.length === 0) return;
     setCarregandoIA(true);
@@ -201,14 +245,7 @@ export default function Chat() {
       }).join("\n");
 
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
-      // Olha como o prompt fica limpo agora! Ele puxa o texto gigante do outro arquivo.
-      const prompt = `${MANUAL_DO_SISTEMA}
-      
-Histórico da conversa atual:
-${ultimasMensagens}
-
-Sua sugestão de resposta:`;
+      const prompt = `${MANUAL_DO_SISTEMA}\n\nHistórico da conversa atual:\n${ultimasMensagens}\n\nSua sugestão de resposta:`;
 
       const result = await model.generateContent(prompt);
       setNovaMensagem(result.response.text().trim());
@@ -220,10 +257,14 @@ Sua sugestão de resposta:`;
     }
   };
   
-  // 6. ENVIAR MENSAGEM
+  // 7. ENVIAR MENSAGEM
   const enviarMensagem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!novaMensagem.trim() || !currentUser || !contatoAtivo) return;
+    if (statusConversa === 'concluido') {
+        alert("Este atendimento já foi concluído. Selecione o contato novamente para gerar um novo protocolo.");
+        return;
+    }
 
     const textoMensagem = novaMensagem;
     setNovaMensagem(''); 
@@ -245,7 +286,8 @@ Sua sugestão de resposta:`;
       
       setConversaAtivaId(nova.id);
       setProtocoloAtual(nova.protocolo);
-      setTodasConversasAbertas(prev => [...prev, nova]);
+      setStatusConversa('aberta');
+      setTodasConversas(prev => [...prev, nova]);
     }
 
     const { data: msgInserida, error } = await (supabase.from('messages') as any).insert([{
@@ -263,7 +305,7 @@ Sua sugestão de resposta:`;
     }
   };
 
-  // 7. FINALIZAR CONVERSA
+  // 8. FINALIZAR CONVERSA
   const finalizarAtendimento = async () => {
     if (!conversaAtivaId || !currentUser) return;
     const confirmar = window.confirm("Deseja realmente finalizar este atendimento?");
@@ -276,36 +318,35 @@ Sua sugestão de resposta:`;
         conversa_id: conversaAtivaId,
         sender_id: currentUser.id,
         content: "⚠️ Este atendimento foi finalizado pelo administrador.",
-        is_read: true
+        is_read: false
       }]);
 
       setStatusConversa('concluido');
-      setConversaAtivaId(null); 
-      setProtocoloAtual('Atendimento Concluído. Envie mensagem para novo protocolo.');
-      setTodasConversasAbertas(prev => prev.filter(c => c.id !== conversaAtivaId));
+      setProtocoloAtual(`${protocoloAtual} (CONCLUÍDO)`);
     }
   };
 
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="flex h-[85vh] bg-white rounded-3xl overflow-hidden shadow-xl border border-slate-100">
+      
       {/* BARRA LATERAL */}
-      <div className="w-1/3 bg-white border-r border-gray-300 flex flex-col">
-        <div className="p-4 bg-blue-900 text-white font-bold text-lg">
-          Atendimentos SGE-GSU-II
+      <div className="w-1/3 bg-slate-50 border-r border-slate-200 flex flex-col">
+        <div className="p-6 bg-slate-900 text-white font-black text-lg tracking-tight">
+          Atendimentos
         </div>
-        <div className="overflow-y-auto flex-1">
+        <div className="overflow-y-auto flex-1 custom-scrollbar">
           {contatos.map((contato) => (
             <div 
               key={contato.id} 
               onClick={() => abrirConversa(contato)} 
-              className={`p-4 border-b cursor-pointer transition flex items-center justify-between ${contatoAtivo?.id === contato.id ? 'bg-blue-50 border-l-4 border-blue-600' : 'hover:bg-gray-50'}`}
+              className={`p-5 border-b border-slate-100 cursor-pointer transition-all flex items-center justify-between ${contatoAtivo?.id === contato.id ? 'bg-white border-l-4 border-blue-600 shadow-sm' : 'hover:bg-white'}`}
             >
               <div>
-                <p className="font-semibold text-gray-800">{contato.full_name}</p>
-                <div className="flex items-center gap-2 mt-1">
-                   <p className="text-xs text-gray-500">{contato.setor ? `Setor: ${contato.setor}` : 'Escola'}</p>
+                <p className="font-bold text-slate-800 text-sm truncate max-w-[200px]">{contato.full_name}</p>
+                <div className="flex items-center gap-2 mt-1.5">
+                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{contato.setor ? `Setor: ${contato.setor}` : 'Escola'}</p>
                    {contato.conversaAberta && (
-                     <span className="bg-orange-100 text-orange-700 text-[10px] px-2 py-0.5 rounded font-mono font-bold">
+                     <span className={`text-[9px] px-2 py-0.5 rounded-md font-mono font-bold tracking-tight ${contato.conversaAberta.status === 'concluido' ? 'bg-slate-200 text-slate-500' : 'bg-orange-100 text-orange-700'}`}>
                        {contato.conversaAberta.protocolo}
                      </span>
                    )}
@@ -313,7 +354,7 @@ Sua sugestão de resposta:`;
               </div>
 
               {contato.mensagensNaoLidas > 0 && (
-                <div className="bg-red-500 text-white text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full shadow-md animate-pulse">
+                <div className="bg-red-500 text-white text-[10px] font-black w-6 h-6 flex items-center justify-center rounded-full shadow-md animate-pulse shrink-0">
                   {contato.mensagensNaoLidas}
                 </div>
               )}
@@ -323,35 +364,54 @@ Sua sugestão de resposta:`;
       </div>
 
       {/* ÁREA DO CHAT */}
-      <div className="w-2/3 flex flex-col">
+      <div className="w-2/3 flex flex-col bg-[#f8fafc] relative">
         {contatoAtivo ? (
           <>
-            <div className="p-4 bg-white border-b border-gray-300 flex justify-between items-center shadow-sm z-10">
+            <div className="p-6 bg-white border-b border-slate-200 flex justify-between items-center shadow-sm z-10 shrink-0">
               <div>
-                <h2 className="text-lg font-bold text-gray-800">{contatoAtivo.full_name}</h2>
-                <p className="text-sm text-gray-500">{contatoAtivo.setor || 'Utilizador da Escola'}</p>
+                <h2 className="text-lg font-black text-slate-800 tracking-tight">{contatoAtivo.full_name}</h2>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-0.5">{contatoAtivo.setor || 'Utilizador da Escola'}</p>
               </div>
+              
               <div className="flex items-center gap-3">
-                <div className={`px-3 py-1 rounded-full text-sm font-mono font-bold border ${statusConversa === 'aberta' ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-green-100 text-green-800 border-green-200'}`}>
+                {currentUser?.role === 'regional_admin' && conversaAtivaId && !showingHistory && (
+                  <button 
+                    onClick={carregarHistorico} 
+                    disabled={carregandoHistorico}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold transition-colors"
+                  >
+                    {carregandoHistorico ? <Loader2 size={14} className="animate-spin" /> : <History size={14} />}
+                    Ver Histórico
+                  </button>
+                )}
+
+                <div className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold tracking-tight border ${statusConversa === 'aberta' ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
                   {protocoloAtual}
                 </div>
-                {conversaAtivaId && currentUser && (currentUser.role === 'regional_admin' || currentUser.setor) && (
-                  <button onClick={finalizarAtendimento} className="bg-red-500 hover:bg-red-600 text-white text-sm px-3 py-1 rounded font-semibold transition">
+                
+                {conversaAtivaId && statusConversa === 'aberta' && currentUser && (currentUser.role === 'regional_admin' || currentUser.setor) && (
+                  <button onClick={finalizarAtendimento} className="bg-red-50 text-red-600 border border-red-200 hover:bg-red-600 hover:text-white text-xs px-4 py-1.5 rounded-lg font-black uppercase tracking-widest transition-all">
                     Finalizar
                   </button>
                 )}
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 bg-[#e5ddd5]">
+            <div className="flex-1 overflow-y-auto p-6 bg-[#f0f4f8] space-y-4 custom-scrollbar">
+              {showingHistory && mensagens.length > 0 && (
+                 <div className="text-center my-4">
+                    <span className="text-[10px] font-black uppercase tracking-widest bg-slate-200 text-slate-500 px-3 py-1 rounded-full">Início do Histórico</span>
+                 </div>
+              )}
+              
               {mensagens.map((msg) => {
                 const isMine = msg.sender_id === currentUser?.id;
                 const isSystemMessage = msg.content.startsWith("⚠️");
 
                 if (isSystemMessage) {
                    return (
-                     <div key={msg.id} className="flex justify-center mb-4">
-                        <div className="bg-yellow-100 text-yellow-800 text-xs px-4 py-2 rounded-lg font-semibold shadow-sm text-center">
+                     <div key={msg.id} className="flex justify-center my-6">
+                        <div className="bg-amber-100/80 text-amber-800 text-[11px] px-6 py-2 rounded-full font-black uppercase tracking-widest shadow-sm text-center border border-amber-200">
                           {msg.content}
                         </div>
                      </div>
@@ -359,17 +419,17 @@ Sua sugestão de resposta:`;
                 }
 
                 return (
-                  <div key={msg.id} className={`flex mb-4 ${isMine ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[70%] rounded-lg p-3 shadow-sm relative ${isMine ? 'bg-[#dcf8c6] rounded-tr-none' : 'bg-white rounded-tl-none'}`}>
-                      <p className="text-gray-800 whitespace-pre-line">{msg.content}</p>
+                  <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[75%] rounded-2xl p-4 shadow-sm relative ${isMine ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-sm'}`}>
+                      <p className="text-sm whitespace-pre-line leading-relaxed font-medium">{msg.content}</p>
                       
-                      <div className="flex justify-end items-center gap-1 mt-1">
-                        <span className="text-[10px] text-gray-500 block text-right">
+                      <div className={`flex justify-end items-center gap-1 mt-2 ${isMine ? 'text-blue-200' : 'text-slate-400'}`}>
+                        <span className="text-[9px] font-bold tracking-wider">
                           {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                         {isMine && (
-                          <span className={msg.is_read ? "text-blue-500" : "text-gray-400"}>
-                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                          <span className={msg.is_read ? "text-blue-200" : "text-blue-400/50"}>
+                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                           </span>
                         )}
                       </div>
@@ -380,20 +440,16 @@ Sua sugestão de resposta:`;
               <div ref={mensagensFimRef} />
             </div>
 
-            {/* INPUT DE MENSAGENS COM O BOTÃO DA IA */}
-            <div className="p-4 bg-gray-100 border-t border-gray-300">
-              <form onSubmit={enviarMensagem} className="flex gap-2">
-                
-                {/* BOTÃO DA INTELIGÊNCIA ARTIFICIAL */}
-                {currentUser?.role === 'regional_admin' && mensagens.length > 0 && (
+            <div className="p-4 bg-white border-t border-slate-200 shrink-0">
+              <form onSubmit={enviarMensagem} className="flex gap-3">
+                {currentUser?.role === 'regional_admin' && mensagens.length > 0 && statusConversa !== 'concluido' && (
                   <button 
                     type="button" 
                     onClick={sugerirRespostaIA}
                     disabled={carregandoIA}
-                    className="bg-purple-100 text-purple-700 border border-purple-300 px-3 py-2 rounded-full font-semibold hover:bg-purple-200 transition flex items-center gap-1 text-sm disabled:opacity-50"
-                    title="Pedir sugestão baseada no manual"
+                    className="bg-purple-50 text-purple-600 border border-purple-200 px-4 py-2 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-purple-600 hover:text-white transition-all flex items-center gap-2 disabled:opacity-50"
                   >
-                    {carregandoIA ? '⏳' : '✨ IA'}
+                    {carregandoIA ? <Loader2 size={16} className="animate-spin"/> : '✨ IA'}
                   </button>
                 )}
 
@@ -401,19 +457,27 @@ Sua sugestão de resposta:`;
                   type="text"
                   value={novaMensagem}
                   onChange={(e) => setNovaMensagem(e.target.value)}
-                  placeholder="Escreva a sua mensagem..."
-                  className="flex-1 p-3 rounded-full border border-gray-300 focus:outline-none focus:border-blue-500"
+                  placeholder={statusConversa === 'concluido' ? "Atendimento finalizado..." : "Digite sua mensagem..."}
+                  disabled={statusConversa === 'concluido'}
+                  className="flex-1 p-4 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all disabled:opacity-50 font-medium text-sm"
                 />
-                <button type="submit" disabled={!novaMensagem.trim()} className="bg-blue-600 text-white px-6 py-2 rounded-full font-semibold hover:bg-blue-700 disabled:opacity-50 transition">
+                <button 
+                  type="submit" 
+                  disabled={!novaMensagem.trim() || statusConversa === 'concluido'} 
+                  className="bg-blue-600 text-white px-8 py-4 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-blue-700 disabled:opacity-50 transition-all shadow-md shadow-blue-600/20"
+                >
                   Enviar
                 </button>
               </form>
             </div>
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center bg-gray-50 text-gray-400 flex-col">
-            <svg className="w-16 h-16 mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
-            <p className="text-xl">Selecione um contato para iniciar o atendimento</p>
+          <div className="flex-1 flex items-center justify-center bg-[#f8fafc] text-slate-400 flex-col">
+            <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center shadow-sm border border-slate-100 mb-4">
+              <MessageSquare size={40} className="text-slate-300" />
+            </div>
+            <p className="text-lg font-black tracking-tight text-slate-500">Nenhum chat selecionado</p>
+            <p className="text-xs font-bold uppercase tracking-widest mt-2 opacity-50">Selecione um contato na lateral para iniciar</p>
           </div>
         )}
       </div>
