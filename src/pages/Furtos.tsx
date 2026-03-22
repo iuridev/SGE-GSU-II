@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Plus, Trash2, Save, FileText, AlertTriangle, ShieldAlert, Building2, 
-  Calculator, BarChart3, TrendingUp, Clock, CheckCircle, Search, Pencil, X, CalendarClock
+  Calculator, BarChart3, TrendingUp, Clock, CheckCircle, Search, Pencil, X, CalendarClock,
+  Package, Loader2
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
@@ -76,10 +77,13 @@ export default function CadastroFurtos() {
   const [historico, setHistorico] = useState<ProcessoHistorico[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
-  // ================= NOVOS ESTADOS PARA OS FILTROS =================
+  // Estados para os Filtros
   const [searchTerm, setSearchTerm] = useState('');
   const [filterEscola, setFilterEscola] = useState('');
   const [filterSituacao, setFilterSituacao] = useState('');
+
+  // ================= ESTADO DO MODAL DE BAIXA PATRIMONIAL =================
+  const [baixaModal, setBaixaModal] = useState({ isOpen: false, processoId: '', nlBaixa: '' });
 
   // Efeito para buscar utilizador logado, lista de escolas e histórico real do banco
   useEffect(() => {
@@ -229,6 +233,46 @@ export default function CadastroFurtos() {
     }
   };
 
+  // ================= AÇÕES DA BAIXA PATRIMONIAL (SEFISC) =================
+  const handleOpenBaixa = (proc: ProcessoHistorico) => {
+    setBaixaModal({ 
+      isOpen: true, 
+      processoId: proc.id, 
+      nlBaixa: proc.nl_baixa !== 'Aguardando' ? proc.nl_baixa || '' : '' 
+    });
+  }
+
+  const handleSaveBaixa = async () => {
+    if (!baixaModal.nlBaixa.trim()) {
+      alert("Por favor, informe o número da NL gerada no inventário.");
+      return;
+    }
+    
+    setIsSaving(true);
+    try {
+      // CORREÇÃO AQUI: Adicionado (supabase as any)
+      const { error } = await (supabase as any).from('processos_furtos')
+        .update({ nl_baixa: baixaModal.nlBaixa.trim() })
+        .eq('id', baixaModal.processoId);
+      
+      if (error) throw error;
+
+      // Atualiza o estado local sem recarregar a página
+      setHistorico(prev => prev.map(p => 
+        p.id === baixaModal.processoId ? { ...p, nl_baixa: baixaModal.nlBaixa.trim() } : p
+      ));
+      
+      setBaixaModal({ isOpen: false, processoId: '', nlBaixa: '' });
+      alert("Baixa patrimonial registrada com sucesso!");
+      
+    } catch(err) {
+      console.error(err);
+      alert("Erro ao registrar a baixa. Verifique sua conexão.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   // Cálculos Financeiros
   const valorTotal = useMemo(() => {
     return itens.reduce((acc, item) => {
@@ -284,18 +328,14 @@ export default function CadastroFurtos() {
     };
   }, [historico]);
 
-  // ================= FILTRO LÓGICO DA TABELA =================
+  // Filtro Lógico da Tabela
   const historicoFiltrado = useMemo(() => {
     return historico.filter((proc) => {
-      // Filtra por Busca de texto (SEI ou Nome da Escola)
       const matchSearch = searchTerm === '' || 
         (proc.numero_sei && proc.numero_sei.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (proc.escolaNome && proc.escolaNome.toLowerCase().includes(searchTerm.toLowerCase()));
         
-      // Filtra por Escola no Select
       const matchEscola = filterEscola === '' || proc.escola_id === filterEscola;
-      
-      // Filtra por Situação no Select
       const matchSituacao = filterSituacao === '' || proc.situacao === filterSituacao;
 
       return matchSearch && matchEscola && matchSituacao;
@@ -404,7 +444,7 @@ export default function CadastroFurtos() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
+    <div className="min-h-screen bg-gray-50 flex flex-col font-sans relative">
       {/* Barra superior de Administração */}
       <header className="bg-slate-900 text-white p-4 flex justify-between items-center shadow-md print:hidden">
         <div className="flex items-center gap-2">
@@ -426,7 +466,7 @@ export default function CadastroFurtos() {
 
       <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-8">
         
-        {/* ==================== ALERTA DE PROCESSOS DESATUALIZADOS ==================== */}
+        {/* ALERTA DE PROCESSOS DESATUALIZADOS */}
         {processosDesatualizados.length > 0 && (
           <section className="bg-red-50 border-l-4 border-red-500 rounded-xl p-5 shadow-sm animate-in fade-in slide-in-from-top-4">
             <div className="flex items-center gap-3 mb-4">
@@ -460,7 +500,7 @@ export default function CadastroFurtos() {
           </section>
         )}
 
-        {/* ==================== DASHBOARD SECTION ==================== */}
+        {/* DASHBOARD SECTION */}
         <section>
           <div className="mb-4">
             <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
@@ -537,7 +577,7 @@ export default function CadastroFurtos() {
           </div>
         </section>
 
-        {/* ==================== FORMULÁRIO DE CADASTRO ==================== */}
+        {/* FORMULÁRIO DE CADASTRO */}
         <section className={`p-1 rounded-2xl shadow-lg transition-colors duration-300 ${editingId ? 'bg-amber-400' : 'bg-slate-900'}`}>
           <div className="bg-white p-6 rounded-xl">
             <div className="mb-6 border-b pb-4 flex justify-between items-center">
@@ -664,7 +704,7 @@ export default function CadastroFurtos() {
           </div>
         </section>
 
-        {/* ==================== HISTÓRICO / TABELA ==================== */}
+        {/* HISTÓRICO / TABELA */}
         <section className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
             <div>
@@ -674,7 +714,7 @@ export default function CadastroFurtos() {
               </h3>
             </div>
             
-            {/* ==================== SEÇÃO DE FILTROS ==================== */}
+            {/* SEÇÃO DE FILTROS */}
             <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
               <select 
                 value={filterEscola} 
@@ -707,7 +747,7 @@ export default function CadastroFurtos() {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto pb-4">
             <table className="w-full text-left text-sm text-gray-600">
               <thead className="bg-gray-50 text-gray-700 font-semibold border-y border-gray-200 uppercase text-xs">
                 <tr>
@@ -715,13 +755,12 @@ export default function CadastroFurtos() {
                   <th className="px-4 py-3">Escola</th>
                   <th className="px-4 py-3">Situação</th>
                   <th className="px-4 py-3 text-right">Valor R$</th>
-                  <th className="px-4 py-3">Última Atualização</th>
+                  <th className="px-4 py-3 text-center">Baixa (SEFISC)</th>
                   <th className="px-4 py-3 text-center">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {historicoFiltrado.length > 0 ? historicoFiltrado.map((proc) => {
-                  const dataAtualizacao = proc.updated_at ? new Date(proc.updated_at) : null;
                   return (
                     <tr key={proc.id} className={`transition-colors ${editingId === proc.id ? 'bg-amber-50' : 'hover:bg-gray-50'}`}>
                       <td className="px-4 py-3 font-medium text-blue-600">{proc.numero_sei}</td>
@@ -734,14 +773,28 @@ export default function CadastroFurtos() {
                       <td className="px-4 py-3 text-right font-medium">
                         {formatarMoeda(proc.valor_total)}
                       </td>
-                      <td className="px-4 py-3 text-xs">
-                        {dataAtualizacao ? (
-                          <>
-                            <span className="block text-gray-800 font-medium">{dataAtualizacao.toLocaleDateString('pt-BR')}</span>
-                            <span className="block text-gray-400">{dataAtualizacao.toLocaleTimeString('pt-BR', { hour: '2-digit', minute:'2-digit' })}</span>
-                          </>
-                        ) : '-'}
+                      
+                      {/* NOVA COLUNA DA BAIXA PATRIMONIAL */}
+                      <td className="px-4 py-3 text-center">
+                        {proc.valor_total > 0 && proc.situacao === 'Concluído' ? (
+                          proc.nl_baixa && proc.nl_baixa !== 'Aguardando' ? (
+                            <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider" title="Baixa Concluída">
+                              NL: {proc.nl_baixa}
+                            </span>
+                          ) : userProfile?.role === 'regional_admin' ? (
+                            <button onClick={() => handleOpenBaixa(proc)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-sm transition-all active:scale-95">
+                              Registrar Baixa
+                            </button>
+                          ) : (
+                            <span className="bg-slate-100 text-slate-500 px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border border-slate-200">
+                              Aguardando
+                            </span>
+                          )
+                        ) : (
+                          <span className="text-gray-300 font-medium text-xs">-</span>
+                        )}
                       </td>
+
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-center gap-2">
                           <button onClick={() => handleEdit(proc)} className={`p-1.5 rounded-md transition-colors ${editingId === proc.id ? 'bg-amber-200 text-amber-800' : 'text-blue-600 hover:bg-blue-50'}`} title="Editar Processo">
@@ -767,6 +820,57 @@ export default function CadastroFurtos() {
         </section>
 
       </main>
+
+      {/* ================= MODAL REGISTRAR BAIXA ================= */}
+      {baixaModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-slate-50">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <Package className="w-5 h-5 text-indigo-600" />
+                Registrar Baixa Patrimonial
+              </h3>
+              <button onClick={() => setBaixaModal({ isOpen: false, processoId: '', nlBaixa: '' })} className="text-gray-400 hover:text-gray-600 p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-gray-600">
+                Informe o número do documento <span className="font-bold text-gray-800">(Nota de Lançamento / NL)</span> que comprova a baixa dos itens no inventário para este processo.
+              </p>
+              <div>
+                <label className="block text-[10px] font-black text-gray-700 uppercase tracking-wider mb-2">Número do Documento (NL)</label>
+                <input 
+                  type="text" 
+                  value={baixaModal.nlBaixa}
+                  onChange={(e) => setBaixaModal({ ...baixaModal, nlBaixa: e.target.value })}
+                  placeholder="Ex: NL 2026NE00123"
+                  className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-800 transition-all bg-slate-50 focus:bg-white"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div className="p-5 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+              <button 
+                onClick={() => setBaixaModal({ isOpen: false, processoId: '', nlBaixa: '' })} 
+                className="px-5 py-2.5 text-gray-600 font-bold hover:bg-gray-200 rounded-xl transition-colors text-sm"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={handleSaveBaixa} 
+                disabled={isSaving} 
+                className="px-6 py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center gap-2 shadow-md text-sm active:scale-95"
+              >
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                Confirmar Baixa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
