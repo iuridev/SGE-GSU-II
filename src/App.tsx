@@ -202,126 +202,146 @@ export default function App() {
     let userId = session.user.id;
 
     async function fetchNotifications() {
-      const groupedNotifs: AppNotification[] = [];
+      try {
+        const groupedNotifs: AppNotification[] = [];
 
-      // 1. BUSCA NOTIFICAÇÕES DE CHAT (MENSAGENS)
-      let queryConvs = supabase.from('conversas').select('id, protocolo, status');
-      if (userRole !== 'regional_admin') {
-         queryConvs = queryConvs.or(`participante1_id.eq.${userId},participante2_id.eq.${userId}`);
-      }
-      const { data: conversas } = await queryConvs as any;
-
-      if (conversas && conversas.length > 0) {
-        const conversaIds = conversas.map((c: any) => c.id);
-        const { data: msgs } = await (supabase as any)
-          .from('messages')
-          .select('*')
-          .in('conversa_id', conversaIds)
-          .eq('is_read', false)
-          .neq('sender_id', userId);
-
-        if (msgs && msgs.length > 0) {
-          conversas.forEach((conv: any) => {
-            const unreadForConv = msgs.filter((m: any) => m.conversa_id === conv.id);
-            if (unreadForConv.length > 0) {
-              const conclusionMsg = unreadForConv.find((m: any) => m.content.includes('⚠️ Este atendimento foi finalizado'));
-
-              if (conclusionMsg) {
-                groupedNotifs.push({
-                  id: conclusionMsg.id,
-                  conversa_id: conv.id,
-                  protocolo: conv.protocolo,
-                  type: 'conclusion',
-                  text: `A conversa do protocolo ${conv.protocolo} foi concluída pelo administrador.`,
-                  allMsgIds: unreadForConv.map((m: any) => m.id)
-                });
-              } else {
-                groupedNotifs.push({
-                  id: unreadForConv[0].id,
-                  conversa_id: conv.id,
-                  protocolo: conv.protocolo,
-                  type: 'chat',
-                  count: unreadForConv.length,
-                  text: `Você tem ${unreadForConv.length} nova(s) mensagem(ns) no protocolo ${conv.protocolo}.`,
-                  allMsgIds: unreadForConv.map((m: any) => m.id)
-                });
-              }
-            }
-          });
+        // 1. BUSCA NOTIFICAÇÕES DE CHAT (MENSAGENS) - VERSÃO BLINDADA EM JS
+        let queryConvs = supabase.from('conversas').select('id, protocolo, status');
+        if (userRole !== 'regional_admin') {
+           queryConvs = queryConvs.or(`participante1_id.eq.${userId},participante2_id.eq.${userId}`);
         }
-      }
+        
+        const { data: conversas, error: convError } = await queryConvs as any;
+        if (convError) console.error("❌ Erro ao buscar conversas:", convError);
+        
+        const conversaIds = conversas?.map((c: any) => c.id) || [];
 
-      // 2. BUSCA NOTIFICAÇÕES DE NOVOS CHAMADOS ABERTOS (APENAS ADMIN)
-      if (userRole === 'regional_admin') {
-        const { data: chamadosAbertos } = await (supabase as any)
-          .from('internal_tickets')
-          .select('id, protocol, department')
-          .eq('status', 'ABERTO'); 
+        if (conversaIds.length > 0) {
           
-        if (chamadosAbertos && chamadosAbertos.length > 0) {
-          chamadosAbertos.forEach((chamado: any) => {
-            groupedNotifs.push({
-              id: chamado.id,
-              conversa_id: chamado.id, 
-              protocolo: chamado.protocol,
-              type: 'chamado', 
-              text: `Novo chamado pendente para a mesa ${chamado.department}.`,
-              allMsgIds: [chamado.id]
+          const { data: msgs, error: msgError } = await (supabase as any)
+            .from('messages')
+            .select('id, content, is_read, sender_id, conversa_id')
+            .in('conversa_id', conversaIds)
+            .neq('sender_id', userId);
+
+          if (msgError) console.error("❌ Erro ao buscar mensagens:", msgError);
+
+          // FILTRO BLINDADO EM JAVASCRIPT
+          const unreadMsgs = (msgs || []).filter((m: any) => 
+             m.is_read === false || m.is_read === null || m.is_read === 'false'
+          );
+
+          if (unreadMsgs.length > 0) {
+            conversas.forEach((conv: any) => {
+              const unreadForConv = unreadMsgs.filter((m: any) => m.conversa_id === conv.id);
+              if (unreadForConv.length > 0) {
+                const conclusionMsg = unreadForConv.find((m: any) => m.content?.includes('⚠️ Este atendimento foi finalizado'));
+                const numeroProtocolo = conv.protocolo || 'Geral';
+
+                if (conclusionMsg) {
+                  groupedNotifs.push({
+                    id: conclusionMsg.id,
+                    conversa_id: conv.id,
+                    protocolo: numeroProtocolo,
+                    type: 'conclusion',
+                    text: `A conversa do protocolo ${numeroProtocolo} foi concluída pelo administrador.`,
+                    allMsgIds: unreadForConv.map((m: any) => m.id)
+                  });
+                } else {
+                  groupedNotifs.push({
+                    id: unreadForConv[0].id,
+                    conversa_id: conv.id,
+                    protocolo: numeroProtocolo,
+                    type: 'chat',
+                    count: unreadForConv.length,
+                    text: `Você tem ${unreadForConv.length} nova(s) mensagem(ns) no protocolo ${numeroProtocolo}.`,
+                    allMsgIds: unreadForConv.map((m: any) => m.id)
+                  });
+                }
+              }
             });
-          });
-        }
-      }
-
-      // 3. BUSCA NOTIFICAÇÕES DE RESPOSTAS E CONCLUSÕES DE CHAMADOS
-      let myTicketsQuery = supabase.from('internal_tickets').select('id, protocol');
-      if (userRole !== 'regional_admin') {
-          myTicketsQuery = myTicketsQuery.eq('created_by', userId);
-      }
-      const { data: myTickets } = await myTicketsQuery as any;
-
-      if (myTickets && myTickets.length > 0) {
-          const ticketIds = myTickets.map((t: any) => t.id);
-          const { data: unreadTicketMsgs } = await (supabase as any)
-              .from('ticket_messages')
-              .select('*')
-              .in('ticket_id', ticketIds)
-              .eq('is_read', false)
-              .neq('user_id', userId); 
-
-          if (unreadTicketMsgs && unreadTicketMsgs.length > 0) {
-              myTickets.forEach((ticket: any) => {
-                  const unreadForThisTicket = unreadTicketMsgs.filter((m: any) => m.ticket_id === ticket.id);
-                  if (unreadForThisTicket.length > 0) {
-                      const isConclusion = unreadForThisTicket.some((m: any) => m.type === 'STATUS_CHANGE');
-                      groupedNotifs.push({
-                          id: unreadForThisTicket[0].id,
-                          conversa_id: ticket.id,
-                          protocolo: ticket.protocol,
-                          type: 'chamado_update',
-                          text: isConclusion
-                              ? `O chamado ${ticket.protocol} foi atualizado/concluído.`
-                              : `Você tem uma nova mensagem no chamado ${ticket.protocol}.`,
-                          allMsgIds: unreadForThisTicket.map((m: any) => m.id)
-                      });
-                  }
-              });
           }
-      }
+        }
 
-      setNotifications(groupedNotifs);
+        // 2. BUSCA NOTIFICAÇÕES DE NOVOS CHAMADOS ABERTOS (APENAS ADMIN)
+        if (userRole === 'regional_admin') {
+          const { data: chamadosAbertos } = await (supabase as any)
+            .from('internal_tickets')
+            .select('id, protocol, department')
+            .eq('status', 'ABERTO'); 
+            
+          if (chamadosAbertos && chamadosAbertos.length > 0) {
+            chamadosAbertos.forEach((chamado: any) => {
+              groupedNotifs.push({
+                id: chamado.id,
+                conversa_id: chamado.id, 
+                protocolo: chamado.protocol,
+                type: 'chamado', 
+                text: `Novo chamado pendente para a mesa ${chamado.department}.`,
+                allMsgIds: [chamado.id]
+              });
+            });
+          }
+        }
+
+        // 3. BUSCA NOTIFICAÇÕES DE RESPOSTAS E CONCLUSÕES DE CHAMADOS
+        let myTicketsQuery = supabase.from('internal_tickets').select('id, protocol');
+        if (userRole !== 'regional_admin') {
+            myTicketsQuery = myTicketsQuery.eq('created_by', userId);
+        }
+        const { data: myTickets } = await myTicketsQuery as any;
+
+        if (myTickets && myTickets.length > 0) {
+            const ticketIds = myTickets.map((t: any) => t.id);
+            const { data: unreadTicketMsgs } = await (supabase as any)
+                .from('ticket_messages')
+                .select('*')
+                .in('ticket_id', ticketIds)
+                .neq('user_id', userId); 
+
+            const unreadTktFiltered = (unreadTicketMsgs || []).filter((m: any) => 
+               m.is_read === false || m.is_read === null || m.is_read === 'false'
+            );
+
+            if (unreadTktFiltered.length > 0) {
+                myTickets.forEach((ticket: any) => {
+                    const unreadForThisTicket = unreadTktFiltered.filter((m: any) => m.ticket_id === ticket.id);
+                    if (unreadForThisTicket.length > 0) {
+                        const isConclusion = unreadForThisTicket.some((m: any) => m.type === 'STATUS_CHANGE');
+                        groupedNotifs.push({
+                            id: unreadForThisTicket[0].id,
+                            conversa_id: ticket.id,
+                            protocolo: ticket.protocol,
+                            type: 'chamado_update',
+                            text: isConclusion
+                                ? `O chamado ${ticket.protocol} foi atualizado/concluído.`
+                                : `Você tem uma nova mensagem no chamado ${ticket.protocol}.`,
+                            allMsgIds: unreadForThisTicket.map((m: any) => m.id)
+                        });
+                    }
+                });
+            }
+        }
+
+        setNotifications(groupedNotifs);
+
+      } catch (err) {
+        console.error("❌ ERRO FATAL no Sino:", err);
+      }
     }
 
     fetchNotifications();
 
     const channel = supabase
-      .channel('header-notifs')
+      .channel('app-notifs-global')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, fetchNotifications)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversas' }, fetchNotifications) // NOVO: Escuta a criação de conversas!
       .on('postgres_changes', { event: '*', schema: 'public', table: 'internal_tickets' }, fetchNotifications)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ticket_messages' }, fetchNotifications)
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [session, userRole]); 
+  }, [session, userRole]);
 
   // ==========================================
   // MARCAR COMO LIDO (CORRIGIDO PARA OTIMIZAÇÃO NO BANCO)

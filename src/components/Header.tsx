@@ -11,35 +11,62 @@ export function Header({ userName, userRole }: HeaderProps) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [showDropdown, setShowDropdown] = useState(false);
 
+  // === NOVO CÓDIGO COMEÇA AQUI ===
   useEffect(() => {
     let userId: string;
+
+    // 1. Função inteligente que respeita as regras de segurança (RLS)
+    async function fetchUnreadCount(uid: string) {
+      // Primeiro descobre quais são as conversas deste utilizador
+      const { data: convs } = await supabase
+        .from('conversas')
+        .select('id')
+        .or(`participante1_id.eq.${uid},participante2_id.eq.${uid}`);
+        
+      const convIds = convs?.map((c: any) => c.id) || [];      
+      // Se não tiver conversas, não tem mensagens não lidas
+      if (convIds.length === 0) return 0;
+
+      // Agora sim, conta as mensagens não lidas apenas nas suas conversas
+      const { count } = await supabase
+        .from('messages')
+        .select('*', { count: 'exact', head: true })
+        .in('conversa_id', convIds)
+        .eq('is_read', false)
+        .neq('sender_id', uid);
+
+      return count || 0;
+    }
 
     async function setupNotifications() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       userId = user.id;
 
-      const { count } = await supabase
-        .from('messages')
-        .select('*', { count: 'exact', head: true })
-        .eq('is_read', false)
-        .neq('sender_id', userId);
+      // Carrega a contagem inicial ao abrir a aplicação
+      const initialCount = await fetchUnreadCount(userId);
+      setUnreadCount(initialCount); 
 
-      setUnreadCount(count || 0);
-
+      // Escuta em tempo real inserções e atualizações
       const channel = supabase
-        .channel('header-notifs')
+        .channel('global-notifs')
         .on('postgres_changes', { 
-          event: '*', 
+          event: 'INSERT', 
           schema: 'public', 
           table: 'messages' 
         }, async () => {
-          const { count: currentCount } = await supabase
-            .from('messages')
-            .select('*', { count: 'exact', head: true })
-            .eq('is_read', false)
-            .neq('sender_id', userId);
-          setUnreadCount(currentCount || 0);
+          // Quando chega uma mensagem nova, recalcula
+          const newCount = await fetchUnreadCount(userId);
+          setUnreadCount(newCount);
+        })
+        .on('postgres_changes', { 
+          event: 'UPDATE', 
+          schema: 'public', 
+          table: 'messages' 
+        }, async () => {
+          // Quando uma mensagem é lida, recalcula
+          const newCount = await fetchUnreadCount(userId);
+          setUnreadCount(newCount);
         })
         .subscribe();
 
@@ -48,6 +75,7 @@ export function Header({ userName, userRole }: HeaderProps) {
 
     setupNotifications();
   }, []);
+  // === NOVO CÓDIGO TERMINA AQUI ===
 
   return (
     <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 sticky top-0 z-40 w-full shadow-sm">

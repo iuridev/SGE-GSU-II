@@ -36,6 +36,9 @@ export function Demanda() {
   const [userSchoolId, setUserSchoolId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   
+  // Controle das abas de visualização
+  const [activeTab, setActiveTab] = useState<'PENDENTE' | 'CONCLUÍDO'>('PENDENTE');
+  
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
   const [editingDemand, setEditingDemand] = useState<Demand | null>(null);
@@ -88,28 +91,70 @@ export function Demanda() {
   // --- CÁLCULOS E INDICADORES ---
   const today = new Date().toISOString().split('T')[0];
 
-  const filteredDemands = useMemo(() => {
+  const baseFilteredDemands = useMemo(() => {
     return demands.filter(d => {
       const matchesSearch = d.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                           d.schools?.name.toLowerCase().includes(searchTerm.toLowerCase());
+                            d.schools?.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesRole = isAdmin ? true : d.school_id === userSchoolId;
       return matchesSearch && matchesRole;
     });
   }, [demands, searchTerm, isAdmin, userSchoolId]);
 
+  const displayedDemands = useMemo(() => {
+    return baseFilteredDemands.filter(d => d.status === activeTab);
+  }, [baseFilteredDemands, activeTab]);
+
   const stats = useMemo(() => {
-    const total = filteredDemands.length;
-    const met = filteredDemands.filter(d => d.status === 'CONCLUÍDO').length;
-    const pending = filteredDemands.filter(d => d.status === 'PENDENTE').length;
-    const overdue = filteredDemands.filter(d => d.status === 'PENDENTE' && d.deadline < today).length;
+    const total = baseFilteredDemands.length;
+    const met = baseFilteredDemands.filter(d => d.status === 'CONCLUÍDO').length;
+    const pending = baseFilteredDemands.filter(d => d.status === 'PENDENTE').length;
+    const overdue = baseFilteredDemands.filter(d => d.status === 'PENDENTE' && d.deadline < today).length;
 
     return { total, met, pending, overdue };
-  }, [filteredDemands, today]);
+  }, [baseFilteredDemands, today]);
 
   const chartData = [
     { name: 'Atendidas', value: stats.met, color: '#10b981' },
     { name: 'Pendentes', value: stats.pending, color: '#6366f1' }
   ];
+
+  // --- HELPER DEFINITIVO: ENVIAR NOTIFICAÇÃO PARA TODOS DA ESCOLA ---
+  async function sendDemandNotification(schoolId: string, messageContent: string) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Busca TODOS os usuários vinculados à escola afetada
+      const { data: schoolUsers } = await (supabase as any)
+        .from('profiles')
+        .select('id, full_name')
+        .eq('school_id', schoolId);
+
+      if (!schoolUsers || schoolUsers.length === 0) return;
+
+      // Dispara a notificação para CADA perfil da escola
+      for (const schoolUser of schoolUsers) {
+        const { data: conversaInfo } = await (supabase as any).rpc('iniciar_conversa', {
+          p_participante1: user.id,
+          p_participante2: schoolUser.id,
+          p_setor: 'GERAL' 
+        });
+
+        const conversaId = Array.isArray(conversaInfo) ? conversaInfo[0]?.id : conversaInfo?.id;
+
+        if (conversaId) {
+          await (supabase as any).from('messages').insert([{
+            conversa_id: conversaId,
+            sender_id: user.id,
+            content: messageContent,
+            is_read: false
+          }]);
+        }
+      }
+    } catch (err) {
+      console.error("Erro no helper de notificação:", err);
+    }
+  }
 
   // --- AÇÕES ---
   async function handleSave(e: React.FormEvent) {
@@ -123,7 +168,13 @@ export function Demanda() {
         if (error) throw error;
       } else {
         const { error } = await (supabase as any).from('demands').insert([formData]);
-        if (error) throw error;
+        if (error) throw error; 
+        
+        // Dispara a notificação de nova demanda
+        await sendDemandNotification(
+          formData.school_id, 
+          `🔔 Nova demanda solicitada: "${formData.title}". Verifique o painel de demandas.`
+        );
       }
       setIsModalOpen(false);
       fetchDemands();
@@ -139,7 +190,20 @@ export function Demanda() {
     const newStatus = demand.status === 'PENDENTE' ? 'CONCLUÍDO' : 'PENDENTE';
     const completedAt = newStatus === 'CONCLUÍDO' ? new Date().toISOString() : null;
     
-    await (supabase as any).from('demands').update({ status: newStatus, completed_at: completedAt }).eq('id', demand.id);
+    const { error } = await (supabase as any).from('demands').update({ status: newStatus, completed_at: completedAt }).eq('id', demand.id);
+    
+    if (!error) {
+      const actionText = newStatus === 'CONCLUÍDO' ? '✅ foi concluída' : '⚠️ foi reaberta';
+      
+      // Dispara a notificação de alteração de status
+      await sendDemandNotification(
+        demand.school_id,
+        `📢 Atualização: A demanda "${demand.title}" ${actionText}.`
+      );
+    } else {
+      alert("Erro ao atualizar status: " + error.message);
+    }
+    
     fetchDemands();
   }
 
@@ -197,7 +261,6 @@ export function Demanda() {
 
       {/* Monitor de Urgência e Gráfico */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
         {/* Painel de Alertas Rápidos */}
         <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-4">
            <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-xl flex items-center gap-6 group hover:border-red-200 transition-all">
@@ -261,18 +324,37 @@ export function Demanda() {
         </div>
       </div>
 
-      {/* Lista de Demandas Críticas */}
+      {/* Filtros e Lista de Demandas */}
       <div className="space-y-6">
-        <div className="flex flex-col md:flex-row gap-4 items-center justify-between px-2">
+        <div className="flex flex-col lg:flex-row gap-4 items-center justify-between px-2">
            <div className="flex items-center gap-2">
               <Filter size={18} className="text-slate-400"/>
               <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Monitoramento Detalhado</h2>
            </div>
-           <div className="bg-white p-2 rounded-2xl border border-slate-100 shadow-sm w-full md:max-w-md">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input type="text" placeholder="Filtrar por escola ou título da demanda..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-red-500 font-medium outline-none text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-              </div>
+           
+           <div className="flex flex-col md:flex-row items-center gap-4 w-full lg:w-auto">
+             {/* ABAS DE NAVEGAÇÃO PENDENTES / CONCLUÍDAS */}
+             <div className="flex bg-slate-100 p-1 rounded-2xl w-full md:w-auto shrink-0">
+               <button
+                 onClick={() => setActiveTab('PENDENTE')}
+                 className={`flex-1 md:flex-none px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'PENDENTE' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+               >
+                 Pendentes ({stats.pending})
+               </button>
+               <button
+                 onClick={() => setActiveTab('CONCLUÍDO')}
+                 className={`flex-1 md:flex-none px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'CONCLUÍDO' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+               >
+                 Atendidas ({stats.met})
+               </button>
+             </div>
+
+             <div className="bg-white p-2 rounded-2xl border border-slate-100 shadow-sm w-full md:w-72">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input type="text" placeholder="Pesquisar escola ou demanda..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-red-500 font-medium outline-none text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                </div>
+             </div>
            </div>
         </div>
 
@@ -281,14 +363,14 @@ export function Demanda() {
              <Loader2 className="animate-spin text-red-600" size={40}/>
              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Sincronizando Demandas...</p>
           </div>
-        ) : filteredDemands.length === 0 ? (
+        ) : displayedDemands.length === 0 ? (
           <div className="py-32 bg-white rounded-[3rem] border-2 border-dashed border-slate-100 text-center">
              <MessageSquare size={48} className="mx-auto text-slate-200 mb-4"/>
-             <p className="text-slate-400 font-black uppercase text-xs">Nenhuma demanda ativa encontrada.</p>
+             <p className="text-slate-400 font-black uppercase text-xs">Nenhuma demanda {activeTab.toLowerCase()} encontrada.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4">
-            {filteredDemands.map((demand) => {
+            {displayedDemands.map((demand) => {
               const isOverdue = demand.status === 'PENDENTE' && demand.deadline < today;
               const isHighPriority = demand.priority === 'CRÍTICA' || demand.priority === 'ALTA';
               
@@ -325,7 +407,7 @@ export function Demanda() {
                         {isAdmin && (
                           <>
                              <button onClick={() => toggleStatus(demand)} className={`px-6 py-3 rounded-2xl font-black text-[10px] uppercase transition-all shadow-md ${demand.status === 'CONCLUÍDO' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-slate-900 text-white hover:bg-black'}`}>
-                                {demand.status === 'CONCLUÍDO' ? 'Atendida' : 'Marcar como Atendida'}
+                                {demand.status === 'CONCLUÍDO' ? 'Reabrir Solicitação' : 'Marcar como Atendida'}
                              </button>
                              <button onClick={() => openModal(demand)} className="p-3 bg-white border border-slate-100 text-slate-400 hover:text-indigo-600 rounded-xl transition-all"><Edit size={18}/></button>
                              <button onClick={() => handleDelete(demand.id)} className="p-3 bg-white border border-slate-100 text-slate-400 hover:text-red-600 rounded-xl transition-all"><Trash2 size={18}/></button>
