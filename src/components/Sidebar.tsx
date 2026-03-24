@@ -73,6 +73,7 @@ export function Sidebar({ userRole }: SidebarProps) {
       title: 'Administrativo',
       items: [
         { label: 'Agendar Ambientes', to: '/ambientes', icon: <CalendarDays size={20} />, show: true },
+        { label: 'Agendar Ambientes V2', to: '/ambientes-novo', icon: <CalendarDays size={20} />, show: true }, // <- NOVO AQUI
         { label: 'Agendar Carros', to: '/carros', icon: <Car size={20} />, show: true },
         { label: 'Reuniões', to: '/reunioes', icon: <Presentation size={20} />, show: true },
         { label: 'Patrimônio e Processos', to: '/patrimonio', icon: <Archive size={20} />, show: isAdmin },

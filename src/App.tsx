@@ -43,6 +43,7 @@ import Avcb from './pages/avcb';
 import RelatorioAtividades from './pages/atividades';
 import VincularSetores from './pages/VincularSetores';
 import Chat from './pages/chat';
+import { AgendamentoNovo } from './pages/AgendamentoNovo';
 
 interface MenuItem {
   id: string;
@@ -70,6 +71,7 @@ const MENU_GROUPS: MenuGroup[] = [
   {
     title: 'Principal',
     items: [
+      { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','supervisor', 'dirigente'] }, // <- NOVO AQUI
       { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
       { id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'dirigente'] }
     ]
@@ -121,7 +123,8 @@ const MENU_GROUPS: MenuGroup[] = [
   {
     title: 'Gestão da URE',
     items: [
-      { id: 'ambientes', label: 'Reservas Ambiente', icon: <Building size={20} />, roles: ['regional_admin','supervisor', 'dirigente'] },
+      { id: 'ambientes', label: 'Reservas Antigo', icon: <Building size={20} />, roles: ['regional_admin','supervisor', 'dirigente'] },
+      { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','supervisor', 'dirigente'] }, // <- NOVO AQUI
       { id: 'carros', label: 'Carros Oficiais', icon: <Car size={20} />, roles: ['regional_admin','supervisor', 'dirigente'] },
       { id: 'reunioes', label: 'Calendário', icon: <Calendar size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
     ]
@@ -449,6 +452,7 @@ export default function App() {
       case 'avcb': return <Avcb />;
       case 'atividades': return <RelatorioAtividades />;
       case 'chefes': return <VincularSetores />;
+      case 'ambientes-novo': return <AgendamentoNovo />;
       case 'chat': return <Chat />;
       default: return <Dashboard />;
     }
