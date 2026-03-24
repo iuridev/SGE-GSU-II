@@ -44,7 +44,7 @@ export function Login() {
 
         // 3. Redirecionamento por Código
         // Forçamos o reload total da página para evitar conflitos de estado do React Router
-        if (role === 'regional_admin' || role === 'school_manager' || role === 'supervisor' || role === 'dirigente') {
+        if (role === 'regional_admin' || role === 'school_manager' || role === 'supervisor' || role === 'dirigente'|| role === 'ure_servico'|| role === 'ure_eec') {
           window.location.href = '/painel-regional';
         } else {
           await supabase.auth.signOut();
