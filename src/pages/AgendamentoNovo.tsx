@@ -3,8 +3,10 @@ import { supabase } from '../lib/supabase';
 import { 
   Building2, Calendar, Clock, MapPin, Users, Plus, 
   Settings, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight,
-  Info, Trash2, FileDown, Loader2, X
+  Info, Trash2, FileDown, Loader2, X, RefreshCw
 } from 'lucide-react';
+
+const GOOGLE_SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL_AGENDAMENTO;
 
 interface Ambiente {
   id: string;
@@ -25,6 +27,23 @@ interface Agendamento {
   ambientes?: Ambiente;
 }
 
+// Função para pegar a data e hora atual do sistema (Fuso horário de SP)
+const getFormDefaults = () => {
+  const now = new Date();
+  const data_agendamento = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(now);
+  const hora_inicio = now.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
+  
+  return {
+    data_agendamento,
+    hora_inicio,
+    hora_fim: '18:00', // Padrão fixo
+    ambiente_id: '',
+    titulo_evento: '',
+    quantidade_pessoas: '',
+    observacao: ''
+  };
+};
+
 export function AgendamentoNovo() {
   const [activeTab, setActiveTab] = useState<'calendario' | 'agendar' | 'gerenciar'>('calendario');
   const [userRole, setUserRole] = useState<string>('');
@@ -36,27 +55,17 @@ export function AgendamentoNovo() {
   
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Estados do Formulário de Ambiente (Gerenciamento)
   const [nomeAmbiente, setNomeAmbiente] = useState('');
   const [capacidadeAmbiente, setCapacidadeAmbiente] = useState('');
 
-  // Estados do Formulário de Agendamento
-  const [agendamentoForm, setAgendamentoForm] = useState({
-    data_agendamento: '',
-    hora_inicio: '',
-    hora_fim: '',
-    ambiente_id: '',
-    titulo_evento: '',
-    quantidade_pessoas: '',
-    observacao: ''
-  });
+  // Iniciando o formulário já com as datas preenchidas!
+  const [agendamentoForm, setAgendamentoForm] = useState(getFormDefaults());
 
-  // ==========================================
-  // ESTADOS DO MODAL DE PDF
-  // ==========================================
   const [showPdfModal, setShowPdfModal] = useState(false);
   const [pdfDateStr, setPdfDateStr] = useState(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date()));
 
@@ -85,7 +94,6 @@ export function AgendamentoNovo() {
     if (data) setAgendamentos(data);
   }
 
-  // Lógica de status da sala (Livre/Ocupada)
   const obterStatusAmbiente = (ambienteId: string) => {
     if (!agendamentoForm.data_agendamento || !agendamentoForm.hora_inicio || !agendamentoForm.hora_fim) return 'livre';
 
@@ -132,6 +140,7 @@ export function AgendamentoNovo() {
     setLoading(true);
     try {
       const userName = currentUser.user_metadata?.full_name || currentUser.email.split('@')[0];
+      
       const { error } = await (supabase as any).from('agendamentos_ambientes').insert([{
         ...agendamentoForm,
         quantidade_pessoas: Number(agendamentoForm.quantidade_pessoas),
@@ -140,8 +149,12 @@ export function AgendamentoNovo() {
       }]);
 
       if (error) throw error;
+
       setSuccessMsg('Agendamento realizado com sucesso!');
-      setAgendamentoForm({ data_agendamento: '', hora_inicio: '', hora_fim: '', ambiente_id: '', titulo_evento: '', quantidade_pessoas: '', observacao: '' });
+      
+      // Reseta para o padrão automático após salvar
+      setAgendamentoForm(getFormDefaults()); 
+      
       fetchAgendamentos();
       setTimeout(() => setActiveTab('calendario'), 2000);
     } catch (err: any) {
@@ -172,7 +185,43 @@ export function AgendamentoNovo() {
     fetchAmbientes();
   };
 
-  // Filtros do Calendário (Tela Principal)
+  const handleSyncSheet = async () => {
+    if (!GOOGLE_SCRIPT_URL) {
+      alert("URL da planilha não configurada no .env!");
+      return;
+    }
+    
+    setSyncing(true);
+    try {
+      const payload = agendamentos.map(ag => ({
+        id: ag.id,
+        data_agendamento: ag.data_agendamento.split('-').reverse().join('/'),
+        hora_inicio: ag.hora_inicio.slice(0, 5),
+        hora_fim: ag.hora_fim.slice(0, 5),
+        ambiente: ag.ambientes?.nome || 'Ambiente Excluído',
+        titulo_evento: ag.titulo_evento,
+        responsavel: ag.user_name,
+        quantidade_pessoas: ag.quantidade_pessoas,
+        observacao: ag.observacao || "",
+        criado_em: "Exportado via Sistema"
+      }));
+
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      alert("Planilha sincronizada com sucesso! Verifique o Google Sheets.");
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao enviar dados para a planilha.");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const selectedDateTelaStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(selectedDate);
   const dateBookings = useMemo(() => {
     return agendamentos
@@ -180,10 +229,6 @@ export function AgendamentoNovo() {
       .sort((a, b) => a.hora_inicio.localeCompare(b.hora_inicio));
   }, [agendamentos, selectedDateTelaStr]);
 
-
-  // ==========================================
-  // LÓGICA DO PDF (INDEPENDENTE DA TELA)
-  // ==========================================
   const { pdfStartOfWeek, pdfEndOfWeek, pdfStartStr, pdfEndStr } = useMemo(() => {
     const [y, m, d] = pdfDateStr.split('-').map(Number);
     const refDate = new Date(y, m - 1, d);
@@ -234,20 +279,19 @@ export function AgendamentoNovo() {
 
       element.style.display = 'block';
 
-      // CONFIGURAÇÃO PAISAGEM (LANDSCAPE) E MAIOR RESOLUÇÃO
       const opt = {
         margin: [15, 15, 15, 15],
         filename: `Agenda_Semanal_${pdfStartStr.replace(/-/g, '_')}.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, letterRendering: true, width: 1500 }, // 1500px garante o uso do espaço horizontal
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }, // MUDADO PARA PAISAGEM
+        html2canvas: { scale: 2, useCORS: true, letterRendering: true, width: 1500 },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
         pagebreak: { mode: ['css', 'legacy'] }
       };
 
       await (window as any).html2pdf().set(opt).from(element).save();
       element.style.display = 'none';
       setExporting(false);
-      setShowPdfModal(false); // Fecha o modal após o download
+      setShowPdfModal(false);
 
     } catch (err) {
       console.error(err);
@@ -259,9 +303,6 @@ export function AgendamentoNovo() {
   return (
     <div className="space-y-8 pb-20 animate-in fade-in duration-500 relative">
       
-      {/* ========================================== */}
-      {/* MODAL DE ESCOLHA DA SEMANA DO PDF          */}
-      {/* ========================================== */}
       {showPdfModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200">
@@ -297,9 +338,6 @@ export function AgendamentoNovo() {
         </div>
       )}
 
-      {/* ========================================== */}
-      {/* TEMPLATE OCULTO PARA O PDF (PAISAGEM/FONTE GRANDE) */}
-      {/* ========================================== */}
       <div id="weekly-report-template" style={{ display: 'none', background: 'white', width: '1500px', padding: '50px' }}>
           <div style={{ borderBottom: '6px solid #4f46e5', paddingBottom: '25px', marginBottom: '40px' }}>
               <table style={{ width: '100%' }}>
@@ -373,9 +411,7 @@ export function AgendamentoNovo() {
               <p style={{ fontSize: '14px', fontWeight: 900, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '5px' }}>SGE-GSU INTELLIGENCE • DOCUMENTO OFICIAL</p>
           </div>
       </div>
-      {/* ========================================== */}
 
-      {/* Cabeçalho */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-5">
           <div className="p-4 bg-indigo-600 rounded-[2rem] text-white shadow-xl shadow-indigo-200">
@@ -396,7 +432,6 @@ export function AgendamentoNovo() {
         </div>
       </div>
 
-      {/* TELA 1: Calendário / Visão Geral */}
       {activeTab === 'calendario' && (
         <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 h-full">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 pb-6 border-b border-slate-100 gap-4">
@@ -456,12 +491,11 @@ export function AgendamentoNovo() {
         </div>
       )}
 
-      {/* TELA 2: Novo Agendamento */}
       {activeTab === 'agendar' && (
         <div className="max-w-3xl mx-auto bg-white p-10 rounded-[3rem] shadow-xl border border-slate-100">
           <div className="mb-8">
             <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Novo Agendamento</h2>
-            <p className="text-sm font-bold text-slate-400 mt-1">Defina a data e o horário para verificar as salas disponíveis.</p>
+            <p className="text-sm font-bold text-slate-400 mt-1">Os horários foram preenchidos com o momento atual. Fique à vontade para ajustá-los!</p>
           </div>
 
           {errorMsg && (
@@ -484,7 +518,7 @@ export function AgendamentoNovo() {
                   type="date" required
                   value={agendamentoForm.data_agendamento}
                   onChange={e => setAgendamentoForm({...agendamentoForm, data_agendamento: e.target.value})}
-                  className="w-full bg-white border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="w-full bg-white border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                 />
               </div>
               <div>
@@ -493,7 +527,7 @@ export function AgendamentoNovo() {
                   type="time" required
                   value={agendamentoForm.hora_inicio}
                   onChange={e => setAgendamentoForm({...agendamentoForm, hora_inicio: e.target.value})}
-                  className="w-full bg-white border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="w-full bg-white border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                 />
               </div>
               <div>
@@ -502,7 +536,7 @@ export function AgendamentoNovo() {
                   type="time" required
                   value={agendamentoForm.hora_fim}
                   onChange={e => setAgendamentoForm({...agendamentoForm, hora_fim: e.target.value})}
-                  className="w-full bg-white border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="w-full bg-white border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                 />
               </div>
             </div>
@@ -514,7 +548,7 @@ export function AgendamentoNovo() {
                   required
                   value={agendamentoForm.ambiente_id}
                   onChange={e => setAgendamentoForm({...agendamentoForm, ambiente_id: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-60"
+                  className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-60 transition-all"
                   disabled={!agendamentoForm.data_agendamento || !agendamentoForm.hora_inicio || !agendamentoForm.hora_fim}
                 >
                   <option value="">
@@ -614,10 +648,11 @@ export function AgendamentoNovo() {
         </div>
       )}
 
-      {/* TELA 3: Gerenciar Ambientes */}
+      {/* TELA 3: GERENCIAR (ADMIN) */}
       {activeTab === 'gerenciar' && userRole === 'regional_admin' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100">
+          <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 relative">
+            
             <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-6">Cadastrar Novo Ambiente</h2>
             <form onSubmit={handleCriarAmbiente} className="space-y-6">
               <div>
@@ -643,9 +678,23 @@ export function AgendamentoNovo() {
               </button>
             </form>
           </div>
-          <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100">
-            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-6">Ambientes Ativos</h2>
-            <div className="space-y-3">
+          
+          <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 flex flex-col">
+            <div className="flex items-center justify-between mb-6">
+               <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Ambientes Ativos</h2>
+               
+               <button 
+                  onClick={handleSyncSheet}
+                  disabled={syncing}
+                  className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700 rounded-xl transition-all shadow-sm flex items-center gap-2 font-bold text-xs uppercase tracking-widest disabled:opacity-50"
+                  title="Força a sincronização de todos os agendamentos para a Planilha do Google"
+               >
+                  {syncing ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />} 
+                  {syncing ? 'Enviando...' : 'Sincronizar Planilha'}
+               </button>
+            </div>
+
+            <div className="space-y-3 overflow-y-auto max-h-[300px] pr-2 custom-scrollbar">
               {ambientes.map(a => (
                 <div key={a.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 transition-all hover:border-slate-300">
                   <div>
