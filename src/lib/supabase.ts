@@ -7,7 +7,7 @@ export type Database = {
         Row: {
           id: string;
           full_name: string | null;
-          role: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente';
+          role: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc';
           school_id: string | null;
           supervisor_schools: string[] | null;
           created_at: string;
@@ -15,13 +15,13 @@ export type Database = {
         Insert: {
           id: string;
           full_name?: string | null;
-          role?: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente';
+          role?: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc';
           school_id?: string | null;
           supervisor_schools: string[] | null;
         };
         Update: {
           full_name?: string | null;
-          role?: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente';
+          role?: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc';
           school_id?: string | null;
           supervisor_schools: string[] | null;
         };

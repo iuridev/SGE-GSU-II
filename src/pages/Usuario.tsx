@@ -10,8 +10,8 @@ import {
 interface Profile {
   id: string;
   full_name: string;
-  email?: string; // Campo opcional para carregar o email existente na tabela profiles
-  role: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente';
+  email?: string; 
+  role: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc'; // ATUALIZADO
   school_id: string | null;
   supervisor_schools?: string[] | null;
   created_at: string;
@@ -36,7 +36,7 @@ export function Usuario() {
     full_name: '',
     email: '',
     password: '',
-    role: 'school_manager' as 'regional_admin' | 'school_manager' | 'supervisor' | 'dirigente',
+    role: 'school_manager' as 'regional_admin' | 'school_manager' | 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc', // ATUALIZADO
     school_id: '',
     supervisor_schools: [] as string[]
   });
@@ -50,7 +50,6 @@ export function Usuario() {
   async function fetchData() {
     setLoading(true);
     try {
-      // Busca perfis. Se a coluna 'email' existir na tabela profiles, ela virá aqui.
       const { data: profilesData, error: profilesError } = await (supabase as any)
         .from('profiles')
         .select('*')
@@ -82,15 +81,13 @@ export function Usuario() {
     }
 
     if (formData.role === 'supervisor' && formData.supervisor_schools.length === 0) {
-    newErrors.push("Supervisores devem ser vinculados a pelo menos uma unidade escolar.");
-  }
+      newErrors.push("Supervisores devem ser vinculados a pelo menos uma unidade escolar.");
+    }
 
-    // E-mail obrigatório apenas na criação. Na edição, usamos o que já existe ou o que foi carregado.
     if (!editingUser && !formData.email.includes('@')) {
       newErrors.push("Informe um e-mail válido.");
     }
 
-    // Senha obrigatória na criação (min 6 chars). Na edição é opcional.
     if (!editingUser) {
       if (formData.password.length < 6) {
         newErrors.push("A senha deve ter pelo menos 6 caracteres.");
@@ -115,9 +112,8 @@ export function Usuario() {
       setEditingUser(user);
       setFormData({
         full_name: user.full_name,
-        // Tenta pegar o email do perfil carregado. Se estiver vazio, deixa string vazia.
         email: user.email || '', 
-        password: '', // Senha sempre começa vazia na edição
+        password: '', 
         role: user.role,
         school_id: user.school_id || '',
         supervisor_schools: user.supervisor_schools || []
@@ -145,7 +141,6 @@ export function Usuario() {
 
     try {
       if (editingUser) {
-        // --- ATUALIZAÇÃO ---
         const updatePayload: any = {
             full_name: formData.full_name,
             role: formData.role,
@@ -164,7 +159,6 @@ export function Usuario() {
 
         if (profileError) throw profileError;
 
-        // --- NOVA CHAMADA PARA ALTERAR A SENHA ---
         if (formData.password) {
           const { error: invokeError } = await supabase.functions.invoke('update-user-password', {
             body: { 
@@ -184,8 +178,6 @@ export function Usuario() {
         }
 
       } else {
-        // --- CRIAÇÃO ---
-        // 1. Criar no Auth
         const { data: authData, error: authError } = await supabase.auth.signUp({
           email: formData.email,
           password: formData.password,
@@ -200,13 +192,12 @@ export function Usuario() {
         if (authError) throw authError;
 
         if (authData.user) {
-          // 2. Criar no Profiles (incluindo o email para facilitar visualização futura)
           const { error: profileError } = await (supabase as any)
             .from('profiles')
             .upsert({
               id: authData.user.id,
               full_name: formData.full_name,
-              email: formData.email, // Importante: requer coluna 'email' na tabela profiles
+              email: formData.email, 
               role: formData.role,
               school_id: formData.role === 'school_manager' ? formData.school_id : null,
               supervisor_schools: formData.role === 'supervisor' ? formData.supervisor_schools : null, 
@@ -330,18 +321,23 @@ export function Usuario() {
                     )}
                   </td>
                   <td className="px-6 py-4">
-                    {/* VISUALIZAÇÃO DO TIPO DE USUÁRIO RESTAURADA AQUI */}
+                    {/* VISUALIZAÇÃO DOS NOVOS TIPOS DE USUÁRIO */}
                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border ${
                       user.role === 'regional_admin' ? 'bg-blue-50 text-blue-700 border-blue-100' : 
                       user.role === 'dirigente' ? 'bg-purple-50 text-purple-700 border-purple-100' :
                       user.role === 'supervisor' ? 'bg-orange-50 text-orange-700 border-orange-100' :
+                      user.role === 'ure_servico' ? 'bg-amber-50 text-amber-700 border-amber-100' :
+                      user.role === 'ure_ecc' ? 'bg-pink-50 text-pink-700 border-pink-100' :
                       'bg-emerald-50 text-emerald-700 border-emerald-100'
                     }`}>
                       {user.role === 'regional_admin' ? <ShieldCheck size={12}/> : <UserCheck size={12}/>}
                       
                       {user.role === 'regional_admin' ? 'Regional' : 
                        user.role === 'dirigente' ? 'Dirigente' :
-                       user.role === 'supervisor' ? 'Supervisor' : 'Gestor'}
+                       user.role === 'supervisor' ? 'Supervisor' : 
+                       user.role === 'ure_servico' ? 'Serviços URE' :
+                       user.role === 'ure_ecc' ? 'Especialista' :
+                       'Gestor'}
                     </span>
                   </td>
                   <td className="px-6 py-4">
@@ -448,7 +444,7 @@ export function Usuario() {
                         <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                         <input 
                           required={!editingUser}
-                          disabled={!!editingUser && !!formData.email} // Desabilita se já tem email, para evitar confusão de Auth
+                          disabled={!!editingUser && !!formData.email}
                           type="email"
                           className={`w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl outline-none font-medium ${
                               editingUser ? 'bg-slate-50 text-slate-500' : 'focus:ring-2 focus:ring-blue-500'
@@ -488,6 +484,9 @@ export function Usuario() {
                     <option value="regional_admin">Admin Regional</option>
                     <option value="supervisor">Supervisor</option>
                     <option value="dirigente">Dirigente</option>
+                    {/* AS DUAS NOVAS OPÇÕES AQUI */}
+                    <option value="ure_servico">Serviços da URE</option>
+                    <option value="ure_ecc">Professores Especialistas</option>
                   </select>
                 </div>
 
@@ -506,35 +505,11 @@ export function Usuario() {
                         {schools.map(school => (
                           <option key={school.id} value={school.id}>{school.name}</option>
                         ))}
-                        
-                    
                       </select>
                     </div>
                   </div>
                 )}
 
-                {/* --- ESTE É O BLOCO ANTIGO DO GESTOR (NÃO APAGUE, DEIXE ELE AQUI) --- */}
-                {formData.role === 'school_manager' && (
-                  <div className="animate-in slide-in-from-top-2 duration-200">
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1 tracking-wider">Unidade Escolar Vinculada</label>
-                    <div className="relative">
-                      <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                      <select 
-                        required
-                        className="w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-white font-bold text-slate-700 shadow-sm"
-                        value={formData.school_id}
-                        onChange={e => setFormData({...formData, school_id: e.target.value})}
-                      >
-                        <option value="">Selecione a escola...</option>
-                        {schools.map(school => (
-                          <option key={school.id} value={school.id}>{school.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
-
-                {/* --- COLE O CÓDIGO DO SUPERVISOR EXATAMENTE AQUI, ABAIXO DO GESTOR --- */}
                 {formData.role === 'supervisor' && (
                   <div className="animate-in slide-in-from-top-2 duration-200">
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1 tracking-wider">Unidades Escolares do Supervisor</label>
@@ -547,10 +522,8 @@ export function Usuario() {
                             checked={formData.supervisor_schools.includes(school.id)}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                // Adiciona a escola na lista
                                 setFormData({...formData, supervisor_schools: [...formData.supervisor_schools, school.id]});
                               } else {
-                                // Remove a escola da lista
                                 setFormData({...formData, supervisor_schools: formData.supervisor_schools.filter(id => id !== school.id)});
                               }
                             }}

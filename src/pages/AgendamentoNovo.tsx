@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { 
   Building2, Calendar, Clock, MapPin, Users, Plus, 
   Settings, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight,
-  Info, Trash2, FileDown, Loader2, X, RefreshCw
+  Trash2, FileDown, Loader2, X, RefreshCw, Check, XCircle, Edit3, History
 } from 'lucide-react';
 
 const GOOGLE_SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL_AGENDAMENTO;
@@ -24,10 +24,12 @@ interface Agendamento {
   hora_fim: string;
   quantidade_pessoas: number;
   observacao: string;
+  status: 'pendente' | 'aprovado' | 'reprovado';
+  motivo_reprovacao?: string;
+  historico_edicao?: string;
   ambientes?: Ambiente;
 }
 
-// Função para pegar a data e hora atual do sistema (Fuso horário de SP)
 const getFormDefaults = () => {
   const now = new Date();
   const data_agendamento = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(now);
@@ -36,7 +38,7 @@ const getFormDefaults = () => {
   return {
     data_agendamento,
     hora_inicio,
-    hora_fim: '18:00', // Padrão fixo
+    hora_fim: '18:00',
     ambiente_id: '',
     titulo_evento: '',
     quantidade_pessoas: '',
@@ -63,11 +65,14 @@ export function AgendamentoNovo() {
   const [nomeAmbiente, setNomeAmbiente] = useState('');
   const [capacidadeAmbiente, setCapacidadeAmbiente] = useState('');
 
-  // Iniciando o formulário já com as datas preenchidas!
   const [agendamentoForm, setAgendamentoForm] = useState(getFormDefaults());
 
+  // Estados dos Modais
   const [showPdfModal, setShowPdfModal] = useState(false);
   const [pdfDateStr, setPdfDateStr] = useState(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date()));
+  
+  const [agendamentoEditando, setAgendamentoEditando] = useState<Agendamento | null>(null);
+  const [historicoModal, setHistoricoModal] = useState<Agendamento | null>(null);
 
   useEffect(() => {
     fetchSessionAndData();
@@ -94,14 +99,17 @@ export function AgendamentoNovo() {
     if (data) setAgendamentos(data);
   }
 
-  const obterStatusAmbiente = (ambienteId: string) => {
+  const obterStatusAmbiente = (ambienteId: string, ignorarAgendamentoId?: string) => {
     if (!agendamentoForm.data_agendamento || !agendamentoForm.hora_inicio || !agendamentoForm.hora_fim) return 'livre';
 
     const formInicio = new Date(`1970-01-01T${agendamentoForm.hora_inicio}`);
     const formFim = new Date(`1970-01-01T${agendamentoForm.hora_fim}`);
 
     const conflito = agendamentos.some(ag => {
+      if (ag.status === 'reprovado') return false; 
+      if (ignorarAgendamentoId && ag.id === ignorarAgendamentoId) return false;
       if (ag.ambiente_id !== ambienteId || ag.data_agendamento !== agendamentoForm.data_agendamento) return false;
+      
       const agInicio = new Date(`1970-01-01T${ag.hora_inicio}`);
       const agFim = new Date(`1970-01-01T${ag.hora_fim}`);
       return (formInicio < agFim && formFim > agInicio);
@@ -111,7 +119,7 @@ export function AgendamentoNovo() {
   };
 
   useEffect(() => {
-    if (agendamentoForm.ambiente_id && obterStatusAmbiente(agendamentoForm.ambiente_id) === 'ocupado') {
+    if (!agendamentoEditando && agendamentoForm.ambiente_id && obterStatusAmbiente(agendamentoForm.ambiente_id) === 'ocupado') {
       setAgendamentoForm(prev => ({ ...prev, ambiente_id: '' }));
       setErrorMsg('O horário foi alterado e o ambiente selecionado não está mais disponível.');
     } else {
@@ -119,12 +127,93 @@ export function AgendamentoNovo() {
     }
   }, [agendamentoForm.data_agendamento, agendamentoForm.hora_inicio, agendamentoForm.hora_fim]);
 
+  // VARIÁVEL REINSERIDA: Usada no final do formulário de agendamento para mostrar os ocupados do dia
   const agendamentosDoDiaSelecionado = useMemo(() => {
     if (!agendamentoForm.data_agendamento) return [];
     return agendamentos
-      .filter(a => a.data_agendamento === agendamentoForm.data_agendamento)
+      .filter(a => a.data_agendamento === agendamentoForm.data_agendamento && a.status !== 'reprovado')
       .sort((a, b) => a.hora_inicio.localeCompare(b.hora_inicio));
   }, [agendamentos, agendamentoForm.data_agendamento]);
+
+  const alterarStatus = async (id: string, novoStatus: 'aprovado' | 'reprovado') => {
+    let motivo = '';
+    if (novoStatus === 'reprovado') {
+      motivo = prompt('Qual o motivo da reprovação? (Opcional)') || 'Não informado';
+    }
+
+    try {
+      const { error } = await (supabase as any).from('agendamentos_ambientes')
+        .update({ status: novoStatus, motivo_reprovacao: motivo })
+        .eq('id', id);
+      
+      if (error) throw error; 
+      
+      alert(`Agendamento ${novoStatus} com sucesso!`);
+      fetchAgendamentos();
+    } catch (err: any) {
+      console.error(err);
+      alert('Erro ao alterar status. Verifique as permissões do banco.');
+    }
+  };
+
+  const abrirModalEdicao = (ag: Agendamento) => {
+    setAgendamentoEditando(ag);
+    setAgendamentoForm({
+      data_agendamento: ag.data_agendamento,
+      hora_inicio: ag.hora_inicio,
+      hora_fim: ag.hora_fim,
+      ambiente_id: ag.ambiente_id,
+      titulo_evento: ag.titulo_evento,
+      quantidade_pessoas: ag.quantidade_pessoas.toString(),
+      observacao: ag.observacao || ''
+    });
+  };
+
+  const salvarEdicao = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!agendamentoEditando) return;
+
+    if (obterStatusAmbiente(agendamentoForm.ambiente_id, agendamentoEditando.id) === 'ocupado') {
+      alert('⚠️ Este horário já está ocupado por outro agendamento!');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      const mudancas = [];
+      if (agendamentoEditando.data_agendamento !== agendamentoForm.data_agendamento) mudancas.push(`Data: ${agendamentoEditando.data_agendamento} -> ${agendamentoForm.data_agendamento}`);
+      if (agendamentoEditando.hora_inicio !== agendamentoForm.hora_inicio) mudancas.push(`Início: ${agendamentoEditando.hora_inicio} -> ${agendamentoForm.hora_inicio}`);
+      if (agendamentoEditando.hora_fim !== agendamentoForm.hora_fim) mudancas.push(`Fim: ${agendamentoEditando.hora_fim} -> ${agendamentoForm.hora_fim}`);
+      if (agendamentoEditando.ambiente_id !== agendamentoForm.ambiente_id) mudancas.push(`Sala alterada`);
+      if (agendamentoEditando.titulo_evento !== agendamentoForm.titulo_evento) mudancas.push(`Título: ${agendamentoEditando.titulo_evento} -> ${agendamentoForm.titulo_evento}`);
+      
+      let novoHistorico = agendamentoEditando.historico_edicao || '';
+      if (mudancas.length > 0) {
+        const dataAtual = new Date().toLocaleString('pt-BR');
+        const registro = `[${dataAtual}] Alterações: ${mudancas.join(' | ')}`;
+        novoHistorico = novoHistorico ? `${novoHistorico}\n${registro}` : registro;
+      }
+
+      const { error } = await (supabase as any).from('agendamentos_ambientes').update({
+        ...agendamentoForm,
+        quantidade_pessoas: Number(agendamentoForm.quantidade_pessoas),
+        historico_edicao: novoHistorico
+      }).eq('id', agendamentoEditando.id);
+
+      if (error) throw error;
+
+      alert('Agendamento editado com sucesso!');
+      setAgendamentoEditando(null);
+      setAgendamentoForm(getFormDefaults());
+      fetchAgendamentos();
+    } catch (err: any) {
+      console.error(err);
+      alert('Erro ao editar agendamento. Verifique as permissões do banco.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleAgendar = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,16 +234,14 @@ export function AgendamentoNovo() {
         ...agendamentoForm,
         quantidade_pessoas: Number(agendamentoForm.quantidade_pessoas),
         user_id: currentUser.id,
-        user_name: userName
+        user_name: userName,
+        status: 'pendente' 
       }]);
 
       if (error) throw error;
 
-      setSuccessMsg('Agendamento realizado com sucesso!');
-      
-      // Reseta para o padrão automático após salvar
+      setSuccessMsg('Agendamento solicitado com sucesso! Aguarde a aprovação.');
       setAgendamentoForm(getFormDefaults()); 
-      
       fetchAgendamentos();
       setTimeout(() => setActiveTab('calendario'), 2000);
     } catch (err: any) {
@@ -203,6 +290,9 @@ export function AgendamentoNovo() {
         responsavel: ag.user_name,
         quantidade_pessoas: ag.quantidade_pessoas,
         observacao: ag.observacao || "",
+        status: ag.status.toUpperCase(),
+        motivo_reprovacao: ag.motivo_reprovacao || "",
+        historico_edicao: ag.historico_edicao || "",
         criado_em: "Exportado via Sistema"
       }));
 
@@ -221,6 +311,11 @@ export function AgendamentoNovo() {
       setSyncing(false);
     }
   };
+
+  // Contagem de Pendentes no Sistema Inteiro (Para o Alerta do Admin)
+  const agendamentosPendentesGeral = useMemo(() => {
+    return agendamentos.filter(a => a.status === 'pendente').length;
+  }, [agendamentos]);
 
   const selectedDateTelaStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(selectedDate);
   const dateBookings = useMemo(() => {
@@ -300,9 +395,97 @@ export function AgendamentoNovo() {
     }
   };
 
+  const renderStatusBadge = (status: string) => {
+    if (status === 'aprovado') return <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-md text-[10px] font-black uppercase flex items-center gap-1"><CheckCircle2 size={12}/> Aprovado</span>;
+    if (status === 'reprovado') return <span className="px-2 py-1 bg-red-100 text-red-700 rounded-md text-[10px] font-black uppercase flex items-center gap-1"><XCircle size={12}/> Reprovado</span>;
+    return <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-md text-[10px] font-black uppercase flex items-center gap-1"><Clock size={12}/> Pendente</span>;
+  };
+
   return (
     <div className="space-y-8 pb-20 animate-in fade-in duration-500 relative">
       
+      {/* MODAL DE HISTÓRICO DE EDIÇÃO */}
+      {historicoModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2rem] p-8 max-w-lg w-full shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
+              <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                <History size={24} className="text-indigo-600"/> Histórico de Edições
+              </h3>
+              <button onClick={() => setHistoricoModal(null)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-all">
+                <X size={24}/>
+              </button>
+            </div>
+            
+            <div className="max-h-[60vh] overflow-y-auto space-y-3 custom-scrollbar pr-2">
+              {historicoModal.historico_edicao ? (
+                historicoModal.historico_edicao.split('\n').map((linha, index) => (
+                  <div key={index} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm font-medium text-slate-700">
+                    {linha}
+                  </div>
+                ))
+              ) : (
+                <p className="text-center text-slate-400 font-bold py-4">Nenhuma edição registrada.</p>
+              )}
+            </div>
+
+            <button onClick={() => setHistoricoModal(null)} className="w-full mt-6 py-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-black text-xs uppercase tracking-widest transition-all">
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE EDIÇÃO (APENAS ADMIN) */}
+      {agendamentoEditando && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2rem] p-8 max-w-2xl w-full shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-2"><Edit3 size={24} className="text-indigo-600"/> Editar Agendamento</h3>
+              <button onClick={() => { setAgendamentoEditando(null); setAgendamentoForm(getFormDefaults()); }} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-all">
+                <X size={24}/>
+              </button>
+            </div>
+            
+            <form onSubmit={salvarEdicao} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Data</label>
+                  <input type="date" required value={agendamentoForm.data_agendamento} onChange={e => setAgendamentoForm({...agendamentoForm, data_agendamento: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-bold" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Início</label>
+                  <input type="time" required value={agendamentoForm.hora_inicio} onChange={e => setAgendamentoForm({...agendamentoForm, hora_inicio: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-bold" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Término</label>
+                  <input type="time" required value={agendamentoForm.hora_fim} onChange={e => setAgendamentoForm({...agendamentoForm, hora_fim: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-bold" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Ambiente</label>
+                  <select required value={agendamentoForm.ambiente_id} onChange={e => setAgendamentoForm({...agendamentoForm, ambiente_id: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-bold">
+                    {ambientes.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Título do Evento</label>
+                  <input type="text" required value={agendamentoForm.titulo_evento} onChange={e => setAgendamentoForm({...agendamentoForm, titulo_evento: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-bold" />
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button type="button" onClick={() => { setAgendamentoEditando(null); setAgendamentoForm(getFormDefaults()); }} className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-black text-xs uppercase tracking-widest">Cancelar</button>
+                <button type="submit" disabled={loading} className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black text-xs uppercase tracking-widest">{loading ? 'Salvando...' : 'Salvar Alterações'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DO PDF */}
       {showPdfModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200">
@@ -338,6 +521,7 @@ export function AgendamentoNovo() {
         </div>
       )}
 
+      {/* TEMPLATE DO PDF OCULTO */}
       <div id="weekly-report-template" style={{ display: 'none', background: 'white', width: '1500px', padding: '50px' }}>
           <div style={{ borderBottom: '6px solid #4f46e5', paddingBottom: '25px', marginBottom: '40px' }}>
               <table style={{ width: '100%' }}>
@@ -412,6 +596,7 @@ export function AgendamentoNovo() {
           </div>
       </div>
 
+      {/* CABEÇALHO */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-5">
           <div className="p-4 bg-indigo-600 rounded-[2rem] text-white shadow-xl shadow-indigo-200">
@@ -432,10 +617,33 @@ export function AgendamentoNovo() {
         </div>
       </div>
 
+      {/* ALERTA DE PENDÊNCIAS (APENAS PARA O ADMIN) */}
+      {userRole === 'regional_admin' && agendamentosPendentesGeral > 0 && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 px-6 py-5 rounded-[2rem] flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-amber-100 text-amber-600 rounded-full shrink-0">
+              <AlertTriangle size={24} />
+            </div>
+            <div>
+              <h4 className="font-black uppercase tracking-tight">Ação Necessária</h4>
+              <p className="text-sm font-medium mt-1">
+                Você tem <strong className="text-amber-600 bg-amber-100 px-2 py-0.5 rounded-md">{agendamentosPendentesGeral} agendamento(s)</strong> pendente(s) no sistema aguardando aprovação. Navegue pelas datas do calendário para avaliá-los.
+              </p>
+            </div>
+          </div>
+          <button 
+            onClick={() => setActiveTab('calendario')} 
+            className="px-6 py-3 bg-amber-500 hover:bg-amber-600 text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-md shrink-0"
+          >
+            Acessar Calendário
+          </button>
+        </div>
+      )}
+
+      {/* TELA 1: CALENDÁRIO */}
       {activeTab === 'calendario' && (
         <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 h-full">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 pb-6 border-b border-slate-100 gap-4">
-            
             <div className="flex items-center gap-4">
                <button onClick={() => setSelectedDate(new Date(selectedDate.setDate(selectedDate.getDate() - 1)))} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"><ChevronLeft size={20}/></button>
                <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight w-48 text-center">
@@ -465,24 +673,56 @@ export function AgendamentoNovo() {
               </div>
             ) : (
               dateBookings.map(b => (
-                <div key={b.id} className="p-6 bg-slate-50 border border-slate-100 rounded-3xl flex items-center justify-between hover:shadow-md transition-all">
-                  <div className="flex items-center gap-5">
-                    <div className="w-14 h-14 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center shrink-0">
+                <div key={b.id} className={`p-6 bg-slate-50 border rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${b.status === 'reprovado' ? 'border-red-200 opacity-60' : 'border-slate-100 hover:shadow-md'}`}>
+                  <div className="flex items-start gap-5">
+                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 ${b.status === 'aprovado' ? 'bg-emerald-100 text-emerald-600' : b.status === 'reprovado' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'}`}>
                       <MapPin size={24} />
                     </div>
                     <div>
-                      <h3 className="font-black text-slate-800 uppercase text-lg">{b.titulo_evento}</h3>
+                      <div className="flex items-center gap-3 mb-1">
+                        <h3 className={`font-black uppercase text-lg ${b.status === 'reprovado' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{b.titulo_evento}</h3>
+                        {renderStatusBadge(b.status || 'pendente')}
+                      </div>
                       <div className="flex flex-wrap items-center gap-4 mt-2 text-sm font-bold text-slate-500">
                         <span className="flex items-center gap-1.5"><Building2 size={14} className="text-indigo-500"/> {b.ambientes?.nome}</span>
-                        <span className="flex items-center gap-1.5"><Clock size={14} className="text-amber-500"/> {b.hora_inicio.slice(0,5)} às {b.hora_fim.slice(0,5)}</span>
-                        <span className="flex items-center gap-1.5"><Users size={14} className="text-emerald-500"/> {b.quantidade_pessoas} pessoas</span>
+                        <span className="flex items-center gap-1.5"><Clock size={14} className="text-indigo-500"/> {b.hora_inicio.slice(0,5)} às {b.hora_fim.slice(0,5)}</span>
+                        <span className="flex items-center gap-1.5"><Users size={14} className="text-indigo-500"/> {b.quantidade_pessoas} pess.</span>
                       </div>
-                      {b.observacao && <p className="text-xs text-slate-400 mt-2 flex items-center gap-1"><Info size={12}/> {b.observacao}</p>}
+                      
+                      {b.status === 'reprovado' && b.motivo_reprovacao && (
+                        <p className="text-xs text-red-500 mt-2 font-bold bg-red-50 p-2 rounded-lg inline-block">Motivo: {b.motivo_reprovacao}</p>
+                      )}
+                      
+                      {/* BOTÃO PARA ABRIR O HISTÓRICO (Se houver edição) */}
+                      {b.historico_edicao && (
+                        <button 
+                          onClick={() => setHistoricoModal(b)} 
+                          className="mt-3 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 hover:text-indigo-700 text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 rounded-lg transition-all"
+                        >
+                          <History size={12}/> Ver Histórico de Edição
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <div className="text-right bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm shrink-0 hidden sm:block">
-                    <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest mb-1">Responsável</p>
-                    <p className="text-sm font-bold text-indigo-700">{b.user_name}</p>
+                  
+                  <div className="flex flex-col items-end gap-3 shrink-0">
+                    <div className="text-right bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm w-full md:w-auto">
+                      <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest mb-1">Responsável</p>
+                      <p className="text-sm font-bold text-indigo-700">{b.user_name}</p>
+                    </div>
+
+                    {/* BOTÕES DE APROVAÇÃO E EDIÇÃO (APENAS ADMIN) */}
+                    {userRole === 'regional_admin' && (
+                      <div className="flex items-center gap-2">
+                        {b.status === 'pendente' && (
+                          <>
+                            <button onClick={() => alterarStatus(b.id, 'aprovado')} className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white rounded-lg transition-all" title="Aprovar"><Check size={18}/></button>
+                            <button onClick={() => alterarStatus(b.id, 'reprovado')} className="p-2 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-lg transition-all" title="Reprovar"><X size={18}/></button>
+                          </>
+                        )}
+                        <button onClick={() => abrirModalEdicao(b)} className="p-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-lg transition-all" title="Editar Agendamento"><Edit3 size={18}/></button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))
@@ -491,26 +731,26 @@ export function AgendamentoNovo() {
         </div>
       )}
 
+      {/* TELA 2: AGENDAR */}
       {activeTab === 'agendar' && (
         <div className="max-w-3xl mx-auto bg-white p-10 rounded-[3rem] shadow-xl border border-slate-100">
           <div className="mb-8">
             <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Novo Agendamento</h2>
-            <p className="text-sm font-bold text-slate-400 mt-1">Os horários foram preenchidos com o momento atual. Fique à vontade para ajustá-los!</p>
+            <p className="text-sm font-bold text-slate-400 mt-1">Seu pedido passará por aprovação da administração.</p>
           </div>
 
           {errorMsg && (
-            <div className="mb-6 p-4 bg-red-50 text-red-700 border border-red-200 rounded-2xl flex items-center gap-3 font-bold text-sm">
-              <AlertTriangle size={20} /> {errorMsg}
-            </div>
+             <div className="mb-6 p-4 bg-red-50 text-red-700 border border-red-200 rounded-2xl flex items-center gap-3 font-bold text-sm">
+               <AlertTriangle size={20} /> {errorMsg}
+             </div>
           )}
           {successMsg && (
-            <div className="mb-6 p-4 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-2xl flex items-center gap-3 font-bold text-sm">
-              <CheckCircle2 size={20} /> {successMsg}
-            </div>
+             <div className="mb-6 p-4 bg-amber-50 text-amber-700 border border-amber-200 rounded-2xl flex items-center gap-3 font-bold text-sm">
+               <Clock size={20} /> {successMsg}
+             </div>
           )}
 
           <form onSubmit={handleAgendar} className="space-y-6">
-            
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-6 bg-slate-50 border border-slate-100 rounded-3xl">
               <div>
                 <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Data do Evento *</label>
@@ -603,12 +843,13 @@ export function AgendamentoNovo() {
 
             <button 
               type="submit" disabled={loading || !agendamentoForm.ambiente_id}
-              className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl transition-all disabled:opacity-50 mt-4"
+              className="w-full py-4 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl transition-all disabled:opacity-50 mt-4"
             >
-              {loading ? 'Processando...' : 'Confirmar Agendamento'}
+              {loading ? 'Processando...' : 'Solicitar Agendamento'}
             </button>
           </form>
 
+          {/* PAINEL DE RESUMO (REINSERIDO) */}
           {agendamentoForm.data_agendamento && (
             <div className="mt-10 p-6 bg-slate-50 border border-slate-200 rounded-[2rem] animate-in slide-in-from-bottom-2">
               <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-4 flex items-center gap-2">
@@ -652,7 +893,6 @@ export function AgendamentoNovo() {
       {activeTab === 'gerenciar' && userRole === 'regional_admin' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 relative">
-            
             <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-6">Cadastrar Novo Ambiente</h2>
             <form onSubmit={handleCriarAmbiente} className="space-y-6">
               <div>
@@ -682,7 +922,6 @@ export function AgendamentoNovo() {
           <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 flex flex-col">
             <div className="flex items-center justify-between mb-6">
                <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Ambientes Ativos</h2>
-               
                <button 
                   onClick={handleSyncSheet}
                   disabled={syncing}
@@ -693,7 +932,6 @@ export function AgendamentoNovo() {
                   {syncing ? 'Enviando...' : 'Sincronizar Planilha'}
                </button>
             </div>
-
             <div className="space-y-3 overflow-y-auto max-h-[300px] pr-2 custom-scrollbar">
               {ambientes.map(a => (
                 <div key={a.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 transition-all hover:border-slate-300">

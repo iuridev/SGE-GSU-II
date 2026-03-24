@@ -71,8 +71,8 @@ const MENU_GROUPS: MenuGroup[] = [
   {
     title: 'Principal',
     items: [
-      { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','supervisor', 'dirigente'] }, // <- NOVO AQUI
-      { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
+      { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','supervisor', 'dirigente', 'ure_servico', 'ure_ecc'] }, // <- NOVO AQUI
+      { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente', 'ure_servico', 'ure_ecc'] },
       { id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'dirigente'] }
     ]
   },
@@ -124,7 +124,7 @@ const MENU_GROUPS: MenuGroup[] = [
     title: 'Gestão da URE',
     items: [
       { id: 'ambientes', label: 'Reservas Antigo', icon: <Building size={20} />, roles: ['regional_admin','supervisor', 'dirigente'] },
-      { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','supervisor', 'dirigente'] }, // <- NOVO AQUI
+      { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','supervisor', 'dirigente', 'ure_servico', 'ure_ecc'] }, // <- NOVO AQUI
       { id: 'carros', label: 'Carros Oficiais', icon: <Car size={20} />, roles: ['regional_admin','supervisor', 'dirigente'] },
       { id: 'reunioes', label: 'Calendário', icon: <Calendar size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
     ]
