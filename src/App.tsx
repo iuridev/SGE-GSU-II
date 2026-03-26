@@ -44,6 +44,7 @@ import RelatorioAtividades from './pages/atividades';
 import VincularSetores from './pages/VincularSetores';
 import Chat from './pages/chat';
 import { AgendamentoNovo } from './pages/AgendamentoNovo';
+import Portaria from './pages/Portaria';
 
 interface MenuItem {
   id: string;
@@ -72,6 +73,7 @@ const MENU_GROUPS: MenuGroup[] = [
     title: 'Principal',
     items: [
       { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','supervisor', 'dirigente', 'ure_servico', 'ure_eec'] }, // <- NOVO AQUI
+      { id: 'entrada', label: 'Entrada no Prêdio', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'dirigente', 'ure_servico'] }, // <- SEINTEC
       { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
       { id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'dirigente'] }
     ]
@@ -454,6 +456,7 @@ export default function App() {
       case 'chefes': return <VincularSetores />;
       case 'ambientes-novo': return <AgendamentoNovo />;
       case 'chat': return <Chat />;
+      case 'entrada': return <Portaria />;
       default: return <Dashboard />;
     }
   };
