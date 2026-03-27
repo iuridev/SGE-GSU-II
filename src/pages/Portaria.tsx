@@ -3,30 +3,85 @@ import { supabase } from '../lib/supabase';
 import { Users, BarChart3, Clock, Search } from 'lucide-react';
 
 const SETORES = [
-  "Plantão", "Supervisão", "SEOM", "SEFISC", "SEGRE", "SEMAT", 
-  "SEVESC", "SEAFIN", "SEFIN", "SECOMSE", "SEPES", "SEFREP", 
-  "SEAPE", "EEC", "FORMAÇÃO", "OUTRO"
+  "Plantão", "Supervisão", 
+  "SEOM - Serviço de Obras e Manuntenção Escolar", 
+  "SEFISC - Seção de Fiscalização", 
+  "SEGRE - Serviço de Gestão da Rede Escolar", 
+  "SEMAT - Seção de Matrícula", 
+  "SEVESC - Seção de Vida Escolar", 
+  "SEAFIN - Serviço de Administração e Finanças ", 
+  "SEFIN - Seção de Finanças ", 
+  "SECOMSE - Seção de Compras e Serviços", 
+  "SEPES - Serviço de Pessoas", 
+  "SEFREP - Seção de Frequência e Pagamento", 
+  "SEAPE - Seção de Administração de Pessoal", 
+  "EEC - Equipe de Especialistas em Currículo", 
+  "FORMAÇÃO",
+  "PROTOCOLO", 
+  "OUTRO"
 ];
 
 export default function Portaria() {
   const [nome, setNome] = useState('');
-  const [cpf, setCpf] = useState('');
+  const [tipoDocumento, setTipoDocumento] = useState<'CPF' | 'RG'>('CPF');
+  const [documento, setDocumento] = useState('');
   const [setor, setSetor] = useState('Plantão');
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState<any[]>([]);
 
-  const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = e.target.value.replace(/\D/g, "");
-    if (value.length <= 11) {
-      value = value.replace(/(\d{3})(\d)/, "$1.$2");
-      value = value.replace(/(\d{3})(\d)/, "$1.$2");
-      value = value.replace(/(\d{3})(\d{1,2})$/, "$1-$2");
-      setCpf(value);
+  // NOVA FUNÇÃO: Busca automática de nome pelo documento
+  useEffect(() => {
+    // Só tenta buscar se o documento tiver um tamanho razoável
+    if (documento.length < 8) return;
+
+    // Aguarda 600ms após o usuário parar de digitar para fazer a busca
+    const buscarNomeTimer = setTimeout(async () => {
+      const { data } = await (supabase
+        .from('portaria_registros' as any)
+        .select('nome')
+        .eq('cpf', documento) // Como você salvou RG e CPF na mesma coluna, buscamos nela
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single() as any);
+
+      // Se achar um registro anterior com esse documento, preenche o nome automaticamente
+      if (data && data.nome) {
+        setNome(data.nome);
+      }
+    }, 600);
+
+    return () => clearTimeout(buscarNomeTimer); // Limpa o timer se o usuário continuar digitando
+  }, [documento]);
+
+  const handleDocumentoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value;
+
+    if (tipoDocumento === 'CPF') {
+      value = value.replace(/\D/g, ""); // Apenas números
+      if (value.length <= 11) {
+        value = value.replace(/(\d{3})(\d)/, "$1.$2");
+        value = value.replace(/(\d{3})(\d)/, "$1.$2");
+        value = value.replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+        setDocumento(value);
+      }
+    } else {
+      // Máscara de RG (permite números e a letra X no final)
+      value = value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+      if (value.length <= 9) {
+        value = value.replace(/(\d{2})(\d)/, "$1.$2");
+        value = value.replace(/(\d{3})(\d)/, "$1.$2");
+        value = value.replace(/(\d{3})([a-zA-Z0-9]{1,2})$/, "$1-$2");
+      }
+      setDocumento(value);
     }
   };
 
+  const handleTipoChange = (tipo: 'CPF' | 'RG') => {
+    setTipoDocumento(tipo);
+    setDocumento(''); // Limpa o campo ao trocar o tipo
+  };
+
   const fetchStats = async () => {
-    // Forçamos o tipo para 'any' na query inteira para evitar o erro de tipagem
     const { data } = await (supabase
       .from('portaria_registros' as any)
       .select('*') as any)
@@ -43,13 +98,11 @@ export default function Portaria() {
     e.preventDefault();
     setLoading(true);
 
-    // A SOLUÇÃO: Envolver a chamada em parênteses e forçar o tipo 'any'
-    // Isso impede o TS de tentar validar os campos contra o banco de dados
     const { error } = await (supabase
       .from('portaria_registros' as any)
       .insert([{ 
         nome: nome.toUpperCase(), 
-        cpf, 
+        cpf: documento, // Salva o RG ou CPF na mesma coluna para não precisar alterar o banco
         setor,
         registrado_por: 'ure_servico' 
       }] as any) as any);
@@ -58,9 +111,10 @@ export default function Portaria() {
       alert("Erro ao registrar entrada: " + error.message);
     } else {
       setNome('');
-      setCpf('');
+      setDocumento('');
       setSetor('Plantão');
       fetchStats();
+      // Retorna o foco para o primeiro campo (ou de documento, se preferir)
       document.getElementById('nome-input')?.focus();
     }
     setLoading(false);
@@ -93,6 +147,44 @@ export default function Portaria() {
               <Users size={20} /> Novo Registro
             </h2>
             <form onSubmit={handleSubmit} className="space-y-4">
+              
+              {/* CAMPO DE DOCUMENTO SUBIU PARA FACILITAR O PREENCHIMENTO AUTOMÁTICO */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Documento</label>
+                  <div className="flex gap-3">
+                    <label className="flex items-center gap-1 text-[10px] font-bold text-gray-500 cursor-pointer">
+                      <input 
+                        type="radio" 
+                        name="tipoDoc" 
+                        checked={tipoDocumento === 'CPF'} 
+                        onChange={() => handleTipoChange('CPF')}
+                        className="accent-blue-600"
+                      /> CPF
+                    </label>
+                    <label className="flex items-center gap-1 text-[10px] font-bold text-gray-500 cursor-pointer">
+                      <input 
+                        type="radio" 
+                        name="tipoDoc" 
+                        checked={tipoDocumento === 'RG'} 
+                        onChange={() => handleTipoChange('RG')}
+                        className="accent-blue-600"
+                      /> RG
+                    </label>
+                  </div>
+                </div>
+                <input
+                  id="doc-input"
+                  type="text"
+                  required
+                  className="w-full p-3 border rounded-lg bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                  value={documento}
+                  onChange={handleDocumentoChange}
+                  placeholder={tipoDocumento === 'CPF' ? "000.000.000-00" : "00.000.000-0"}
+                  maxLength={tipoDocumento === 'CPF' ? 14 : 12}
+                />
+              </div>
+
               <div>
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Nome do Visitante</label>
                 <input
@@ -104,18 +196,7 @@ export default function Portaria() {
                   onChange={(e) => setNome(e.target.value)}
                 />
               </div>
-              <div>
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">CPF</label>
-                <input
-                  type="text"
-                  required
-                  className="mt-1 w-full p-3 border rounded-lg bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                  value={cpf}
-                  onChange={handleCpfChange}
-                  placeholder="000.000.000-00"
-                  maxLength={14}
-                />
-              </div>
+
               <div>
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Setor de Destino</label>
                 <select
@@ -128,8 +209,8 @@ export default function Portaria() {
               </div>
               <button
                 type="submit"
-                disabled={loading}
-                className="w-full bg-blue-600 text-white font-black py-4 rounded-lg hover:bg-blue-700 shadow-lg active:transform active:scale-95 transition-all uppercase tracking-widest"
+                disabled={loading || !documento || !nome}
+                className="w-full bg-blue-600 text-white font-black py-4 rounded-lg hover:bg-blue-700 shadow-lg active:transform active:scale-95 transition-all uppercase tracking-widest disabled:opacity-50"
               >
                 {loading ? 'Processando...' : 'Confirmar Entrada'}
               </button>
@@ -171,6 +252,7 @@ export default function Portaria() {
                   <tr>
                     <th className="p-4 uppercase">Horário</th>
                     <th className="p-4 uppercase">Nome do Visitante</th>
+                    <th className="p-4 uppercase">Documento</th>
                     <th className="p-4 uppercase">Setor</th>
                   </tr>
                 </thead>
@@ -181,6 +263,7 @@ export default function Portaria() {
                         {new Date(item.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                       </td>
                       <td className="p-4 text-sm font-bold text-gray-700">{item.nome}</td>
+                      <td className="p-4 text-xs font-bold text-gray-500">{item.cpf}</td>
                       <td className="p-4">
                         <span className="bg-blue-50 text-blue-600 text-[10px] font-black px-2 py-1 rounded-md uppercase">
                           {item.setor}
@@ -190,7 +273,7 @@ export default function Portaria() {
                   ))}
                   {stats.length === 0 && (
                     <tr>
-                      <td colSpan={3} className="p-10 text-center text-gray-400 text-sm italic">
+                      <td colSpan={4} className="p-10 text-center text-gray-400 text-sm italic">
                         Nenhum registro encontrado hoje.
                       </td>
                     </tr>
