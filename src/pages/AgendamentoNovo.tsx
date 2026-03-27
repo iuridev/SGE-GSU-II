@@ -18,14 +18,14 @@ interface Agendamento {
   id: string;
   ambiente_id: string;
   user_name: string;
-  user_id: string; // Adicionado para permitir o cancelamento do próprio usuário
+  user_id: string;
   titulo_evento: string;
   data_agendamento: string;
   hora_inicio: string;
   hora_fim: string;
   quantidade_pessoas: number;
   observacao: string;
-  status: 'pendente' | 'aprovado' | 'reprovado' | 'cancelado'; // Status cancelado adicionado
+  status: 'pendente' | 'aprovado' | 'reprovado' | 'cancelado';
   motivo_reprovacao?: string;
   historico_edicao?: string;
   ambientes?: Ambiente;
@@ -49,7 +49,7 @@ const getFormDefaults = () => {
 
 export function AgendamentoNovo() {
   const [activeTab, setActiveTab] = useState<'calendario' | 'agendar' | 'gerenciar'>('calendario');
-  const [viewMode, setViewMode] = useState<'dia' | 'mes'>('dia'); // Controle de visualização do calendário
+  const [viewMode, setViewMode] = useState<'dia' | 'mes'>('dia');
   
   const [userRole, setUserRole] = useState<string>('');
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -70,7 +70,6 @@ export function AgendamentoNovo() {
 
   const [agendamentoForm, setAgendamentoForm] = useState(getFormDefaults());
 
-  // Estados dos Modais
   const [showPdfModal, setShowPdfModal] = useState(false);
   const [pdfDateStr, setPdfDateStr] = useState(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date()));
   
@@ -158,7 +157,6 @@ export function AgendamentoNovo() {
     }
   };
 
-  // Função para o próprio usuário cancelar seu agendamento
   const cancelarMeuAgendamento = async (ag: Agendamento) => {
     if (!confirm('Deseja realmente cancelar o seu agendamento? Esta ação não pode ser desfeita.')) return;
     try {
@@ -387,22 +385,30 @@ export function AgendamentoNovo() {
 
       await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
 
-      const element = document.getElementById('weekly-report-template');
-      if (!element) throw new Error("Template de relatório não encontrado.");
+      const template = document.getElementById('weekly-report-template');
+      if (!template) throw new Error("Template de relatório não encontrado.");
 
-      element.style.display = 'block';
+      // ESTRATÉGIA BLINDADA: Em vez de manipular DOM, pegamos o HTML puro
+      // como texto. A biblioteca html2pdf vai desenhar isso numa aba fantasma
+      // completamente fora da sua tela, ignorando os limites do monitor.
+      const htmlContent = template.innerHTML;
 
       const opt = {
-        margin: [15, 15, 15, 15],
+        margin: [10, 10, 10, 10],
         filename: `Agenda_Semanal_${pdfStartStr.replace(/-/g, '_')}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, letterRendering: true, width: 1500 },
+        image: { type: 'jpeg', quality: 1 },
+        html2canvas: { 
+          scale: 2, 
+          useCORS: true, 
+          letterRendering: true
+        },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
         pagebreak: { mode: ['css', 'legacy'] }
       };
 
-      await (window as any).html2pdf().set(opt).from(element).save();
-      element.style.display = 'none';
+      // Mandando imprimir a string HTML direto
+      await (window as any).html2pdf().set(opt).from(htmlContent).save();
+      
       setExporting(false);
       setShowPdfModal(false);
 
@@ -420,7 +426,6 @@ export function AgendamentoNovo() {
     return <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-md text-[10px] font-black uppercase flex items-center gap-1"><Clock size={12}/> Pendente</span>;
   };
 
-  // Função para desenhar a grade do mês
   const renderCalendarioMes = () => {
     const year = selectedDate.getFullYear();
     const month = selectedDate.getMonth();
@@ -443,7 +448,6 @@ export function AgendamentoNovo() {
             if (!day) return <div key={`blank-${idx}`} className="h-16 md:h-28 bg-slate-50/50 rounded-xl border border-slate-100/50"></div>;
             
             const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date(year, month, day));
-            // Filtra agendamentos deste dia específico
             const dayEvents = agendamentos.filter(a => a.data_agendamento === dateStr && a.status !== 'reprovado' && a.status !== 'cancelado');
             const isToday = dateStr === new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
 
@@ -462,7 +466,6 @@ export function AgendamentoNovo() {
                   )}
                 </div>
                 
-                {/* Eventos visíveis só no Desktop para não poluir no celular */}
                 <div className="flex-1 overflow-y-auto mt-1 space-y-1 custom-scrollbar hidden md:block">
                   {dayEvents.slice(0, 3).map(ev => (
                     <div key={ev.id} className={`text-[9px] font-bold px-1.5 py-0.5 rounded truncate ${ev.status === 'aprovado' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
@@ -484,7 +487,6 @@ export function AgendamentoNovo() {
   return (
     <div className="space-y-8 pb-20 animate-in fade-in duration-500 relative">
       
-      {/* MODAL DE HISTÓRICO DE EDIÇÃO */}
       {historicoModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[2rem] p-8 max-w-lg w-full shadow-2xl animate-in zoom-in-95 duration-200">
@@ -516,7 +518,6 @@ export function AgendamentoNovo() {
         </div>
       )}
 
-      {/* MODAL DE EDIÇÃO (APENAS ADMIN) */}
       {agendamentoEditando && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[2rem] p-8 max-w-2xl w-full shadow-2xl animate-in zoom-in-95 duration-200">
@@ -565,7 +566,6 @@ export function AgendamentoNovo() {
         </div>
       )}
 
-      {/* MODAL DO PDF */}
       {showPdfModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200">
@@ -601,82 +601,83 @@ export function AgendamentoNovo() {
         </div>
       )}
 
-      {/* TEMPLATE DO PDF OCULTO (Mantido igual) */}
-      <div id="weekly-report-template" style={{ display: 'none', background: 'white', width: '1500px', padding: '50px' }}>
-         <div style={{ borderBottom: '6px solid #4f46e5', paddingBottom: '25px', marginBottom: '40px' }}>
-             <table style={{ width: '100%' }}>
-                 <tbody>
-                   <tr>
-                       <td style={{ border: 'none' }}>
-                           <h1 style={{ margin: 0, fontSize: '38px', fontWeight: 900, color: '#0f172a' }}>AGENDA DE AMBIENTES</h1>
-                           <p style={{ margin: 0, fontSize: '16px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '2px' }}>CRONOGRAMA SEMANAL DA REGIONAL</p>
-                       </td>
-                       <td style={{ border: 'none', textAlign: 'right' }}>
-                           <p style={{ margin: 0, fontWeight: 900, fontSize: '22px', color: '#1e293b' }}>
-                             {pdfStartOfWeek.toLocaleDateString('pt-BR')} a {pdfEndOfWeek.toLocaleDateString('pt-BR')}
-                           </p>
-                           <p style={{ margin: 0, fontSize: '14px', color: '#94a3b8', fontWeight: 800 }}>SGE-GSU INTELLIGENCE II</p>
-                       </td>
-                   </tr>
-                 </tbody>
-             </table>
-         </div>
+      {/* TEMPLATE DO PDF OCULTO (Agora 100% blindado para a leitura via string) */}
+      <div id="weekly-report-template" style={{ display: 'none' }}>
+         <div style={{ background: 'white', width: '1080px', padding: '40px', boxSizing: 'border-box', color: 'black', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+           <div style={{ borderBottom: '6px solid #4f46e5', paddingBottom: '25px', marginBottom: '40px', pageBreakInside: 'avoid' }}>
+               <table style={{ width: '100%' }}>
+                   <tbody>
+                     <tr>
+                         <td style={{ border: 'none' }}>
+                             <h1 style={{ margin: 0, fontSize: '38px', fontWeight: 900, color: '#0f172a' }}>AGENDA DE AMBIENTES</h1>
+                             <p style={{ margin: 0, fontSize: '16px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '2px' }}>CRONOGRAMA SEMANAL DA REGIONAL</p>
+                         </td>
+                         <td style={{ border: 'none', textAlign: 'right' }}>
+                             <p style={{ margin: 0, fontWeight: 900, fontSize: '22px', color: '#1e293b' }}>
+                               {pdfStartOfWeek.toLocaleDateString('pt-BR')} a {pdfEndOfWeek.toLocaleDateString('pt-BR')}
+                             </p>
+                             <p style={{ margin: 0, fontSize: '14px', color: '#94a3b8', fontWeight: 800 }}>SGE-GSU INTELLIGENCE II</p>
+                         </td>
+                     </tr>
+                   </tbody>
+               </table>
+           </div>
 
-         {Object.keys(groupedPdfBookings).length === 0 ? (
-           <div style={{ padding: '40px', textAlign: 'center', fontSize: '18px', color: '#94a3b8', fontWeight: 'bold' }}>Nenhum evento agendado para esta semana.</div>
-         ) : (
-           Object.keys(groupedPdfBookings).sort().map(dataStr => {
-             const [y, m, d] = dataStr.split('-');
-             const dateObj = new Date(Number(y), Number(m) - 1, Number(d));
-             const dayOfWeek = dateObj.toLocaleDateString('pt-BR', { weekday: 'long' });
-             const formattedDate = dateObj.toLocaleDateString('pt-BR');
+           {Object.keys(groupedPdfBookings).length === 0 ? (
+             <div style={{ padding: '40px', textAlign: 'center', fontSize: '18px', color: '#94a3b8', fontWeight: 'bold' }}>Nenhum evento agendado para esta semana.</div>
+           ) : (
+             Object.keys(groupedPdfBookings).sort().map(dataStr => {
+               const [y, m, d] = dataStr.split('-');
+               const dateObj = new Date(Number(y), Number(m) - 1, Number(d));
+               const dayOfWeek = dateObj.toLocaleDateString('pt-BR', { weekday: 'long' });
+               const formattedDate = dateObj.toLocaleDateString('pt-BR');
 
-             return (
-               <div key={dataStr} style={{ marginBottom: '40px', pageBreakInside: 'avoid' }}>
-                 <h4 style={{ margin: '0 0 15px 0', fontSize: '20px', fontWeight: 900, color: '#4f46e5', textTransform: 'uppercase', borderBottom: '3px solid #e2e8f0', paddingBottom: '10px' }}>
-                   {dayOfWeek}, {formattedDate}
-                 </h4>
-                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                     <thead>
-                         <tr style={{ background: '#f8fafc' }}>
-                             <th style={{ padding: '16px', border: '2px solid #cbd5e1', fontSize: '15px', textAlign: 'left', color: '#334155', width: '12%', fontWeight: 900 }}>HORÁRIO</th>
-                             <th style={{ padding: '16px', border: '2px solid #cbd5e1', fontSize: '15px', textAlign: 'left', color: '#334155', width: '23%', fontWeight: 900 }}>AMBIENTE</th>
-                             <th style={{ padding: '16px', border: '2px solid #cbd5e1', fontSize: '15px', textAlign: 'left', color: '#334155', width: '50%', fontWeight: 900 }}>EVENTO / OBSERVAÇÃO</th>
-                             <th style={{ padding: '16px', border: '2px solid #cbd5e1', fontSize: '15px', textAlign: 'center', color: '#334155', width: '15%', fontWeight: 900 }}>LOTAÇÃO</th>
-                         </tr>
-                     </thead>
-                     <tbody>
-                         {groupedPdfBookings[dataStr].map(row => (
-                             <tr key={row.id}>
-                                 <td style={{ padding: '16px', border: '2px solid #cbd5e1', fontSize: '15px', fontWeight: 900, color: '#d97706' }}>
-                                     {row.hora_inicio.slice(0,5)} às {row.hora_fim.slice(0,5)}
-                                 </td>
-                                 <td style={{ padding: '16px', border: '2px solid #cbd5e1', fontSize: '15px', fontWeight: 900, textTransform: 'uppercase', color: '#1e293b' }}>
-                                     {row.ambientes?.nome}
-                                 </td>
-                                 <td style={{ padding: '16px', border: '2px solid #cbd5e1', fontSize: '15px' }}>
-                                     <div style={{ fontWeight: 900, color: '#0f172a', textTransform: 'uppercase', marginBottom: '6px', fontSize: '16px' }}>{row.titulo_evento}</div>
-                                     <div style={{ fontWeight: 800, color: '#4f46e5', fontSize: '13px', textTransform: 'uppercase' }}>RESPONSÁVEL: {row.user_name}</div>
-                                     {row.observacao && <div style={{ color: '#64748b', fontSize: '13px', marginTop: '6px', fontStyle: 'italic', fontWeight: 600 }}>Obs: {row.observacao}</div>}
-                                 </td>
-                                 <td style={{ padding: '16px', border: '2px solid #cbd5e1', fontSize: '15px', textAlign: 'center', fontWeight: 900, color: '#059669' }}>
-                                     {row.quantidade_pessoas} pessoas
-                                 </td>
-                             </tr>
-                         ))}
-                     </tbody>
-                 </table>
-               </div>
-             );
-           })
-         )}
+               return (
+                 <div key={dataStr} style={{ marginBottom: '40px', pageBreakInside: 'avoid' }}>
+                   <h4 style={{ margin: '0 0 15px 0', fontSize: '20px', fontWeight: 900, color: '#4f46e5', textTransform: 'uppercase', borderBottom: '3px solid #e2e8f0', paddingBottom: '10px' }}>
+                     {dayOfWeek}, {formattedDate}
+                   </h4>
+                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                       <thead>
+                           <tr style={{ background: '#f8fafc', pageBreakInside: 'avoid' }}>
+                               <th style={{ padding: '16px', border: '2px solid #cbd5e1', fontSize: '15px', textAlign: 'left', color: '#334155', width: '12%', fontWeight: 900 }}>HORÁRIO</th>
+                               <th style={{ padding: '16px', border: '2px solid #cbd5e1', fontSize: '15px', textAlign: 'left', color: '#334155', width: '23%', fontWeight: 900 }}>AMBIENTE</th>
+                               <th style={{ padding: '16px', border: '2px solid #cbd5e1', fontSize: '15px', textAlign: 'left', color: '#334155', width: '50%', fontWeight: 900 }}>EVENTO / OBSERVAÇÃO</th>
+                               <th style={{ padding: '16px', border: '2px solid #cbd5e1', fontSize: '15px', textAlign: 'center', color: '#334155', width: '15%', fontWeight: 900 }}>LOTAÇÃO</th>
+                           </tr>
+                       </thead>
+                       <tbody>
+                           {groupedPdfBookings[dataStr].map(row => (
+                               <tr key={row.id} style={{ pageBreakInside: 'avoid' }}>
+                                   <td style={{ padding: '16px', border: '2px solid #cbd5e1', fontSize: '15px', fontWeight: 900, color: '#d97706' }}>
+                                       {row.hora_inicio.slice(0,5)} às {row.hora_fim.slice(0,5)}
+                                   </td>
+                                   <td style={{ padding: '16px', border: '2px solid #cbd5e1', fontSize: '15px', fontWeight: 900, textTransform: 'uppercase', color: '#1e293b' }}>
+                                       {row.ambientes?.nome}
+                                   </td>
+                                   <td style={{ padding: '16px', border: '2px solid #cbd5e1', fontSize: '15px' }}>
+                                       <div style={{ fontWeight: 900, color: '#0f172a', textTransform: 'uppercase', marginBottom: '6px', fontSize: '16px' }}>{row.titulo_evento}</div>
+                                       <div style={{ fontWeight: 800, color: '#4f46e5', fontSize: '13px', textTransform: 'uppercase' }}>RESPONSÁVEL: {row.user_name}</div>
+                                       {row.observacao && <div style={{ color: '#64748b', fontSize: '13px', marginTop: '6px', fontStyle: 'italic', fontWeight: 600 }}>Obs: {row.observacao}</div>}
+                                   </td>
+                                   <td style={{ padding: '16px', border: '2px solid #cbd5e1', fontSize: '15px', textAlign: 'center', fontWeight: 900, color: '#059669' }}>
+                                       {row.quantidade_pessoas} pessoas
+                                   </td>
+                               </tr>
+                           ))}
+                       </tbody>
+                   </table>
+                 </div>
+               );
+             })
+           )}
 
-         <div style={{ marginTop: '70px', paddingTop: '30px', borderTop: '3px solid #f1f5f9', textAlign: 'center' }}>
-             <p style={{ fontSize: '14px', fontWeight: 900, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '5px' }}>SGE-GSU INTELLIGENCE • DOCUMENTO OFICIAL</p>
+           <div style={{ marginTop: '70px', paddingTop: '30px', borderTop: '3px solid #f1f5f9', textAlign: 'center', pageBreakInside: 'avoid' }}>
+               <p style={{ fontSize: '14px', fontWeight: 900, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '5px' }}>SGE-GSU INTELLIGENCE • DOCUMENTO OFICIAL</p>
+           </div>
          </div>
       </div>
 
-      {/* CABEÇALHO */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-5">
           <div className="p-4 bg-indigo-600 rounded-[2rem] text-white shadow-xl shadow-indigo-200">
@@ -697,7 +698,6 @@ export function AgendamentoNovo() {
         </div>
       </div>
 
-      {/* ALERTA DE PENDÊNCIAS (APENAS PARA O ADMIN) */}
       {userRole === 'regional_admin' && agendamentosPendentesGeral > 0 && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 px-6 py-5 rounded-[2rem] flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm animate-in fade-in slide-in-from-top-2">
           <div className="flex items-center gap-4">
@@ -720,7 +720,6 @@ export function AgendamentoNovo() {
         </div>
       )}
 
-      {/* TELA 1: CALENDÁRIO */}
       {activeTab === 'calendario' && (
         <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 h-full">
           
@@ -738,7 +737,6 @@ export function AgendamentoNovo() {
             
             <div className="flex items-center gap-3">
                
-               {/* TOGGLE DIA/MÊS NOVO */}
                <div className="flex bg-slate-100 p-1 rounded-xl mr-2">
                  <button onClick={() => setViewMode('dia')} className={`px-4 py-1.5 text-xs font-black rounded-lg uppercase tracking-widest transition-all ${viewMode === 'dia' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}>Dia</button>
                  <button onClick={() => setViewMode('mes')} className={`px-4 py-1.5 text-xs font-black rounded-lg uppercase tracking-widest transition-all flex items-center gap-1 ${viewMode === 'mes' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}>
@@ -760,10 +758,8 @@ export function AgendamentoNovo() {
 
           <div className="space-y-4 min-h-[400px]">
             {viewMode === 'mes' ? (
-              // RENDERIZAÇÃO DO MÊS NOVO
               renderCalendarioMes()
             ) : (
-              // RENDERIZAÇÃO DO DIA EXISTENTE
               dateBookings.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-64 text-slate-400">
                   <Calendar size={48} className="mb-4 opacity-50" />
@@ -809,7 +805,6 @@ export function AgendamentoNovo() {
                       </div>
 
                       <div className="flex flex-wrap items-center justify-end gap-2 w-full md:w-auto">
-                        {/* BOTÃO PARA O PRÓPRIO USUÁRIO CANCELAR */}
                         {currentUser?.id === b.user_id && b.status !== 'cancelado' && (
                            <button onClick={() => cancelarMeuAgendamento(b)} className="px-3 py-2 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all">
                               Cancelar Meu Agendamento
@@ -837,7 +832,6 @@ export function AgendamentoNovo() {
         </div>
       )}
 
-      {/* TELA 2: AGENDAR */}
       {activeTab === 'agendar' && (
         <div className="max-w-3xl mx-auto bg-white p-10 rounded-[3rem] shadow-xl border border-slate-100">
           <div className="mb-8">
@@ -955,7 +949,6 @@ export function AgendamentoNovo() {
             </button>
           </form>
 
-          {/* PAINEL DE RESUMO */}
           {agendamentoForm.data_agendamento && (
             <div className="mt-10 p-6 bg-slate-50 border border-slate-200 rounded-[2rem] animate-in slide-in-from-bottom-2">
               <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-4 flex items-center gap-2">
@@ -995,7 +988,6 @@ export function AgendamentoNovo() {
         </div>
       )}
 
-      {/* TELA 3: GERENCIAR (ADMIN) */}
       {activeTab === 'gerenciar' && userRole === 'regional_admin' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 relative">
