@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, 
-  ResponsiveContainer, Cell, PieChart, Pie, Legend
+  ResponsiveContainer, Cell, PieChart, Pie, Legend, LabelList
 } from 'recharts';
 
 // Definição das 12 etapas do novo fluxo de processos
@@ -432,17 +432,34 @@ export function Zeladoria() {
             <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight mb-8 flex items-center gap-2">
               <BarChart3 size={18} className="text-blue-600" /> Distribuição por Etapas do Fluxo
             </h3>
-            <div className="h-[250px] w-full">
+            <div className="h-[350px] w-full mt-4"> {/* Aumentei a altura para caberem as 12 etapas folgadas */}
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={statusChartData}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} hide />
-                  <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}} />
+                <BarChart data={statusChartData} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f1f5f9" />
+                  
+                  {/* Ocultamos o eixo X (números em baixo) e mostramos o eixo Y (nomes na esquerda) */}
+                  <XAxis type="number" hide />
+                  <YAxis 
+                    dataKey="name" 
+                    type="category" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{fontSize: 9, fontWeight: 800, fill: '#64748b'}} 
+                    width={160} // Espaço reservado para os nomes longos
+                  />
+                  
                   <RechartsTooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px rgba(0,0,0,0.1)'}} />
-                  <Bar dataKey="quantidade" radius={[6, 6, 0, 0]}>
+                  
+                  <Bar dataKey="quantidade" radius={[0, 6, 6, 0]} barSize={16}>
                     {statusChartData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.name === "CONCLUÍDO" ? '#10b981' : '#3b82f6'} />
                     ))}
+                    {/* Esta linha adiciona o número exato à frente da barra */}
+                    <LabelList 
+                      dataKey="quantidade" 
+                      position="right" 
+                      style={{ fontSize: '11px', fontWeight: 900, fill: '#334155' }} 
+                    />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
