@@ -43,6 +43,7 @@ import Avcb from './pages/avcb';
 import RelatorioAtividades from './pages/atividades';
 import VincularSetores from './pages/VincularSetores';
 import Chat from './pages/chat';
+import Fluxo from './pages/fluxo';
 import { AgendamentoNovo } from './pages/AgendamentoNovo';
 import Portaria from './pages/Portaria';
 
@@ -75,7 +76,8 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','supervisor', 'dirigente', 'ure_servico', 'ure_eec'] }, // <- NOVO AQUI
       { id: 'entrada', label: 'Entrada no Prêdio', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'dirigente', 'ure_servico'] }, // <- SEINTEC
       { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
-      { id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'dirigente'] }
+      { id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'dirigente'] },
+      { id: 'fluxo', label: 'Fluxo de Pessoas', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','ure_servico'] }, // <- NOVO AQUI
     ]
   },
   {
@@ -457,6 +459,7 @@ export default function App() {
       case 'ambientes-novo': return <AgendamentoNovo />;
       case 'chat': return <Chat />;
       case 'entrada': return <Portaria />;
+      case 'fluxo': return <Fluxo />;
       default: return <Dashboard />;
     }
   };
