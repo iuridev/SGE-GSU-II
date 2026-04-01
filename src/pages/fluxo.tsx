@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import Webcam from 'react-webcam';
 import * as tf from '@tensorflow/tfjs';
 import * as cocossd from '@tensorflow-models/coco-ssd';
@@ -9,8 +9,9 @@ interface TrackedPerson {
   id: number;
   x: number;
   y: number;
-  hasCrossed: boolean;
-  missedFrames: number;
+  framesTracked: number; // Quantos frames a IA viu essa pessoa
+  hasBeenCounted: boolean; // Se já registramos no contador
+  missedFrames: number; // Quantos frames a IA perdeu essa pessoa de vista
 }
 
 export default function Fluxo() {
@@ -21,20 +22,16 @@ export default function Fluxo() {
   const [count, setCount] = useState(0);
   const [isError, setIsError] = useState(false);
 
-  // Referências para variáveis mutáveis que não devem causar re-renderização
   const tracksRef = useRef<TrackedPerson[]>([]);
   const nextIdRef = useRef(1);
   const countRef = useRef(0);
   
-  // Referência para acumular as passagens que ainda não foram guardadas na base de dados
   const pendingSavesRef = useRef(0);
 
-  // Busca a contagem inicial de hoje ao abrir a página
   const carregarContagemDoDia = useCallback(async () => {
     const hoje = new Date();
     hoje.setHours(0, 0, 0, 0);
 
-    // Utilizamos (supabase as any) para contornar temporariamente a falta de tipagem
     const { count: total, error } = await (supabase as any)
       .from('fluxo_registros')
       .select('*', { count: 'exact', head: true })
@@ -46,15 +43,13 @@ export default function Fluxo() {
     }
   }, []);
 
-  // EFEITO DE BATCHING: Guarda na base de dados a cada 5 segundos se houver novas passagens
+  // Guarda na base de dados a cada 5 segundos se houver novas passagens
   useEffect(() => {
     const intervalId = setInterval(async () => {
       if (pendingSavesRef.current > 0) {
-        // Captura a quantidade atual e zera a referência imediatamente para não perder novas passagens
         const quantidadeParaGuardar = pendingSavesRef.current;
         pendingSavesRef.current = 0;
 
-        // Cria um array com objetos vazios equivalente ao número de pessoas que passaram
         const registos = Array(quantidadeParaGuardar).fill({});
 
         const { error } = await (supabase as any)
@@ -62,16 +57,11 @@ export default function Fluxo() {
           .insert(registos);
 
         if (error) {
-          console.error(`Erro ao guardar lote de ${quantidadeParaGuardar} registos:`, error);
-          // Opcional: devolver as contagens perdidas para a fila em caso de erro
-          // pendingSavesRef.current += quantidadeParaGuardar;
-        } else {
-          console.log(`Lote de ${quantidadeParaGuardar} passagens guardado com sucesso no Supabase.`);
+          console.error(`Erro ao guardar lote:`, error);
         }
       }
-    }, 5000); // Executa a cada 5000ms (5 segundos)
+    }, 5000);
 
-    // Limpa o intervalo quando o componente for desmontado (fechar a página)
     return () => clearInterval(intervalId);
   }, []);
 
@@ -115,17 +105,6 @@ export default function Fluxo() {
 
       ctx.clearRect(0, 0, videoWidth, videoHeight);
 
-      // Desenha a linha virtual de contagem no meio do ecrã
-      const lineY = videoHeight / 2;
-      ctx.beginPath();
-      ctx.moveTo(0, lineY);
-      ctx.lineTo(videoWidth, lineY);
-      ctx.strokeStyle = "#ef4444"; 
-      ctx.lineWidth = 3;
-      ctx.setLineDash([5, 5]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
       const currentCentroids = people.map(person => {
         const [x, y, width, height] = person.bbox;
         const cx = x + width / 2;
@@ -145,9 +124,11 @@ export default function Fluxo() {
         return { cx, cy };
       });
 
-      const maxDistance = 100;
+      const maxDistance = 150; // Distância maior pois em fluxo livre as pessoas andam rápido
       let newTracks: TrackedPerson[] = [];
+      let matchedTrackIds = new Set<number>();
 
+      // PASSO 1: Tentar ligar as pessoas atuais com as que já conhecemos
       currentCentroids.forEach(centroid => {
         let matchedTrack: TrackedPerson | any = null;
         let minDistance = Infinity;
@@ -161,44 +142,49 @@ export default function Fluxo() {
         });
 
         if (matchedTrack) {
-          let justCrossed = false;
-          
-          // Verifica se o centroide cruzou a linha Y
-          if ((matchedTrack.y < lineY && centroid.cy >= lineY) || 
-              (matchedTrack.y > lineY && centroid.cy <= lineY)) {
-            
-            if (!matchedTrack.hasCrossed) {
-              countRef.current += 1;
-              setCount(countRef.current);
-              justCrossed = true;
-              
-              // ADICIONA À FILA em vez de guardar imediatamente
-              pendingSavesRef.current += 1;
-            }
+          // Pessoa já conhecida! Atualiza dados.
+          matchedTrackIds.add(matchedTrack.id);
+          matchedTrack.x = centroid.cx;
+          matchedTrack.y = centroid.cy;
+          matchedTrack.framesTracked += 1;
+          matchedTrack.missedFrames = 0; // Reseta o contador de perda, pois a achamos de novo
+
+          // Se a pessoa estiver firme na tela por 5 frames seguidos e ainda não foi contada:
+          if (matchedTrack.framesTracked === 5 && !matchedTrack.hasBeenCounted) {
+            countRef.current += 1;
+            setCount(countRef.current);
+            matchedTrack.hasBeenCounted = true; // Marca como contada para não somar de novo
+            pendingSavesRef.current += 1;
           }
 
-          newTracks.push({
-            id: matchedTrack.id,
-            x: centroid.cx,
-            y: centroid.cy,
-            hasCrossed: matchedTrack.hasCrossed || justCrossed,
-            missedFrames: 0
-          });
+          newTracks.push(matchedTrack);
 
-          // Mostra o ID rastreado em cima da pessoa
-          ctx.fillStyle = '#ffffff';
+          // Mostra o ID e se já foi contada
+          ctx.fillStyle = matchedTrack.hasBeenCounted ? '#10b981' : '#f59e0b';
           ctx.font = '16px Arial';
-          ctx.fillText(`ID: ${matchedTrack.id}`, centroid.cx + 10, centroid.cy - 10);
+          ctx.fillText(`ID: ${matchedTrack.id} ${matchedTrack.hasBeenCounted ? '✓' : '...'}`, centroid.cx + 10, centroid.cy - 10);
         } else {
-          // Atribui ID para uma pessoa nova no ecrã
+          // Pessoa totalmente nova apareceu na câmera
           const newId = nextIdRef.current++;
           newTracks.push({
             id: newId,
             x: centroid.cx,
             y: centroid.cy,
-            hasCrossed: false,
+            framesTracked: 1,
+            hasBeenCounted: false,
             missedFrames: 0
           });
+        }
+      });
+
+      // PASSO 2: Preservar as pessoas que a IA perdeu de vista por um tempo curto (Memória)
+      tracksRef.current.forEach(track => {
+        if (!matchedTrackIds.has(track.id)) {
+          track.missedFrames += 1;
+          // Se sumiu por menos de 15 frames (1.5 segundos), mantém na memória esperando voltar
+          if (track.missedFrames < 15) {
+            newTracks.push(track);
+          }
         }
       });
 
@@ -214,8 +200,8 @@ export default function Fluxo() {
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-slate-800">Controlo de Fluxo</h1>
-          <p className="text-slate-500 mt-2">Monitorização de entrada e saída por Inteligência Artificial</p>
+          <h1 className="text-3xl font-bold text-slate-800">Controlo Free Flow</h1>
+          <p className="text-slate-500 mt-2">Deteção inteligente de permanência no ambiente</p>
         </div>
         
         <div className="bg-blue-50 border border-blue-200 px-6 py-4 rounded-xl flex items-center space-x-4 shadow-sm">
@@ -223,7 +209,7 @@ export default function Fluxo() {
             <Users className="w-8 h-8 text-white" />
           </div>
           <div>
-            <p className="text-sm text-blue-600 font-semibold uppercase tracking-wider">Passagens Hoje</p>
+            <p className="text-sm text-blue-600 font-semibold uppercase tracking-wider">Total de Indivíduos</p>
             <p className="text-4xl font-bold text-blue-900">{count}</p>
           </div>
         </div>
@@ -242,8 +228,7 @@ export default function Fluxo() {
           {isLoading && (
             <div className="absolute inset-0 z-10 bg-slate-900/80 flex flex-col items-center justify-center text-white">
               <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-4" />
-              <p className="font-medium animate-pulse">A carregar Modelo de Visão Computacional...</p>
-              <p className="text-sm text-slate-400 mt-2">Isto pode demorar alguns segundos na primeira vez</p>
+              <p className="font-medium animate-pulse">A inicializar Deteção Free Flow...</p>
             </div>
           )}
 
@@ -261,9 +246,9 @@ export default function Fluxo() {
         </div>
         
         <div className="mt-6 flex gap-4 text-sm text-slate-600 justify-center">
-          <div className="flex items-center"><span className="w-3 h-3 bg-blue-500 rounded-full inline-block mr-2"></span> Deteção</div>
-          <div className="flex items-center"><span className="w-3 h-3 bg-red-500 rounded-full inline-block mr-2"></span> Linha de Contagem</div>
-          <div className="flex items-center"><span className="w-3 h-3 bg-emerald-500 rounded-full inline-block mr-2"></span> Centroide</div>
+          <div className="flex items-center"><span className="w-3 h-3 bg-blue-500 rounded-full inline-block mr-2"></span> Detetando</div>
+          <div className="flex items-center"><span className="w-3 h-3 bg-amber-500 rounded-full inline-block mr-2"></span> Analisando (ID ...)</div>
+          <div className="flex items-center"><span className="w-3 h-3 bg-emerald-500 rounded-full inline-block mr-2"></span> Contabilizado (ID ✓)</div>
         </div>
       </div>
     </div>

@@ -76,8 +76,13 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','supervisor', 'dirigente', 'ure_servico', 'ure_eec'] }, // <- NOVO AQUI
       { id: 'entrada', label: 'Entrada no Prêdio', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'dirigente', 'ure_servico'] }, // <- SEINTEC
       { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
+    ]
+  },
+  {
+    title: 'SEOM-SEFISC',
+    items:[
       { id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'dirigente'] },
-      { id: 'fluxo', label: 'Fluxo de Pessoas', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','ure_servico'] }, // <- NOVO AQUI
+      { id: 'fluxo', label: 'Fluxo de Pessoas (em teste)', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','ure_servico'] }, // <- NOVO AQUI
     ]
   },
   {
