@@ -1,20 +1,24 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
-import { supabase } from '../lib/supabase'; // <-- Usando o seu cliente centralizado!
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { supabase } from '../lib/supabase';
 
 import { 
-  Ticket, Plus, X, 
-  CheckCircle, Clock, ArrowRightLeft, Paperclip, 
-  Send, Building2,
-  PieChart, ListOrdered, CheckCircle2, MessageCircle, AlertTriangle, FileText, Download, Activity, History, Save, RefreshCw, Filter
+  Ticket, Plus, X, Clock,  
+  Paperclip, Send, Building2, CheckCircle2, 
+  FileText, Activity, 
+  Filter, Flame, UserPlus, ShieldAlert,
+  Search, LayoutDashboard, Settings, FolderTree, Tag, Loader2,
+  Trash2
 } from 'lucide-react';
 
 interface TicketData {
-  id: string; protocol: string; school_id: string; title: string; category: string; department: 'SEOM' | 'SEFISC';
-  description: string; drive_link?: string; status: 'ABERTO' | 'EM_ANDAMENTO' | 'AGUARDANDO_ESCOLA' | 'CONCLUIDO';
-  created_at: string; schools?: { name: string };
+  id: string; protocol: string; school_id: string; title: string; 
+  category: string; sub_category?: string; department: 'SEOM' | 'SEFISC';
+  description: string; drive_link?: string; 
+  status: 'ABERTO' | 'EM_ANDAMENTO' | 'AGUARDANDO_ESCOLA' | 'CONCLUIDO';
+  priority: 'URGENTE' | 'ALTA' | 'NORMAL' | 'BAIXA';
+  assigned_to?: string; created_at: string; updated_at?: string;
+  schools?: { name: string };
+  assignee?: { full_name: string };
 }
 
 interface TicketMessage {
@@ -24,606 +28,758 @@ interface TicketMessage {
 
 interface SchoolOption { id: string; name: string; }
 
-const CATEGORIES = [
-  'SISTEMA', 'OBRAS', 'MANUTENÇÕES', 'VISTORIA', 'ZELADORIA', 
-  'PATRIMÔNIO', 'FISCALIZAÇÃO LIMPEZA', 'FISCALIZAÇÃO VIGILÂNCIA', 
-  'CONSUMO DE ÁGUA', 'SERVIÇO DE ENERGIA', 'OUTROS'
-];
-
-function CustomLineChart({ data }: { data: any[] }) {
-  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(0);
-  const height = 300; const padding = 40;
-
-  useEffect(() => {
-    if (containerRef.current) setWidth(containerRef.current.offsetWidth);
-    const handleResize = () => { if(containerRef.current) setWidth(containerRef.current.offsetWidth); };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  if (data.length === 0) return null;
-  if (width === 0) return <div ref={containerRef} className="w-full h-[300px]"></div>;
-
-  const maxValue = Math.max(...data.map(d => Math.max(d.WhatsApp, d.Chamados, d.Media))) || 10;
-  const effectiveHeight = height - padding * 2; const effectiveWidth = width - padding * 2;
-  const dataPointsCount = Math.max(1, data.length - 1); 
-  const xStep = effectiveWidth / dataPointsCount;
-  const yScale = effectiveHeight / maxValue;
-
-  const getX = (index: number) => padding + index * xStep;
-  const getY = (value: number) => height - padding - (value * yScale);
-
-  const createPath = (key: string) => data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(d[key])}`).join(' ');
-
-  const pathWhatsApp = createPath('WhatsApp');
-  const pathChamados = createPath('Chamados');
-  const pathMedia = createPath('Media');
-
-  return (
-    <div ref={containerRef} className="w-full h-[300px] relative select-none">
-      <svg width={width} height={height} className="overflow-visible">
-        {[0, 0.25, 0.5, 0.75, 1].map((t) => {
-            const y = height - padding - (t * effectiveHeight);
-            const val = Math.round(t * maxValue);
-            return (
-                <g key={t}>
-                    <line x1={padding} y1={y} x2={width - padding} y2={y} stroke="#e2e8f0" strokeDasharray="4 4" />
-                    <text x={padding - 10} y={y + 4} textAnchor="end" fontSize="10" fill="#94a3b8">{val}</text>
-                </g>
-            )
-        })}
-        {data.map((d, i) => (
-            <text key={i} x={getX(i)} y={height - 10} textAnchor="middle" fontSize="10" fontWeight="bold" fill="#94a3b8">{d.name}</text>
-        ))}
-        <path d={pathMedia} fill="none" stroke="#f59e0b" strokeWidth="2" strokeDasharray="5 5" />
-        <path d={pathChamados} fill="none" stroke="#6366f1" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-        <path d={pathWhatsApp} fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-        {data.map((d, i) => {
-            const hoverWidth = xStep === 0 ? effectiveWidth : Math.max(0, xStep);
-            const hoverX = xStep === 0 ? padding : Math.max(0, getX(i) - xStep / 2);
-            return (
-                <g key={i}>
-                    <circle cx={getX(i)} cy={getY(d.WhatsApp)} r="4" fill="#22c55e" className="transition-all" />
-                    <circle cx={getX(i)} cy={getY(d.Chamados)} r="4" fill="#6366f1" className="transition-all" />
-                    <rect x={hoverX} y={0} width={hoverWidth} height={height} fill="transparent" onMouseEnter={() => setHoverIndex(i)} onMouseLeave={() => setHoverIndex(null)} className="cursor-crosshair" />
-                </g>
-            )
-        })}
-        {hoverIndex !== null && <line x1={getX(hoverIndex)} y1={padding} x2={getX(hoverIndex)} y2={height - padding} stroke="#94a3b8" strokeWidth="1" strokeDasharray="4 4" />}
-      </svg>
-      {hoverIndex !== null && (
-        <div className="absolute bg-white p-3 rounded-xl shadow-xl border border-slate-100 z-10 pointer-events-none transition-all" style={{ left: getX(hoverIndex), top: 0, transform: 'translate(-50%, -100%) translateY(80px)' }}>
-            <p className="text-xs font-black text-slate-700 mb-2">{data[hoverIndex].name}</p>
-            <div className="space-y-1">
-                <div className="flex items-center gap-2 text-xs"><div className="w-2 h-2 rounded-full bg-green-500"></div><span className="text-slate-500">WhatsApp:</span><span className="font-bold text-slate-800">{data[hoverIndex].WhatsApp}</span></div>
-                <div className="flex items-center gap-2 text-xs"><div className="w-2 h-2 rounded-full bg-indigo-500"></div><span className="text-slate-500">Chamados:</span><span className="font-bold text-slate-800">{data[hoverIndex].Chamados}</span></div>
-                <div className="flex items-center gap-2 text-xs"><div className="w-2 h-2 rounded-full bg-amber-500"></div><span className="text-slate-500">Média:</span><span className="font-bold text-slate-800">{data[hoverIndex].Media}</span></div>
-            </div>
-        </div>
-      )}
-      <div className="absolute top-0 right-0 flex gap-4 bg-white/80 p-2 rounded-lg backdrop-blur-sm">
-          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-green-500"></div><span className="text-[10px] font-bold text-slate-600">WhatsApp</span></div>
-          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-indigo-500"></div><span className="text-[10px] font-bold text-slate-600">Chamados</span></div>
-          <div className="flex items-center gap-1.5"><div className="w-3 h-1 bg-amber-500 rounded-full"></div><span className="text-[10px] font-bold text-slate-600">Média</span></div>
-      </div>
-    </div>
-  );
+interface TicketCategory {
+  id: string;
+  department: string;
+  name: string;
+  subcategories: string[];
+  is_urgent?: boolean; 
 }
 
 export function Chamados() {
   const [tickets, setTickets] = useState<TicketData[]>([]);
+  const [categories, setCategories] = useState<TicketCategory[]>([]);
   const [loading, setLoading] = useState(true);
-  const [configError, setConfigError] = useState(false);
   const [userRole, setUserRole] = useState('');
   const [userId, setUserId] = useState('');
+  const [userName, setUserName] = useState('');
   const [userSchoolId, setUserSchoolId] = useState<string | null>(null);
-  const [supervisorSchoolIds, setSupervisorSchoolIds] = useState<string[]>([]);
-  const [statusFilter, setStatusFilter] = useState<'EM_ATENDIMENTO' | 'AGUARDANDO_ESCOLA' | 'CONCLUIDO'>('EM_ATENDIMENTO');
-  const [schoolsList, setSchoolsList] = useState<SchoolOption[]>([]);
-  const [adminDeptFilter, setAdminDeptFilter] = useState<'SEOM' | 'SEFISC'>('SEOM');
   
+  // Filtros Avançados CRM
+  const [departmentFilter, setDepartmentFilter] = useState<'TODOS' | 'SEOM' | 'SEFISC'>('TODOS');
+  const [statusFilter, setStatusFilter] = useState<'TODOS' | 'ABERTO' | 'EM_ANDAMENTO' | 'AGUARDANDO_ESCOLA' | 'CONCLUIDO'>('TODOS');
+  const [priorityFilter, setPriorityFilter] = useState<'TODOS' | 'URGENTE' | 'ALTA' | 'NORMAL' | 'BAIXA'>('TODOS');
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  const [schoolsList, setSchoolsList] = useState<SchoolOption[]>([]);
+  
+  // Formulário Novo Chamado
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [newTicket, setNewTicket] = useState({ title: '', category: 'MANUTENÇÕES', department: 'SEOM' as 'SEOM' | 'SEFISC', description: '', drive_link: '' });
+  const [newTicket, setNewTicket] = useState({ 
+    school_id: '', title: '', category: '', sub_category: '', 
+    department: 'SEOM' as 'SEOM' | 'SEFISC', description: '', drive_link: '', isUrgent: false 
+  });
 
-  const [isWhatsappOpen, setIsWhatsappOpen] = useState(false);
-  const [whatsappTicket, setWhatsappTicket] = useState({ date: new Date().toISOString().slice(0, 16), school_id: '', phone: '', title: '', category: 'MANUTENÇÕES', department: 'SEOM' as 'SEOM' | 'SEFISC', description: '' });
-  const [schoolHistory, setSchoolHistory] = useState<TicketData[]>([]);
-
-  const [isReportOpen, setIsReportOpen] = useState(false);
-  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
-  const [reportDate, setReportDate] = useState({ month: new Date().getMonth() + 1, year: new Date().getFullYear() });
+  // Configurações de Assuntos (Árvore)
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [newCatDept, setNewCatDept] = useState<'SEOM' | 'SEFISC'>('SEOM');
+  const [newCatIsUrgent, setNewCatIsUrgent] = useState(false);
+  const [newSubCatMap, setNewSubCatMap] = useState<Record<string, string>>({});
 
   const [selectedTicket, setSelectedTicket] = useState<TicketData | null>(null);
   const [messages, setMessages] = useState<TicketMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
+  
+  // Referência para o container de chat (para fazer o auto-scroll)
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
   const isAdminOrDirigente = userRole === 'regional_admin' || userRole === 'dirigente';
 
-  useEffect(() => {
-    if (!supabase) { setConfigError(true); setLoading(false); return; }
-    fetchUserAndTickets();
-  }, [adminDeptFilter]); 
+  useEffect(() => { fetchUserAndTickets(true); fetchCategories(); }, []); 
 
+  // Auto-scroll sempre que a lista de mensagens for atualizada
   useEffect(() => {
-    async function fetchSchoolHistory() {
-        if (!supabase || !whatsappTicket.school_id) return setSchoolHistory([]);
-        const { data } = await (supabase as any).from('internal_tickets').select('*, schools(name)').eq('school_id', whatsappTicket.school_id).order('created_at', { ascending: false }).limit(5);
-        setSchoolHistory(data || []);
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
-    if (isWhatsappOpen) fetchSchoolHistory();
-  }, [whatsappTicket.school_id, isWhatsappOpen]);
+  }, [messages]);
 
-  async function fetchUserAndTickets() {
+  // Assinatura em Tempo Real (Supabase Realtime) para o ticket selecionado
+  useEffect(() => {
+    if (!selectedTicket || !supabase) return;
+
+    const channel = supabase
+      .channel(`realtime-messages-${selectedTicket.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'ticket_messages',
+          filter: `ticket_id=eq.${selectedTicket.id}`
+        },
+        () => {
+          // Sempre que houver uma nova mensagem neste ticket, recarregamos a conversa
+          loadMessages(selectedTicket.id);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedTicket]);
+
+  // Função auxiliar para carregar as mensagens de um ticket
+  const loadMessages = async (ticketId: string) => {
+    const { data } = await (supabase as any)
+      .from('ticket_messages')
+      .select('*, profiles(full_name, role)')
+      .eq('ticket_id', ticketId)
+      .order('created_at', { ascending: true });
+    
+    setMessages(data || []);
+    
+    // Marca mensagens como lidas
+    await (supabase as any)
+      .from('ticket_messages')
+      .update({ is_read: true })
+      .eq('ticket_id', ticketId)
+      .neq('user_id', userId);
+  };
+
+  async function fetchCategories() {
     if (!supabase) return;
-    setLoading(true);
+    const { data } = await (supabase as any).from('ticket_categories').select('*').order('name');
+    setCategories(data || []);
+  }
+
+  // Função atualizada para aceitar atualização silenciosa (background)
+  async function fetchUserAndTickets(showLoader: boolean = true) {
+    if (!supabase) return;
+    if (showLoader) setLoading(true);
+    
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setUserId(user.id);
 
-      const { data: profile } = await (supabase as any).from('profiles').select('role, school_id, supervisor_schools').eq('id', user.id).single();
-      setUserRole(profile?.role || ''); setUserSchoolId(profile?.school_id || null); setSupervisorSchoolIds(profile?.supervisor_schools || []);
+      const { data: profile } = await (supabase as any).from('profiles').select('full_name, role, school_id').eq('id', user.id).single();
+      setUserRole(profile?.role || ''); setUserSchoolId(profile?.school_id || null); setUserName(profile?.full_name || '');
 
-      if (profile?.role === 'regional_admin') {
+      if (profile?.role === 'regional_admin' || profile?.role === 'dirigente') {
         const { data: schools } = await (supabase as any).from('schools').select('id, name').order('name');
         setSchoolsList(schools || []);
       }
 
-      let query = (supabase as any).from('internal_tickets').select('*, schools(name)').order('created_at', { ascending: false });
+      let query = (supabase as any)
+        .from('internal_tickets')
+        .select(`*, schools(name), assignee:profiles!internal_tickets_assigned_to_fkey(full_name)`)
+        .order('created_at', { ascending: false });
 
-      if (profile?.role === 'school_manager') {
-        query = query.eq('school_id', profile.school_id);
-      } else if (profile?.role === 'supervisor') {
-          if (profile.supervisor_schools && profile.supervisor_schools.length > 0) {
-              query = query.in('school_id', profile.supervisor_schools);
-          } else {
-              setTickets([]); setLoading(false); return;
-          }
-      }
+      if (profile?.role === 'school_manager') query = query.eq('school_id', profile.school_id);
 
       const { data, error } = await query;
       if (error) throw error;
       setTickets(data || []);
-
-    } catch (error) { console.error(error); } finally { setLoading(false); }
-  }
-
-  async function generateProtocol() {
-    if (!supabase) return 'ERR-CONFIG';
-    const year = new Date().getFullYear();
-    const { count } = await (supabase as any).from('internal_tickets').select('*', { count: 'exact', head: true });
-    const sequence = String((count || 0) + 1).padStart(7, '0');
-    return `GSE-${year}-${sequence}`;
-  }
-
-  const metrics = useMemo(() => {
-    const total = tickets.length;
-    const seomCount = tickets.filter(t => t.department === 'SEOM').length;
-    const sefiscCount = tickets.filter(t => t.department === 'SEFISC').length;
-    const concludedCount = tickets.filter(t => t.status === 'CONCLUIDO').length;
-    const openCount = tickets.filter(t => t.status !== 'CONCLUIDO').length;
-    const whatsappCount = tickets.filter(t => t.description && t.description.includes('[ATENDIMENTO WHATSAPP]')).length;
-
-    const categoryMap: Record<string, number> = {};
-    tickets.forEach(t => { categoryMap[t.category] = (categoryMap[t.category] || 0) + 1; });
-    const topCategories = Object.entries(categoryMap).sort(([, a], [, b]) => b - a).slice(0, 5).map(([name, count]) => ({ name, count }));
-
-    return { total, seomCount, sefiscCount, concludedCount, openCount, whatsappCount, topCategories };
-  }, [tickets]);
-
-  const chartData = useMemo(() => {
-    const today = new Date();
-    const last12Months: any[] = [];
-    for (let i = 11; i >= 0; i--) {
-        const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
-        last12Months.push({ key: d.toISOString().slice(0, 7), name: d.toLocaleString('pt-BR', { month: 'short' }).toUpperCase().replace('.', ''), whatsapp: 0, chamados: 0, WhatsApp: 0, Chamados: 0, Media: 0 });
-    }
-    tickets.forEach(ticket => {
-        const monthData = last12Months.find(m => m.key === ticket.created_at.slice(0, 7));
-        if (monthData) { ticket.description?.includes('[ATENDIMENTO WHATSAPP]') ? monthData.whatsapp++ : monthData.chamados++; }
-    });
-    return last12Months.map(m => ({ ...m, WhatsApp: m.whatsapp, Chamados: m.chamados, Media: Number(((m.whatsapp + m.chamados) / 2).toFixed(1)) }));
-  }, [tickets]);
-
-  const filteredListTickets = useMemo(() => {
-    let result = tickets;
-    if (isAdminOrDirigente) result = result.filter(t => t.department === adminDeptFilter);
-    if (statusFilter === 'EM_ATENDIMENTO') result = result.filter(t => ['ABERTO', 'EM_ANDAMENTO'].includes(t.status));
-    else if (statusFilter === 'AGUARDANDO_ESCOLA') result = result.filter(t => t.status === 'AGUARDANDO_ESCOLA');
-    else if (statusFilter === 'CONCLUIDO') result = result.filter(t => t.status === 'CONCLUIDO');
-    return result;
-  }, [tickets, isAdminOrDirigente, adminDeptFilter, statusFilter]);
-
-  async function handleGenerateReport() {
-    if (!supabase) return;
-    setIsGeneratingReport(true);
-    try {
-      const startDate = new Date(reportDate.year, reportDate.month - 1, 1).toISOString();
-      const endDate = new Date(reportDate.year, reportDate.month, 0, 23, 59, 59).toISOString();
-      let query = (supabase as any).from('internal_tickets').select('*, schools(name)').gte('created_at', startDate).lte('created_at', endDate).order('created_at', { ascending: false });
-      if (userRole === 'supervisor' && supervisorSchoolIds.length > 0) query = query.in('school_id', supervisorSchoolIds);
-      const { data: reportTickets, error } = await query;
-      if (error) throw error;
-      if (!reportTickets || reportTickets.length === 0) { alert('Nenhum chamado encontrado para este período.'); setIsGeneratingReport(false); return; }
-
-      const doc = new jsPDF();
-      const monthName = new Date(reportDate.year, reportDate.month - 1, 1).toLocaleString('pt-BR', { month: 'long' });
-      
-      doc.setFontSize(18); doc.text('Relatório Mensal de Ocorrências', 14, 22);
-      doc.setFontSize(11); doc.text(`Período: ${monthName.charAt(0).toUpperCase() + monthName.slice(1)} de ${reportDate.year}`, 14, 30);
-      doc.text(`Gerado em: ${new Date().toLocaleDateString()}`, 14, 36);
-
-      const total = reportTickets.length;
-      const seom = reportTickets.filter((t: TicketData) => t.department === 'SEOM').length;
-      const sefisc = reportTickets.filter((t: TicketData) => t.department === 'SEFISC').length;
-      const whatsapp = reportTickets.filter((t: TicketData) => t.description?.includes('[ATENDIMENTO WHATSAPP]')).length;
-      const concluded = reportTickets.filter((t: TicketData) => t.status === 'CONCLUIDO').length;
-
-      doc.setFillColor(245, 247, 250); doc.roundedRect(14, 42, 180, 25, 3, 3, 'F');
-      doc.setFontSize(10);
-      doc.text(`Total: ${total}`, 20, 52); doc.text(`SEOM: ${seom}`, 60, 52); doc.text(`SEFISC: ${sefisc}`, 100, 52);
-      doc.text(`WhatsApp: ${whatsapp}`, 20, 60); doc.text(`Concluídos: ${concluded}`, 60, 60); doc.text(`Em Aberto: ${total - concluded}`, 100, 60);
-
-      let nextY = 75;
-      if (chartData && chartData.length > 0) {
-          const chartHeight = 50; const chartWidth = 180; const startX = 14; const endY = 75 + chartHeight;
-          doc.setFontSize(10); doc.setTextColor(50); doc.text("Histórico de Atendimentos (Últimos 12 Meses)", startX, 70);
-          const maxVal = Math.max(...chartData.map(d => Math.max(d.WhatsApp, d.Chamados, d.Media))) || 10;
-          const stepX = chartWidth / Math.max(1, chartData.length - 1); const scaleY = chartHeight / maxVal;
-          const getPX = (i: number) => startX + (i * stepX); const getPY = (val: number) => endY - (val * scaleY);
-          doc.setDrawColor(220); doc.setLineWidth(0.1); doc.setFontSize(6); doc.setTextColor(150);
-          chartData.forEach((d, i) => doc.text(d.name, getPX(i), endY + 4, { align: 'center' }));
-          const drawLine = (key: string, r: number, g: number, b: number) => {
-              doc.setDrawColor(r, g, b); doc.setLineWidth(0.5);
-              for (let i = 0; i < chartData.length - 1; i++) doc.line(getPX(i), getPY(chartData[i][key]), getPX(i+1), getPY(chartData[i+1][key]));
-          };
-          drawLine('Media', 245, 158, 11); drawLine('Chamados', 99, 102, 241); drawLine('WhatsApp', 34, 197, 94);
-          doc.setFontSize(7); const legY = endY + 10;
-          doc.setTextColor(34, 197, 94); doc.text('WhatsApp', startX, legY); doc.setTextColor(99, 102, 241); doc.text('Chamados', startX + 20, legY); doc.setTextColor(245, 158, 11); doc.text('Média', startX + 40, legY);
-          doc.setTextColor(0); nextY = legY + 5;
-      }
-
-      const tableRows = reportTickets.map((t: TicketData) => [ t.protocol, new Date(t.created_at).toLocaleDateString(), t.schools?.name || 'N/A', t.category, t.department, t.status.replace('_', ' ') ]);
-      autoTable(doc, { startY: nextY + 10, head: [['Protocolo', 'Data', 'Escola', 'Categoria', 'Depto', 'Status']], body: tableRows, styles: { fontSize: 8 }, headStyles: { fillColor: [79, 70, 229] } });
-      doc.save(`Relatorio_Chamados_${reportDate.month}_${reportDate.year}.pdf`);
-      setIsReportOpen(false);
-
-    } catch (error: any) { alert('Erro ao gerar relatório: ' + error.message); } finally { setIsGeneratingReport(false); }
-  }
-
-  async function handleCreateTicket(e: React.FormEvent) {
-    e.preventDefault();
-    if (!supabase) return;
-    if (!userSchoolId && userRole !== 'regional_admin') return alert('Erro: Escola não identificada.');
-    try {
-      const protocol = await generateProtocol();
-      const payload = { protocol, school_id: userSchoolId, created_by: userId, title: newTicket.title, category: newTicket.category, department: newTicket.department, description: newTicket.description, drive_link: newTicket.drive_link, status: 'ABERTO' };
-      const { error } = await (supabase as any).from('internal_tickets').insert([payload]);
-      if (error) throw error;
-      alert(`Chamado ${protocol} criado com sucesso!`);
-      setIsCreateOpen(false); setNewTicket({ title: '', category: 'MANUTENÇÕES', department: 'SEOM', description: '', drive_link: '' });
-      fetchUserAndTickets();
-    } catch (error: any) { alert('Erro ao criar chamado: ' + error.message); }
-  }
-
-  async function handleRegisterWhatsApp(e: React.FormEvent, addAnother: boolean = false) {
-    e.preventDefault();
-    if (!supabase) return;
-    if (!whatsappTicket.school_id) return alert('Selecione uma escola.');
-    try {
-      const protocol = await generateProtocol();
-      const enhancedDescription = `[ATENDIMENTO WHATSAPP]\nNúmero/Contato: ${whatsappTicket.phone}\nData Original: ${new Date(whatsappTicket.date).toLocaleString()}\n\nDescrição:\n${whatsappTicket.description}`;
-      const payload = { protocol, school_id: whatsappTicket.school_id, created_by: userId, title: whatsappTicket.title, category: whatsappTicket.category, department: whatsappTicket.department, description: enhancedDescription, status: 'CONCLUIDO', created_at: new Date(whatsappTicket.date).toISOString() };
-      const { error } = await (supabase as any).from('internal_tickets').insert([payload]);
-      if (error) throw error;
-      alert(`Atendimento ${protocol} registrado!`);
-      fetchUserAndTickets();
-      if (addAnother) {
-          setWhatsappTicket(prev => ({ ...prev, title: '', description: '', category: 'MANUTENÇÕES', department: 'SEOM' }));
-          const { data: updatedHistory } = await (supabase as any).from('internal_tickets').select('*, schools(name)').eq('school_id', whatsappTicket.school_id).order('created_at', { ascending: false }).limit(5);
-          setSchoolHistory(updatedHistory || []);
-      } else {
-          setIsWhatsappOpen(false);
-          setWhatsappTicket({ date: new Date().toISOString().slice(0, 16), school_id: '', phone: '', title: '', category: 'MANUTENÇÕES', department: 'SEOM', description: '' });
-      }
-    } catch (error: any) { alert('Erro ao registrar: ' + error.message); }
-  }
-
-  // --- ABRIR TICKET: MARCA AS MENSAGENS COMO LIDAS ---
-  async function openTicketDetails(ticket: TicketData) {
-    if (!supabase) return;
-    setSelectedTicket(ticket);
-    const { data } = await (supabase as any)
-      .from('ticket_messages')
-      .select('*, profiles(full_name, role)') 
-      .eq('ticket_id', ticket.id)
-      .order('created_at', { ascending: true });
-    
-    setMessages(data || []);
-
-    // Limpa a notificação assim que a pessoa abre o chamado
-    await (supabase as any).from('ticket_messages')
-        .update({ is_read: true })
-        .eq('ticket_id', ticket.id)
-        .neq('user_id', userId);
-  }
-
-  // --- ENVIAR MENSAGEM: ENVIA COMO NÃO LIDA PARA O OUTRO LADO ---
-  // --- ENVIAR MENSAGEM ---
-  // --- ENVIAR MENSAGEM OU CONCLUIR ---
-  async function handleSendMessage(type: 'RESPONSE' | 'CONCLUSION' = 'RESPONSE') {
-    // Se for uma resposta normal e a caixa estiver vazia, ele bloqueia.
-    // Se for conclusão, ele deixa passar mesmo vazio!
-    if (type === 'RESPONSE' && !newMessage.trim()) return;
-    if (!selectedTicket || !supabase) return;
-
-    try {
-      // Se for conclusão e a caixa estiver vazia, usa a mensagem padrão
-      const textoDaMensagem = (type === 'CONCLUSION' && !newMessage.trim()) 
-          ? "⚠️ Este atendimento foi finalizado pelo administrador." 
-          : newMessage;
-
-      const msgPayload = {
-        ticket_id: selectedTicket.id,
-        user_id: userId,
-        message: textoDaMensagem,
-        type: type === 'CONCLUSION' ? 'STATUS_CHANGE' : 'RESPONSE',
-        is_read: false // Gatilho do sino de notificações
-      };
-      
-      const { error: msgError } = await (supabase as any).from('ticket_messages').insert([msgPayload]);
-      
-      if (msgError) {
-          console.error("ERRO DO SUPABASE:", msgError);
-          alert("Ocorreu um erro ao salvar a mensagem: \n" + msgError.message);
-          return; 
-      }
-
-      let newStatus = selectedTicket.status;
-      if (type === 'CONCLUSION') {
-        newStatus = 'CONCLUIDO';
-      } else {
-        if (isAdminOrDirigente) newStatus = 'AGUARDANDO_ESCOLA'; 
-        else newStatus = 'EM_ANDAMENTO';
-      }
-
-      await (supabase as any).from('internal_tickets').update({ status: newStatus }).eq('id', selectedTicket.id);
-
-      setNewMessage('');
-      setSelectedTicket({ ...selectedTicket, status: newStatus });
-      
-      const { data } = await (supabase as any)
-          .from('ticket_messages')
-          .select('*, profiles(full_name, role)')
-          .eq('ticket_id', selectedTicket.id)
-          .order('created_at', { ascending: true });
-          
-      setMessages(data || []);
-      fetchUserAndTickets();
-
     } catch (error) { 
-        console.error(error); 
-        alert("Erro inesperado no sistema.");
+      console.error(error); 
+    } finally { 
+      setLoading(false); 
     }
   }
 
-  async function handleForwardTicket() {
-    if (!selectedTicket || !supabase) return;
-    const newDept = selectedTicket.department === 'SEOM' ? 'SEFISC' : 'SEOM';
-    const confirm = window.confirm(`Deseja encaminhar este chamado para ${newDept}?`);
-    if (confirm) {
-        try {
-            await (supabase as any).from('internal_tickets').update({ department: newDept }).eq('id', selectedTicket.id);
-            const forwardMessage = `Chamado encaminhado para ${newDept}`;
-            await (supabase as any).from('ticket_messages').insert([{
-                ticket_id: selectedTicket.id, user_id: userId, message: forwardMessage, type: 'FORWARD',
-                is_read: false // Notifica que foi encaminhado
-            }]);
-            alert(forwardMessage); setSelectedTicket(null); fetchUserAndTickets();
-        } catch (error) { console.error(error); }
-    }
+  // --- GESTÃO DA ÁRVORE DE ASSUNTOS (ADMIN) ---
+  async function handleAddCategory(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newCatName.trim()) return;
+    try {
+      await (supabase as any).from('ticket_categories').insert([{ 
+        name: newCatName, 
+        department: newCatDept, 
+        subcategories: [],
+        is_urgent: newCatIsUrgent
+      }]);
+      setNewCatName('');
+      setNewCatIsUrgent(false);
+      fetchCategories();
+    } catch (error) { console.error(error); alert("Erro ao adicionar categoria."); }
   }
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'ABERTO': return 'bg-blue-100 text-blue-700 border-blue-200';
-      case 'EM_ANDAMENTO': return 'bg-amber-100 text-amber-700 border-amber-200';
-      case 'AGUARDANDO_ESCOLA': return 'bg-purple-100 text-purple-700 border-purple-200';
-      case 'CONCLUIDO': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-      default: return 'bg-slate-100 text-slate-600';
+  async function handleDeleteCategory(id: string) {
+    if(!confirm("Remover este assunto principal?")) return;
+    await (supabase as any).from('ticket_categories').delete().eq('id', id);
+    fetchCategories();
+  }
+
+  async function handleAddSubCategory(categoryId: string, currentSubcategories: string[]) {
+    const subName = newSubCatMap[categoryId];
+    if (!subName || !subName.trim()) return;
+    
+    const updatedSubcategories = [...currentSubcategories, subName.trim()];
+    try {
+      await (supabase as any).from('ticket_categories').update({ subcategories: updatedSubcategories }).eq('id', categoryId);
+      setNewSubCatMap(prev => ({ ...prev, [categoryId]: '' }));
+      fetchCategories();
+    } catch (error) { console.error(error); }
+  }
+
+  async function handleRemoveSubCategory(categoryId: string, currentSubcategories: string[], subToRemove: string) {
+    const updatedSubcategories = currentSubcategories.filter(s => s !== subToRemove);
+    try {
+      await (supabase as any).from('ticket_categories').update({ subcategories: updatedSubcategories }).eq('id', categoryId);
+      fetchCategories();
+    } catch (error) { console.error(error); }
+  }
+
+  // --- FILTROS E ORDENAÇÃO INTELIGENTE (URGENTES PRIMEIRO) ---
+  const filteredTickets = useMemo(() => {
+    let result = tickets;
+    
+    // Filtro de Departamento
+    if (departmentFilter !== 'TODOS') {
+      result = result.filter(t => t.department === departmentFilter);
+    }
+    
+    // Filtro de Status
+    if (statusFilter !== 'TODOS') {
+      result = result.filter(t => t.status === statusFilter);
+    }
+    
+    // Filtro de Prioridade
+    if (priorityFilter !== 'TODOS') {
+      result = result.filter(t => t.priority === priorityFilter);
+    }
+    
+    // Filtro de Busca (Search)
+    if (searchTerm) {
+      result = result.filter(t => 
+        t.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        t.protocol.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        t.schools?.name.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    return result.sort((a, b) => {
+      if (a.status === 'CONCLUIDO' && b.status !== 'CONCLUIDO') return 1;
+      if (b.status === 'CONCLUIDO' && a.status !== 'CONCLUIDO') return -1;
+      if (a.priority === 'URGENTE' && b.priority !== 'URGENTE') return -1;
+      if (b.priority === 'URGENTE' && a.priority !== 'URGENTE') return 1;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [tickets, departmentFilter, statusFilter, priorityFilter, searchTerm]);
+
+  // --- TEMPO DE VIDA DO TICKET (SLA) ---
+  const getTimeElapsed = (ticket: TicketData) => {
+    const start = new Date(ticket.created_at).getTime();
+    let end = new Date().getTime();
+
+    // Se estiver concluído e possuir a data de atualização, congela o contador
+    if (ticket.status === 'CONCLUIDO' && ticket.updated_at) {
+      end = new Date(ticket.updated_at).getTime();
+    }
+
+    const diffMs = Math.max(0, end - start);
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (ticket.status === 'CONCLUIDO') {
+      if (diffDays > 0) return `Resolvido em ${diffDays} dia(s)`;
+      if (diffHours > 0) return `Resolvido em ${diffHours}h`;
+      return `Resolvido em ${diffMins} min`;
+    } else {
+      if (diffDays > 0) return `Aberto há ${diffDays} dia(s)`;
+      if (diffHours > 0) return `Aberto há ${diffHours}h`;
+      if (diffMins < 1) return `Agora mesmo`;
+      return `Aberto há ${diffMins} min`;
     }
   };
 
-  if (configError) return <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-8 text-center"><div className="bg-red-50 p-6 rounded-full mb-4"><AlertTriangle size={48} className="text-red-500" /></div><h1 className="text-2xl font-black text-slate-800 mb-2">Configuração Ausente</h1></div>;
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div></div>;
+  async function handleCreateTicket(e: React.FormEvent) {
+    e.preventDefault();
+    
+    const targetSchoolId = isAdminOrDirigente ? newTicket.school_id : userSchoolId;
+    if (!targetSchoolId) return alert('Erro de identificação: Selecione a Unidade Escolar.');
+    if (!newTicket.category) return alert('Selecione um assunto para o chamado.');
+    
+    try {
+      const { count } = await (supabase as any).from('internal_tickets').select('*', { count: 'exact', head: true });
+      const protocol = `GSE-${new Date().getFullYear()}-${String((count || 0) + 1).padStart(7, '0')}`;
+      
+      const payload = { 
+        protocol, school_id: targetSchoolId, created_by: userId, 
+        title: newTicket.title, category: newTicket.category, sub_category: newTicket.sub_category,
+        department: newTicket.department, description: newTicket.description, drive_link: newTicket.drive_link, 
+        status: 'ABERTO', priority: newTicket.isUrgent ? 'URGENTE' : 'NORMAL'
+      };
+      
+      const { error } = await (supabase as any).from('internal_tickets').insert([payload]);
+      if (error) throw error;
+      
+      alert(`Chamado ${protocol} criado com sucesso!`);
+      setIsCreateOpen(false); 
+      setNewTicket({ 
+        school_id: '', title: '', category: '', sub_category: '', 
+        department: 'SEOM', description: '', drive_link: '', isUrgent: false 
+      });
+      fetchUserAndTickets(false); // Atualiza no background
+    } catch (error: any) { alert('Erro: ' + error.message); }
+  }
+
+  async function openTicketDetails(ticket: TicketData) {
+    setSelectedTicket(ticket);
+    await loadMessages(ticket.id);
+  }
+
+  async function handleSendMessage(type: 'RESPONSE' | 'CONCLUSION' = 'RESPONSE') {
+    if (type === 'RESPONSE' && !newMessage.trim()) return;
+    if (!selectedTicket) return;
+
+    try {
+      const msgText = (type === 'CONCLUSION' && !newMessage.trim()) ? "⚠️ Atendimento finalizado pelo administrador." : newMessage;
+      await (supabase as any).from('ticket_messages').insert([{ ticket_id: selectedTicket.id, user_id: userId, message: msgText, type: type === 'CONCLUSION' ? 'STATUS_CHANGE' : 'RESPONSE', is_read: false }]);
+      
+      let newStatus = type === 'CONCLUSION' ? 'CONCLUIDO' : (isAdminOrDirigente ? 'AGUARDANDO_ESCOLA' : 'EM_ANDAMENTO');
+      
+      const updatePayload: any = { status: newStatus };
+      if (type === 'CONCLUSION') {
+          // Grava a data atual quando é concluído para travar o contador de SLA
+          updatePayload.updated_at = new Date().toISOString();
+      }
+
+      await (supabase as any).from('internal_tickets').update(updatePayload).eq('id', selectedTicket.id);
+
+      setNewMessage(''); 
+      // Atualiza a lista por trás sem exibir a tela de loading
+      fetchUserAndTickets(false); 
+      loadMessages(selectedTicket.id);
+      setSelectedTicket({ 
+        ...selectedTicket, 
+        status: newStatus as any, 
+        updated_at: updatePayload.updated_at || selectedTicket.updated_at 
+      });
+    } catch (error) { console.error(error); }
+  }
+
+  async function handleAssignToMe() {
+    if (!selectedTicket || !isAdminOrDirigente) return;
+    try {
+      await (supabase as any).from('internal_tickets').update({ assigned_to: userId, status: 'EM_ANDAMENTO' }).eq('id', selectedTicket.id);
+      await (supabase as any).from('ticket_messages').insert([{ ticket_id: selectedTicket.id, user_id: userId, message: `👤 ${userName} assumiu este chamado.`, type: 'SYSTEM', is_read: false }]);
+      
+      // Atualiza a lista por trás sem exibir a tela de loading
+      fetchUserAndTickets(false);
+      setSelectedTicket(prev => prev ? { ...prev, assigned_to: userId, assignee: { full_name: userName }, status: 'EM_ANDAMENTO' } : null);
+    } catch (error) { console.error(error); }
+  }
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-indigo-600" size={48} /></div>;
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6 pb-20 bg-[#f8fafc] min-h-screen">
+      
+      {/* HEADER CRM */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <div className="flex items-center gap-3">
-             <div className="p-3 bg-indigo-600 rounded-2xl shadow-lg shadow-indigo-100 text-white"><Ticket size={24} /></div>
-             <div>
-                <h1 className="text-2xl font-black text-slate-900 tracking-tight text-indigo-600">Central de Chamados</h1>
-                <p className="text-slate-500 text-sm font-medium">Gestão de ocorrências SEOM e SEFISC.</p>
-             </div>
-          </div>
+        <div className="flex items-center gap-4">
+           <div className="p-4 bg-slate-900 rounded-[2rem] text-white shadow-xl"><LayoutDashboard size={28} /></div>
+           <div>
+              <h1 className="text-3xl font-black text-slate-900 tracking-tight uppercase">Helpdesk <span className="text-indigo-600">Pro</span></h1>
+              <p className="text-slate-500 text-xs font-bold tracking-widest uppercase mt-1">Gestão Inteligente de Demandas</p>
+           </div>
         </div>
-        {userRole === 'school_manager' && (
-            <button onClick={() => setIsCreateOpen(true)} className="bg-slate-900 text-white px-6 py-3 rounded-2xl font-black flex items-center justify-center gap-2 shadow-xl hover:bg-slate-800 transition-all active:scale-95">
-                <Plus size={18} /> ABRIR CHAMADO
-            </button>
-        )}
-        {isAdminOrDirigente && (
-            <div className="flex gap-2">
-                <button onClick={() => setIsReportOpen(true)} className="bg-white border-2 border-slate-200 text-slate-600 px-4 py-3 rounded-2xl font-black flex items-center justify-center gap-2 shadow-sm hover:border-indigo-300 hover:text-indigo-600 transition-all active:scale-95"><FileText size={18} /> RELATÓRIO PDF</button>
-                <button onClick={() => setIsWhatsappOpen(true)} className="bg-green-600 text-white px-6 py-3 rounded-2xl font-black flex items-center justify-center gap-2 shadow-xl hover:bg-green-700 transition-all active:scale-95"><MessageCircle size={18} /> REGISTRAR WHATSAPP</button>
-            </div>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-lg flex flex-col justify-between relative overflow-hidden"><div className="flex items-center justify-between mb-4 z-10"><div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl"><PieChart size={20} /></div><span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Total Registrado</span></div><div className="z-10"><h3 className="text-3xl font-black text-slate-800">{metrics.total}</h3><div className="flex gap-4 mt-2"><div><span className="text-[9px] font-bold text-slate-400 uppercase block">SEOM</span><span className="text-sm font-bold text-indigo-600">{metrics.seomCount}</span></div><div className="w-px h-8 bg-slate-100"></div><div><span className="text-[9px] font-bold text-slate-400 uppercase block">SEFISC</span><span className="text-sm font-bold text-indigo-600">{metrics.sefiscCount}</span></div></div></div><Ticket className="absolute -bottom-4 -right-4 text-indigo-50 w-32 h-32" /></div>
-          <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-lg flex flex-col justify-between relative overflow-hidden"><div className="flex items-center justify-between mb-4 z-10"><div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl"><CheckCircle2 size={20} /></div><span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Resolutividade</span></div><div className="z-10"><div className="flex items-end gap-2"><h3 className="text-3xl font-black text-slate-800">{metrics.concludedCount}</h3><span className="text-xs font-bold text-emerald-500 mb-1.5 uppercase">Concluídos</span></div><div className="mt-3 bg-slate-50 p-2 rounded-xl border border-slate-100 inline-flex items-center gap-2"><Clock size={12} className="text-amber-500" /><span className="text-xs font-bold text-slate-600">{metrics.openCount} em atendimento</span></div></div><CheckCircle className="absolute -bottom-4 -right-4 text-emerald-50 w-32 h-32" /></div>
-          <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-lg flex flex-col justify-between relative overflow-hidden"><div className="flex items-center justify-between mb-4 z-10"><div className="p-3 bg-green-50 text-green-600 rounded-xl"><MessageCircle size={20} /></div><span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">WhatsApp</span></div><div className="z-10"><h3 className="text-3xl font-black text-slate-800">{metrics.whatsappCount}</h3><span className="text-xs font-bold text-slate-400 uppercase">Atendimentos Rápidos</span></div><MessageCircle className="absolute -bottom-4 -right-4 text-green-50 w-32 h-32" /></div>
-          <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-lg relative overflow-hidden"><div className="flex items-center gap-2 mb-4"><div className="p-2 bg-amber-50 text-amber-600 rounded-lg"><ListOrdered size={16} /></div><h4 className="text-xs font-black uppercase text-slate-500 tracking-widest">Top 5 Categorias</h4></div><div className="space-y-2">{metrics.topCategories.length > 0 ? ( metrics.topCategories.map((cat, idx) => ( <div key={cat.name} className="flex items-center justify-between"><div className="flex items-center gap-2"><span className="text-[9px] font-bold text-slate-300 w-4">{idx + 1}.</span><span className="text-[10px] font-bold text-slate-700 truncate max-w-[120px]">{cat.name}</span></div><div className="flex-1 mx-2 h-1.5 bg-slate-50 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 rounded-full" style={{ width: `${(cat.count / metrics.total) * 100}%` }}></div></div><span className="text-[9px] font-bold text-slate-400">{cat.count}</span></div> )) ) : ( <p className="text-[10px] text-slate-300 italic">Sem dados suficientes.</p> )}</div></div>
-      </div>
-
-      <div className="col-span-full bg-white p-6 rounded-[2rem] border border-slate-100 shadow-lg"><div className="flex items-center justify-between mb-6"><div className="flex items-center gap-2"><div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><Activity size={18} /></div><h3 className="font-black text-slate-800 text-lg">Evolução de Atendimentos (12 Meses)</h3></div></div><CustomLineChart data={chartData} /></div>
-
-      <div className="flex flex-col md:flex-row gap-4 justify-between items-end">
-        {isAdminOrDirigente && (
-            <div className="bg-white p-2 rounded-2xl inline-flex border-2 border-slate-100">
-                <button onClick={() => setAdminDeptFilter('SEOM')} className={`px-6 py-2 rounded-xl text-xs font-black transition-all ${adminDeptFilter === 'SEOM' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}>MESA SEOM</button>
-                <button onClick={() => setAdminDeptFilter('SEFISC')} className={`px-6 py-2 rounded-xl text-xs font-black transition-all ${adminDeptFilter === 'SEFISC' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}>MESA SEFISC</button>
-            </div>
-        )}
-
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
-            <button onClick={() => setStatusFilter('EM_ATENDIMENTO')} className={`px-4 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap flex items-center gap-2 ${statusFilter === 'EM_ATENDIMENTO' ? 'bg-slate-800 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}><Filter size={14} /> EM ATENDIMENTO</button>
-            <button onClick={() => setStatusFilter('AGUARDANDO_ESCOLA')} className={`px-4 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap ${statusFilter === 'AGUARDANDO_ESCOLA' ? 'bg-purple-600 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>AGUARDANDO ESCOLA</button>
-            <button onClick={() => setStatusFilter('CONCLUIDO')} className={`px-4 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap ${statusFilter === 'CONCLUIDO' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>CONCLUÍDOS</button>
+        
+        <div className="flex items-center gap-3 flex-wrap">
+          {isAdminOrDirigente && (
+             <button onClick={() => setIsConfigOpen(true)} className="bg-white text-slate-600 border border-slate-200 hover:border-indigo-400 hover:text-indigo-600 px-4 py-3.5 rounded-2xl font-black flex items-center gap-2 shadow-sm transition-all active:scale-95 uppercase text-[10px] tracking-widest">
+                <Settings size={16} /> Assuntos
+             </button>
+          )}
+          <button onClick={() => {
+              setNewTicket({ school_id: '', title: '', category: '', sub_category: '', department: 'SEOM', description: '', drive_link: '', isUrgent: false });
+              setIsCreateOpen(true);
+            }} 
+            className="bg-indigo-600 text-white px-6 py-3.5 rounded-2xl font-black flex items-center gap-2 shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95 uppercase text-[10px] tracking-widest"
+          >
+              <Plus size={16} /> Novo Ticket
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {filteredListTickets.map(ticket => (
-              <div key={ticket.id} onClick={() => openTicketDetails(ticket)} className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-xl hover:border-indigo-200 transition-all cursor-pointer group relative overflow-hidden">
-                  <div className="flex justify-between items-start mb-4">
-                      <span className="text-[10px] font-black bg-slate-100 text-slate-500 px-3 py-1 rounded-full">{ticket.protocol}</span>
-                      <span className={`text-[9px] font-black px-3 py-1 rounded-full border ${getStatusColor(ticket.status)}`}>{ticket.status.replace('_', ' ')}</span>
-                  </div>
-                  <div className="mb-4">
-                      <h3 className="font-black text-slate-800 text-lg leading-tight mb-1 line-clamp-2">{ticket.title}</h3>
-                      <p className="text-xs font-bold text-indigo-500 uppercase tracking-wide">{ticket.category}</p>
-                  </div>
-                  <div className="flex items-center justify-between mt-auto pt-4 border-t border-slate-50">
-                      <div className="flex items-center gap-2 text-slate-400">
-                          <Building2 size={14} />
-                          <span className="text-[10px] font-bold uppercase truncate max-w-[150px]">{ticket.schools?.name || 'Minha Unidade'}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-slate-400"><Clock size={14} /><span className="text-[10px] font-bold">{new Date(ticket.created_at).toLocaleDateString()}</span></div>
-                  </div>
-                  <div className="absolute top-0 right-0 p-6 opacity-0 group-hover:opacity-100 transition-opacity"><ArrowRightLeft className="text-indigo-200" /></div>
-              </div>
-          ))}
-          {filteredListTickets.length === 0 && <div className="col-span-full py-20 text-center text-slate-300 font-black text-xl uppercase">Nenhum chamado encontrado nesta categoria.</div>}
+      {/* DASHBOARD RÁPIDO */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+         <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-md flex items-center gap-4">
+            <div className="p-4 bg-slate-50 text-slate-400 rounded-2xl"><Ticket size={24}/></div>
+            <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total</p><h3 className="text-2xl font-black text-slate-800">{tickets.length}</h3></div>
+         </div>
+         <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-md flex items-center gap-4">
+            <div className="p-4 bg-red-50 text-red-600 rounded-2xl animate-pulse"><Flame size={24}/></div>
+            <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Urgentes</p><h3 className="text-2xl font-black text-red-600">{tickets.filter(t => t.priority === 'URGENTE' && t.status !== 'CONCLUIDO').length}</h3></div>
+         </div>
+         <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-md flex items-center gap-4">
+            <div className="p-4 bg-amber-50 text-amber-600 rounded-2xl"><Clock size={24}/></div>
+            <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Em Aberto</p><h3 className="text-2xl font-black text-amber-600">{tickets.filter(t => t.status === 'ABERTO' || t.status === 'EM_ANDAMENTO').length}</h3></div>
+         </div>
+         <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-md flex items-center gap-4">
+            <div className="p-4 bg-emerald-50 text-emerald-600 rounded-2xl"><CheckCircle2 size={24}/></div>
+            <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Resolvidos</p><h3 className="text-2xl font-black text-emerald-600">{tickets.filter(t => t.status === 'CONCLUIDO').length}</h3></div>
+         </div>
       </div>
 
+      {/* ÁREA DE TRABALHO: FILTROS E LISTA */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+         
+         {/* SIDEBAR DE FILTROS */}
+         <div className="lg:col-span-3 space-y-6">
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-xl">
+               <h3 className="text-xs font-black uppercase text-slate-800 tracking-widest mb-6 flex items-center gap-2"><Filter size={16}/> Filtros Ativos</h3>
+               
+               <div className="space-y-6">
+                  <div>
+                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Busca</label>
+                     <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                        <input type="text" placeholder="Protocolo ou Escola..." className="w-full pl-9 pr-3 py-3 bg-slate-50 border-none rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                     </div>
+                  </div>
+
+                  <div>
+                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Departamento</label>
+                     <div className="flex flex-col gap-2">
+                        {['TODOS', 'SEOM', 'SEFISC'].map(d => (
+                           <button key={d} onClick={() => setDepartmentFilter(d as any)} className={`text-left px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${departmentFilter === d ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' : 'text-slate-500 hover:bg-slate-50'}`}>
+                              {d}
+                           </button>
+                        ))}
+                     </div>
+                  </div>
+
+                  <div>
+                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Status do Ticket</label>
+                     <div className="flex flex-col gap-2">
+                        {['TODOS', 'ABERTO', 'EM_ANDAMENTO', 'AGUARDANDO_ESCOLA', 'CONCLUIDO'].map(s => (
+                           <button key={s} onClick={() => setStatusFilter(s as any)} className={`text-left px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${statusFilter === s ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' : 'text-slate-500 hover:bg-slate-50'}`}>
+                              {s.replace('_', ' ')}
+                           </button>
+                        ))}
+                     </div>
+                  </div>
+
+                  <div>
+                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Nível de Urgência</label>
+                     <div className="flex flex-col gap-2">
+                        {['TODOS', 'URGENTE', 'ALTA', 'NORMAL', 'BAIXA'].map(p => (
+                           <button key={p} onClick={() => setPriorityFilter(p as any)} className={`flex items-center justify-between px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${priorityFilter === p ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
+                              {p} {p === 'URGENTE' && <Flame size={12} className={priorityFilter === p ? 'text-red-400' : 'text-red-500'}/>}
+                           </button>
+                        ))}
+                     </div>
+                  </div>
+               </div>
+            </div>
+         </div>
+
+         {/* LISTA DE TICKETS KANBAN-STYLE */}
+         <div className="lg:col-span-9 space-y-4">
+            {filteredTickets.length === 0 ? (
+               <div className="bg-white p-20 rounded-[3rem] border-2 border-dashed border-slate-100 text-center flex flex-col items-center">
+                  <ShieldAlert size={48} className="text-slate-200 mb-4" />
+                  <p className="text-slate-400 font-black uppercase tracking-widest text-xs">Nenhum ticket corresponde aos filtros.</p>
+               </div>
+            ) : (
+               filteredTickets.map(ticket => (
+                  <div key={ticket.id} onClick={() => openTicketDetails(ticket)} className={`bg-white p-6 rounded-[2rem] border-l-8 shadow-sm hover:shadow-xl transition-all cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-6 ${ticket.priority === 'URGENTE' && ticket.status !== 'CONCLUIDO' ? 'border-l-red-500 ring-1 ring-red-100' : ticket.status === 'CONCLUIDO' ? 'border-l-emerald-500 opacity-70' : 'border-l-indigo-500 border-y border-r border-slate-100'}`}>
+                     
+                     <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-3 mb-2">
+                           <span className="text-[10px] font-black bg-slate-100 text-slate-600 px-3 py-1 rounded-md">{ticket.protocol}</span>
+                           <span className="text-[9px] font-black bg-indigo-50 text-indigo-600 px-2 py-1 rounded-md border border-indigo-100">{ticket.department}</span>
+                           {ticket.priority === 'URGENTE' && ticket.status !== 'CONCLUIDO' && <span className="text-[9px] font-black bg-red-100 text-red-700 px-2 py-1 rounded-md flex items-center gap-1 animate-pulse"><Flame size={10}/> URGENTE</span>}
+                           {ticket.status === 'CONCLUIDO' && <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-2 py-1 rounded-md flex items-center gap-1"><CheckCircle2 size={10}/> RESOLVIDO</span>}
+                        </div>
+                        <h3 className="text-lg font-black text-slate-800 truncate">{ticket.title}</h3>
+                        <p className="text-xs font-bold text-slate-400 uppercase mt-1 flex items-center gap-2 truncate">
+                           <Building2 size={12}/> {ticket.schools?.name || 'Escola'}
+                           <span className="w-1 h-1 rounded-full bg-slate-300"></span>
+                           {ticket.category} {ticket.sub_category ? `> ${ticket.sub_category}` : ''}
+                        </p>
+                     </div>
+
+                     <div className="flex items-center gap-6 shrink-0 text-right">
+                        <div className="hidden md:block">
+                           <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Status</p>
+                           <p className="text-xs font-bold text-slate-700">{ticket.status.replace('_', ' ')}</p>
+                        </div>
+                        <div className="hidden md:block">
+                           <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">SLA Tempo</p>
+                           <p className="text-xs font-bold text-slate-700 flex items-center gap-1 justify-end"><Clock size={12}/> {getTimeElapsed(ticket)}</p>
+                        </div>
+                        
+                        {/* Avatar do Responsável */}
+                        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-slate-50 border-2 border-slate-100 text-slate-400" title={ticket.assignee?.full_name || 'Não atribuído'}>
+                           {ticket.assignee ? <span className="text-[10px] font-black text-indigo-600 uppercase">{ticket.assignee.full_name.substring(0,2)}</span> : <UserPlus size={16}/>}
+                        </div>
+                     </div>
+                  </div>
+               ))
+            )}
+         </div>
+      </div>
+
+      {/* --- MODAL NOVO CHAMADO SIMPLIFICADO --- */}
       {isCreateOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
-            <div className="bg-white rounded-[2.5rem] w-full max-w-2xl shadow-2xl animate-in zoom-in-95 overflow-hidden">
-                <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50"><h2 className="text-xl font-black text-slate-800">Novo Chamado</h2><button onClick={() => setIsCreateOpen(false)}><X className="text-slate-400 hover:text-slate-600" /></button></div>
-                <form onSubmit={handleCreateTicket} className="p-8 space-y-6 overflow-y-auto max-h-[70vh] custom-scrollbar">
-                    <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Título da Ocorrência</label><input required type="text" className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-indigo-500" value={newTicket.title} onChange={e => setNewTicket({...newTicket, title: e.target.value})} placeholder="Resumo do problema" /></div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Departamento</label><select className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-indigo-500" value={newTicket.department} onChange={e => setNewTicket({...newTicket, department: e.target.value as any})}><option value="SEOM">SEOM (Obras/Manutenção)</option><option value="SEFISC">SEFISC (Fiscalização/Limpeza)</option></select></div>
-                        <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Categoria</label><select className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-indigo-500" value={newTicket.category} onChange={e => setNewTicket({...newTicket, category: e.target.value})}>{CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-                    </div>
-                    <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Descrição Detalhada</label><textarea required rows={4} className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-medium text-slate-700 outline-none focus:border-indigo-500" value={newTicket.description} onChange={e => setNewTicket({...newTicket, description: e.target.value})} placeholder="Descreva o problema com detalhes..." /></div>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-[3rem] w-full max-w-3xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+                <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
+                   <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg"><Ticket size={24}/></div>
+                      <div><h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Abertura de Ticket</h2><p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mt-1">Classificação Inteligente</p></div>
+                   </div>
+                   <button onClick={() => setIsCreateOpen(false)} className="p-3 bg-white hover:bg-slate-200 rounded-full transition-all text-slate-400"><X size={20} /></button>
+                </div>
+                
+                <form onSubmit={handleCreateTicket} className="p-8 space-y-6 overflow-y-auto custom-scrollbar flex-1">
+                    
+                    {isAdminOrDirigente && (
+                       <div>
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Unidade Escolar Solicitante</label>
+                          <select required className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-indigo-500" value={newTicket.school_id} onChange={e => setNewTicket({...newTicket, school_id: e.target.value})}>
+                             <option value="">Selecione a unidade...</option>
+                             {schoolsList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                          </select>
+                       </div>
+                    )}
+
                     <div>
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Link para Arquivos (Drive/Fotos)</label>
-                        <div className="flex items-center gap-2 p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl"><Paperclip size={20} className="text-slate-400" /><input type="url" className="w-full bg-transparent font-medium text-slate-700 outline-none" value={newTicket.drive_link} onChange={e => setNewTicket({...newTicket, drive_link: e.target.value})} placeholder="Cole aqui o link compartilhado do Google Drive ou OneDrive" /></div>
-                        <p className="text-[10px] text-slate-400 mt-2 ml-1">Para economizar espaço, armazene as fotos no seu Google Drive e cole o link aqui.</p>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Assunto do Chamado</label>
+                        <select 
+                           required 
+                           className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-indigo-500 cursor-pointer" 
+                           value={newTicket.category ? `${newTicket.category}|${newTicket.sub_category}` : ''} 
+                           onChange={e => {
+                              const [catName, subName] = e.target.value.split('|');
+                              const cat = categories.find(c => c.name === catName);
+                              if (cat) {
+                                 setNewTicket({
+                                    ...newTicket, 
+                                    category: cat.name, 
+                                    sub_category: subName, 
+                                    department: cat.department as 'SEOM' | 'SEFISC',
+                                    isUrgent: !!cat.is_urgent
+                                 });
+                              }
+                           }}
+                        >
+                           <option value="" disabled>Selecione o assunto...</option>
+                           {categories.map(cat => (
+                              <optgroup key={cat.id} label={`${cat.name}`}>
+                                 {cat.subcategories.length > 0 ? (
+                                    cat.subcategories.map(sub => (
+                                       <option key={`${cat.name}|${sub}`} value={`${cat.name}|${sub}`}>
+                                          {sub} {cat.is_urgent ? ' 🚨 (Urgente)' : ''}
+                                       </option>
+                                    ))
+                                 ) : (
+                                    <option key={`${cat.name}|`} value={`${cat.name}|`}>
+                                       {cat.name} (Geral) {cat.is_urgent ? ' 🚨 (Urgente)' : ''}
+                                    </option>
+                                 )}
+                              </optgroup>
+                           ))}
+                        </select>
+                        {newTicket.isUrgent && (
+                           <div className="mt-3 inline-flex items-center gap-2 bg-red-50 text-red-600 px-4 py-2 rounded-xl border border-red-100">
+                              <Flame size={16} className="animate-pulse" />
+                              <span className="text-[10px] font-black uppercase tracking-widest">Este assunto aciona o alerta prioritário.</span>
+                           </div>
+                        )}
                     </div>
-                    <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-xl hover:bg-indigo-700 active:scale-95 transition-all">REGISTRAR OCORRÊNCIA</button>
+
+                    <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Resumo do Problema (Título)</label><input required type="text" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-indigo-500" value={newTicket.title} onChange={e => setNewTicket({...newTicket, title: e.target.value})} placeholder="Ex: Vazamento no banheiro dos alunos" /></div>
+                    
+                    <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Descrição Detalhada do Chamado</label><textarea required rows={4} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-medium text-slate-700 outline-none focus:border-indigo-500 custom-scrollbar" value={newTicket.description} onChange={e => setNewTicket({...newTicket, description: e.target.value})} placeholder="Forneça o máximo de detalhes possíveis para agilizar o atendimento..." /></div>
+                    
+                    <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Anexos (Link do Drive Compartilhado)</label>
+                        <div className="flex items-center gap-3 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus-within:border-indigo-500 transition-all"><Paperclip size={20} className="text-slate-400" /><input type="url" className="w-full bg-transparent font-bold text-slate-700 outline-none text-sm" value={newTicket.drive_link} onChange={e => setNewTicket({...newTicket, drive_link: e.target.value})} placeholder="Cole a URL das fotos/vídeos aqui" /></div>
+                    </div>
+                    
+                    <button type="submit" className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-indigo-200 hover:bg-indigo-700 active:scale-95 transition-all">
+                       GERAR PROTOCOLO E ENVIAR
+                    </button>
                 </form>
             </div>
         </div>
       )}
 
-      {isWhatsappOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
-            <div className="bg-white rounded-[2.5rem] w-full max-w-2xl h-[90vh] shadow-2xl animate-in zoom-in-95 overflow-hidden border-4 border-green-500 flex flex-col">
-                <div className="p-6 border-b border-green-100 flex justify-between items-center bg-green-50 shrink-0"><div className="flex items-center gap-2"><MessageCircle size={24} className="text-green-600" /><div><h2 className="text-xl font-black text-green-800">Registrar WhatsApp</h2><p className="text-xs text-green-600 font-bold">Atendimento rápido administrativo</p></div></div><button onClick={() => setIsWhatsappOpen(false)}><X className="text-green-400 hover:text-green-600" /></button></div>
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
-                    <form className="space-y-6">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Data do Atendimento</label><input required type="datetime-local" className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-green-500" value={whatsappTicket.date} onChange={e => setWhatsappTicket({...whatsappTicket, date: e.target.value})} /></div>
-                            <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Número/Contato</label><input required type="text" className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-green-500" value={whatsappTicket.phone} onChange={e => setWhatsappTicket({...whatsappTicket, phone: e.target.value})} placeholder="(11) 99999-9999" /></div>
-                        </div>
-                        <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Escola Solicitante</label><select required className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-green-500" value={whatsappTicket.school_id} onChange={e => setWhatsappTicket({...whatsappTicket, school_id: e.target.value})}><option value="">Selecione uma escola...</option>{schoolsList.map(school => ( <option key={school.id} value={school.id}>{school.name}</option> ))}</select></div>
-                        <div className="p-6 bg-slate-50 rounded-3xl border-2 border-slate-100"><h4 className="text-xs font-black uppercase text-slate-400 mb-4 flex items-center gap-2"><Ticket size={14} /> Detalhes do Chamado</h4><div className="space-y-4"><div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Assunto</label><input required type="text" className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-green-500" value={whatsappTicket.title} onChange={e => setWhatsappTicket({...whatsappTicket, title: e.target.value})} placeholder="Resumo da solicitação" /></div><div className="grid grid-cols-2 gap-4"><div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Departamento</label><select className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-green-500" value={whatsappTicket.department} onChange={e => setWhatsappTicket({...whatsappTicket, department: e.target.value as any})}><option value="SEOM">SEOM</option><option value="SEFISC">SEFISC</option></select></div><div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Categoria</label><select className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-green-500" value={whatsappTicket.category} onChange={e => setWhatsappTicket({...whatsappTicket, category: e.target.value})}>{CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div></div><div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Descrição da Conversa</label><textarea required rows={3} className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-medium text-slate-700 outline-none focus:border-green-500" value={whatsappTicket.description} onChange={e => setWhatsappTicket({...whatsappTicket, description: e.target.value})} placeholder="Cole ou descreva o que foi tratado..." /></div></div></div>
-                        <div className="flex gap-3 pt-2"><button onClick={(e) => handleRegisterWhatsApp(e, false)} className="flex-1 py-4 bg-green-600 text-white rounded-2xl font-black shadow-lg hover:bg-green-700 active:scale-95 transition-all flex items-center justify-center gap-2"><Save size={18} /> REGISTRAR E FINALIZAR</button><button onClick={(e) => handleRegisterWhatsApp(e, true)} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg hover:bg-indigo-700 active:scale-95 transition-all flex items-center justify-center gap-2"><RefreshCw size={18} /> REGISTRAR E CONTINUAR</button></div>
-                    </form>
-                    {schoolHistory.length > 0 && (
-                        <div className="mt-8 pt-8 border-t border-slate-100">
-                            <div className="flex items-center gap-2 mb-4"><History size={16} className="text-slate-400" /><h4 className="text-xs font-black uppercase text-slate-400 tracking-widest">Histórico Recente desta Escola</h4></div>
-                            <div className="space-y-3">{schoolHistory.map(ticket => ( <div key={ticket.id} className="p-4 bg-white border border-slate-100 rounded-2xl shadow-sm flex justify-between items-center"><div><span className="text-[10px] font-bold text-slate-400 block mb-1">{new Date(ticket.created_at).toLocaleDateString()} • {ticket.protocol}</span><p className="text-xs font-bold text-slate-700">{ticket.title}</p></div><div className={`px-2 py-1 rounded-lg text-[10px] font-bold border ${getStatusColor(ticket.status)}`}>{ticket.status.replace('_', ' ')}</div></div> ))}</div>
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
-      )}
-
-      {isReportOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
-            <div className="bg-white rounded-[2.5rem] w-full max-w-lg shadow-2xl animate-in zoom-in-95 overflow-hidden">
-                <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50"><div className="flex items-center gap-2"><FileText size={24} className="text-indigo-600" /><h2 className="text-xl font-black text-slate-800">Exportar Relatório</h2></div><button onClick={() => setIsReportOpen(false)}><X className="text-slate-400 hover:text-slate-600" /></button></div>
-                <div className="p-8 space-y-6">
-                    <p className="text-sm text-slate-500 font-medium">Selecione o período para gerar o relatório consolidado em PDF para apresentação.</p>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Mês</label><select className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-indigo-500" value={reportDate.month} onChange={e => setReportDate({...reportDate, month: parseInt(e.target.value)})}>{Array.from({ length: 12 }, (_, i) => ( <option key={i + 1} value={i + 1}>{new Date(0, i).toLocaleString('pt-BR', { month: 'long' }).toUpperCase()}</option> ))}</select></div>
-                        <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Ano</label><select className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:border-indigo-500" value={reportDate.year} onChange={e => setReportDate({...reportDate, year: parseInt(e.target.value)})}>{Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 1 + i).map(year => ( <option key={year} value={year}>{year}</option> ))}</select></div>
-                    </div>
-                    <button onClick={handleGenerateReport} disabled={isGeneratingReport} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-xl hover:bg-indigo-700 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed">{isGeneratingReport ? ( <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> ) : ( <Download size={20} /> )}{isGeneratingReport ? 'GERANDO PDF...' : 'BAIXAR RELATÓRIO'}</button>
-                </div>
-            </div>
-        </div>
-      )}
-
+      {/* --- MODAL DETALHES DO TICKET (CRM VIEW) --- */}
       {selectedTicket && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
-            <div className="bg-white rounded-[3rem] w-full max-w-4xl h-[85vh] shadow-2xl animate-in zoom-in-95 flex overflow-hidden">
-                <div className="w-1/3 bg-slate-50 p-8 border-r border-slate-200 overflow-y-auto hidden md:block custom-scrollbar">
-                    <div className="mb-6"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Protocolo</span><h2 className="text-2xl font-black text-slate-800">{selectedTicket.protocol}</h2></div>
-                    <div className="space-y-6">
-                        <div><label className="text-[9px] font-black text-indigo-500 uppercase">Status Atual</label><div className={`mt-1 inline-block px-3 py-1 rounded-lg text-xs font-bold border ${getStatusColor(selectedTicket.status)}`}>{selectedTicket.status.replace('_', ' ')}</div></div>
-                        <div><label className="text-[9px] font-black text-indigo-500 uppercase">Departamento</label><p className="font-bold text-slate-700">{selectedTicket.department}</p></div>
-                        <div><label className="text-[9px] font-black text-indigo-500 uppercase">Categoria</label><p className="font-bold text-slate-700">{selectedTicket.category}</p></div>
-                        <div><label className="text-[9px] font-black text-indigo-500 uppercase">Descrição</label><p className="text-sm text-slate-600 mt-1 leading-relaxed bg-white p-3 rounded-xl border border-slate-200 whitespace-pre-wrap">{selectedTicket.description}</p></div>
-                        {selectedTicket.drive_link && ( <div><label className="text-[9px] font-black text-indigo-500 uppercase">Anexos</label><a href={selectedTicket.drive_link} target="_blank" rel="noreferrer" className="flex items-center gap-2 mt-1 text-xs font-bold text-indigo-600 hover:underline bg-indigo-50 p-3 rounded-xl"><Paperclip size={14} /> Abrir Arquivos no Drive</a></div> )}
-                        {isAdminOrDirigente && (
-                            <div className="pt-6 border-t border-slate-200 space-y-3">
-                                <p className="text-[10px] font-black text-slate-400 uppercase">Ações Administrativas</p>
-                                <button onClick={handleForwardTicket} className="w-full py-3 bg-white border-2 border-slate-200 hover:border-indigo-200 text-slate-600 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all"><ArrowRightLeft size={14} /> Encaminhar p/ {selectedTicket.department === 'SEOM' ? 'SEFISC' : 'SEOM'}</button>
-                                {selectedTicket.status !== 'CONCLUIDO' && (
-                                    <button onClick={() => handleSendMessage('CONCLUSION')} className="w-full py-3 bg-emerald-50 border-2 border-emerald-100 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all"><CheckCircle size={14} /> Concluir Chamado</button>
-                                )}
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4">
+            <div className="bg-white rounded-[3rem] w-full max-w-5xl h-[85vh] shadow-2xl animate-in zoom-in-95 flex overflow-hidden border border-white">
+                
+                {/* SIDEBAR ESQUERDA: PROPRIEDADES DO TICKET */}
+                <div className="w-1/3 bg-slate-50 border-r border-slate-200 flex flex-col hidden md:flex shrink-0">
+                   <div className="p-8 border-b border-slate-200 bg-white">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Protocolo {selectedTicket.protocol}</span>
+                      <h2 className="text-xl font-black text-slate-800 leading-tight">{selectedTicket.title}</h2>
+                   </div>
+                   
+                   <div className="p-8 overflow-y-auto custom-scrollbar flex-1 space-y-8">
+                      {/* Triage Info */}
+                      <div>
+                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 border-b pb-2">Informações de Triagem</p>
+                         <div className="space-y-4">
+                            <div><span className="text-[10px] font-bold text-slate-500 block">Status</span><span className="text-xs font-black text-slate-800 uppercase">{selectedTicket.status.replace('_', ' ')}</span></div>
+                            <div><span className="text-[10px] font-bold text-slate-500 block">Prioridade</span><span className={`text-xs font-black uppercase flex items-center gap-1 ${selectedTicket.priority === 'URGENTE' ? 'text-red-600' : 'text-slate-800'}`}>{selectedTicket.priority} {selectedTicket.priority === 'URGENTE' && <Flame size={12}/>}</span></div>
+                            <div><span className="text-[10px] font-bold text-slate-500 block">SLA Cronómetro</span><span className="text-xs font-black text-slate-800 uppercase">{getTimeElapsed(selectedTicket)}</span></div>
+                         </div>
+                      </div>
+
+                      {/* Classificação */}
+                      <div>
+                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 border-b pb-2">Classificação Automática</p>
+                         <div className="space-y-4">
+                            <div><span className="text-[10px] font-bold text-slate-500 block">Mesa Designada</span><span className="text-xs font-black text-indigo-600 uppercase bg-indigo-50 px-2 py-1 rounded inline-block mt-1">{selectedTicket.department}</span></div>
+                            <div><span className="text-[10px] font-bold text-slate-500 block">Assunto / Categoria</span><span className="text-xs font-black text-slate-800 uppercase block leading-tight mt-1">{selectedTicket.category} <br/><span className="text-slate-400">↳ {selectedTicket.sub_category || 'Geral'}</span></span></div>
+                         </div>
+                      </div>
+
+                      {/* Atribuição */}
+                      <div>
+                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 border-b pb-2">Responsável Técnica</p>
+                         {selectedTicket.assignee ? (
+                            <div className="flex items-center gap-3 bg-white p-3 rounded-xl border border-slate-200">
+                               <div className="w-8 h-8 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-black text-[10px]">{selectedTicket.assignee.full_name.substring(0,2)}</div>
+                               <div><p className="text-xs font-black text-slate-800 uppercase leading-none">{selectedTicket.assignee.full_name}</p><p className="text-[9px] text-slate-400 font-bold mt-1">Análise Regional</p></div>
                             </div>
-                        )}
-                    </div>
+                         ) : (
+                            <div className="bg-slate-100 p-4 rounded-xl border border-slate-200 border-dashed text-center">
+                               <UserPlus size={20} className="mx-auto text-slate-300 mb-2"/>
+                               <p className="text-[10px] font-black text-slate-400 uppercase mb-3">Ticket Não Atribuído</p>
+                               {isAdminOrDirigente && <button onClick={handleAssignToMe} className="px-4 py-2 bg-indigo-600 text-white text-[10px] font-black uppercase rounded-lg shadow-md hover:bg-indigo-700 w-full transition-all">Assumir Chamado</button>}
+                            </div>
+                         )}
+                      </div>
+                   </div>
                 </div>
 
+                {/* ÁREA DIREITA: DESCRIÇÃO E CHAT (TIMELINE) */}
                 <div className="flex-1 flex flex-col bg-white">
-                    <div className="p-6 border-b border-slate-100 flex justify-between items-center"><div><h3 className="font-black text-slate-800 text-lg">{selectedTicket.title}</h3><p className="text-xs text-slate-400 font-bold">{selectedTicket.schools?.name}</p></div><button onClick={() => setSelectedTicket(null)} className="p-2 hover:bg-slate-100 rounded-full"><X size={20} className="text-slate-400" /></button></div>
-                    <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/50 custom-scrollbar">
-                        {messages.length === 0 && <p className="text-center text-slate-300 text-sm py-10">Nenhuma movimentação registrada.</p>}
+                    <div className="p-6 border-b border-slate-100 flex justify-between items-center shrink-0 shadow-sm z-10">
+                       <div className="flex items-center gap-3">
+                          <Building2 size={20} className="text-slate-400"/>
+                          <div><h3 className="font-black text-slate-800 uppercase text-sm">{selectedTicket.schools?.name}</h3><p className="text-[10px] text-slate-400 font-bold uppercase">Solicitante Oficial</p></div>
+                       </div>
+                       <button onClick={() => setSelectedTicket(null)} className="p-2 hover:bg-slate-100 rounded-full transition-all"><X size={20} className="text-slate-400" /></button>
+                    </div>
+                    
+                    <div 
+                      className="flex-1 overflow-y-auto p-8 space-y-6 bg-slate-50/30 custom-scrollbar scroll-smooth"
+                      ref={chatContainerRef}
+                    >
+                        {/* Descrição Original do Ticket */}
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                           <div className="flex items-center gap-2 mb-4"><FileText size={16} className="text-slate-400"/><span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Descrição Original</span></div>
+                           <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap font-medium">{selectedTicket.description}</p>
+                           {selectedTicket.drive_link && ( <a href={selectedTicket.drive_link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 mt-4 text-xs font-black text-indigo-600 uppercase bg-indigo-50 px-4 py-2 rounded-xl hover:bg-indigo-100 transition-all"><Paperclip size={14} /> Abrir Anexos no Drive</a> )}
+                        </div>
+
+                        <div className="flex items-center gap-4 my-8 opacity-50"><div className="h-px bg-slate-300 flex-1"></div><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Timeline de Resoluções</span><div className="h-px bg-slate-300 flex-1"></div></div>
+
+                        {messages.length === 0 && <p className="text-center text-slate-300 text-xs font-bold uppercase tracking-widest py-10">Aguardando primeira interação...</p>}
+                        
+                        {/* Timeline / Chat */}
                         {messages.map(msg => {
-                            const isMe = msg.user_id === userId; const isSystem = msg.type !== 'RESPONSE'; const senderName = isMe ? 'Eu' : (msg.profiles?.full_name || 'Usuário');
+                            const isMe = msg.user_id === userId; const isSystem = msg.type !== 'RESPONSE'; const senderName = isMe ? 'Você' : (msg.profiles?.full_name || 'Usuário');
                             return (
                                 <div key={msg.id} className={`flex flex-col ${isSystem ? 'items-center' : (isMe ? 'items-end' : 'items-start')}`}>
-                                    {isSystem ? ( <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full uppercase tracking-wider my-2">{msg.message}</span> ) : (
-                                        <>
-                                            <span className="text-[9px] text-slate-400 font-bold mb-1 px-1">{senderName}</span>
-                                            <div className={`max-w-[80%] p-4 rounded-2xl text-sm shadow-sm ${isMe ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white border border-slate-200 text-slate-700 rounded-tl-none'}`}><p>{msg.message}</p><span className={`text-[9px] block mt-2 opacity-60 ${isMe ? 'text-indigo-200' : 'text-slate-400'}`}>{new Date(msg.created_at).toLocaleString()}</span></div>
-                                        </>
+                                    {isSystem ? ( <span className="text-[9px] font-black text-slate-500 bg-slate-200 px-4 py-1.5 rounded-full uppercase tracking-wider my-2 flex items-center gap-2"><Activity size={10}/> {msg.message}</span> ) : (
+                                        <div className="max-w-[80%] flex flex-col animate-in fade-in slide-in-from-bottom-2">
+                                            <span className={`text-[9px] font-black uppercase mb-1 px-1 ${isMe ? 'text-right text-indigo-400' : 'text-left text-slate-400'}`}>{senderName}</span>
+                                            <div className={`p-5 rounded-[2rem] text-sm shadow-md ${isMe ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm'}`}><p className="leading-relaxed font-medium">{msg.message}</p></div>
+                                            <span className={`text-[8px] font-bold block mt-1 px-2 ${isMe ? 'text-right text-slate-300' : 'text-left text-slate-300'}`}>{new Date(msg.created_at).toLocaleString()}</span>
+                                        </div>
                                     )}
                                 </div>
                             );
                         })}
                     </div>
 
+                    {/* Input de Resposta */}
                     {selectedTicket.status !== 'CONCLUIDO' && (
-                        <div className="p-4 border-t border-slate-100 bg-white"><div className="flex gap-2"><input type="text" className="flex-1 p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 font-medium text-slate-700 transition-all" placeholder="Digite uma resposta ou solicitação..." value={newMessage} onChange={e => setNewMessage(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSendMessage()} /><button onClick={() => handleSendMessage()} className="p-4 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-all active:scale-95"><Send size={20} /></button></div></div>
+                        <div className="p-6 border-t border-slate-200 bg-white shrink-0">
+                           <div className="flex gap-3 bg-slate-50 p-2 rounded-[2rem] border border-slate-200 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-50 transition-all">
+                              <input type="text" className="flex-1 px-4 bg-transparent outline-none font-medium text-slate-700 text-sm" placeholder="Escreva uma resposta para o solicitante..." value={newMessage} onChange={e => setNewMessage(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSendMessage()} />
+                              
+                              {isAdminOrDirigente && newMessage === '' ? (
+                                <button onClick={() => handleSendMessage('CONCLUSION')} className="px-6 py-3 bg-emerald-100 text-emerald-700 rounded-2xl hover:bg-emerald-200 transition-all font-black uppercase tracking-widest text-[10px] flex items-center gap-2 shrink-0"><CheckCircle2 size={16} /> Finalizar</button>
+                              ) : (
+                                <button onClick={() => handleSendMessage('RESPONSE')} className="w-12 h-12 flex items-center justify-center bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-all active:scale-95 shrink-0"><Send size={18} className="-ml-1" /></button>
+                              )}
+                           </div>
+                        </div>
                     )}
                 </div>
             </div>
         </div>
       )}
+
+      {/* --- MODAL DE CONFIGURAÇÃO DE ASSUNTOS (ADMIN CRM) --- */}
+      {isConfigOpen && isAdminOrDirigente && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4">
+          <div className="bg-white rounded-[3rem] w-full max-w-4xl h-[85vh] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
+             <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
+                <div className="flex items-center gap-4">
+                   <div className="w-12 h-12 bg-slate-900 rounded-2xl flex items-center justify-center text-white shadow-lg"><FolderTree size={24}/></div>
+                   <div><h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Árvore de Assuntos</h2><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Gestão de Categorias do Sistema</p></div>
+                </div>
+                <button onClick={() => setIsConfigOpen(false)} className="p-3 bg-white hover:bg-slate-200 rounded-full transition-all text-slate-400"><X size={20} /></button>
+             </div>
+             
+             <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-slate-50/50 space-y-8">
+                
+                {/* Nova Categoria */}
+                <div className="bg-white p-6 rounded-[2rem] border border-indigo-100 shadow-sm">
+                   <h3 className="text-xs font-black uppercase text-indigo-600 tracking-widest mb-4">Adicionar Nova Categoria Principal</h3>
+                   <form onSubmit={handleAddCategory} className="flex flex-col md:flex-row items-center gap-4">
+                      <select className="p-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-indigo-500 w-full md:w-48" value={newCatDept} onChange={e => setNewCatDept(e.target.value as any)}>
+                         <option value="SEOM">SEOM</option>
+                         <option value="SEFISC">SEFISC</option>
+                      </select>
+                      <input type="text" placeholder="Ex: REFORMAS ESTRUTURAIS" className="flex-1 w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none focus:border-indigo-500 uppercase" value={newCatName} onChange={e => setNewCatName(e.target.value)} />
+                      <label className="flex items-center gap-2 cursor-pointer p-4 bg-red-50 text-red-600 rounded-xl font-bold text-xs uppercase border border-red-100 shrink-0 w-full md:w-auto justify-center">
+                         <input type="checkbox" className="accent-red-600 w-4 h-4 cursor-pointer" checked={newCatIsUrgent} onChange={e => setNewCatIsUrgent(e.target.checked)} />
+                         <Flame size={16}/> Prioridade Urgente
+                      </label>
+                      <button type="submit" className="w-full md:w-auto px-8 py-4 bg-indigo-600 text-white rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-indigo-700 transition-all shadow-md shrink-0">Adicionar</button>
+                   </form>
+                </div>
+
+                {/* Lista de Categorias e Subcategorias */}
+                <div className="space-y-6">
+                   {categories.map(cat => (
+                      <div key={cat.id} className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
+                         <div className="p-5 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                            <div className="flex flex-wrap items-center gap-3">
+                               <span className="bg-slate-900 text-white px-3 py-1 rounded-md text-[9px] font-black tracking-widest">{cat.department}</span>
+                               <h4 className="font-black text-slate-800 uppercase tracking-tight">{cat.name}</h4>
+                               {cat.is_urgent && <span className="bg-red-100 text-red-600 px-3 py-1 rounded-md text-[9px] font-black tracking-widest flex items-center gap-1"><Flame size={12}/> URGENTE</span>}
+                            </div>
+                            <button onClick={() => handleDeleteCategory(cat.id)} className="p-2 text-slate-400 hover:bg-red-50 hover:text-red-500 rounded-lg transition-all"><Trash2 size={16}/></button>
+                         </div>
+                         <div className="p-6">
+                            <div className="flex flex-wrap gap-2 mb-6">
+                               {cat.subcategories.map(sub => (
+                                 <span key={sub} className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 text-indigo-700 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest">
+                                    <Tag size={12}/> {sub}
+                                    <button onClick={() => handleRemoveSubCategory(cat.id, cat.subcategories, sub)} className="ml-2 hover:bg-indigo-200 p-1 rounded-full"><X size={12}/></button>
+                                 </span>
+                               ))}
+                               {cat.subcategories.length === 0 && <span className="text-xs text-slate-400 italic">Nenhuma subcategoria vinculada. (Aparecerá como Assunto "Geral")</span>}
+                            </div>
+                            <div className="flex gap-2">
+                               <input 
+                                 type="text" 
+                                 placeholder="Nova Subcategoria (Assunto específico)..." 
+                                 className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs outline-none focus:border-indigo-500" 
+                                 value={newSubCatMap[cat.id] || ''}
+                                 onChange={e => setNewSubCatMap(prev => ({...prev, [cat.id]: e.target.value}))}
+                                 onKeyDown={e => e.key === 'Enter' && handleAddSubCategory(cat.id, cat.subcategories)}
+                               />
+                               <button onClick={() => handleAddSubCategory(cat.id, cat.subcategories)} className="px-6 bg-slate-200 text-slate-600 hover:bg-indigo-600 hover:text-white rounded-xl font-black text-[10px] uppercase transition-all">Adicionar</button>
+                            </div>
+                         </div>
+                      </div>
+                   ))}
+                   {categories.length === 0 && <p className="text-center text-slate-400 font-bold uppercase py-10">Nenhuma categoria registrada no sistema.</p>}
+                </div>
+             </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+export default Chamados;
