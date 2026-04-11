@@ -5,7 +5,7 @@ import { supabase } from './lib/supabase';
 import { 
   LayoutDashboard, Waves, ShieldCheck, ArrowRightLeft, 
   Building2, UserCog, LogOut, Menu,  
-  BookOpen, ClipboardCheck, Calendar, Car, Building,
+  BookOpen, Calendar, Car, Building,
   AlertTriangle, Scan, ShoppingBag, Trophy, Package,
   Star, ArrowUpCircle, HardHat, TreeDeciduous, Ticket,
   School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown,
