@@ -1,0 +1,6 @@
+{
+  "appId": "com.iuridev.sgegsuii",
+  "appName": "SGE-GSU-II",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}

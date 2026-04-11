@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { App as CapApp } from '@capacitor/app';
+import React, { useState, useEffect, useRef } from 'react';
+//import { useNavigate } from 'react-router-dom';
 import { supabase } from './lib/supabase';
 import { 
   LayoutDashboard, Waves, ShieldCheck, ArrowRightLeft, 
@@ -17,7 +19,7 @@ import { Remanejamento } from './pages/Remanejamento';
 import { Escola } from './pages/escola';
 import { Usuario } from './pages/Usuario';
 import { Login } from './pages/Login';
-import { Fiscalizacao } from './pages/fiscalizacao';
+//import { Fiscalizacao } from './pages/fiscalizacao';
 import { Tutoriais } from './pages/Tutoriais';
 import { Reunioes } from './pages/Reunioes';
 import { AgendamentoCarros } from './pages/AgendamentoCarros';
@@ -37,7 +39,7 @@ import EducacaoPatrimonial from './pages/EducacaoPatrimonial';
 import CadastroFurtos from './pages/Furtos'; 
 import Plantas from './pages/Plantas'; 
 import Servicos from './pages/Servicos';
-import FiscalizacaoURE from './pages/FiscalizacaoURE';
+//import FiscalizacaoURE from './pages/FiscalizacaoURE';
 import ListagemPatrimonio from './pages/ListagemPatrimonio';
 import Avcb from './pages/avcb';
 import RelatorioAtividades from './pages/atividades';
@@ -73,8 +75,8 @@ const MENU_GROUPS: MenuGroup[] = [
   {
     title: 'Principal',
     items: [
-      { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','supervisor', 'dirigente', 'ure_servico', 'ure_eec'] }, // <- NOVO AQUI
-      { id: 'entrada', label: 'Entrada no Prêdio', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'dirigente', 'ure_servico'] }, // <- SEINTEC
+      { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','supervisor', 'dirigente', 'ure_servico', 'ure_eec'] }, 
+      { id: 'entrada', label: 'Entrada no Prêdio', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'dirigente', 'ure_servico'] }, 
       { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
     ]
   },
@@ -82,7 +84,7 @@ const MENU_GROUPS: MenuGroup[] = [
     title: 'SEOM-SEFISC',
     items:[
       { id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'dirigente'] },
-      { id: 'fluxo', label: 'Fluxo de Pessoas (em teste)', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','ure_servico'] }, // <- NOVO AQUI
+      { id: 'fluxo', label: 'Fluxo de Pessoas (em teste)', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','ure_servico'] }, 
     ]
   },
   {
@@ -97,8 +99,8 @@ const MENU_GROUPS: MenuGroup[] = [
     title: 'Fiscalização',
     items: [
       { id: 'consumo', label: 'Consumo de Água', icon: <Waves size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
-      { id: 'fiscalizacao', label: 'Contratos Gov', icon: <ClipboardCheck size={20} />, roles: ['regional_admin', 'school_manager'] },
-      { id: 'fiscalizacaoURE', label: 'Limpeza URE', icon: <Map size={20} />, roles: ['regional_admin'] },
+      //{ id: 'fiscalizacao', label: 'Contratos Gov', icon: <ClipboardCheck size={20} />, roles: ['regional_admin', 'school_manager'] },
+      //{ id: 'fiscalizacaoURE', label: 'Limpeza URE', icon: <Map size={20} />, roles: ['regional_admin'] },
     ]
   },
   {
@@ -133,7 +135,7 @@ const MENU_GROUPS: MenuGroup[] = [
     title: 'Gestão da URE',
     items: [
       { id: 'ambientes', label: 'Reservas Antigo', icon: <Building size={20} />, roles: ['regional_admin','supervisor', 'dirigente'] },
-      { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','supervisor', 'dirigente', 'ure_servico', 'ure_ecc'] }, // <- NOVO AQUI
+      { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','supervisor', 'dirigente', 'ure_servico', 'ure_ecc'] },
       { id: 'carros', label: 'Carros Oficiais', icon: <Car size={20} />, roles: ['regional_admin','supervisor', 'dirigente'] },
       { id: 'reunioes', label: 'Calendário', icon: <Calendar size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
     ]
@@ -164,6 +166,7 @@ const MENU_GROUPS: MenuGroup[] = [
 ];
 
 export default function App() {
+  //const navigate = useNavigate();
   const [session, setSession] = useState<any>(null);
   const [userRole, setUserRole] = useState<string>('');
   const [currentPage, setCurrentPage] = useState('dashboard');
@@ -174,6 +177,37 @@ export default function App() {
   
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
+
+  // Refs para o Capacitor acessar o estado atual sem precisar recriar o listener
+  const currentPageRef = useRef(currentPage);
+  const showDropdownRef = useRef(showDropdown);
+
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+    showDropdownRef.current = showDropdown;
+  }, [currentPage, showDropdown]);
+
+  // ==========================================
+  // CAPACITOR: CONTROLE DO BOTÃO VOLTAR (ANDROID)
+  // ==========================================
+  useEffect(() => {
+    CapApp.addListener('backButton', () => {
+      if (showDropdownRef.current) {
+        // Se o sino de notificações estiver aberto, fecha ele
+        setShowDropdown(false);
+      } else if (currentPageRef.current !== 'dashboard') {
+        // Se estiver em qualquer outra página, volta pro dashboard
+        setCurrentPage('dashboard');
+      } else {
+        // Se já estiver no dashboard, fecha o aplicativo nativamente
+        CapApp.exitApp();
+      }
+    });
+
+    return () => {
+      CapApp.removeAllListeners();
+    };
+  }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -217,7 +251,7 @@ export default function App() {
       try {
         const groupedNotifs: AppNotification[] = [];
 
-        // 1. BUSCA NOTIFICAÇÕES DE CHAT (MENSAGENS) - VERSÃO BLINDADA EM JS
+        // 1. BUSCA NOTIFICAÇÕES DE CHAT (MENSAGENS)
         let queryConvs = supabase.from('conversas').select('id, protocolo, status');
         if (userRole !== 'regional_admin') {
            queryConvs = queryConvs.or(`participante1_id.eq.${userId},participante2_id.eq.${userId}`);
@@ -238,7 +272,6 @@ export default function App() {
 
           if (msgError) console.error("❌ Erro ao buscar mensagens:", msgError);
 
-          // FILTRO BLINDADO EM JAVASCRIPT
           const unreadMsgs = (msgs || []).filter((m: any) => 
              m.is_read === false || m.is_read === null || m.is_read === 'false'
           );
@@ -347,7 +380,7 @@ export default function App() {
     const channel = supabase
       .channel('app-notifs-global')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, fetchNotifications)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversas' }, fetchNotifications) // NOVO: Escuta a criação de conversas!
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversas' }, fetchNotifications) 
       .on('postgres_changes', { event: '*', schema: 'public', table: 'internal_tickets' }, fetchNotifications)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ticket_messages' }, fetchNotifications)
       .subscribe();
@@ -356,13 +389,11 @@ export default function App() {
   }, [session, userRole]);
 
   // ==========================================
-  // MARCAR COMO LIDO (CORRIGIDO PARA OTIMIZAÇÃO NO BANCO)
+  // MARCAR COMO LIDO
   // ==========================================
   const markAsRead = async (notif: AppNotification) => {
-    // 1. Remove instantaneamente a notificação da interface para não ficar travado
     setNotifications(prev => prev.filter(n => n.id !== notif.id));
     
-    // 2. Se era a última notificação, fecha o menu inteiro
     if (notifications.length <= 1) {
        setShowDropdown(false);
     }
@@ -374,12 +405,11 @@ export default function App() {
          return;
       }
 
-      // Se for Chat, usa a instrução ".in" que é 100% precisa com a Array de IDs
       if (notif.type === 'chat' || notif.type === 'conclusion') {
           await (supabase as any)
             .from('messages')
             .update({ is_read: true })
-            .in('id', notif.allMsgIds); // Usa o array de IDs exatos
+            .in('id', notif.allMsgIds); 
             
           if (notif.type === 'chat') {
             setCurrentPage('chat');
@@ -388,12 +418,11 @@ export default function App() {
           return;
       }
 
-      // Se for Chamado (Ticket Update), usa a instrução ".in" também!
       if (notif.type === 'chamado_update') {
           await (supabase as any)
             .from('ticket_messages')
             .update({ is_read: true })
-            .in('id', notif.allMsgIds); // Usa o array de IDs exatos
+            .in('id', notif.allMsgIds); 
             
           setCurrentPage('chamados');
           setShowDropdown(false);
@@ -444,7 +473,7 @@ export default function App() {
       case 'carros': return <AgendamentoCarros />;
       case 'ambientes': return <AgendamentoAmbientes />;
       case 'tutoriais': return <Tutoriais />;
-      case 'fiscalizacao': return <Fiscalizacao />;
+      //case 'fiscalizacao': return <Fiscalizacao />;
       case 'consumo': return <ConsumoAgua />;
       case 'zeladoria': return <Zeladoria />;
       case 'remanejamento': return <Remanejamento />;
@@ -455,7 +484,7 @@ export default function App() {
       case 'chamados': return <Chamados />;
       case 'plantas': return <Plantas />;
       case 'servicos': return <Servicos />;
-      case 'fiscalizacaoURE': return <FiscalizacaoURE />;
+      //case 'fiscalizacaoURE': return <FiscalizacaoURE />;
       case 'furtos': return <CadastroFurtos />;
       case 'listchapa': return <ListagemPatrimonio />;
       case 'avcb': return <Avcb />;

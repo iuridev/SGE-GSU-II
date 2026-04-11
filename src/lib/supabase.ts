@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
+import { Capacitor } from '@capacitor/core'; // IMPORT CORRETO
+const isApp = Capacitor.isNativePlatform();
 
 export type Database = {
   public: {
@@ -79,4 +81,12 @@ export type Database = {
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const supabase = createClient<Database>(supabaseUrl, supabaseKey);
+export const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: {
+    // No Android, isso ajuda a manter o utilizador logado mesmo se a app fechar
+    persistSession: true,
+    autoRefreshToken: isApp ? true : false,
+    detectSessionInUrl: true
+  }
+})
+
