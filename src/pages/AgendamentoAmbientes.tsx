@@ -2,8 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
   Building2, ShieldCheck, FileSpreadsheet, ClipboardList, 
-  Loader2, Send, SearchCheck, BarChart3,
-  Calendar, Award, FileDown, Clock, MapPin,
+  Loader2, BarChart3, Calendar, Award, FileDown, Clock, MapPin,
   Users, ChevronLeft, ChevronRight, CalendarDays
 } from 'lucide-react';
 import { 
@@ -32,18 +31,18 @@ const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Jul
 const DAYS_WEEK = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
 
 export function AgendamentoAmbientes() {
-  const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [schedules, setSchedules] = useState<RoomSchedule[]>([]);
-  const [status, setStatus] = useState<{ type: 'idle' | 'success' | 'none' | 'error', msg?: string }>({ type: 'idle' });
   const [activeTab, setActiveTab] = useState<'painel' | 'planilha' | 'formulario'>('painel');
 
   // Estado para a data selecionada no visualizador linear
   const [selectedDate, setSelectedDate] = useState(new Date());
 
-  const FORM_URL = "https://docs.google.com/forms/d/15DLCkBhBcdzeSjcHOayi9P1tp1q36LBLafAjyxIxiGI/viewform";
-  const SHEET_URL = "https://docs.google.com/spreadsheets/d/1Uq6IUuVNEnveu__cp2YDEy4AAvl77JHkr5_IP-Bjnwg/edit";
+  const FORM_URL = "https://docs.google.com/forms/d/15DLCkBhBcdzeSjcHOayi9P1tp1q36LBLafAjyxIxiGI/viewform?embedded=true";
+  
+  // Link atualizado com a nova planilha, mantendo os parâmetros de iframe
+  const SHEET_URL = "https://docs.google.com/spreadsheets/d/1M6h1QSbe_ISNGKouuZ9mbkWQHSHjNXtSS7Eb3Efj2iw/htmlembed?widget=true&headers=false";
 
   useEffect(() => {
     fetchSchedules();
@@ -216,23 +215,6 @@ export function AgendamentoAmbientes() {
     }
   };
 
-  const handleAutoCheckAndNotify = async () => {
-    setLoading(true);
-    setStatus({ type: 'idle' });
-    try {
-      const { data, error } = await supabase.functions.invoke('send-outage-email', {
-        body: { type: 'ROOM_SCHEDULE_AUTO' }
-      });
-      if (error) throw error;
-      if (data?.message?.includes('Sem ambientes')) setStatus({ type: 'none', msg: data.message });
-      else setStatus({ type: 'success', msg: "Equipes SEOM e SEFISC notificadas!" });
-    } catch (err: any) {
-      setStatus({ type: 'error', msg: "Falha técnica: " + err.message });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <div className="space-y-8 pb-20 relative">
       
@@ -362,27 +344,7 @@ export function AgendamentoAmbientes() {
         <div className="space-y-8 animate-in fade-in duration-500">
           
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            <div className="lg:col-span-5">
-              <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-2xl h-full flex flex-col items-center text-center relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-1.5 bg-indigo-600"></div>
-                <div className="w-20 h-20 bg-indigo-50 rounded-[2rem] flex items-center justify-center text-indigo-600 mb-6"><SearchCheck size={40} /></div>
-                <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Notificar Pátio/Apoio</h2>
-                <p className="text-xs text-slate-400 font-bold mt-2 mb-8 max-w-[250px] uppercase tracking-widest">Envia as reservas de amanhã para SEOM e SEFISC.</p>
-
-                {status.type === 'idle' ? (
-                  <button onClick={handleAutoCheckAndNotify} disabled={loading} className="group w-full py-6 bg-slate-900 hover:bg-black text-white rounded-[2rem] font-black text-xs uppercase flex items-center justify-center gap-4 shadow-2xl transition-all active:scale-95 disabled:opacity-50">
-                    {loading ? <Loader2 className="animate-spin" /> : <Send size={20} />} VERIFICAR E NOTIFICAR
-                  </button>
-                ) : (
-                  <div className={`w-full p-6 rounded-[2rem] border-2 ${status.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : status.type === 'none' ? 'bg-amber-50 border-amber-100 text-amber-800' : 'bg-red-50 text-red-800'}`}>
-                    <p className="font-black uppercase text-[10px] tracking-widest">{status.msg}</p>
-                    <button onClick={() => setStatus({type: 'idle'})} className="mt-3 text-[10px] font-black underline opacity-50">VOLTAR</button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="lg:col-span-7">
+            <div className="lg:col-span-12">
               <div className="bg-slate-900 p-8 rounded-[3rem] shadow-2xl h-full text-white relative overflow-hidden">
                 <div className="relative z-10 h-full flex flex-col">
                   
@@ -391,7 +353,6 @@ export function AgendamentoAmbientes() {
                     <div className="flex items-center gap-3">
                       <div className="p-3 bg-white/10 rounded-2xl"><Calendar size={24} className="text-indigo-400"/></div>
                       <div>
-                        {/* UTILIZAÇÃO DA VARIÁVEL DAYS_WEEK PARA REMOVER O ERRO ts(6133) */}
                         <p className="text-indigo-400 font-black text-[10px] uppercase tracking-[0.3em] mb-1">
                           {DAYS_WEEK[selectedDate.getDay()]}
                         </p>
@@ -452,7 +413,6 @@ export function AgendamentoAmbientes() {
             </div>
           </div>
           
-          {/* Gráfico e Ranking Removidos por brevidade conforme o código original já possuía */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-8">
               <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-2xl h-full">
