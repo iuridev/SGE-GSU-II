@@ -976,14 +976,24 @@ export function AgendamentoNovo() {
       {/* ----------------------------------------------------- */}
 
       {/* CABEÇALHO (LOGO E NOME DO SISTEMA) */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+      {/* CABEÇALHO (LOGO E NOME DO SISTEMA) */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-4">
         <div className="flex items-center gap-5">
           <div className="p-4 bg-indigo-600 rounded-[2rem] text-white shadow-xl shadow-indigo-200">
             <Building2 size={36} />
           </div>
           <div>
-            <h1 className="text-3xl font-black text-slate-900 tracking-tight uppercase leading-none">Ambientes V2</h1>
-            <p className="text-slate-500 font-medium mt-1">Gestão Inteligente de Salas da Regional</p>
+            {/* NOVO SELO AMARELO AQUI */}
+            <div className="mb-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-[9px] font-black uppercase tracking-widest shadow-sm">
+                <AlertTriangle size={12} />
+                Sincronização Planilha - não automática
+              </span>
+            </div>
+            
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight uppercase leading-none">Agendamento de Ambientes (Novo)</h1>
+            <p className="text-slate-500 font-medium mt-1">Gestão Inteligente de Salas da Unidade Regional de Ensino</p>
+            <p className="text-slate-500 font-medium mt-1">Guarulhos Sul</p>
           </div>
         </div>
 
