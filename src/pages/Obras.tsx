@@ -9,10 +9,11 @@ import {
   Legend 
 } from 'recharts';
 import { 
-   Search, Plus, Loader2, Building2, 
+  Search, Plus, Loader2, Building2, 
   CheckCircle2, Clock, AlertTriangle, 
   Hammer, X, Save, Trash2,
-  Edit, Siren, Filter, LayoutDashboard, List
+  Edit, Siren, Filter, LayoutDashboard, List,
+  Database
 } from 'lucide-react';
 
 // --- Tipos & Interfaces ---
@@ -34,6 +35,7 @@ interface ConstructionWork {
   status: 'EM ANDAMENTO' | 'CONCLUÍDO' | 'PARALISADO';
   school?: { name: string };
   created_at?: string;
+  updated_at?: string; // <- Adicionado para garantir a leitura correta de atualizações
 }
 
 export function Obras() {
@@ -44,7 +46,10 @@ export function Obras() {
   const [saveLoading, setSaveLoading] = useState(false);
   const [userRole, setUserRole] = useState('');
   const [userSchoolId, setUserSchoolId] = useState<string | null>(null);
-  const [supervisorSchoolIds, setSupervisorSchoolIds] = useState<string[]>([]); // <- Adicionado para Supervisor
+  const [supervisorSchoolIds, setSupervisorSchoolIds] = useState<string[]>([]);
+  
+  // Estado para data de atualização baseado no banco
+  const [lastUpdated, setLastUpdated] = useState('Carregando...');
   
   // Novos estados de filtro visual
   const [searchTerm, setSearchTerm] = useState('');
@@ -82,6 +87,34 @@ export function Obras() {
     fetchInitialData();
   }, []);
 
+  // NOVO: Calcula a data do último registro do banco
+  useEffect(() => {
+    if (loading) return;
+
+    if (works.length > 0) {
+      // Descobre o timestamp mais recente entre todas as obras
+      const maxTimestamp = works.reduce((latest, work) => {
+        // Dá preferência ao updated_at se existir no seu banco, senão usa o created_at
+        const workDateStr = work.updated_at || work.created_at;
+        if (!workDateStr) return latest;
+        
+        const workTime = new Date(workDateStr).getTime();
+        return workTime > latest ? workTime : latest;
+      }, 0);
+
+      if (maxTimestamp > 0) {
+        const dateObj = new Date(maxTimestamp);
+        const date = dateObj.toLocaleDateString('pt-BR');
+        const time = dateObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        setLastUpdated(`${date} às ${time}`);
+      } else {
+        setLastUpdated('Data indisponível');
+      }
+    } else {
+      setLastUpdated('Sem registros');
+    }
+  }, [works, loading]);
+
   async function fetchInitialData() {
     setLoading(true);
     try {
@@ -108,7 +141,6 @@ export function Obras() {
 
       const { data: schoolsData } = await (supabase as any).from('schools').select('id, name').order('name');
       
-      // Se for supervisor, exibe na lista apenas as escolas dele
       if (role === 'supervisor') {
         setSchools((schoolsData || []).filter((s: any) => supSchools.includes(s.id)));
       } else {
@@ -123,7 +155,6 @@ export function Obras() {
     }
   }
 
-  // Lógica corrigida para buscar as obras respeitando o papel do Supervisor
   async function fetchWorks(role: string, sId: string | null, supSchools: string[] = []) {
     let query = (supabase as any)
       .from('construction_works')
@@ -135,7 +166,7 @@ export function Obras() {
       if (supSchools.length > 0) {
          query = query.in('school_id', supSchools);
       } else {
-         setWorks([]); // Se não tem escolas vinculadas, retorna vazio
+         setWorks([]); 
          return;
       }
     }
@@ -306,6 +337,22 @@ export function Obras() {
   return (
     <div className="min-h-screen space-y-8 pb-32 bg-[#f8fafc] p-6 font-sans">
       
+      {/* --- CARD ROXO DE AVISO E ATUALIZAÇÃO DO BANCO --- */}
+      <div className="bg-purple-600 rounded-2xl p-4 md:px-6 flex flex-col sm:flex-row items-center justify-between shadow-lg shadow-purple-200 text-white gap-4">
+        <div className="flex items-center gap-3 w-full sm:w-auto justify-center sm:justify-start">
+          <div className="p-2 bg-purple-500/50 rounded-xl hidden sm:flex">
+            <Database size={20} className="text-purple-50" />
+          </div>
+          <span className="font-bold text-sm sm:text-base tracking-wide text-center sm:text-left">
+            Informações do Banco de Dados (não em excel)
+          </span>
+        </div>
+        <div className="bg-purple-800/40 px-4 py-2 rounded-xl text-xs sm:text-sm font-medium border border-purple-500/30 whitespace-nowrap">
+          Atualizado em: <span className="font-bold">{lastUpdated}</span>
+        </div>
+      </div>
+      {/* --------------------------------------------- */}
+
       {/* Header Dashboard */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
@@ -334,7 +381,7 @@ export function Obras() {
       {/* Gráficos e Filtros */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* Gráfico de Status com correção do erro Recharts */}
+        {/* Gráfico de Status */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 lg:col-span-1">
           <h3 className="text-lg font-bold text-slate-800 mb-4">Distribuição por Status</h3>
           <div style={{ width: '100%', height: 256, minHeight: 256 }}>
