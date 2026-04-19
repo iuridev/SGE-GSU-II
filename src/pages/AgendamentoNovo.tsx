@@ -460,16 +460,13 @@ export function AgendamentoNovo() {
       }));
 
       // A REQUISIÇÃO OFICIAL QUE VAI PRO GOOGLE
-      const response = await fetch(GOOGLE_SCRIPT_URL, {
+      await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
-        // ATENÇÃO AQUI: mode 'no-cors' impede o navegador de ler a resposta do Google, 
-        // mas garante que a viagem de IDA funcione atravessando o firewall deles!
         mode: 'no-cors', 
         headers: { 
-          // Tipo de conteúdo forçado como texto puro pra enganar os fiscais de CORS
           'Content-Type': 'text/plain;charset=utf-8' 
         },
-        body: JSON.stringify(payload) // Transforma as chaves em uma linhazinha de texto
+        body: JSON.stringify(payload)
       });
 
       // Se passou batido e enviou, salva a hora do sucesso
