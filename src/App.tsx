@@ -9,7 +9,7 @@ import {
   AlertTriangle, Scan, ShoppingBag, Trophy, Package,
   Star, ArrowUpCircle, HardHat, TreeDeciduous, Ticket,
   School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown,
-  Bell, MessageSquare, CheckCircle
+  Bell, MessageSquare, CheckCircle, ClipboardList
 } from 'lucide-react';
 
 import { Dashboard } from './pages/Dashboard';
@@ -48,6 +48,7 @@ import Chat from './pages/chat';
 import Fluxo from './pages/fluxo';
 import { AgendamentoNovo } from './pages/AgendamentoNovo';
 import Portaria from './pages/Portaria';
+import RelatorioPortaria from './pages/RelatorioPortaria';
 
 interface MenuItem {
   id: string;
@@ -79,6 +80,12 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'entrada', label: 'Entrada no Prêdio', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'dirigente', 'ure_servico'] }, 
       { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
     ]
+  },
+  {
+    title: 'RELATÓRIOS',
+    items:[
+  { 
+    id: 'relatorio-acesso', label: 'Relatórios de Acesso', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },    ]
   },
   {
     title: 'SEOM-SEFISC',
@@ -493,6 +500,7 @@ export default function App() {
       case 'ambientes-novo': return <AgendamentoNovo />;
       case 'chat': return <Chat />;
       case 'entrada': return <Portaria />;
+      case 'relatorio-acesso': return <RelatorioPortaria />;
       case 'fluxo': return <Fluxo />;
       default: return <Dashboard />;
     }
