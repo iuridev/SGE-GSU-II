@@ -9,7 +9,7 @@ import {
   AlertTriangle, Scan, ShoppingBag, Trophy, Package,
   Star, ArrowUpCircle, HardHat, TreeDeciduous, Ticket,
   School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown,
-  Bell, MessageSquare, CheckCircle, ClipboardList
+  Bell, MessageSquare, CheckCircle, ClipboardList, ClipboardCheck
 } from 'lucide-react';
 
 import { Dashboard } from './pages/Dashboard';
@@ -19,7 +19,7 @@ import { Remanejamento } from './pages/Remanejamento';
 import { Escola } from './pages/escola';
 import { Usuario } from './pages/Usuario';
 import { Login } from './pages/Login';
-//import { Fiscalizacao } from './pages/fiscalizacao';
+import { Fiscalizacao } from './pages/fiscalizacao';
 import { Tutoriais } from './pages/Tutoriais';
 import { Reunioes } from './pages/Reunioes';
 import { AgendamentoCarros } from './pages/AgendamentoCarros';
@@ -39,7 +39,7 @@ import EducacaoPatrimonial from './pages/EducacaoPatrimonial';
 import CadastroFurtos from './pages/Furtos'; 
 import Plantas from './pages/Plantas'; 
 import Servicos from './pages/Servicos';
-//import FiscalizacaoURE from './pages/FiscalizacaoURE';
+import FiscalizacaoURE from './pages/FiscalizacaoURE';
 import ListagemPatrimonio from './pages/ListagemPatrimonio';
 import Avcb from './pages/avcb';
 import RelatorioAtividades from './pages/atividades';
@@ -106,8 +106,8 @@ const MENU_GROUPS: MenuGroup[] = [
     title: 'Fiscalização',
     items: [
       { id: 'consumo', label: 'Consumo de Água', icon: <Waves size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
-      //{ id: 'fiscalizacao', label: 'Contratos Gov', icon: <ClipboardCheck size={20} />, roles: ['regional_admin', 'school_manager'] },
-      //{ id: 'fiscalizacaoURE', label: 'Limpeza URE', icon: <Map size={20} />, roles: ['regional_admin'] },
+      { id: 'fiscalizacao', label: 'Contratos Gov', icon: <ClipboardCheck size={20} />, roles: ['regional_admin', 'school_manager'] },
+      { id: 'fiscalizacaoURE', label: 'Limpeza URE', icon: <Map size={20} />, roles: ['regional_admin'] },
     ]
   },
   {
@@ -480,7 +480,7 @@ export default function App() {
       case 'carros': return <AgendamentoCarros />;
       case 'ambientes': return <AgendamentoAmbientes />;
       case 'tutoriais': return <Tutoriais />;
-      //case 'fiscalizacao': return <Fiscalizacao />;
+      case 'fiscalizacao': return <Fiscalizacao />;
       case 'consumo': return <ConsumoAgua />;
       case 'zeladoria': return <Zeladoria />;
       case 'remanejamento': return <Remanejamento />;
@@ -491,7 +491,7 @@ export default function App() {
       case 'chamados': return <Chamados />;
       case 'plantas': return <Plantas />;
       case 'servicos': return <Servicos />;
-      //case 'fiscalizacaoURE': return <FiscalizacaoURE />;
+      case 'fiscalizacaoURE': return <FiscalizacaoURE />;
       case 'furtos': return <CadastroFurtos />;
       case 'listchapa': return <ListagemPatrimonio />;
       case 'avcb': return <Avcb />;
