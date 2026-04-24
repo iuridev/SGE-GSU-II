@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
-  Search, Loader2,  
-  ShieldAlert, RefreshCw, ArrowUpRight
+  Search, Loader2, ShieldAlert, RefreshCw, ArrowUpRight, Lock, AlertCircle, CheckCircle2
 } from 'lucide-react';
 
 // --- Interfaces ---
@@ -81,13 +80,16 @@ export function EscolasPrioritarias() {
 
   async function loadRankingFromSheet(currentConfig: SheetConfig) {
     setRefreshing(true);
+    setTestError(null);
     try {
       const url = `https://docs.google.com/spreadsheets/d/${currentConfig.spreadsheet_id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(currentConfig.aba_nome)}`;
       const res = await fetch(url);
       
-      if (!res.ok) throw new Error("Erro de acesso à planilha.");
+      if (!res.ok) throw new Error("Erro de acesso à planilha. Verifique o link e o nome da aba.");
       const csv = await res.text();
       
+      if (csv.trim().startsWith('<')) throw new Error("Aba não encontrada ou restrita.");
+
       const rows: string[][] = [];
       let quote = false;
       for (let row = 0, col = 0, c = 0; c < csv.length; c++) {
@@ -121,15 +123,17 @@ export function EscolasPrioritarias() {
 
       setRankedSchools(parsedSchools);
       setLastUpdate(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
-      setTestError(null);
     } catch (err: any) {
-      setTestError("Falha ao processar a planilha.");
+      console.error(err);
+      setTestError(err.message || "Falha ao processar a planilha.");
     }
     setRefreshing(false);
   }
 
   const saveConfig = async () => {
     setRefreshing(true);
+    setTestError(null);
+    setSaveSuccess(false);
     try {
       await supabase.from('ranking_parameters').delete().neq('id', '0');
       const { data, error } = await supabase.from('ranking_parameters').insert([{
@@ -145,15 +149,16 @@ export function EscolasPrioritarias() {
       setConfig(prev => ({ ...prev, id: data.id }));
       await loadRankingFromSheet(config);
       setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (err) {
-      setTestError("Erro ao salvar.");
+      setTimeout(() => setSaveSuccess(false), 4000);
+    } catch (err: any) {
+      console.error(err);
+      setTestError("Erro ao salvar configurações no banco de dados.");
     }
     setRefreshing(false);
-  };
+  }
 
   if (loading) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-amber-500" size={48} /></div>;
-  if (userRole !== 'regional_admin') return <div className="p-20 text-center font-black text-slate-400 uppercase">Acesso Restrito</div>;
+  if (userRole !== 'regional_admin') return <div className="min-h-[70vh] flex flex-col items-center justify-center p-8 text-center"><div className="w-24 h-24 bg-red-50 text-red-600 rounded-3xl flex items-center justify-center mb-6"><Lock size={48} /></div><h2 className="text-2xl font-black uppercase text-slate-800">Acesso Restrito</h2></div>;
 
   return (
     <div className="min-h-screen bg-[#f8fafc] p-6 pb-24 space-y-8">
@@ -172,6 +177,13 @@ export function EscolasPrioritarias() {
         </div>
       </div>
 
+      {testError && activeTab === 'painel' && (
+        <div className="p-4 bg-red-50 text-red-600 rounded-2xl flex items-center gap-3 border border-red-100">
+          <AlertCircle size={20} className="shrink-0" />
+          <p className="text-xs font-bold uppercase">{testError}</p>
+        </div>
+      )}
+
       {activeTab === 'painel' ? (
         <div className="space-y-6 animate-in fade-in duration-500">
           <div className="flex flex-col sm:flex-row gap-6">
@@ -184,13 +196,13 @@ export function EscolasPrioritarias() {
                 <p className="text-[10px] font-black text-amber-400 uppercase mb-1">Última leitura: {lastUpdate || '--:--'}</p>
                 <h2 className="text-xl font-black uppercase">{refreshing ? 'Sincronizando...' : 'Sincronizar Planilha'}</h2>
               </div>
-              <RefreshCw size={32} className={`${refreshing ? 'animate-spin' : ''} opacity-30`} />
+              <RefreshCw size={32} className={`${refreshing ? 'animate-spin' : ''} opacity-30 group-hover:opacity-100 transition-all`} />
             </button>
           </div>
 
           <div className="bg-white rounded-[3rem] p-6 sm:p-10 border shadow-sm">
             <div className="flex flex-col sm:flex-row justify-between items-center mb-10 gap-4">
-              <h3 className="text-xl font-black uppercase">Fila de Fiscalização</h3>
+              <h3 className="text-xl font-black uppercase text-slate-800">Fila de Fiscalização</h3>
               <div className="bg-slate-50 border rounded-2xl px-4 py-2 flex items-center gap-3 w-full sm:w-72">
                 <Search size={16} className="text-slate-400" />
                 <input type="text" placeholder="BUSCAR ESCOLA..." className="bg-transparent border-none outline-none text-[10px] font-bold uppercase w-full" onChange={(e) => setSearchTerm(e.target.value)} />
@@ -198,6 +210,10 @@ export function EscolasPrioritarias() {
             </div>
 
             <div className="space-y-3">
+              {rankedSchools.length === 0 && !refreshing && !testError && (
+                <p className="text-center text-slate-400 py-10 font-bold uppercase text-xs">Nenhuma escola lida. Verifique a configuração da planilha.</p>
+              )}
+              
               {rankedSchools.filter(s => s.name.includes(searchTerm.toUpperCase())).map((school, idx) => (
                 <div key={idx} className={`group flex flex-col sm:flex-row items-center justify-between p-5 rounded-3xl border transition-all gap-4 ${
                   idx < 10 ? 'bg-red-50/50 border-red-100 hover:border-red-400 shadow-sm' : 'bg-slate-50 border-transparent hover:border-amber-200'
@@ -209,7 +225,7 @@ export function EscolasPrioritarias() {
                       {idx + 1}º
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-black uppercase text-sm text-slate-800 truncate">{school.name}</h4>
+                      <h4 className="font-black uppercase text-sm text-slate-800 truncate" title={school.name}>{school.name}</h4>
                       {idx < 10 && <span className="inline-block mt-1 px-2 py-0.5 bg-red-600 text-white text-[8px] font-black rounded-full uppercase tracking-widest">Prioridade Máxima</span>}
                     </div>
                   </div>
@@ -232,6 +248,20 @@ export function EscolasPrioritarias() {
             <p className="text-xs font-bold text-slate-400 uppercase mt-2 tracking-widest">Configure a aba e as colunas da planilha resumo</p>
           </div>
 
+          {testError && (
+            <div className="mb-8 p-4 bg-red-50 text-red-600 rounded-2xl flex items-center gap-3 border border-red-100">
+              <AlertCircle size={20} className="shrink-0" />
+              <p className="text-xs font-bold uppercase">{testError}</p>
+            </div>
+          )}
+
+          {saveSuccess && (
+            <div className="mb-8 p-4 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center gap-3 border border-emerald-100">
+              <CheckCircle2 size={20} className="shrink-0" />
+              <p className="text-xs font-bold uppercase">Configuração salva e ranking atualizado com sucesso!</p>
+            </div>
+          )}
+
           <div className="space-y-6">
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Link ou ID da Planilha</label>
@@ -249,20 +279,19 @@ export function EscolasPrioritarias() {
               </div>
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Coluna Escola</label>
-                <input type="text" value={config.coluna_escola} onChange={(e) => setConfig({...config, coluna_escola: e.target.value.toUpperCase()})} className="w-full bg-slate-50 border p-4 rounded-2xl text-sm font-bold text-center" />
+                <input type="text" value={config.coluna_escola} onChange={(e) => setConfig({...config, coluna_escola: e.target.value.toUpperCase()})} className="w-full bg-slate-50 border p-4 rounded-2xl text-sm font-bold text-center uppercase" />
               </div>
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Coluna Pontuação (H)</label>
-                <input type="text" value={config.coluna_pontuacao} onChange={(e) => setConfig({...config, coluna_pontuacao: e.target.value.toUpperCase()})} className="w-full bg-slate-50 border p-4 rounded-2xl text-sm font-bold text-center" />
+                <input type="text" value={config.coluna_pontuacao} onChange={(e) => setConfig({...config, coluna_pontuacao: e.target.value.toUpperCase()})} className="w-full bg-slate-50 border p-4 rounded-2xl text-sm font-bold text-center uppercase" />
               </div>
             </div>
 
             <div className="pt-8 flex justify-end">
-              <button onClick={saveConfig} disabled={refreshing} className="px-10 py-5 bg-amber-500 text-white rounded-2xl font-black uppercase text-xs hover:bg-amber-600 transition-all shadow-lg shadow-amber-200 flex items-center gap-3">
+              <button onClick={saveConfig} disabled={refreshing} className="px-10 py-5 bg-amber-500 text-white rounded-2xl font-black uppercase text-xs hover:bg-amber-600 transition-all shadow-lg shadow-amber-200 flex items-center gap-3 disabled:opacity-50">
                 {refreshing ? <Loader2 className="animate-spin" size={18} /> : 'Salvar Configuração'}
               </button>
             </div>
-            {saveSuccess && <p className="text-center text-emerald-600 font-black text-[10px] uppercase">Configuração salva e ranking atualizado!</p>}
           </div>
         </div>
       )}
