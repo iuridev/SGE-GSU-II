@@ -49,6 +49,8 @@ import Fluxo from './pages/fluxo';
 import { AgendamentoNovo } from './pages/AgendamentoNovo';
 import Portaria from './pages/Portaria';
 import RelatorioPortaria from './pages/RelatorioPortaria';
+import RelatorioFiscalizacao from './pages/RelatorioFiscalizacao';
+
 
 interface MenuItem {
   id: string;
@@ -84,8 +86,9 @@ const MENU_GROUPS: MenuGroup[] = [
   {
     title: 'RELATÓRIOS',
     items:[
-  { 
-    id: 'relatorio-acesso', label: 'Relatórios de Acesso', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },    ]
+      { id: 'relatorio-fiscalizacao', label: 'Relatórios de Fiscalização', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },    
+      { id: 'relatorio-acesso', label: 'Relatórios de Acesso', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },    
+    ]
   },
   {
     title: 'SEOM-SEFISC',
@@ -501,6 +504,7 @@ export default function App() {
       case 'chat': return <Chat />;
       case 'entrada': return <Portaria />;
       case 'relatorio-acesso': return <RelatorioPortaria />;
+      case 'relatorio-fiscalizacao': return <RelatorioFiscalizacao />;
       case 'fluxo': return <Fluxo />;
       default: return <Dashboard />;
     }
