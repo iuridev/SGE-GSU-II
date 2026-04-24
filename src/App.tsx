@@ -109,7 +109,7 @@ const MENU_GROUPS: MenuGroup[] = [
     title: 'Fiscalização',
     items: [
       { id: 'consumo', label: 'Consumo de Água', icon: <Waves size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
-      { id: 'fiscalizacao', label: 'Contratos Gov', icon: <ClipboardCheck size={20} />, roles: ['regional_admin', 'school_manager'] },
+      { id: 'fiscalizacao', label: 'Contratos Gov', icon: <ClipboardCheck size={20} />, roles: ['regional_admin', 'school_manager','ure_servico'] },
       { id: 'fiscalizacaoURE', label: 'Limpeza URE', icon: <Map size={20} />, roles: ['regional_admin'] },
     ]
   },
