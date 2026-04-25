@@ -50,6 +50,9 @@ import { AgendamentoNovo } from './pages/AgendamentoNovo';
 import Portaria from './pages/Portaria';
 import RelatorioPortaria from './pages/RelatorioPortaria';
 import RelatorioFiscalizacao from './pages/RelatorioFiscalizacao';
+import RelatorioUtilidade from './pages/RelatorioUtilidade';
+import FinanceiroAgua from './pages/ImportacaoFinanceiro';
+
 
 
 interface MenuItem {
@@ -87,7 +90,8 @@ const MENU_GROUPS: MenuGroup[] = [
     title: 'RELATÓRIOS',
     items:[
       { id: 'relatorio-fiscalizacao', label: 'Relatórios de Fiscalização', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },    
-      { id: 'relatorio-acesso', label: 'Relatórios de Acesso', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },    
+      { id: 'relatorio-acesso', label: 'Relatórios de Acesso', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
+      { id: 'relatorio-utilidade', label: 'Relatórios de Consumo', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },        
     ]
   },
   {
@@ -109,6 +113,7 @@ const MENU_GROUPS: MenuGroup[] = [
     title: 'Fiscalização',
     items: [
       { id: 'consumo', label: 'Consumo de Água', icon: <Waves size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
+      { id: 'financeiro-agua', label: 'Importação Financeiro (SABESP)', icon: <Waves size={20} />, roles: ['regional_admin'] },
       { id: 'fiscalizacao', label: 'Contratos Gov', icon: <ClipboardCheck size={20} />, roles: ['regional_admin', 'school_manager','ure_servico'] },
       { id: 'fiscalizacaoURE', label: 'Limpeza URE', icon: <Map size={20} />, roles: ['regional_admin'] },
     ]
@@ -505,6 +510,8 @@ export default function App() {
       case 'entrada': return <Portaria />;
       case 'relatorio-acesso': return <RelatorioPortaria />;
       case 'relatorio-fiscalizacao': return <RelatorioFiscalizacao />;
+      case 'relatorio-utilidade': return <RelatorioUtilidade />;
+      case 'financeiro-agua': return <FinanceiroAgua />;
       case 'fluxo': return <Fluxo />;
       default: return <Dashboard />;
     }
