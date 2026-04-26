@@ -141,7 +141,7 @@ export default function MinhasTarefas() {
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
             <LayoutDashboard className="text-blue-600" size={28} /> Assistente de Trabalho
           </h1>
-          <p className="text-gray-500 text-sm mt-1">Gerencie suas demandas da Seção de Fiscalização.</p>
+          <p className="text-gray-500 text-sm mt-1">Gerencie suas demandas de Trabalho.</p>
           
           <div className="flex bg-gray-200/50 p-1 rounded-xl w-fit mt-4">
             {(['hoje', 'semana', 'todas'] as const).map((tipo) => (
