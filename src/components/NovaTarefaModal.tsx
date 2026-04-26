@@ -12,6 +12,7 @@ interface NovaTarefaModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  tarefaEditando?: any | null; // <--- É esta linha que o TypeScript está sentindo falta!
 }
 
 export default function NovaTarefaModal({ isOpen, onClose, onSuccess }: NovaTarefaModalProps) {
