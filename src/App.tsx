@@ -52,6 +52,7 @@ import RelatorioPortaria from './pages/RelatorioPortaria';
 import RelatorioFiscalizacao from './pages/RelatorioFiscalizacao';
 import RelatorioUtilidade from './pages/RelatorioUtilidade';
 import FinanceiroAgua from './pages/ImportacaoFinanceiro';
+import MinhasTarefas from './pages/MinhasTarefas';
 
 
 
@@ -84,6 +85,7 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','supervisor', 'dirigente', 'ure_servico', 'ure_eec'] }, 
       { id: 'entrada', label: 'Entrada no Prêdio', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'dirigente', 'ure_servico'] }, 
       { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
+      { id: 'minhas-tarefas', label: 'Agenda Funcional', icon: <LayoutDashboard size={20} />, roles: ['regional_admin','supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
     ]
   },
   {
@@ -513,6 +515,7 @@ export default function App() {
       case 'relatorio-utilidade': return <RelatorioUtilidade />;
       case 'financeiro-agua': return <FinanceiroAgua />;
       case 'fluxo': return <Fluxo />;
+      case 'minhas-tarefas': return <MinhasTarefas/>;
       default: return <Dashboard />;
     }
   };
