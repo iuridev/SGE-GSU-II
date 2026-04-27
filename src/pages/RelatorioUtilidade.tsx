@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Download, Filter, Droplets, Zap, TrendingDown, TrendingUp, AlertTriangle, Calendar, Activity, DollarSign, Database, Users } from 'lucide-react';
+import { Download, Filter, Droplets, Zap, TrendingDown, TrendingUp, Calendar, Activity, DollarSign, Database, Users } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
