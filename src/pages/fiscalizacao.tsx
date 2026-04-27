@@ -324,7 +324,7 @@ export function Fiscalizacao() {
           </div>
         </div>
         
-        {userRole === 'regional_admin' && (
+        {(userRole === 'regional_admin' || userRole === 'ure_servico') && (
           <button 
             onClick={() => setIsModalOpen(true)}
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-10 py-5 rounded-[2rem] font-black flex items-center gap-3 shadow-2xl transition-all active:scale-95 group"
