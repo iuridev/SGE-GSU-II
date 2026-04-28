@@ -8,7 +8,8 @@ import {
   CheckCircle2, 
   ArrowRight,
   Pencil,
-  Trash2
+  Trash2,
+  AlertCircle // NOVO: Ícone para o alerta de atraso
 } from 'lucide-react';
 import NovaTarefaModal from '../components/NovaTarefaModal';
 import EstatisticasTarefas from '../components/EstatisticasTarefas';
@@ -72,7 +73,6 @@ export default function MinhasTarefas() {
     }
   };
 
-  // NOVO: Alterna a prioridade rapidamente com 1 clique (Baixa -> Média -> Alta)
   const alternarPrioridade = async (id: string, prioridadeAtual: string) => {
     const proximaPrioridade = 
       prioridadeAtual === 'baixa' ? 'media' :
@@ -87,7 +87,6 @@ export default function MinhasTarefas() {
     }
   };
 
-  // NOVO: Excluir Tarefa
   const excluirTarefa = async (id: string) => {
     if (!window.confirm('Tem certeza que deseja excluir esta demanda definitivamente?')) return;
     try {
@@ -136,12 +135,19 @@ export default function MinhasTarefas() {
   const tarefasFiltradas = tarefas.filter(tarefa => {
     if (filtroTempo === 'todas') return true;
     if (!tarefa.data_vencimento) return false;
+    
     const hoje = new Date().toISOString().split('T')[0];
     const dataLimite = new Date();
     dataLimite.setDate(dataLimite.getDate() + 7);
     const semanaStr = dataLimite.toISOString().split('T')[0];
 
-    if (filtroTempo === 'hoje') return tarefa.data_vencimento <= hoje && tarefa.status !== 'concluido';
+    if (filtroTempo === 'hoje') {
+      // NOVO: Regra do foco diário. 
+      // 1. Se a tarefa está em andamento, ELA FICA NO HOJE (trabalho ativo não some).
+      // 2. Se está pendente, só aparece se for para hoje ou se já estiver atrasada (passado).
+      return tarefa.status === 'em_andamento' || (tarefa.status === 'pendente' && tarefa.data_vencimento <= hoje);
+    }
+    
     if (filtroTempo === 'semana') return tarefa.data_vencimento <= semanaStr;
     return true;
   });
@@ -150,75 +156,97 @@ export default function MinhasTarefas() {
   const emAndamento = tarefasFiltradas.filter(t => t.status === 'em_andamento');
   const concluidas = tarefasFiltradas.filter(t => t.status === 'concluido');
 
-  // Função para renderizar os cartões (evita repetição de código)
-  const renderCard = (t: Tarefa, coluna: 'pendente' | 'em_andamento' | 'concluido') => (
-    <div key={t.id} className={`bg-white p-4 rounded-xl shadow-sm border-l-4 group relative hover:shadow-md transition duration-200 ${
-      coluna === 'pendente' ? 'border-l-gray-300' : coluna === 'em_andamento' ? 'border-l-blue-500' : 'border-l-green-100 opacity-70 hover:opacity-100'
-    }`}>
-      {/* Botões de Ação no Topo (Aparecem no Hover) */}
-      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity bg-white p-1 rounded-md shadow-sm border border-gray-100">
-        <button onClick={() => abrirModalEditar(t)} title="Editar" className="p-1 hover:bg-blue-50 text-gray-400 hover:text-blue-600 rounded">
-          <Pencil size={14} />
-        </button>
-        <button onClick={() => duplicarTarefa(t)} title="Duplicar" className="p-1 hover:bg-gray-100 text-gray-400 rounded">
-          <Copy size={14} />
-        </button>
-        <button onClick={() => excluirTarefa(t.id)} title="Excluir" className="p-1 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded">
-          <Trash2 size={14} />
-        </button>
-      </div>
+  // Função para renderizar os cartões
+  const renderCard = (t: Tarefa, coluna: 'pendente' | 'em_andamento' | 'concluido') => {
+    // NOVO: Cálculo matemático para dias de atraso
+    const hojeData = new Date().toISOString().split('T')[0];
+    const estaAtrasada = coluna === 'pendente' && t.data_vencimento < hojeData;
+    let diasAtraso = 0;
+    
+    if (estaAtrasada) {
+      const msPorDia = 1000 * 60 * 60 * 24;
+      // Garante que a comparação ignore horas para ser exata aos dias
+      const difMs = new Date(`${hojeData}T00:00:00`).getTime() - new Date(`${t.data_vencimento}T00:00:00`).getTime();
+      diasAtraso = Math.round(difMs / msPorDia);
+    }
 
-      {t.escola && (
-        <div className="flex items-center gap-1 text-[10px] text-gray-400 font-black uppercase mb-1 pr-16">
-          <School size={10} /> {t.escola}
+    return (
+      <div key={t.id} className={`bg-white p-4 rounded-xl shadow-sm border-l-4 group relative hover:shadow-md transition duration-200 ${
+        coluna === 'pendente' && estaAtrasada ? 'border-l-red-500 bg-red-50/10' : // Destaque visual no card atrasado
+        coluna === 'pendente' ? 'border-l-gray-300' : 
+        coluna === 'em_andamento' ? 'border-l-blue-500' : 'border-l-green-100 opacity-70 hover:opacity-100'
+      }`}>
+        {/* Botões de Ação no Topo */}
+        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity bg-white p-1 rounded-md shadow-sm border border-gray-100 z-10">
+          <button onClick={() => abrirModalEditar(t)} title="Editar" className="p-1 hover:bg-blue-50 text-gray-400 hover:text-blue-600 rounded">
+            <Pencil size={14} />
+          </button>
+          <button onClick={() => duplicarTarefa(t)} title="Duplicar" className="p-1 hover:bg-gray-100 text-gray-400 rounded">
+            <Copy size={14} />
+          </button>
+          <button onClick={() => excluirTarefa(t.id)} title="Excluir" className="p-1 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded">
+            <Trash2 size={14} />
+          </button>
         </div>
-      )}
-      
-      <h3 className={`font-bold text-sm leading-snug pr-16 ${coluna === 'concluido' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
-        {t.titulo}
-      </h3>
 
-      <div className="mt-3 flex flex-wrap gap-2 items-center">
-        {t.tags_pessoais && (
-          <span className="text-[9px] px-2 py-0.5 rounded-full text-white font-bold" style={{ backgroundColor: t.tags_pessoais.cor }}>
-            {t.tags_pessoais.nome}
-          </span>
+        {t.escola && (
+          <div className="flex items-center gap-1 text-[10px] text-gray-400 font-black uppercase mb-1 pr-16">
+            <School size={10} /> {t.escola}
+          </div>
         )}
         
-        {/* A Etiqueta de Prioridade agora é um Botão Clicável */}
-        <button 
-          onClick={() => alternarPrioridade(t.id, t.prioridade)}
-          title="Clique para mudar a prioridade"
-          className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase transition hover:opacity-80 active:scale-95 ${
-          t.prioridade === 'alta' ? 'bg-red-100 text-red-600' : 
-          t.prioridade === 'media' ? 'bg-amber-100 text-amber-600' : 'bg-gray-100 text-gray-500'
-        }`}>
-          {t.prioridade}
-        </button>
-      </div>
+        <h3 className={`font-bold text-sm leading-snug pr-16 ${coluna === 'concluido' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
+          {t.titulo}
+        </h3>
 
-      <div className="mt-4 flex gap-3 justify-end items-center">
-        {coluna === 'pendente' && (
-          <button onClick={() => atualizarStatus(t.id, 'em_andamento')} className="text-xs text-blue-600 font-black hover:underline flex items-center gap-1">
-            INICIAR <ArrowRight size={12} />
+        <div className="mt-3 flex flex-wrap gap-2 items-center">
+          {/* NOVO: Tag de Lembrete de Atraso */}
+          {estaAtrasada && diasAtraso > 0 && (
+            <span className="text-[9px] px-2 py-0.5 rounded-full text-white font-bold bg-red-600 flex items-center gap-1 animate-pulse shadow-sm shadow-red-200">
+              <AlertCircle size={10} /> ATRASADA {diasAtraso} DIA{diasAtraso > 1 ? 'S' : ''}
+            </span>
+          )}
+
+          {t.tags_pessoais && (
+            <span className="text-[9px] px-2 py-0.5 rounded-full text-white font-bold shadow-sm" style={{ backgroundColor: t.tags_pessoais.cor }}>
+              {t.tags_pessoais.nome}
+            </span>
+          )}
+          
+          <button 
+            onClick={() => alternarPrioridade(t.id, t.prioridade)}
+            title="Clique para mudar a prioridade"
+            className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase transition hover:opacity-80 active:scale-95 shadow-sm ${
+            t.prioridade === 'alta' ? 'bg-red-100 text-red-600' : 
+            t.prioridade === 'media' ? 'bg-amber-100 text-amber-600' : 'bg-gray-100 text-gray-500'
+          }`}>
+            {t.prioridade}
           </button>
-        )}
-        {coluna === 'em_andamento' && (
-          <>
-            <button onClick={() => atualizarStatus(t.id, 'pendente')} className="text-[11px] font-bold text-gray-400 hover:text-gray-600 transition">Pausar</button>
-            <button onClick={() => atualizarStatus(t.id, 'concluido')} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-black shadow-md shadow-green-100 hover:bg-green-700 flex items-center gap-1">
-              CONCLUIR <CheckCircle2 size={12} />
+        </div>
+
+        <div className="mt-4 flex gap-3 justify-end items-center">
+          {coluna === 'pendente' && (
+            <button onClick={() => atualizarStatus(t.id, 'em_andamento')} className="text-xs text-blue-600 font-black hover:underline flex items-center gap-1">
+              INICIAR <ArrowRight size={12} />
             </button>
-          </>
-        )}
-        {coluna === 'concluido' && (
-          <button onClick={() => atualizarStatus(t.id, 'em_andamento')} className="text-[10px] text-gray-400 font-bold hover:text-blue-500 transition">
-            REABRIR
-          </button>
-        )}
+          )}
+          {coluna === 'em_andamento' && (
+            <>
+              <button onClick={() => atualizarStatus(t.id, 'pendente')} className="text-[11px] font-bold text-gray-400 hover:text-gray-600 transition">Pausar</button>
+              <button onClick={() => atualizarStatus(t.id, 'concluido')} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-black shadow-md shadow-green-100 hover:bg-green-700 flex items-center gap-1">
+                CONCLUIR <CheckCircle2 size={12} />
+              </button>
+            </>
+          )}
+          {coluna === 'concluido' && (
+            <button onClick={() => atualizarStatus(t.id, 'em_andamento')} className="text-[10px] text-gray-400 font-bold hover:text-blue-500 transition">
+              REABRIR
+            </button>
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="p-6 max-w-7xl mx-auto min-h-screen bg-gray-50/30">
