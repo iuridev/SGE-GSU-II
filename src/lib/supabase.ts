@@ -85,7 +85,7 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
     // No Android, isso ajuda a manter o utilizador logado mesmo se a app fechar
     persistSession: true,
-    autoRefreshToken: isApp ? true : false,
+    autoRefreshToken: true,
     detectSessionInUrl: true
   }
 })

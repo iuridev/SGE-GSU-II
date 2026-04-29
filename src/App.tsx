@@ -53,6 +53,7 @@ import RelatorioFiscalizacao from './pages/RelatorioFiscalizacao';
 import RelatorioUtilidade from './pages/RelatorioUtilidade';
 import FinanceiroAgua from './pages/ImportacaoFinanceiro';
 import MinhasTarefas from './pages/MinhasTarefas';
+import Almoxarifado from './pages/Almoxarifado';
 
 
 
@@ -101,6 +102,12 @@ const MENU_GROUPS: MenuGroup[] = [
     items:[
       { id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'dirigente'] },
       { id: 'fluxo', label: 'Fluxo de Pessoas (em teste)', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','ure_servico'] }, 
+    ]
+  },
+  {
+    title: 'SECOMSE',
+    items:[
+      { id: 'almoxarifado', label: 'Almoxarifado', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'dirigente','ure_servico','supervisor','ure_eec'] },
     ]
   },
   {
@@ -515,6 +522,7 @@ export default function App() {
       case 'relatorio-utilidade': return <RelatorioUtilidade />;
       case 'financeiro-agua': return <FinanceiroAgua />;
       case 'fluxo': return <Fluxo />;
+      case 'almoxarifado': return <Almoxarifado />;
       case 'minhas-tarefas': return <MinhasTarefas/>;
       default: return <Dashboard />;
     }
