@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
   ShoppingCart, Package, Settings, Plus, Trash2, 
-  Check, Edit2, FileText, X, Save 
+  Edit2, FileText, X, Save 
 } from 'lucide-react';
 // Importações para o PDF
 import jsPDF from 'jspdf';

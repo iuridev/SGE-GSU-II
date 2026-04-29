@@ -1,6 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Capacitor } from '@capacitor/core'; // IMPORT CORRETO
-const isApp = Capacitor.isNativePlatform();
+
 
 export type Database = {
   public: {
