@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
   ShoppingCart, Package, Settings, Plus, Trash2, 
-  Check, Edit2, FileText, X, Save 
+  Check, Edit2, FileText, X, Save, History 
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -22,7 +22,8 @@ interface SolicitacaoDetalhe extends Solicitacao {
 export default function Almoxarifado() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAuthorized, setIsAuthorized] = useState(false);
-  const [activeTab, setActiveTab] = useState<'solicitar' | 'painel' | 'admin'>('solicitar');
+  // Adicionada a aba 'historico'
+  const [activeTab, setActiveTab] = useState<'solicitar' | 'painel' | 'admin' | 'historico'>('solicitar');
   const [userId, setUserId] = useState('');
   const [userName, setUserName] = useState('');
 
@@ -39,6 +40,7 @@ export default function Almoxarifado() {
   const [novoItemNome, setNovoItemNome] = useState('');
   const [novoItemQtd, setNovoItemQtd] = useState('');
   const [solicitacoes, setSolicitacoes] = useState<SolicitacaoDetalhe[]>([]);
+  const [historico, setHistorico] = useState<SolicitacaoDetalhe[]>([]); // Novo estado para o histórico
 
   // Estados: Admin
   const [todosUsuarios, setTodosUsuarios] = useState<any[]>([]);
@@ -50,10 +52,13 @@ export default function Almoxarifado() {
     carregarItens();
   }, []);
 
-  // 2. Recarregar pedidos pendentes sempre que a aba do painel for aberta
+  // 2. Recarregar pedidos e histórico sempre que as abas do almoxarife forem abertas
   useEffect(() => {
     if (activeTab === 'painel' && isAuthorized) {
       carregarSolicitacoes();
+    }
+    if (activeTab === 'historico' && isAuthorized) {
+      carregarHistorico();
     }
   }, [activeTab, isAuthorized]);
 
@@ -112,6 +117,38 @@ export default function Almoxarifado() {
         };
       }));
       setSolicitacoes(detalhes);
+    }
+  };
+
+  // Nova função para carregar o histórico
+  const carregarHistorico = async () => {
+    const { data: solData, error: solError } = await supabase
+      .from('almoxarifado_solicitacoes')
+      .select('*')
+      .neq('status', 'pendente') // Tudo que não for pendente entra no histórico
+      .order('created_at', { ascending: false });
+    
+    if (solError) {
+      console.error("Erro ao buscar histórico:", solError.message);
+      return;
+    }
+
+    if (solData) {
+      const detalhes = await Promise.all(solData.map(async (s) => {
+        const { data: itData } = await supabase
+          .from('almoxarifado_solicitacao_itens')
+          .select('*, item:almoxarifado_itens(nome)')
+          .eq('solicitacao_id', s.id);
+        
+        return { 
+          ...s, 
+          itens: itData?.map((i: any) => ({
+            ...i, 
+            item_nome: i.item?.nome || 'Item não encontrado'
+          })) || [] 
+        };
+      }));
+      setHistorico(detalhes);
     }
   };
 
@@ -180,16 +217,25 @@ export default function Almoxarifado() {
     carregarItens();
   };
 
-  const processarSolicitacao = async (solicitacaoId: string, itensAtuais: any[], obs: string) => {
-    for (const i of itensAtuais) {
-      await supabase.from('almoxarifado_solicitacao_itens').update({ quantidade_aprovada: i.quantidade_aprovada }).eq('id', i.id);
-      const { data: itemBanco } = await supabase.from('almoxarifado_itens').select('quantidade').eq('id', i.item_id).single();
-      if (itemBanco) await supabase.from('almoxarifado_itens').update({ quantidade: itemBanco.quantidade - i.quantidade_aprovada }).eq('id', i.item_id);
+  // Atualizado para aceitar o status final (aprovada/reprovada)
+  const processarSolicitacao = async (solicitacaoId: string, itensAtuais: any[], obs: string, statusFinal: 'aprovada' | 'reprovada') => {
+    if (statusFinal === 'aprovada') {
+      for (const i of itensAtuais) {
+        await supabase.from('almoxarifado_solicitacao_itens').update({ quantidade_aprovada: i.quantidade_aprovada }).eq('id', i.id);
+        const { data: itemBanco } = await supabase.from('almoxarifado_itens').select('quantidade').eq('id', i.item_id).single();
+        if (itemBanco) await supabase.from('almoxarifado_itens').update({ quantidade: itemBanco.quantidade - i.quantidade_aprovada }).eq('id', i.item_id);
+      }
+    } else {
+      // Se for reprovada, zeramos a quantidade aprovada nos itens
+      for (const i of itensAtuais) {
+        await supabase.from('almoxarifado_solicitacao_itens').update({ quantidade_aprovada: 0 }).eq('id', i.id);
+      }
     }
-    await supabase.from('almoxarifado_solicitacoes').update({ status: 'aprovada', observacao: obs }).eq('id', solicitacaoId);
+    
+    await supabase.from('almoxarifado_solicitacoes').update({ status: statusFinal, observacao: obs }).eq('id', solicitacaoId);
     carregarSolicitacoes(); 
     carregarItens();
-    alert('Pedido processado com sucesso!');
+    alert(`Pedido ${statusFinal} com sucesso!`);
   };
 
   // --- FUNÇÕES DE RELATÓRIO E ADMINISTRAÇÃO ---
@@ -217,7 +263,6 @@ export default function Almoxarifado() {
 
   const toggleResponsavel = async (targetId: string, isCurrentlyResp: boolean) => {
     if (isCurrentlyResp) {
-      // Trava de segurança combinada
       const admins = todosUsuarios.filter(u => u.role === 'regional_admin').length;
       if (admins + responsaveis.length <= 3) return alert('Regra de segurança: Mínimo de 3 utilizadores autorizados exigido.');
       
@@ -244,14 +289,19 @@ export default function Almoxarifado() {
       </div>
 
       {/* NAVEGAÇÃO DE ABAS */}
-      <div className="flex gap-4 mb-6 border-b pb-2">
+      <div className="flex gap-4 mb-6 border-b pb-2 overflow-x-auto">
         <button onClick={() => setActiveTab('solicitar')} className={`flex items-center gap-2 px-4 py-2 rounded-t-lg font-medium transition-colors ${activeTab === 'solicitar' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50' : 'text-gray-500 hover:bg-gray-100'}`}>
           <ShoppingCart size={18}/> Solicitar Material
         </button>
         {isAuthorized && (
-          <button onClick={() => setActiveTab('painel')} className={`flex items-center gap-2 px-4 py-2 rounded-t-lg font-medium transition-colors ${activeTab === 'painel' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50' : 'text-gray-500 hover:bg-gray-100'}`}>
-            <Package size={18}/> Painel Almoxarifado
-          </button>
+          <>
+            <button onClick={() => setActiveTab('painel')} className={`flex items-center gap-2 px-4 py-2 rounded-t-lg font-medium transition-colors ${activeTab === 'painel' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50' : 'text-gray-500 hover:bg-gray-100'}`}>
+              <Package size={18}/> Painel Almoxarifado
+            </button>
+            <button onClick={() => setActiveTab('historico')} className={`flex items-center gap-2 px-4 py-2 rounded-t-lg font-medium transition-colors ${activeTab === 'historico' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50' : 'text-gray-500 hover:bg-gray-100'}`}>
+              <History size={18}/> Histórico
+            </button>
+          </>
         )}
         {isAdmin && (
            <button onClick={() => setActiveTab('admin')} className={`flex items-center gap-2 px-4 py-2 rounded-t-lg font-medium transition-colors ${activeTab === 'admin' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50' : 'text-gray-500 hover:bg-gray-100'}`}>
@@ -263,7 +313,6 @@ export default function Almoxarifado() {
       {/* ABA 1: SOLICITANTE */}
       {activeTab === 'solicitar' && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Lista de Materiais */}
           <div className="md:col-span-2">
             <h2 className="text-lg font-semibold mb-4 text-gray-700">Materiais Disponíveis</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -285,7 +334,6 @@ export default function Almoxarifado() {
             </div>
           </div>
           
-          {/* Carrinho lateral */}
           <div className="bg-white p-5 rounded-lg border shadow-sm h-fit sticky top-6">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><ShoppingCart size={20} className="text-blue-600"/> O Seu Pedido</h2>
             {cart.length === 0 ? <p className="text-gray-500 text-sm italic">Adicione itens ao lado para começar.</p> : (
@@ -320,7 +368,6 @@ export default function Almoxarifado() {
         <div className="space-y-8">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             
-            {/* Coluna Esquerda: Cadastro e Inventário */}
             <div className="space-y-6">
               <div className="bg-white p-5 rounded-lg border shadow-sm">
                 <h2 className="text-lg font-semibold mb-4 text-gray-800">Nova Entrada de Estoque</h2>
@@ -366,7 +413,6 @@ export default function Almoxarifado() {
               </div>
             </div>
 
-            {/* Coluna Direita: Análise de Pedidos */}
             <div className="bg-white rounded-lg border shadow-sm flex flex-col" style={{ maxHeight: '630px' }}>
               <div className="p-5 border-b bg-gray-50 flex justify-between items-center">
                 <h2 className="text-lg font-semibold text-gray-800">Pedidos para Deferir</h2>
@@ -389,12 +435,7 @@ export default function Almoxarifado() {
                             <span>👥 Pessoas: {sol.quantidade_pessoas}</span>
                           </div>
                         </div>
-                        <form onSubmit={(e) => {
-                          e.preventDefault();
-                          const fd = new FormData(e.currentTarget);
-                          const itA = sol.itens.map(i => ({...i, quantidade_aprovada: parseInt(fd.get(`q-${i.id}`) as string)}));
-                          processarSolicitacao(sol.id, itA, fd.get('obs') as string);
-                        }}>
+                        <form id={`form-${sol.id}`}>
                           <div className="space-y-2 mb-4">
                             {sol.itens.map(it => (
                               <div key={it.id} className="flex items-center justify-between bg-gray-50 p-2 rounded border border-gray-100">
@@ -408,10 +449,30 @@ export default function Almoxarifado() {
                               </div>
                             ))}
                           </div>
-                          <input type="text" name="obs" placeholder="Observações (opcional, ex: substituição de item)" className="w-full text-sm p-2.5 mb-3 border border-gray-300 rounded outline-none focus:border-blue-500" />
-                          <button type="submit" className="w-full bg-blue-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
-                            <Check size={18} /> Concluir e Baixar Estoque
-                          </button>
+                          <input type="text" name="obs" placeholder="Observações (opcional, ex: justificativa)" className="w-full text-sm p-2.5 mb-3 border border-gray-300 rounded outline-none focus:border-blue-500" />
+                          <div className="flex gap-2">
+                            <button 
+                              type="button" 
+                              onClick={(e) => {
+                                const form = e.currentTarget.closest('form') as HTMLFormElement;
+                                const fd = new FormData(form);
+                                const itA = sol.itens.map(i => ({...i, quantidade_aprovada: parseInt(fd.get(`q-${i.id}`) as string)}));
+                                processarSolicitacao(sol.id, itA, fd.get('obs') as string, 'aprovada');
+                              }} 
+                              className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
+                              <Check size={18} /> Aprovar
+                            </button>
+                            <button 
+                              type="button" 
+                              onClick={(e) => {
+                                const form = e.currentTarget.closest('form') as HTMLFormElement;
+                                const fd = new FormData(form);
+                                processarSolicitacao(sol.id, sol.itens, fd.get('obs') as string, 'reprovada');
+                              }} 
+                              className="flex-1 bg-red-500 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-red-600 transition-colors flex items-center justify-center gap-2">
+                              <X size={18} /> Reprovar
+                            </button>
+                          </div>
                         </form>
                       </div>
                     ))}
@@ -423,7 +484,63 @@ export default function Almoxarifado() {
         </div>
       )}
 
-      {/* ABA 3: ADMINISTRAÇÃO DE ACESSOS */}
+      {/* ABA 3: HISTÓRICO DE PEDIDOS */}
+      {activeTab === 'historico' && isAuthorized && (
+        <div className="bg-white rounded-lg border shadow-sm flex flex-col p-6">
+          <div className="flex justify-between items-center border-b pb-4 mb-4">
+            <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+              <History className="text-blue-600" /> Histórico de Solicitações
+            </h2>
+            <span className="text-sm text-gray-500">{historico.length} registros</span>
+          </div>
+          
+          {historico.length === 0 ? (
+            <p className="text-gray-500 py-8 text-center bg-gray-50 rounded-lg">Nenhum histórico encontrado.</p>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {historico.map(sol => (
+                <div key={sol.id} className="border border-gray-200 p-4 rounded-xl bg-gray-50 shadow-sm">
+                  <div className="flex justify-between items-start mb-3 border-b border-gray-200 pb-3">
+                    <div>
+                      <p className="font-bold text-gray-800 text-base">{sol.nome_evento}</p>
+                      <p className="text-xs text-gray-600 mt-1">👤 Solicitante: {sol.nome_solicitante}</p>
+                      <p className="text-xs text-gray-600">👥 Participantes: {sol.quantidade_pessoas}</p>
+                      <p className="text-xs text-gray-400 mt-1">Data: {new Date(sol.created_at).toLocaleDateString('pt-BR')} às {new Date(sol.created_at).toLocaleTimeString('pt-BR')}</p>
+                    </div>
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold border ${sol.status === 'aprovada' ? 'bg-green-100 text-green-800 border-green-200' : 'bg-red-100 text-red-800 border-red-200'}`}>
+                      {sol.status.toUpperCase()}
+                    </span>
+                  </div>
+                  
+                  <div className="space-y-1.5 mb-3">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Itens Solicitados</p>
+                    {sol.itens.map(it => (
+                      <div key={it.id} className="flex justify-between text-sm text-gray-700 bg-white p-2 rounded border border-gray-100">
+                        <span className="font-medium">{it.item_nome}</span>
+                        <span className="text-xs">
+                          {sol.status === 'aprovada' ? (
+                            <>Pediu: <b>{it.quantidade_solicitada}</b> | Aprovou: <b className="text-blue-600">{it.quantidade_aprovada}</b></>
+                          ) : (
+                            <>Pediu: <b>{it.quantidade_solicitada}</b></>
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  {sol.observacao && (
+                    <div className="mt-3 p-3 text-sm text-gray-700 italic bg-white rounded border border-yellow-100 border-l-4 border-l-yellow-400">
+                      <strong>Obs:</strong> {sol.observacao}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ABA 4: ADMINISTRAÇÃO DE ACESSOS */}
       {activeTab === 'admin' && isAdmin && (
         <div className="bg-white p-5 rounded-lg border shadow-sm">
           <h2 className="text-lg font-semibold mb-6 flex items-center gap-2 border-b pb-3"><Settings className="text-gray-500" /> Gestão de Acessos ao Almoxarifado</h2>
