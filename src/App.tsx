@@ -25,7 +25,7 @@ import { Reunioes } from './pages/Reunioes';
 import { AgendamentoCarros } from './pages/AgendamentoCarros';
 import { AgendamentoAmbientes } from './pages/AgendamentoAmbientes';
 import { Demanda } from './pages/Demanda';
-import { RaioXEscola } from './pages/RaioXEscola';
+import RaioXEscola from './pages/RaioXEscola';
 import { Aquisicao } from './pages/Aquisicao';
 import { RankingEscolas } from './pages/RankingEscolas';
 import { PatrimonioProcessos } from './pages/PatrimonioProcessos';
@@ -92,6 +92,7 @@ const MENU_GROUPS: MenuGroup[] = [
   {
     title: 'RELATÓRIOS',
     items:[
+      { id: 'raiox', label: 'Raio-X / Vistoria', icon: <Scan size={20} className="text-indigo-500" />, roles: ['regional_admin','supervisor', 'dirigente'] },
       { id: 'relatorio-fiscalizacao', label: 'Relatórios de Fiscalização', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },    
       { id: 'relatorio-acesso', label: 'Relatórios de Acesso', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
       { id: 'relatorio-utilidade', label: 'Relatórios de Consumo', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },        
@@ -130,7 +131,6 @@ const MENU_GROUPS: MenuGroup[] = [
   {
     title: 'Vistoria',
     items: [
-      { id: 'raiox', label: 'Raio-X / Vistoria', icon: <Scan size={20} className="text-indigo-500" />, roles: ['regional_admin','supervisor', 'dirigente'] },
     ]
   },
   {
