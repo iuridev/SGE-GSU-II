@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { UploadCloud, Calendar, Building, AlertCircle, Info, TrendingUp, AlertTriangle, CheckCircle } from 'lucide-react';
 import * as xlsx from 'xlsx';
-import { createClient } from '@supabase/supabase-js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inicialização do Supabase
