@@ -53,6 +53,7 @@ import RelatorioFiscalizacao from './pages/RelatorioFiscalizacao';
 import RelatorioUtilidade from './pages/RelatorioUtilidade';
 import FinanceiroAgua from './pages/ImportacaoFinanceiro';
 import MinhasTarefas from './pages/MinhasTarefas';
+import VistoriasPrediaisDashboard from './pages/biPredial'
 import Almoxarifado from './pages/Almoxarifado';
 
 
@@ -136,6 +137,7 @@ const MENU_GROUPS: MenuGroup[] = [
   {
     title: 'Infraestrutura',
     items: [
+      { id: 'vistorias-prediais-dashboard', label: 'Bi Predial', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec', 'school_manager'] },        
       { id: 'obras', label: 'Obras e Reformas', icon: <HardHat size={20} className="text-orange-500" />, roles: ['regional_admin','supervisor', 'dirigente'] },
       { id: 'servicos', label: 'Intervenção URE', icon: <Map size={20} />, roles: ['regional_admin','supervisor', 'dirigente'] },
       { id: 'manejo', label: 'Manejo Arbóreo', icon: <TreeDeciduous size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
@@ -523,6 +525,7 @@ export default function App() {
       case 'financeiro-agua': return <FinanceiroAgua />;
       case 'fluxo': return <Fluxo />;
       case 'almoxarifado': return <Almoxarifado />;
+      case 'vistorias-prediais-dashboard': return <VistoriasPrediaisDashboard/>;
       case 'minhas-tarefas': return <MinhasTarefas/>;
       default: return <Dashboard />;
     }

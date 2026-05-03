@@ -20,7 +20,8 @@ import {
   Star,
   Package,
   History,
-  ArrowUpCircle
+  ArrowUpCircle,
+  Trees
 } from 'lucide-react';
 
 interface School {
@@ -76,6 +77,8 @@ export function RaioXEscola() {
 
   const [avcbData, setAvcbData] = useState<any | null>(null);
   const [avcbLoading, setAvcbLoading] = useState(false);
+
+  const [manejoArboreoData, setManejoArboreoData] = useState<any | null>(null);
 
   useEffect(() => {
     fetchSchools();
@@ -196,6 +199,15 @@ export function RaioXEscola() {
 
       setZeladoriaData(zel || null);
 
+      
+      const { data: manejo } = await (supabase as any)
+        .from('manejo_arboreo')
+        .select('*')
+        .eq('escola_id', selectedSchoolId)
+        .maybeSingle();
+
+      setManejoArboreoData(manejo || null);
+
       const { data: reman } = await (supabase as any)
         .from('inventory_items')
         .select('*')
@@ -259,6 +271,23 @@ export function RaioXEscola() {
 
     return avcbData.statuscontr || avcbData.status || avcbData.fase || 'Com informação';
   }, [avcbData, avcbLoading]);
+
+  const manejoArboreoDescription = useMemo(() => {
+  if (!manejoArboreoData) return 'Sem informação';
+
+  if (manejoArboreoData.nao_se_aplica) {
+    return 'Não se aplica';
+  }
+
+  const qtdPoda = Number(manejoArboreoData.qtd_poda || 0);
+  const qtdRemocao = Number(manejoArboreoData.qtd_remocao || 0);
+
+  if (qtdPoda === 0 && qtdRemocao === 0) {
+    return 'Sem manejo registrado';
+  }
+
+  return `${qtdPoda} poda(s) / ${qtdRemocao} remoção(ões)`;
+}, [manejoArboreoData]);
 
   const analysis = useMemo(() => {
     const today = new Date();
@@ -542,6 +571,14 @@ export function RaioXEscola() {
               color={avcbData ? 'emerald' : 'amber'}
             />
 
+            <AuditCard
+              title="Manejo Arbóreo"
+              status={manejoArboreoData ? 'OK' : 'ALERT'}
+              desc={manejoArboreoDescription}
+              icon={<Trees />}
+              color={manejoArboreoData ? 'emerald' : 'amber'}
+            />
+
             {selectedSchool?.has_elevator && (
               <AuditCard
                 title="Elevador"
@@ -821,6 +858,9 @@ export function RaioXEscola() {
 
             <h3>AVCB</h3>
             <p>{avcbDescription}</p>
+
+            <h3>Manejo Arbóreo</h3>
+            <p>{manejoArboreoDescription}</p>
 
             <h3>Patrimônio</h3>
             <p>{analysis.activeAssetProcesses} processos SEI.</p>
