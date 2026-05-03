@@ -208,6 +208,7 @@ export default function VistoriasPrediaisDashboard() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 bg-white p-5 rounded-lg shadow-sm border border-gray-200">
         <div>
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Building className="w-7 h-7 text-blue-600" />Vistorias de Manutenção Predial</h1>
+          <h3>Fonte de Dados: Bi Educação - Manuntenção Predial</h3>
           <p className="text-sm text-gray-500 mt-2 flex items-center gap-1"><Calendar className="w-4 h-4" />Última sincronização: <span className="font-semibold text-gray-700">{lastUpdate || 'Carregando...'}</span></p>
         </div>
         {currentUser.role === 'regional_admin' && (
