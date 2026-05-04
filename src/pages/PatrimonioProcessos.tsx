@@ -4,7 +4,7 @@ import {
   Package, Plus, Search, FileText, 
   Trash2, Edit, X, Save, Loader2, 
   Building2, Info, CheckCircle2,
-  Calendar, 
+  Calendar, Eye, // <-- Eye adicionado aqui
   AlertCircle, History, Flag, ShieldAlert, Gift, 
   ClipboardList, DollarSign, ListPlus, Calculator,
   LayoutGrid, CheckCircle, Download, BarChart2, TrendingUp
@@ -152,12 +152,14 @@ export function PatrimonioProcessos() {
   }
 
   const isAdmin = userRole === 'regional_admin';
+  
+  // Regra central de permissão: é leitura apenas se for edição E o usuário não for admin
+  const isReadOnly = !!editingProcess && !isAdmin;
 
   // ---------------------------------------------------------
   // LÓGICA DE FILTRO PARA A EXPORTAÇÃO
   // ---------------------------------------------------------
   
-  // Esta variável ajusta os dados dinamicamente se estivermos gerando o PDF
   const activeProcesses = useMemo(() => {
     if (isExporting && exportTargetSchool !== '') {
       return processes.filter(p => p.school_id === exportTargetSchool);
@@ -170,7 +172,6 @@ export function PatrimonioProcessos() {
     const concluidos = activeProcesses.filter(p => p.status === 'CONCLUÍDO').length;
     const pendentes = total - concluidos;
     
-    // Gráfico 1: Processos por Tipo
     const chartData = PROCESS_TYPES.map(type => {
       const typeProcesses = activeProcesses.filter(p => p.type === type.id);
       let xAxisName = type.label;
@@ -184,7 +185,6 @@ export function PatrimonioProcessos() {
       };
     });
 
-    // Gráfico 2: Ranking de Escolas
     const schoolCounts: Record<string, { name: string, Processos: number }> = {};
     activeProcesses.forEach(p => {
       const fullName = p.schools?.name || 'Não informada';
@@ -199,12 +199,10 @@ export function PatrimonioProcessos() {
     return { total, concluidos, pendentes, chartData, schoolRankingData };
   }, [activeProcesses]);
 
-  // Efeito que captura a tela e gera o PDF assim que o filtro de exportação entra em ação
   useEffect(() => {
     if (!isExporting) return;
 
     const generatePDF = async () => {
-      // Dá 500ms para o React renderizar os novos dados na tela (filtro) e pausar animações
       await new Promise(resolve => setTimeout(resolve, 500));
 
       try {
@@ -242,7 +240,6 @@ export function PatrimonioProcessos() {
           let printWidth = pdfWidth - (margin * 2);
           let printHeight = (canvas.height * printWidth) / canvas.width;
 
-          // Proteção para a imagem não cortar na página
           const maxAvailableHeight = doc.internal.pageSize.getHeight() - currentY - margin;
           if (printHeight > maxAvailableHeight) {
             const ratio = maxAvailableHeight / printHeight;
@@ -284,14 +281,13 @@ export function PatrimonioProcessos() {
         console.error("Erro ao gerar PDF:", error);
         alert("Ocorreu um erro ao gerar o relatório.");
       } finally {
-        setIsExporting(false); // Retorna a tela ao normal (sem filtros)
+        setIsExporting(false);
         setShowExportModal(false);
       }
     };
 
     generatePDF();
   }, [isExporting, activeProcesses, exportTargetSchool, schools]);
-  // ---------------------------------------------------------
 
   const filteredProcesses = useMemo(() => {
     return processes.filter(p => {
@@ -310,6 +306,13 @@ export function PatrimonioProcessos() {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
+
+    // Proteção dupla de back-end logic
+    if (editingProcess && !isAdmin) {
+      setFormError("Apenas usuários com perfil Regional podem atualizar processos.");
+      return;
+    }
+
     setSaveLoading(true);
     setFormError(null);
 
@@ -345,6 +348,10 @@ export function PatrimonioProcessos() {
   }
 
   async function handleDelete(id: string) {
+    if (!isAdmin) {
+      alert("Sem permissão para excluir.");
+      return;
+    }
     if (!confirm("Remover este processo?")) return;
     await (supabase as any).from('asset_processes').delete().eq('id', id);
     fetchProcesses();
@@ -413,7 +420,6 @@ export function PatrimonioProcessos() {
 
   return (
     <div className="min-h-screen space-y-8 pb-32 bg-[#f8fafc]">
-      {/* Header Fixo de Impacto */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-5">
           <div className="p-4 bg-indigo-600 rounded-[2rem] text-white shadow-2xl shadow-indigo-100">
@@ -435,21 +441,17 @@ export function PatrimonioProcessos() {
             {isExporting ? 'GERANDO PDF...' : 'PDF CHEFIA'}
           </button>
 
-          {isAdmin && (
-            <button 
-              onClick={() => openModal()} 
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-10 py-5 rounded-[2rem] font-black flex items-center gap-3 shadow-xl transition-all active:scale-95 group"
-            >
-              <Plus size={20} className="group-hover:rotate-90 transition-transform"/> ABRIR NOVO PROCESSO
-            </button>
-          )}
+          {/* Removida a restrição isAdmin para que a escola possa cadastrar */}
+          <button 
+            onClick={() => openModal()} 
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-10 py-5 rounded-[2rem] font-black flex items-center gap-3 shadow-xl transition-all active:scale-95 group"
+          >
+            <Plus size={20} className="group-hover:rotate-90 transition-transform"/> ABRIR NOVO PROCESSO
+          </button>
         </div>
       </div>
 
-      {/* ÁREA DO DASHBOARD CAPTURADA PARA O PDF */}
       <div ref={dashboardRef} className="space-y-6 bg-[#f8fafc] p-2 rounded-[3.5rem]">
-        
-        {/* CARDS DE MÉTRICAS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-lg flex items-center gap-6">
             <div className="p-4 bg-indigo-50 text-indigo-600 rounded-2xl"><ClipboardList size={32}/></div>
@@ -474,10 +476,7 @@ export function PatrimonioProcessos() {
           </div>
         </div>
 
-        {/* GRÁFICOS */}
         <div className="grid grid-cols-1 gap-6">
-          
-          {/* Gráfico 1: Processos por Tipo */}
           <div className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-xl">
             <div className="flex items-center gap-3 mb-8">
               <BarChart2 className="text-indigo-600" size={24} />
@@ -491,7 +490,6 @@ export function PatrimonioProcessos() {
                   <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 700 }} />
                   <RechartsTooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
                   <Legend wrapperStyle={{ paddingTop: '20px', fontWeight: 700, fontSize: '12px' }} />
-                  {/* Desliga a animação apenas no momento exato do print para não capturar a barra "subindo" */}
                   <Bar dataKey="Pendentes" stackId="a" fill="#fbbf24" radius={[0, 0, 4, 4]} maxBarSize={60} isAnimationActive={!isExporting}/>
                   <Bar dataKey="Concluídos" stackId="a" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={60} isAnimationActive={!isExporting}/>
                 </BarChart>
@@ -499,7 +497,6 @@ export function PatrimonioProcessos() {
             </div>
           </div>
 
-          {/* Gráfico 2: Ranking de Escolas */}
           <div className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-xl">
             <div className="flex items-center gap-3 mb-8">
               <TrendingUp className="text-blue-500" size={24} />
@@ -517,12 +514,9 @@ export function PatrimonioProcessos() {
               </ResponsiveContainer>
             </div>
           </div>
-
         </div>
       </div>
-      {/* FIM DA ÁREA DO DASHBOARD */}
 
-      {/* Navegação de Abas Principais (Estilo Pílula) */}
       <div className="bg-white p-3 rounded-[3rem] border border-slate-100 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4 mt-8">
         <div className="flex flex-wrap gap-2 p-1.5 bg-slate-100/50 rounded-[2.5rem] w-full md:w-auto">
            {mainTabs.map(tab => (
@@ -556,7 +550,6 @@ export function PatrimonioProcessos() {
         </div>
       </div>
 
-      {/* Busca */}
       <div className="bg-white p-4 rounded-[2.5rem] border border-slate-100 shadow-sm">
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
@@ -570,7 +563,6 @@ export function PatrimonioProcessos() {
         </div>
       </div>
 
-      {/* Lista de Processos */}
       {loading ? (
         <div className="py-40 flex flex-col items-center justify-center gap-4">
            <Loader2 className="animate-spin text-indigo-600" size={48} />
@@ -648,13 +640,15 @@ export function PatrimonioProcessos() {
                        <button 
                         onClick={() => openModal(p)} 
                         className="p-5 bg-slate-50 text-slate-400 hover:bg-indigo-600 hover:text-white rounded-[1.5rem] transition-all shadow-sm active:scale-95"
+                        title={isAdmin ? "Editar Processo" : "Visualizar Processo"}
                        >
-                          <Edit size={24}/>
+                          {isAdmin ? <Edit size={24}/> : <Eye size={24}/>}
                        </button>
                        {isAdmin && (
                          <button 
                           onClick={() => handleDelete(p.id)} 
                           className="p-5 bg-slate-50 text-slate-400 hover:bg-red-600 hover:text-white rounded-[1.5rem] transition-all shadow-sm active:scale-95"
+                          title="Excluir Processo"
                          >
                             <Trash2 size={24}/>
                          </button>
@@ -667,7 +661,6 @@ export function PatrimonioProcessos() {
         </div>
       )}
 
-      {/* MODAL DE SELEÇÃO PARA EXPORTAÇÃO */}
       {showExportModal && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/90 backdrop-blur-sm p-4">
           <div className="bg-white rounded-[3rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
@@ -713,14 +706,13 @@ export function PatrimonioProcessos() {
         </div>
       )}
 
-      {/* Modal de Gestão */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4 overflow-hidden">
           <div className="bg-white rounded-[3.5rem] w-full max-w-5xl max-h-[95vh] shadow-2xl animate-in zoom-in-95 duration-200 border border-white flex flex-col overflow-hidden">
             <div className="p-10 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-indigo-100"><Package size={28}/></div>
-                <div><h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight leading-none">{editingProcess ? 'Atualizar Processo' : 'Novo Processo de Patrimônio'}</h2><p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest mt-2">Detalhamento Patrimonial Regional II</p></div>
+                <div><h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight leading-none">{editingProcess ? (isReadOnly ? 'Visualizar Processo' : 'Atualizar Processo') : 'Novo Processo de Patrimônio'}</h2><p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest mt-2">Detalhamento Patrimonial Regional II</p></div>
               </div>
               <button onClick={() => setIsModalOpen(false)} className="p-3 hover:bg-white rounded-full transition-all text-slate-400 border border-transparent hover:border-slate-100"><X size={32}/></button>
             </div>
@@ -747,29 +739,29 @@ export function PatrimonioProcessos() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase ml-1 flex items-center gap-2"><ClipboardList size={12}/> Tipo de Fluxo</label>
-                    <select required className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-indigo-500 transition-all shadow-inner" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>
+                    <select required disabled={isReadOnly} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-indigo-500 disabled:opacity-50 transition-all shadow-inner" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>
                       {PROCESS_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
                     </select>
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase ml-1 flex items-center gap-2"><FileText size={12}/> Nº Processo SEI</label>
-                    <input required className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-mono font-bold text-indigo-600 focus:border-indigo-500 outline-none transition-all shadow-inner" placeholder="000.000.000/0000-00" value={formData.sei_number} onChange={e => setFormData({...formData, sei_number: e.target.value})} />
+                    <input required disabled={isReadOnly} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-mono font-bold text-indigo-600 focus:border-indigo-500 outline-none disabled:opacity-50 transition-all shadow-inner" placeholder="000.000.000/0000-00" value={formData.sei_number} onChange={e => setFormData({...formData, sei_number: e.target.value})} />
                   </div>
                 </div>
 
                 {formData.type === 'FURTOS' && (
                   <div className="space-y-12 animate-in slide-in-from-top-4 duration-500">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 p-8 bg-red-50/40 border border-red-100 rounded-[2.5rem] shadow-sm">
-                       <div className="space-y-1.5"><label className="text-[10px] font-black text-red-500 uppercase ml-1">Tipo de Ocorrência</label><select className="w-full p-4 bg-white border border-red-100 rounded-xl font-bold outline-none" value={formData.subtype} onChange={e => setFormData({...formData, subtype: e.target.value})}><option value="Furto">Furto</option><option value="Roubo">Roubo</option><option value="Extravio">Extravio</option><option value="Incêndio">Incêndio</option><option value="Vandalismo">Vandalismo</option></select></div>
-                       <div className="space-y-1.5"><label className="text-[10px] font-black text-red-500 uppercase ml-1">Data Ocorrência</label><input type="date" className="w-full p-4 bg-white border border-red-100 rounded-xl font-bold outline-none" value={formData.occurrence_date} onChange={e => setFormData({...formData, occurrence_date: e.target.value})} /></div>
-                       <div className="space-y-1.5"><label className="text-[10px] font-black text-red-500 uppercase ml-1">Nº Boletim (B.O.)</label><input placeholder="B.O. 00000/2026" className="w-full p-4 bg-white border border-red-100 rounded-xl font-bold outline-none" value={formData.bulletin_number} onChange={e => setFormData({...formData, bulletin_number: e.target.value})} /></div>
-                       <div className="space-y-1.5"><label className="text-[10px] font-black text-red-500 uppercase ml-1">Autoria Conhecida?</label><select className="w-full p-4 bg-white border border-red-100 rounded-xl font-bold outline-none" value={formData.authorship} onChange={e => setFormData({...formData, authorship: e.target.value})}><option value="Não conhecida">Não conhecida</option><option value="Conhecida">Conhecida</option></select></div>
+                       <div className="space-y-1.5"><label className="text-[10px] font-black text-red-500 uppercase ml-1">Tipo de Ocorrência</label><select disabled={isReadOnly} className="w-full p-4 bg-white border border-red-100 rounded-xl font-bold outline-none disabled:opacity-50" value={formData.subtype} onChange={e => setFormData({...formData, subtype: e.target.value})}><option value="Furto">Furto</option><option value="Roubo">Roubo</option><option value="Extravio">Extravio</option><option value="Incêndio">Incêndio</option><option value="Vandalismo">Vandalismo</option></select></div>
+                       <div className="space-y-1.5"><label className="text-[10px] font-black text-red-500 uppercase ml-1">Data Ocorrência</label><input disabled={isReadOnly} type="date" className="w-full p-4 bg-white border border-red-100 rounded-xl font-bold outline-none disabled:opacity-50" value={formData.occurrence_date} onChange={e => setFormData({...formData, occurrence_date: e.target.value})} /></div>
+                       <div className="space-y-1.5"><label className="text-[10px] font-black text-red-500 uppercase ml-1">Nº Boletim (B.O.)</label><input disabled={isReadOnly} placeholder="B.O. 00000/2026" className="w-full p-4 bg-white border border-red-100 rounded-xl font-bold outline-none disabled:opacity-50" value={formData.bulletin_number} onChange={e => setFormData({...formData, bulletin_number: e.target.value})} /></div>
+                       <div className="space-y-1.5"><label className="text-[10px] font-black text-red-500 uppercase ml-1">Autoria Conhecida?</label><select disabled={isReadOnly} className="w-full p-4 bg-white border border-red-100 rounded-xl font-bold outline-none disabled:opacity-50" value={formData.authorship} onChange={e => setFormData({...formData, authorship: e.target.value})}><option value="Não conhecida">Não conhecida</option><option value="Conhecida">Conhecida</option></select></div>
                     </div>
 
                     <div className="space-y-6">
                        <div className="flex items-center justify-between px-2">
                           <h3 className="text-sm font-black text-slate-800 uppercase tracking-[0.2em] flex items-center gap-3"><ListPlus size={20} className="text-red-500"/> Relação Técnica de Itens</h3>
-                          <button type="button" onClick={addSinistroItem} className="bg-slate-900 text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-3 shadow-lg active:scale-95"><Plus size={16}/> Adicionar Item</button>
+                          {!isReadOnly && <button type="button" onClick={addSinistroItem} className="bg-slate-900 text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-3 shadow-lg active:scale-95"><Plus size={16}/> Adicionar Item</button>}
                        </div>
                        
                        <div className="bg-white border border-slate-100 rounded-[3rem] overflow-hidden shadow-2xl">
@@ -781,15 +773,17 @@ export function PatrimonioProcessos() {
                                <tbody className="divide-y divide-slate-50">
                                   {sinistroItems.map((item, idx) => (
                                     <tr key={idx} className="group hover:bg-slate-50/50 transition-colors">
-                                      <td className="p-4 pl-10"><input required placeholder="Descreva o item..." className="w-full p-3.5 bg-slate-50 border-2 border-transparent rounded-xl font-bold text-xs outline-none focus:border-red-400 focus:bg-white transition-all" value={item.name} onChange={e => updateSinistroItem(idx, 'name', e.target.value)} /></td>
-                                      <td className="p-4"><input required placeholder="000.000" className="w-full p-3.5 bg-slate-50 border-2 border-transparent rounded-xl font-mono text-center font-bold text-xs outline-none focus:border-red-400 focus:bg-white transition-all" value={item.asset_number} onChange={e => updateSinistroItem(idx, 'asset_number', e.target.value)} /></td>
+                                      <td className="p-4 pl-10"><input required disabled={isReadOnly} placeholder="Descreva o item..." className="w-full p-3.5 bg-slate-50 border-2 border-transparent rounded-xl font-bold text-xs outline-none focus:border-red-400 focus:bg-white disabled:opacity-50 transition-all" value={item.name} onChange={e => updateSinistroItem(idx, 'name', e.target.value)} /></td>
+                                      <td className="p-4"><input required disabled={isReadOnly} placeholder="000.000" className="w-full p-3.5 bg-slate-50 border-2 border-transparent rounded-xl font-mono text-center font-bold text-xs outline-none focus:border-red-400 focus:bg-white disabled:opacity-50 transition-all" value={item.asset_number} onChange={e => updateSinistroItem(idx, 'asset_number', e.target.value)} /></td>
                                       <td className="p-4">
                                         <div className="relative group/val">
                                           <DollarSign size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within/val:text-red-500 transition-colors"/>
-                                          <input type="number" step="0.01" className="w-full p-3.5 pl-10 bg-slate-50 border-2 border-transparent rounded-xl font-black text-center text-sm outline-none focus:border-red-400 focus:bg-white transition-all" value={item.unit_value || ''} onChange={e => updateSinistroItem(idx, 'unit_value', Number(e.target.value))} />
+                                          <input disabled={isReadOnly} type="number" step="0.01" className="w-full p-3.5 pl-10 bg-slate-50 border-2 border-transparent rounded-xl font-black text-center text-sm outline-none focus:border-red-400 focus:bg-white disabled:opacity-50 transition-all" value={item.unit_value || ''} onChange={e => updateSinistroItem(idx, 'unit_value', Number(e.target.value))} />
                                         </div>
                                       </td>
-                                      <td className="p-4 text-right pr-10"><button type="button" onClick={() => removeSinistroItem(idx)} className="p-3 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all active:scale-90"><Trash2 size={20}/></button></td>
+                                      <td className="p-4 text-right pr-10">
+                                        {!isReadOnly && <button type="button" onClick={() => removeSinistroItem(idx)} className="p-3 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all active:scale-90"><Trash2 size={20}/></button>}
+                                      </td>
                                     </tr>
                                   ))}
                                </tbody>
@@ -805,7 +799,7 @@ export function PatrimonioProcessos() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-10 bg-slate-50/50 rounded-[3rem] border border-slate-100 shadow-inner">
                        <div className="space-y-3">
                           <label className="text-[10px] font-black text-slate-400 uppercase ml-1 flex items-center gap-2"><CheckCircle size={14}/> Conclusão Técnica</label>
-                          <select className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all shadow-sm" value={formData.conclusion} onChange={e => setFormData({...formData, conclusion: e.target.value})}>
+                          <select disabled={isReadOnly} className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-indigo-500/5 disabled:opacity-50 transition-all shadow-sm" value={formData.conclusion} onChange={e => setFormData({...formData, conclusion: e.target.value})}>
                             <option value="EM ANDAMENTO">EM ANDAMENTO (APURAÇÃO)</option>
                             <option value="ENCERRADO COMO CONCLUIDO PELA RESPONSÁBILIDADE">ENCERRADO PELA RESPONSABILIDADE</option>
                             <option value="ENCERRADO COMO CONCLUIDO PELA NÃO RESPONSÁBILIDADE">ENCERRADO PELA NÃO RESPONSABILIDADE</option>
@@ -814,7 +808,7 @@ export function PatrimonioProcessos() {
                        </div>
                        <div className="space-y-3">
                           <label className="text-[10px] font-black text-slate-400 uppercase ml-1 flex items-center gap-2"><ShieldAlert size={14}/> NL de Baixa Patrimonial</label>
-                          <select className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all shadow-sm" value={formData.is_nl_low ? 'Sim' : 'Não'} onChange={e => setFormData({...formData, is_nl_low: e.target.value === 'Sim'})}>
+                          <select disabled={isReadOnly} className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-indigo-500/5 disabled:opacity-50 transition-all shadow-sm" value={formData.is_nl_low ? 'Sim' : 'Não'} onChange={e => setFormData({...formData, is_nl_low: e.target.value === 'Sim'})}>
                             <option value="Não">Não (Pendente de Registro no SAM)</option>
                             <option value="Sim">Sim (Baixa Efetivada)</option>
                           </select>
@@ -823,7 +817,6 @@ export function PatrimonioProcessos() {
                   </div>
                 )}
 
-                {/* Fluxograma Regional */}
                 <div className="space-y-8">
                    <div className="flex items-center gap-4 px-2">
                       <div className="w-1.5 h-8 bg-indigo-600 rounded-full"></div>
@@ -837,9 +830,10 @@ export function PatrimonioProcessos() {
                         return (
                           <button 
                            key={step} 
-                           type="button" 
+                           type="button"
+                           disabled={isReadOnly}
                            onClick={() => setFormData({...formData, current_step: step})} 
-                           className={`p-6 rounded-[2rem] border-2 text-left flex flex-col justify-between h-28 transition-all hover:scale-[1.02] active:scale-95 ${
+                           className={`p-6 rounded-[2rem] border-2 text-left flex flex-col justify-between h-28 transition-all hover:scale-[1.02] active:scale-95 disabled:hover:scale-100 disabled:active:scale-100 disabled:cursor-not-allowed ${
                              active 
                                ? 'bg-indigo-600 border-indigo-600 text-white shadow-2xl shadow-indigo-100' 
                                : past 
@@ -859,7 +853,6 @@ export function PatrimonioProcessos() {
                    </div>
                 </div>
 
-                {/* Status Final da Ficha */}
                 <div className="space-y-4">
                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-[0.2em] px-2 flex items-center gap-2"><LayoutGrid size={14}/> Categoria de Status Final</label>
                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-2">
@@ -867,8 +860,9 @@ export function PatrimonioProcessos() {
                         <button 
                          key={s} 
                          type="button" 
+                         disabled={isReadOnly}
                          onClick={() => setFormData({...formData, status: s})} 
-                         className={`p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
+                         className={`p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 transition-all disabled:cursor-not-allowed ${
                            formData.status === s 
                              ? 'bg-slate-900 border-slate-900 text-white shadow-xl' 
                              : 'bg-white border-slate-100 text-slate-400 hover:border-slate-300'
@@ -881,24 +875,26 @@ export function PatrimonioProcessos() {
                 </div>
               </div>
 
-              {/* Rodapé Fixo */}
               <div className="p-10 border-t border-slate-100 bg-white shrink-0 flex justify-end gap-5">
-                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-10 py-5 text-slate-400 font-black hover:text-slate-700 transition-all uppercase tracking-[0.2em] text-[11px]">Cancelar Operação</button>
-                 <button 
-                  type="submit" 
-                  disabled={saveLoading} 
-                  className="px-20 py-5 bg-indigo-600 text-white rounded-[2rem] font-black shadow-2xl shadow-indigo-100 hover:bg-indigo-700 flex items-center justify-center gap-4 transition-all active:scale-95"
-                 >
-                   {saveLoading ? <Loader2 className="animate-spin" size={24}/> : <Save size={24}/>}
-                   {editingProcess ? 'ACTUALIZAR PROCESSO NO SISTEMA' : 'LANÇAR NOVO PROCESSO'}
+                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-10 py-5 text-slate-400 font-black hover:text-slate-700 transition-all uppercase tracking-[0.2em] text-[11px]">
+                   {isReadOnly ? 'Fechar' : 'Cancelar Operação'}
                  </button>
+                 {!isReadOnly && (
+                   <button 
+                    type="submit" 
+                    disabled={saveLoading} 
+                    className="px-20 py-5 bg-indigo-600 text-white rounded-[2rem] font-black shadow-2xl shadow-indigo-100 hover:bg-indigo-700 flex items-center justify-center gap-4 transition-all active:scale-95"
+                   >
+                     {saveLoading ? <Loader2 className="animate-spin" size={24}/> : <Save size={24}/>}
+                     {editingProcess ? 'ACTUALIZAR PROCESSO NO SISTEMA' : 'LANÇAR NOVO PROCESSO'}
+                   </button>
+                 )}
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* Informativo Técnico Regional */}
       <div className="bg-slate-900 p-10 rounded-[4rem] text-white shadow-2xl relative overflow-hidden group">
          <Info className="absolute -right-6 -bottom-6 text-white/5 group-hover:scale-110 transition-transform" size={180} />
          <div className="flex items-start gap-8 relative z-10">
