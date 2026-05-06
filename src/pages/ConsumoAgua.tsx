@@ -5,7 +5,7 @@ import {
   Save, X, AlertTriangle, CheckCircle,  
   Search, Building2, Users, Loader2,
   AlertCircle, ArrowRight, Activity, ShieldCheck,
-  TrendingUp, Waves, 
+  TrendingUp, Waves,
   CalendarDays, FileDown, History, CalendarOff, Trash2,
   Gauge, Plus, Settings, ClipboardCopy, ClipboardCheck, Clock
 } from 'lucide-react';
@@ -53,6 +53,8 @@ const MONTHS = [
 ];
 
 const YEARS = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i);
+
+const LIMITE_DIARIO_POR_PESSOA = 0.009;
 
 function formatDateToYMD(date: Date) {
   const year = date.getFullYear();
@@ -317,7 +319,7 @@ export function ConsumoAgua() {
 
   const stats = useMemo(() => {
     const totalConsumption = allMonthLogs.reduce((acc, curr) => acc + (curr.consumption_diff || 0), 0);
-    const totalLimit = allMonthLogs.reduce((acc, curr) => acc + (curr.student_count + curr.staff_count) * 0.008, 0);
+    const totalLimit = allMonthLogs.reduce((acc, curr) => acc + (curr.student_count + curr.staff_count) * LIMITE_DIARIO_POR_PESSOA, 0);
     const totalEntries = allMonthLogs.length;
     
     return {
@@ -341,7 +343,7 @@ export function ConsumoAgua() {
         };
       }
       dailyMap[log.date].consumo += (log.consumption_diff || 0);
-      dailyMap[log.date].limite += ((log.student_count + log.staff_count) * 0.008);
+      dailyMap[log.date].limite += ((log.student_count + log.staff_count) * LIMITE_DIARIO_POR_PESSOA);
     });
     
     if (Object.values(dailyMap).length === 0) {
@@ -374,6 +376,7 @@ export function ConsumoAgua() {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const totalDays = new Date(year, month + 1, 0).getDate();
+    
 
     // Dias que contam como "deveriam ter registro"
     const pastDays: string[] = [];
@@ -661,7 +664,7 @@ export function ConsumoAgua() {
   };
 
   const currentConsumption = Math.max(0, formData.reading_m3 - prevReadingValue);
-  const currentLimit = (formData.student_count + formData.staff_count) * 0.008;
+  const currentLimit = (formData.student_count + formData.staff_count) * LIMITE_DIARIO_POR_PESSOA;
   const isLimitExceeded = currentConsumption > currentLimit && formData.reading_m3 > 0;
   const isHydrometerBlocked = !isManagerRole && (formData.student_count <= 0 || formData.staff_count <= 0);
 
@@ -751,7 +754,7 @@ export function ConsumoAgua() {
             logsToUpdate.push({ id: futureLog.id, reading_m3: cascadeReading, consumption_diff: 0, limit_exceeded: false });
           } else {
             const newDiff = Math.max(0, futureLog.reading_m3 - cascadeReading);
-            const newLimit = (futureLog.student_count + futureLog.staff_count) * 0.008;
+            const newLimit = (futureLog.student_count + futureLog.staff_count) * LIMITE_DIARIO_POR_PESSOA;
             const newExceeded = newDiff > newLimit && futureLog.reading_m3 > 0;
             logsToUpdate.push({
               id: futureLog.id,
@@ -1271,6 +1274,89 @@ export function ConsumoAgua() {
           </div>
         </div>
       )}
+
+      {/* ===== TEMPLATE DE IMPRESSÃO PDF (oculto, gerado pelo html2pdf) ===== */}
+      <div id="pdf-print-template" style={{ display: 'none', background: 'white', width: '1080px' }}>
+        <div style={{ borderBottom: '4px solid #2563eb', paddingBottom: '20px', marginBottom: '30px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}><tbody><tr>
+            <td style={{ border: 'none' }}>
+              <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 900, color: '#0f172a' }}>RELATÓRIO DE MONITORAMENTO HÍDRICO</h1>
+              <p style={{ margin: 0, fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Secretaria de Gestão Regional • Auditoria de Recursos</p>
+            </td>
+            <td style={{ border: 'none', textAlign: 'right' }}>
+              <div style={{ background: '#2563eb', color: 'white', padding: '5px 15px', borderRadius: '8px', fontWeight: 900, display: 'inline-block', fontSize: '10px' }}>SGE-GSU</div>
+              <p style={{ margin: '5px 0 0', fontWeight: 900, fontSize: '14px', color: '#1e293b' }}>{monthName.toUpperCase()} / {currentDate.getFullYear()}</p>
+            </td>
+          </tr></tbody></table>
+        </div>
+
+        <div style={{ background: '#f8fafc', padding: '15px', borderRadius: '15px', border: '1px solid #e2e8f0', marginBottom: '30px' }}>
+          <span style={{ fontSize: '10px', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase' }}>Unidade Analisada:</span>
+          <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#1e293b' }}>
+            {selectedSchoolId
+              ? schools.find(s => s.id === selectedSchoolId)?.name
+              : (userRole === 'supervisor' ? 'VISÃO DE SUPERVISÃO (UNIDADES SELECIONADAS)' : 'REDE REGIONAL GLOBAL (TODAS AS UNIDADES)')}
+          </h2>
+          {selectedSchoolId && hasMultipleMeters && selectedMeterId && (
+            <p style={{ margin: '4px 0 0', fontSize: '11px', fontWeight: 700, color: '#2563eb' }}>
+              {schoolMeters.find(m => m.id === selectedMeterId)?.name}
+            </p>
+          )}
+        </div>
+
+        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '10px', marginBottom: '30px' }}><tbody><tr>
+          <td style={{ width: '25%', background: isTotalExceeded ? '#fef2f2' : '#eff6ff', padding: '20px', borderRadius: '20px', border: isTotalExceeded ? '2px solid #ef4444' : '1px solid #bfdbfe' }}>
+            <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#64748b' }}>CONSUMO TOTAL</p>
+            <h3 style={{ margin: '5px 0 0', fontSize: '20px', fontWeight: 900, color: isTotalExceeded ? '#b91c1c' : '#1e3a8a' }}>{stats.totalConsumption.toFixed(2)} m³</h3>
+          </td>
+          <td style={{ width: '25%', background: '#f8fafc', padding: '20px', borderRadius: '20px', border: '1px solid #e2e8f0' }}>
+            <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#64748b' }}>TETO LIMITE</p>
+            <h3 style={{ margin: '5px 0 0', fontSize: '20px', fontWeight: 900, color: '#0f172a' }}>{stats.totalLimit.toFixed(2)} m³</h3>
+          </td>
+          <td style={{ width: '25%', background: '#f8fafc', padding: '20px', borderRadius: '20px', border: '1px solid #e2e8f0' }}>
+            <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#64748b' }}>MÉDIA DIÁRIA</p>
+            <h3 style={{ margin: '5px 0 0', fontSize: '20px', fontWeight: 900, color: '#1e3a8a' }}>{stats.avgConsumption.toFixed(2)} m³</h3>
+          </td>
+          <td style={{ width: '25%', background: stats.exceededDays > 0 ? '#fffbeb' : '#f8fafc', padding: '20px', borderRadius: '20px', border: stats.exceededDays > 0 ? '1px solid #fbbf24' : '1px solid #e2e8f0' }}>
+            <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#64748b' }}>DIAS COM ALERTA</p>
+            <h3 style={{ margin: '5px 0 0', fontSize: '20px', fontWeight: 900, color: '#92400e' }}>{stats.exceededDays} ocorrências</h3>
+          </td>
+        </tr></tbody></table>
+
+        {justificationsList.length > 0 && (
+          <div>
+            <h3 style={{ fontSize: '14px', fontWeight: 900, color: '#1e293b', marginBottom: '15px', textTransform: 'uppercase' }}>Detalhamento de Justificativas e Ações Corretivas</h3>
+            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+              <thead>
+                <tr style={{ background: '#f1f5f9' }}>
+                  <th style={{ width: '18%', padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 900, textAlign: 'left' }}>ESCOLA</th>
+                  <th style={{ width: '10%', padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 900, textAlign: 'center' }}>DATA</th>
+                  <th style={{ width: '8%', padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 900, textAlign: 'center' }}>EXCESSO</th>
+                  <th style={{ width: '32%', padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 900, textAlign: 'left' }}>JUSTIFICATIVA DO GESTOR</th>
+                  <th style={{ width: '32%', padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 900, textAlign: 'left' }}>PLANO DE AÇÃO PLANEJADO</th>
+                </tr>
+              </thead>
+              <tbody>
+                {justificationsList.map((log) => (
+                  <tr key={log.id}>
+                    <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase' }}>{log.school_name}</td>
+                    <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '10px', textAlign: 'center', color: '#64748b' }}>{new Date(log.date + 'T12:00:00').toLocaleDateString()}</td>
+                    <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '10px', textAlign: 'center', fontWeight: 900, color: '#ef4444' }}>+{log.consumption_diff.toFixed(2)}m³</td>
+                    <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '10px', color: '#334155', fontStyle: 'italic', wordWrap: 'break-word' }}>"{log.justification}"</td>
+                    <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '10px', color: '#1e3a8a', fontWeight: 600, wordWrap: 'break-word' }}>{log.action_plan}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div style={{ marginTop: '40px', paddingTop: '20px', borderTop: '1px solid #e2e8f0', textAlign: 'center' }}>
+          <p style={{ fontSize: '9px', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '2px' }}>
+            Documento Emitido em {new Date().toLocaleString('pt-BR')} • Sistema SGE-GSU
+          </p>
+        </div>
+      </div>
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-blue-900/40 backdrop-blur-md p-0 md:p-4 print:hidden">
