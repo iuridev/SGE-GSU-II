@@ -356,8 +356,7 @@ export function ConsumoAgua() {
     if (userRole !== 'regional_admin' || selectedSchoolId) return [];
 
     const todayStr = formatDateToYMD(new Date());
-    // Só considera dias passados do mês corrente, excluindo hoje (atraso = mais de 1 dia)
-    
+
     // Monta o conjunto de datas úteis (não-futuras, não-hoje) do mês
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -580,27 +579,50 @@ export function ConsumoAgua() {
     setSelectedDateStr(dateStr);
     
     setLoadingPrev(true);
-    
-    // Busca leitura anterior considerando o meter_id
-    let prevQuery = (supabase as any)
-      .from('consumo_agua')
-      .select('reading_m3')
-      .eq('school_id', selectedSchoolId)
-      .lt('date', dateStr)
-      .gt('reading_m3', 0)
-      .order('date', { ascending: false })
-      .limit(1);
-    
-    // Se há um hidrômetro selecionado específico, filtra por ele
-    if (selectedMeterId) {
-      prevQuery = prevQuery.eq('meter_id', selectedMeterId);
-    } else {
-      prevQuery = prevQuery.is('meter_id', null);
-    }
-    
-    const { data: prevData } = await prevQuery;
-    
-    setPrevReadingValue(prevData?.[0]?.reading_m3 || 0);
+
+    // Busca a leitura anterior mais recente antes da data selecionada.
+    // Estratégia:
+    // 1. Tenta primeiro com o meter_id específico (novo fluxo com múltiplos hidrômetros)
+    // 2. Se não encontrar, tenta com meter_id = NULL (dados legados migrados)
+    // 3. Ignora registros de suspensão (reading_m3 = 0 quando suspension)
+    //    usando .gt('reading_m3', 0) — suspensões sempre têm reading_m3 copiado
+    //    da leitura anterior, mas consumption_diff = 0. Para garantir que não é
+    //    uma suspensão, também ignoramos registros com student_count = 0 AND staff_count = 0.
+    // A query usa range para não depender do limite padrão do Supabase (1000 linhas).
+    const fetchPrevReading = async (): Promise<number> => {
+      const baseQuery = () =>
+        (supabase as any)
+          .from('consumo_agua')
+          .select('reading_m3, student_count, staff_count')
+          .eq('school_id', selectedSchoolId)
+          .lt('date', dateStr)
+          .gt('reading_m3', 0)
+          .or('student_count.gt.0,staff_count.gt.0') // exclui suspensões puras
+          .order('date', { ascending: false })
+          .range(0, 0); // equivale a LIMIT 1, mas explícito e sem depender do default
+
+      // Tentativa 1: com meter_id específico
+      if (selectedMeterId) {
+        const { data: d1 } = await baseQuery().eq('meter_id', selectedMeterId);
+        if (d1 && d1.length > 0) return d1[0].reading_m3;
+      }
+
+      // Tentativa 2: meter_id NULL (histórico legado da escola)
+      const { data: d2 } = await baseQuery().is('meter_id', null);
+      if (d2 && d2.length > 0) return d2[0].reading_m3;
+
+      // Tentativa 3: qualquer registro da escola (sem filtro de meter), caso
+      // dados legados tenham sido migrados de forma inesperada
+      if (selectedMeterId) {
+        const { data: d3 } = await baseQuery();
+        if (d3 && d3.length > 0) return d3[0].reading_m3;
+      }
+
+      return 0;
+    };
+
+    const prevReading = await fetchPrevReading();
+    setPrevReadingValue(prevReading);
     setLoadingPrev(false);
 
     // Busca o registro existente para a data, escola e hidrômetro
@@ -1217,7 +1239,7 @@ export function ConsumoAgua() {
           </div>
         </div>
       )}
-      ==================================================================== */
+
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-blue-900/40 backdrop-blur-md p-0 md:p-4 print:hidden">
           <div className="bg-white rounded-t-[3rem] md:rounded-[3rem] w-full max-w-2xl shadow-2xl animate-in slide-in-from-bottom-8 md:zoom-in-95 duration-300 overflow-hidden border border-white max-h-[95vh] overflow-y-auto">
@@ -1260,17 +1282,28 @@ export function ConsumoAgua() {
                         onClick={async () => {
                           setSelectedMeterId(meter.id);
                           // Recarrega leitura anterior para o novo hidrômetro
+                          // Mesma estratégia robusta: tenta meter específico, fallback para legado
                           setLoadingPrev(true);
-                          const { data: prevData } = await (supabase as any)
-                            .from('consumo_agua')
-                            .select('reading_m3')
-                            .eq('school_id', selectedSchoolId)
-                            .eq('meter_id', meter.id)
-                            .lt('date', selectedDateStr)
-                            .gt('reading_m3', 0)
-                            .order('date', { ascending: false })
-                            .limit(1);
-                          setPrevReadingValue(prevData?.[0]?.reading_m3 || 0);
+                          const baseQ = () =>
+                            (supabase as any)
+                              .from('consumo_agua')
+                              .select('reading_m3, student_count, staff_count')
+                              .eq('school_id', selectedSchoolId)
+                              .lt('date', selectedDateStr)
+                              .gt('reading_m3', 0)
+                              .or('student_count.gt.0,staff_count.gt.0')
+                              .order('date', { ascending: false })
+                              .range(0, 0);
+
+                          let prevReading = 0;
+                          const { data: d1 } = await baseQ().eq('meter_id', meter.id);
+                          if (d1 && d1.length > 0) {
+                            prevReading = d1[0].reading_m3;
+                          } else {
+                            const { data: d2 } = await baseQ().is('meter_id', null);
+                            if (d2 && d2.length > 0) prevReading = d2[0].reading_m3;
+                          }
+                          setPrevReadingValue(prevReading);
                           setLoadingPrev(false);
 
                           // Preenche com dado existente para esse hidrômetro/data
