@@ -70,6 +70,7 @@ export function ConsumoAgua() {
   const [supervisorSchoolIds, setSupervisorSchoolIds] = useState<string[]>([]);
   
   const [logs, setLogs] = useState<Record<string, WaterLog>>({}); 
+  const [suspensionLogs, setSuspensionLogs] = useState<Record<string, WaterLog>>({}); // sempre meter_id=null
   const [allMonthLogs, setAllMonthLogs] = useState<WaterLog[]>([]); 
   const [waterTruckCount, setWaterTruckCount] = useState(0);
   const [exporting, setExporting] = useState(false);
@@ -233,17 +234,36 @@ export function ConsumoAgua() {
       const rawLogs = (data || []) as WaterLog[];
       setAllMonthLogs(rawLogs);
 
+      // Mapa de suspensões: sempre baseado em meter_id=null, independente do hidrômetro selecionado.
+      // Isso garante que os bloqueios de feriado/fim de semana funcionem para escolas
+      // com múltiplos hidrômetros, já que suspensões são gravadas com meter_id=null.
+      const suspMap: Record<string, WaterLog> = {};
+      rawLogs.forEach((log: WaterLog) => {
+        if (log.justification && log.justification.startsWith('Suspensão de Expediente:')) {
+          if (!suspMap[log.date]) suspMap[log.date] = log;
+        }
+      });
+      setSuspensionLogs(suspMap);
+
       if (selectedSchoolId) {
-        // Para escola com múltiplos hidrômetros, agrupamos por data mostrando o total
-        // mas o mapa de logs considera o meter selecionado para o modal
         const logsMap: Record<string, WaterLog> = {};
         
         if (hasMultipleMeters && selectedMeterId) {
-          // Filtra apenas o hidrômetro selecionado para o calendário
+          // Hidrômetro específico selecionado: mostra registros desse meter
+          // MAS também inclui suspensões (meter_id=null) para o calendário mostrar o bloqueio
           rawLogs
-            .filter(log => log.meter_id === selectedMeterId || (!log.meter_id && !selectedMeterId))
+            .filter(log =>
+              log.meter_id === selectedMeterId ||
+              (log.justification && log.justification.startsWith('Suspensão de Expediente:'))
+            )
             .forEach((log: WaterLog) => {
-              logsMap[log.date] = log;
+              // Suspensão tem prioridade: não sobrescreve se já há uma suspensão nessa data
+              if (!logsMap[log.date] || !(logsMap[log.date].justification?.startsWith('Suspensão de Expediente:'))) {
+                logsMap[log.date] = log;
+              }
+              if (log.justification?.startsWith('Suspensão de Expediente:')) {
+                logsMap[log.date] = log;
+              }
             });
         } else {
           rawLogs.forEach((log: WaterLog) => {
@@ -252,15 +272,8 @@ export function ConsumoAgua() {
         }
         setLogs(logsMap);
       } else {
-        const suspensionDays: Record<string, WaterLog> = {};
-        rawLogs.forEach((log: WaterLog) => {
-           if (log.justification && log.justification.startsWith('Suspensão de Expediente:')) {
-              if (!suspensionDays[log.date]) {
-                 suspensionDays[log.date] = log;
-              }
-           }
-        });
-        setLogs(suspensionDays);
+        // Visão global: só suspensões no mapa
+        setLogs(suspMap);
       }
     } catch (error) {
       console.error('Erro ao buscar consumos:', error);
@@ -567,7 +580,9 @@ export function ConsumoAgua() {
       return;
     }
 
-    if (!canRegisterSuspension && logs[dateStr] && logs[dateStr].justification?.startsWith('Suspensão de Expediente:')) {
+    // Bloqueia escola (school_manager) se o dia tiver suspensão cadastrada
+    // Usa suspensionLogs (sempre meter_id=null) para não depender do hidrômetro selecionado
+    if (!canRegisterSuspension && suspensionLogs[dateStr]?.justification?.startsWith('Suspensão de Expediente:')) {
       alert("Neste dia não é possível cadastrar o consumo de água devido à suspensão de expediente.");
       return;
     }
@@ -664,41 +679,61 @@ export function ConsumoAgua() {
       const finalReading = isHydrometerBlocked ? prevReadingValue : formData.reading_m3;
       const finalConsumption = isHydrometerBlocked ? 0 : currentConsumption;
 
+      const meterId = selectedMeterId || null;
+
       const logData: any = {
         school_id: selectedSchoolId,
         date: selectedDateStr,
-        meter_id: selectedMeterId || null,
+        meter_id: meterId,
         reading_m3: finalReading,
         consumption_diff: finalConsumption,
         student_count: formData.student_count,
-        staff_count: formData.staff_count, 
+        staff_count: formData.staff_count,
         limit_exceeded: isLimitExceeded,
         justification: isLimitExceeded ? formData.justification : null,
         action_plan: isLimitExceeded ? formData.action_plan : null,
         created_by: userId
       };
 
-      // Upsert usando a constraint correta
-      // Para meter_id null: onConflict 'school_id,date' (índice parcial)
-      // Para meter_id não-null: onConflict 'school_id,date,meter_id' (índice parcial)
-      const conflictCols = selectedMeterId ? 'school_id,date,meter_id' : 'school_id,date';
-      
-      const { error: saveError } = await (supabase as any)
+      // Evita onConflict com índice parcial (não suportado pelo Supabase JS).
+      // Faz select primeiro para checar existência, depois insert ou update explícito.
+      let existingQuery = (supabase as any)
         .from('consumo_agua')
-        .upsert([logData], { onConflict: conflictCols });
-        
+        .select('id')
+        .eq('school_id', selectedSchoolId)
+        .eq('date', selectedDateStr);
+      if (meterId) {
+        existingQuery = existingQuery.eq('meter_id', meterId);
+      } else {
+        existingQuery = existingQuery.is('meter_id', null);
+      }
+      const { data: existingRows } = await existingQuery.range(0, 0);
+      const existingId = existingRows?.[0]?.id;
+
+      let saveError: any = null;
+      if (existingId) {
+        const { error } = await (supabase as any)
+          .from('consumo_agua')
+          .update(logData)
+          .eq('id', existingId);
+        saveError = error;
+      } else {
+        const { error } = await (supabase as any)
+          .from('consumo_agua')
+          .insert([logData]);
+        saveError = error;
+      }
       if (saveError) throw saveError;
 
-      // Cascata em registros futuros (mesmo hidrômetro)
+      // Cascata em registros futuros do mesmo hidrômetro
       let futureQuery = (supabase as any)
         .from('consumo_agua')
         .select('*')
         .eq('school_id', selectedSchoolId)
         .gt('date', selectedDateStr)
         .order('date', { ascending: true });
-      
-      if (selectedMeterId) {
-        futureQuery = futureQuery.eq('meter_id', selectedMeterId);
+      if (meterId) {
+        futureQuery = futureQuery.eq('meter_id', meterId);
       } else {
         futureQuery = futureQuery.is('meter_id', null);
       }
@@ -706,44 +741,37 @@ export function ConsumoAgua() {
       const { data: futureLogs, error: fetchError } = await futureQuery;
 
       if (!fetchError && futureLogs && futureLogs.length > 0) {
-        const logsToUpdate = [];
+        const logsToUpdate: any[] = [];
         let cascadeReading = finalReading;
 
         for (const futureLog of futureLogs) {
           const isFutureSuspension = futureLog.student_count === 0 && futureLog.staff_count === 0;
 
           if (isFutureSuspension) {
-            logsToUpdate.push({
-              ...futureLog,
-              reading_m3: cascadeReading,
-              consumption_diff: 0,
-              limit_exceeded: false
-            });
+            logsToUpdate.push({ id: futureLog.id, reading_m3: cascadeReading, consumption_diff: 0, limit_exceeded: false });
           } else {
             const newDiff = Math.max(0, futureLog.reading_m3 - cascadeReading);
             const newLimit = (futureLog.student_count + futureLog.staff_count) * 0.008;
             const newExceeded = newDiff > newLimit && futureLog.reading_m3 > 0;
-
             logsToUpdate.push({
-              ...futureLog,
+              id: futureLog.id,
               consumption_diff: newDiff,
               limit_exceeded: newExceeded,
               justification: newExceeded ? futureLog.justification : null,
               action_plan: newExceeded ? futureLog.action_plan : null
             });
-            
-            break; 
+            break;
           }
         }
 
-        if (logsToUpdate.length > 0) {
-          const { error: cascadeError } = await (supabase as any)
+        // Atualiza cada log da cascata pelo id — sem onConflict
+        for (const lu of logsToUpdate) {
+          const { id, ...fields } = lu;
+          const { error: ce } = await (supabase as any)
             .from('consumo_agua')
-            .upsert(logsToUpdate, { onConflict: conflictCols });
-            
-          if (cascadeError) {
-            console.error("Erro na atualização em cascata:", cascadeError);
-          }
+            .update(fields)
+            .eq('id', id);
+          if (ce) console.error('Erro na cascata:', ce);
         }
       }
 
@@ -797,14 +825,17 @@ export function ConsumoAgua() {
       if (!schools || schools.length === 0) throw new Error("Nenhuma escola encontrada no seu escopo.");
 
       const bulkDataPromises = schools.map(async (school: any) => {
+        // Busca última leitura real (não suspensão) para copiar no registro de suspensão.
+        // Usa range(0,0) para evitar dependência do limite padrão do Supabase.
         const { data: prevData } = await (supabase as any)
           .from('consumo_agua')
           .select('reading_m3')
           .eq('school_id', school.id)
           .lt('date', selectedDateStr)
           .gt('reading_m3', 0)
+          .or('student_count.gt.0,staff_count.gt.0')
           .order('date', { ascending: false })
-          .limit(1);
+          .range(0, 0);
 
         const lastReading = prevData?.[0]?.reading_m3 || 0;
         const finalReason = suspensionReason === 'Outro' ? customSuspensionReason : suspensionReason;
@@ -851,17 +882,18 @@ export function ConsumoAgua() {
   const renderDay = (day: number) => {
     const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
     const dateStr = formatDateToYMD(date);
-    const log = logs[dateStr];
     const todayStr = formatDateToYMD(new Date());
     const isFuture = dateStr > todayStr;
+
+    // Suspensão sempre vem do mapa dedicado (meter_id=null), nunca do mapa filtrado por hidrômetro
+    const suspensionLog = suspensionLogs[dateStr];
+    const isSuspension = !!suspensionLog;
+
+    // Para dados normais (leitura do dia), usa o mapa filtrado pelo hidrômetro selecionado
+    const log = isSuspension ? suspensionLog : logs[dateStr];
     
     let stateClass = "bg-slate-50 text-slate-300"; 
     let showAttention = false;
-    let isSuspension = false;
-
-    if (log && log.justification && log.justification.startsWith('Suspensão de Expediente:')) {
-      isSuspension = true;
-    }
 
     if (log) {
         if (isSuspension) {
