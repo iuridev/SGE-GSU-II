@@ -317,24 +317,38 @@ export function ConsumoAgua() {
     }
   }
 
+  // 1. Criamos uma lista filtrada que respeita o hidrômetro selecionado na tela
+  const filteredMonthLogs = useMemo(() => {
+    if (selectedSchoolId && selectedMeterId) {
+      // Retorna os logs do hidrômetro atual + suspensões (que têm meter_id nulo)
+      return allMonthLogs.filter(log => 
+        log.meter_id === selectedMeterId || 
+        (log.justification && log.justification.startsWith('Suspensão de Expediente:'))
+      );
+    }
+    return allMonthLogs;
+  }, [allMonthLogs, selectedSchoolId, selectedMeterId]);
+
+  // 2. Atualizamos os STATS para usar a lista filtrada
   const stats = useMemo(() => {
-    const totalConsumption = allMonthLogs.reduce((acc, curr) => acc + (curr.consumption_diff || 0), 0);
-    const totalLimit = allMonthLogs.reduce((acc, curr) => acc + (curr.student_count + curr.staff_count) * LIMITE_DIARIO_POR_PESSOA, 0);
-    const totalEntries = allMonthLogs.length;
+    const totalConsumption = filteredMonthLogs.reduce((acc, curr) => acc + (curr.consumption_diff || 0), 0);
+    const totalLimit = filteredMonthLogs.reduce((acc, curr) => acc + (curr.student_count + curr.staff_count) * LIMITE_DIARIO_POR_PESSOA, 0);
+    const totalEntries = filteredMonthLogs.length;
     
     return {
       totalConsumption,
       totalLimit,
       avgConsumption: totalEntries > 0 ? totalConsumption / totalEntries : 0,
-      exceededDays: allMonthLogs.filter(log => log.limit_exceeded).length,
+      exceededDays: filteredMonthLogs.filter(log => log.limit_exceeded).length,
     };
-  }, [allMonthLogs]);
+  }, [filteredMonthLogs]);
 
   const isTotalExceeded = stats.totalConsumption > stats.totalLimit && stats.totalLimit > 0;
 
+  // 3. Atualizamos o GRÁFICO para usar a lista filtrada
   const chartData = useMemo(() => {
     const dailyMap: Record<string, { date: string, consumo: number, limite: number }> = {};
-    allMonthLogs.forEach(log => {
+    filteredMonthLogs.forEach(log => {
       if (!dailyMap[log.date]) {
         dailyMap[log.date] = { 
           date: new Date(log.date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }), 
@@ -350,17 +364,19 @@ export function ConsumoAgua() {
         return [{ date: 'Sem dados', consumo: 0, limite: 0 }];
     }
     return Object.values(dailyMap);
-  }, [allMonthLogs]);
+  }, [filteredMonthLogs]);
 
+  // 4. Atualizamos a lista de JUSTIFICATIVAS para usar a lista filtrada
   const justificationsList = useMemo(() => {
-    return allMonthLogs
+    return filteredMonthLogs
       .filter(log => log.limit_exceeded && log.justification)
       .map(log => ({
         ...log,
         school_name: schools.find(s => s.id === log.school_id)?.name || 'Escola não identificada'
       }))
       .sort((a, b) => a.school_name.localeCompare(b.school_name));
-  }, [allMonthLogs, schools]);
+  }, [filteredMonthLogs, schools]);
+  
 
   // ============================================================
   // ESCOLAS COM REGISTROS ATRASADOS (só para regional_admin)
