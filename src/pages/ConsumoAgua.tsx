@@ -4,9 +4,10 @@ import {
   Droplets, ChevronLeft, ChevronRight, 
   Save, X, AlertTriangle, CheckCircle,  
   Search, Building2, Users, Loader2,
-  AlertCircle, ArrowRight, ArrowDown, Activity, ShieldCheck,
-  TrendingUp, Waves, ListFilter,
-  CalendarDays, FileDown, History, CalendarOff, Trash2
+  AlertCircle, ArrowRight, Activity, ShieldCheck,
+  TrendingUp, Waves, 
+  CalendarDays, FileDown, History, CalendarOff, Trash2,
+  Gauge, Plus, Settings, ClipboardCopy, ClipboardCheck, Clock
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -17,6 +18,7 @@ import {
 interface WaterLog {
   id?: string;
   school_id: string;
+  meter_id?: string | null;
   date: string;
   reading_m3: number;
   consumption_diff: number; 
@@ -33,6 +35,16 @@ interface WaterLog {
 interface School {
   id: string;
   name: string;
+}
+
+// Hidrômetro cadastrado para uma escola
+interface SchoolMeter {
+  id: string;
+  school_id: string;
+  name: string;
+  description?: string;
+  is_active: boolean;
+  created_at?: string;
 }
 
 const MONTHS = [
@@ -61,6 +73,17 @@ export function ConsumoAgua() {
   const [allMonthLogs, setAllMonthLogs] = useState<WaterLog[]>([]); 
   const [waterTruckCount, setWaterTruckCount] = useState(0);
   const [exporting, setExporting] = useState(false);
+
+  // --- Hidrômetros ---
+  const [schoolMeters, setSchoolMeters] = useState<SchoolMeter[]>([]);
+  const [selectedMeterId, setSelectedMeterId] = useState<string | null>(null);
+  // Modal de gestão de hidrômetros (só admin/dirigente)
+  const [isMeterModalOpen, setIsMeterModalOpen] = useState(false);
+  const [meterModalSchoolId, setMeterModalSchoolId] = useState<string>('');
+  const [metersList, setMetersList] = useState<SchoolMeter[]>([]);
+  const [newMeterName, setNewMeterName] = useState('');
+  const [newMeterDesc, setNewMeterDesc] = useState('');
+  const [savingMeter, setSavingMeter] = useState(false);
   
   // States do Modal Individual
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -91,6 +114,10 @@ export function ConsumoAgua() {
   // Variáveis de Controle de Acesso
   const isManagerRole = ['regional_admin', 'dirigente', 'supervisor'].includes(userRole);
   const canRegisterSuspension = ['regional_admin', 'dirigente'].includes(userRole); 
+  const canManageMeters = ['regional_admin', 'dirigente'].includes(userRole);
+
+  // Escola selecionada tem múltiplos hidrômetros?
+  const hasMultipleMeters = schoolMeters.length > 1;
 
   useEffect(() => {
     fetchInitialData();
@@ -102,6 +129,46 @@ export function ConsumoAgua() {
     fetchLogs();
     fetchWaterTruckStats();
   }, [selectedSchoolId, currentDate, userRole, supervisorSchoolIds]);
+
+  // Quando a escola muda, busca os hidrômetros dela
+  useEffect(() => {
+    if (selectedSchoolId) {
+      fetchSchoolMeters(selectedSchoolId);
+    } else {
+      setSchoolMeters([]);
+      setSelectedMeterId(null);
+    }
+  }, [selectedSchoolId]);
+
+  // Quando a escola muda e temos apenas um hidrômetro, não precisamos de seleção
+  // Quando há múltiplos, a seleção fica em null (usuário deve escolher ou veremos todos)
+  useEffect(() => {
+    if (schoolMeters.length === 1) {
+      // Uma escola com exatamente 1 hidrômetro cadastrado: selecionado automaticamente
+      setSelectedMeterId(schoolMeters[0].id);
+    } else if (schoolMeters.length === 0) {
+      // Escola sem hidrômetros cadastrados (fluxo legado): meter_id = null
+      setSelectedMeterId(null);
+    } else {
+      // Múltiplos: começa no primeiro, usuário pode trocar
+      setSelectedMeterId(schoolMeters[0].id);
+    }
+  }, [schoolMeters]);
+
+  async function fetchSchoolMeters(schoolId: string) {
+    try {
+      const { data, error } = await (supabase as any)
+        .from('school_meters')
+        .select('*')
+        .eq('school_id', schoolId)
+        .eq('is_active', true)
+        .order('created_at', { ascending: true });
+
+      if (!error) setSchoolMeters(data || []);
+    } catch (err) {
+      console.error('Erro ao buscar hidrômetros:', err);
+    }
+  }
 
   async function fetchInitialData() {
     try {
@@ -127,7 +194,6 @@ export function ConsumoAgua() {
 
       const { data: schoolsData } = await (supabase as any).from('schools').select('id, name').order('name');
       
-      // Se for supervisor, exibe na lista apenas as escolas dele
       if (currentRole === 'supervisor') {
         setSchools((schoolsData || []).filter((s: any) => currentSupSchools.includes(s.id)));
       } else {
@@ -168,14 +234,25 @@ export function ConsumoAgua() {
       setAllMonthLogs(rawLogs);
 
       if (selectedSchoolId) {
+        // Para escola com múltiplos hidrômetros, agrupamos por data mostrando o total
+        // mas o mapa de logs considera o meter selecionado para o modal
         const logsMap: Record<string, WaterLog> = {};
-        rawLogs.forEach((log: WaterLog) => {
-          logsMap[log.date] = log;
-        });
+        
+        if (hasMultipleMeters && selectedMeterId) {
+          // Filtra apenas o hidrômetro selecionado para o calendário
+          rawLogs
+            .filter(log => log.meter_id === selectedMeterId || (!log.meter_id && !selectedMeterId))
+            .forEach((log: WaterLog) => {
+              logsMap[log.date] = log;
+            });
+        } else {
+          rawLogs.forEach((log: WaterLog) => {
+            logsMap[log.date] = log;
+          });
+        }
         setLogs(logsMap);
       } else {
         const suspensionDays: Record<string, WaterLog> = {};
-
         rawLogs.forEach((log: WaterLog) => {
            if (log.justification && log.justification.startsWith('Suspensão de Expediente:')) {
               if (!suspensionDays[log.date]) {
@@ -189,6 +266,13 @@ export function ConsumoAgua() {
       console.error('Erro ao buscar consumos:', error);
     }
   }
+
+  // Rebusca logs quando o meter selecionado mudar
+  useEffect(() => {
+    if (selectedSchoolId && schoolMeters.length > 0) {
+      fetchLogs();
+    }
+  }, [selectedMeterId]);
 
   async function fetchWaterTruckStats() {
     const firstDayYear = new Date(currentDate.getFullYear(), 0, 1).toISOString();
@@ -263,6 +347,142 @@ export function ConsumoAgua() {
       .sort((a, b) => a.school_name.localeCompare(b.school_name));
   }, [allMonthLogs, schools]);
 
+  // ============================================================
+  // ESCOLAS COM REGISTROS ATRASADOS (só para regional_admin)
+  // ============================================================
+  const [copiedLate, setCopiedLate] = useState(false);
+
+  const lateSchools = useMemo(() => {
+    if (userRole !== 'regional_admin' || selectedSchoolId) return [];
+
+    const todayStr = formatDateToYMD(new Date());
+    // Só considera dias passados do mês corrente, excluindo hoje (atraso = mais de 1 dia)
+    
+    // Monta o conjunto de datas úteis (não-futuras, não-hoje) do mês
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const totalDays = new Date(year, month + 1, 0).getDate();
+
+    // Dias que contam como "deveriam ter registro"
+    const pastDays: string[] = [];
+    for (let d = 1; d <= totalDays; d++) {
+      const dateStr = formatDateToYMD(new Date(year, month, d));
+      // Apenas dias passados e que não são hoje
+      if (dateStr < todayStr) {
+        pastDays.push(dateStr);
+      }
+    }
+
+    if (pastDays.length === 0) return [];
+
+    // Para cada escola, verifica quantos dias passados não têm nenhum registro (excluindo suspensões)
+    const schoolLateMap: Record<string, { name: string; missingDays: string[] }> = {};
+
+    schools.forEach(school => {
+      const schoolLogs = allMonthLogs.filter(l => l.school_id === school.id);
+      const registeredDates = new Set(
+        schoolLogs
+          .filter(l => !(l.justification && l.justification.startsWith('Suspensão de Expediente:')))
+          .map(l => l.date)
+      );
+      const suspensionDates = new Set(
+        schoolLogs
+          .filter(l => l.justification && l.justification.startsWith('Suspensão de Expediente:'))
+          .map(l => l.date)
+      );
+
+      const missing = pastDays.filter(d => !registeredDates.has(d) && !suspensionDates.has(d));
+      if (missing.length > 0) {
+        schoolLateMap[school.id] = { name: school.name, missingDays: missing };
+      }
+    });
+
+    return Object.values(schoolLateMap).sort((a, b) => b.missingDays.length - a.missingDays.length);
+  }, [allMonthLogs, schools, userRole, selectedSchoolId, currentDate]);
+
+  function handleCopyLateList() {
+    const monthLabel = `${MONTHS[currentDate.getMonth()]}/${currentDate.getFullYear()}`;
+    const lines = lateSchools.map(
+      s => `• ${s.name} — ${s.missingDays.length} dia(s) sem registro`
+    );
+    const text = `Escolas com registros atrasados em ${monthLabel}:\n\n${lines.join('\n')}`;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedLate(true);
+      setTimeout(() => setCopiedLate(false), 2500);
+    });
+  }
+
+  // ============================================================
+  // GESTÃO DE HIDRÔMETROS (Modal de Administração)
+  // ============================================================
+  async function openMeterModal(schoolId: string) {
+    setMeterModalSchoolId(schoolId);
+    setNewMeterName('');
+    setNewMeterDesc('');
+    setIsMeterModalOpen(true);
+    
+    const { data } = await (supabase as any)
+      .from('school_meters')
+      .select('*')
+      .eq('school_id', schoolId)
+      .order('created_at', { ascending: true });
+    setMetersList(data || []);
+  }
+
+  async function handleAddMeter() {
+    if (!newMeterName.trim()) return;
+    setSavingMeter(true);
+    try {
+      const { error } = await (supabase as any)
+        .from('school_meters')
+        .insert([{
+          school_id: meterModalSchoolId,
+          name: newMeterName.trim(),
+          description: newMeterDesc.trim() || null,
+          is_active: true,
+          created_by: userId
+        }]);
+      
+      if (error) throw error;
+      
+      setNewMeterName('');
+      setNewMeterDesc('');
+      // Recarrega a lista
+      const { data } = await (supabase as any)
+        .from('school_meters')
+        .select('*')
+        .eq('school_id', meterModalSchoolId)
+        .order('created_at', { ascending: true });
+      setMetersList(data || []);
+      
+      // Se é a escola selecionada, atualiza os hidrômetros locais
+      if (meterModalSchoolId === selectedSchoolId) {
+        fetchSchoolMeters(meterModalSchoolId);
+      }
+    } catch (err: any) {
+      alert(`Erro ao adicionar hidrômetro: ${err.message}`);
+    } finally {
+      setSavingMeter(false);
+    }
+  }
+
+  async function handleToggleMeter(meter: SchoolMeter) {
+    const { error } = await (supabase as any)
+      .from('school_meters')
+      .update({ is_active: !meter.is_active })
+      .eq('id', meter.id);
+    
+    if (!error) {
+      setMetersList(prev => prev.map(m => m.id === meter.id ? { ...m, is_active: !m.is_active } : m));
+      if (meterModalSchoolId === selectedSchoolId) {
+        fetchSchoolMeters(meterModalSchoolId);
+      }
+    }
+  }
+
+  // ============================================================
+  // EXPORTAR PDF
+  // ============================================================
   const handleExportPDF = async () => {
     setExporting(true);
     try {
@@ -324,6 +544,9 @@ export function ConsumoAgua() {
   const handlePrevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   const handleNextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
 
+  // ============================================================
+  // ABRIR MODAL DE REGISTRO (atualizado para suportar múltiplos hidrômetros)
+  // ============================================================
   const openRegisterModal = async (day: number) => {
     const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
     const dateStr = formatDateToYMD(date);
@@ -358,25 +581,42 @@ export function ConsumoAgua() {
     
     setLoadingPrev(true);
     
-    const { data: prevData } = await (supabase as any)
+    // Busca leitura anterior considerando o meter_id
+    let prevQuery = (supabase as any)
       .from('consumo_agua')
       .select('reading_m3')
       .eq('school_id', selectedSchoolId)
       .lt('date', dateStr)
-      .gt('reading_m3', 0) 
+      .gt('reading_m3', 0)
       .order('date', { ascending: false })
       .limit(1);
+    
+    // Se há um hidrômetro selecionado específico, filtra por ele
+    if (selectedMeterId) {
+      prevQuery = prevQuery.eq('meter_id', selectedMeterId);
+    } else {
+      prevQuery = prevQuery.is('meter_id', null);
+    }
+    
+    const { data: prevData } = await prevQuery;
     
     setPrevReadingValue(prevData?.[0]?.reading_m3 || 0);
     setLoadingPrev(false);
 
-    const existing = logs[dateStr];
-    setFormData(existing ? {
-      reading_m3: existing.reading_m3,
-      student_count: existing.student_count,
-      staff_count: existing.staff_count,
-      justification: existing.justification || '',
-      action_plan: existing.action_plan || ''
+    // Busca o registro existente para a data, escola e hidrômetro
+    let existingLog: WaterLog | undefined;
+    if (selectedMeterId) {
+      existingLog = allMonthLogs.find(l => l.date === dateStr && l.meter_id === selectedMeterId);
+    } else {
+      existingLog = allMonthLogs.find(l => l.date === dateStr && !l.meter_id);
+    }
+
+    setFormData(existingLog ? {
+      reading_m3: existingLog.reading_m3,
+      student_count: existingLog.student_count,
+      staff_count: existingLog.staff_count,
+      justification: existingLog.justification || '',
+      action_plan: existingLog.action_plan || ''
     } : {
       reading_m3: 0, student_count: 0, staff_count: 0, justification: '', action_plan: ''
     });
@@ -388,107 +628,133 @@ export function ConsumoAgua() {
   const isLimitExceeded = currentConsumption > currentLimit && formData.reading_m3 > 0;
   const isHydrometerBlocked = !isManagerRole && (formData.student_count <= 0 || formData.staff_count <= 0);
 
-  // --- Salvar Registro Individual ---
+  // ============================================================
+  // SALVAR REGISTRO (atualizado para incluir meter_id)
+  // ============================================================
   async function handleSave(e: React.FormEvent) {
-  e.preventDefault();
-  setSaveLoading(true);
-  try {
-    if (isLimitExceeded && (!formData.justification || !formData.action_plan)) {
-        throw new Error("Preencha justificativa e ação para excessos.");
-    }
+    e.preventDefault();
+    setSaveLoading(true);
+    try {
+      if (isLimitExceeded && (!formData.justification || !formData.action_plan)) {
+          throw new Error("Preencha justificativa e ação para excessos.");
+      }
 
-    const finalReading = isHydrometerBlocked ? prevReadingValue : formData.reading_m3;
-    const finalConsumption = isHydrometerBlocked ? 0 : currentConsumption;
+      const finalReading = isHydrometerBlocked ? prevReadingValue : formData.reading_m3;
+      const finalConsumption = isHydrometerBlocked ? 0 : currentConsumption;
 
-    const logData = {
-      school_id: selectedSchoolId,
-      date: selectedDateStr,
-      reading_m3: finalReading,
-      consumption_diff: finalConsumption,
-      student_count: formData.student_count,
-      staff_count: formData.staff_count, 
-      limit_exceeded: isLimitExceeded,
-      justification: isLimitExceeded ? formData.justification : null,
-      action_plan: isLimitExceeded ? formData.action_plan : null,
-      created_by: userId
-    };
+      const logData: any = {
+        school_id: selectedSchoolId,
+        date: selectedDateStr,
+        meter_id: selectedMeterId || null,
+        reading_m3: finalReading,
+        consumption_diff: finalConsumption,
+        student_count: formData.student_count,
+        staff_count: formData.staff_count, 
+        limit_exceeded: isLimitExceeded,
+        justification: isLimitExceeded ? formData.justification : null,
+        action_plan: isLimitExceeded ? formData.action_plan : null,
+        created_by: userId
+      };
 
-    const { error: saveError } = await (supabase as any)
-      .from('consumo_agua')
-      .upsert([logData], { onConflict: 'school_id,date' });
+      // Upsert usando a constraint correta
+      // Para meter_id null: onConflict 'school_id,date' (índice parcial)
+      // Para meter_id não-null: onConflict 'school_id,date,meter_id' (índice parcial)
+      const conflictCols = selectedMeterId ? 'school_id,date,meter_id' : 'school_id,date';
       
-    if (saveError) throw saveError;
+      const { error: saveError } = await (supabase as any)
+        .from('consumo_agua')
+        .upsert([logData], { onConflict: conflictCols });
+        
+      if (saveError) throw saveError;
 
-    const { data: futureLogs, error: fetchError } = await (supabase as any)
-      .from('consumo_agua')
-      .select('*')
-      .eq('school_id', selectedSchoolId)
-      .gt('date', selectedDateStr)
-      .order('date', { ascending: true });
+      // Cascata em registros futuros (mesmo hidrômetro)
+      let futureQuery = (supabase as any)
+        .from('consumo_agua')
+        .select('*')
+        .eq('school_id', selectedSchoolId)
+        .gt('date', selectedDateStr)
+        .order('date', { ascending: true });
+      
+      if (selectedMeterId) {
+        futureQuery = futureQuery.eq('meter_id', selectedMeterId);
+      } else {
+        futureQuery = futureQuery.is('meter_id', null);
+      }
 
-    if (!fetchError && futureLogs && futureLogs.length > 0) {
-      const logsToUpdate = [];
-      let cascadeReading = finalReading;
+      const { data: futureLogs, error: fetchError } = await futureQuery;
 
-      for (const futureLog of futureLogs) {
-        const isFutureSuspension = futureLog.student_count === 0 && futureLog.staff_count === 0;
+      if (!fetchError && futureLogs && futureLogs.length > 0) {
+        const logsToUpdate = [];
+        let cascadeReading = finalReading;
 
-        if (isFutureSuspension) {
-          logsToUpdate.push({
-            ...futureLog,
-            reading_m3: cascadeReading,
-            consumption_diff: 0,
-            limit_exceeded: false
-          });
-        } else {
-          const newDiff = Math.max(0, futureLog.reading_m3 - cascadeReading);
-          const newLimit = (futureLog.student_count + futureLog.staff_count) * 0.008;
-          const newExceeded = newDiff > newLimit && futureLog.reading_m3 > 0;
+        for (const futureLog of futureLogs) {
+          const isFutureSuspension = futureLog.student_count === 0 && futureLog.staff_count === 0;
 
-          logsToUpdate.push({
-            ...futureLog,
-            consumption_diff: newDiff,
-            limit_exceeded: newExceeded,
-            justification: newExceeded ? futureLog.justification : null,
-            action_plan: newExceeded ? futureLog.action_plan : null
-          });
-          
-          break; 
+          if (isFutureSuspension) {
+            logsToUpdate.push({
+              ...futureLog,
+              reading_m3: cascadeReading,
+              consumption_diff: 0,
+              limit_exceeded: false
+            });
+          } else {
+            const newDiff = Math.max(0, futureLog.reading_m3 - cascadeReading);
+            const newLimit = (futureLog.student_count + futureLog.staff_count) * 0.008;
+            const newExceeded = newDiff > newLimit && futureLog.reading_m3 > 0;
+
+            logsToUpdate.push({
+              ...futureLog,
+              consumption_diff: newDiff,
+              limit_exceeded: newExceeded,
+              justification: newExceeded ? futureLog.justification : null,
+              action_plan: newExceeded ? futureLog.action_plan : null
+            });
+            
+            break; 
+          }
+        }
+
+        if (logsToUpdate.length > 0) {
+          const { error: cascadeError } = await (supabase as any)
+            .from('consumo_agua')
+            .upsert(logsToUpdate, { onConflict: conflictCols });
+            
+          if (cascadeError) {
+            console.error("Erro na atualização em cascata:", cascadeError);
+          }
         }
       }
 
-      if (logsToUpdate.length > 0) {
-        const { error: cascadeError } = await (supabase as any)
-          .from('consumo_agua')
-          .upsert(logsToUpdate, { onConflict: 'school_id,date' });
-          
-        if (cascadeError) {
-          console.error("Erro na atualização em cascata:", cascadeError);
-        }
-      }
+      setIsModalOpen(false);
+      fetchLogs();
+    } catch (error: any) {
+      alert(`Erro ao salvar: ${error.message}`);
+    } finally {
+      setSaveLoading(false);
     }
-
-    setIsModalOpen(false);
-    fetchLogs();
-  } catch (error: any) {
-    alert(`Erro ao salvar: ${error.message}`);
-  } finally {
-    setSaveLoading(false);
   }
-}
 
-  // --- Excluir Registro (Lixeira) ---
+  // ============================================================
+  // EXCLUIR REGISTRO
+  // ============================================================
   async function handleDelete() {
     if (!window.confirm("Tem certeza que deseja excluir este registro hídrico?")) return;
     
     setSaveLoading(true);
     try {
-      const { error } = await (supabase as any)
+      let deleteQuery = (supabase as any)
         .from('consumo_agua')
         .delete()
         .eq('school_id', selectedSchoolId)
         .eq('date', selectedDateStr);
+      
+      if (selectedMeterId) {
+        deleteQuery = deleteQuery.eq('meter_id', selectedMeterId);
+      } else {
+        deleteQuery = deleteQuery.is('meter_id', null);
+      }
 
+      const { error } = await deleteQuery;
       if (error) throw error;
       
       setIsModalOpen(false);
@@ -500,7 +766,9 @@ export function ConsumoAgua() {
     }
   }
 
-  // --- Salvar Suspensão Global ---
+  // ============================================================
+  // SALVAR SUSPENSÃO GLOBAL
+  // ============================================================
   async function handleSuspensionSave() {
     setSaveLoading(true);
     try {
@@ -522,6 +790,7 @@ export function ConsumoAgua() {
 
         return {
           school_id: school.id,
+          meter_id: null, // suspensão global não precisa de meter_id
           date: selectedDateStr,
           reading_m3: lastReading, 
           consumption_diff: 0,
@@ -554,6 +823,9 @@ export function ConsumoAgua() {
     }
   }
 
+  // ============================================================
+  // RENDER DO CALENDÁRIO
+  // ============================================================
   const renderDay = (day: number) => {
     const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
     const dateStr = formatDateToYMD(date);
@@ -584,7 +856,6 @@ export function ConsumoAgua() {
              if (canRegisterSuspension && !selectedSchoolId) {
                  stateClass = "bg-slate-50 text-slate-400 hover:bg-purple-50 hover:border-purple-200 hover:text-purple-600 border-slate-100";
              } else if (!selectedSchoolId) {
-                 // Supervisor na visão geral (apenas cor neutra, pois não pode registrar)
                  stateClass = "bg-slate-50 text-slate-300 border-slate-100";
              } else {
                  stateClass = "bg-red-50 text-red-700 border-red-200"; 
@@ -596,7 +867,6 @@ export function ConsumoAgua() {
         }
     }
 
-    // Define se o quadro do dia é clicável. Apenas se tiver escola selecionada ou for Admin/Dirigente na visão global.
     const isClickable = !!selectedSchoolId || canRegisterSuspension;
 
     return (
@@ -637,6 +907,9 @@ export function ConsumoAgua() {
     );
   };
 
+  // ============================================================
+  // RENDER PRINCIPAL
+  // ============================================================
   return (
     <div className="space-y-6 pb-20">
       
@@ -688,6 +961,54 @@ export function ConsumoAgua() {
         </div>
       </div>
 
+      {/* ===== SELETOR DE HIDRÔMETRO (aparece quando escola tem múltiplos) ===== */}
+      {selectedSchoolId && hasMultipleMeters && (
+        <div className="bg-white border-2 border-blue-100 rounded-[2rem] p-4 flex flex-wrap items-center gap-3 shadow-sm print:hidden">
+          <div className="flex items-center gap-2 text-blue-600">
+            <Gauge size={18} />
+            <span className="text-xs font-black uppercase tracking-widest">Hidrômetro:</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {schoolMeters.map(meter => (
+              <button
+                key={meter.id}
+                onClick={() => setSelectedMeterId(meter.id)}
+                className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                  selectedMeterId === meter.id 
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
+                    : 'bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-700'
+                }`}
+              >
+                {meter.name}
+              </button>
+            ))}
+          </div>
+          {canManageMeters && (
+            <button
+              onClick={() => openMeterModal(selectedSchoolId)}
+              className="ml-auto p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+              title="Gerenciar hidrômetros desta escola"
+            >
+              <Settings size={16} />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Botão para admin gerenciar hidrômetros quando escola selecionada tem apenas 1 ou nenhum */}
+      {selectedSchoolId && !hasMultipleMeters && canManageMeters && (
+        <div className="flex justify-end print:hidden">
+          <button
+            onClick={() => openMeterModal(selectedSchoolId)}
+            className="flex items-center gap-2 px-4 py-2 text-xs font-black text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 rounded-xl transition-all"
+          >
+            <Gauge size={14} />
+            Gerenciar Hidrômetros
+          </button>
+        </div>
+      )}
+
+      {/* STATS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 print:hidden">
           <div className={`p-6 rounded-[2.5rem] border-2 transition-all flex items-center gap-4 shadow-xl ${isTotalExceeded ? 'bg-red-50 border-red-200 text-red-700' : 'bg-white border-slate-100'}`}>
               <div className={`p-4 rounded-2xl ${isTotalExceeded ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'}`}><Waves size={20} /></div>
@@ -698,214 +1019,337 @@ export function ConsumoAgua() {
               <div><p className="text-[10px] font-black uppercase tracking-widest opacity-40">Teto Operacional</p><h3 className="text-xl font-black text-slate-800">{stats.totalLimit.toFixed(2)} m³</h3></div>
           </div>
           <div className="bg-white p-6 rounded-[2.5rem] border-2 border-slate-100 shadow-xl flex items-center gap-4">
-              <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl"><TrendingUp size={20} /></div>
+              <div className="p-4 bg-emerald-600 text-white rounded-2xl"><TrendingUp size={20} /></div>
               <div><p className="text-[10px] font-black uppercase tracking-widest opacity-40">Média Diária</p><h3 className="text-xl font-black text-slate-800">{stats.avgConsumption.toFixed(2)} m³</h3></div>
           </div>
           <div className="bg-white p-6 rounded-[2.5rem] border-2 border-slate-100 shadow-xl flex items-center gap-4">
-              <div className={`p-4 rounded-2xl ${stats.exceededDays > 0 ? 'bg-amber-500 text-white' : 'bg-emerald-500 text-white'}`}><AlertTriangle size={20} /></div>
-              <div><p className="text-[10px] font-black uppercase tracking-widest opacity-40">Alertas Ativos</p><h3 className="text-xl font-black text-slate-800">{stats.exceededDays} dias</h3></div>
+              <div className="p-4 bg-amber-500 text-white rounded-2xl"><AlertTriangle size={20} /></div>
+              <div><p className="text-[10px] font-black uppercase tracking-widest opacity-40">Dias Excedidos</p><h3 className="text-xl font-black text-slate-800">{stats.exceededDays}</h3></div>
           </div>
-          <div className="bg-white p-6 rounded-[2.5rem] border-2 border-slate-100 shadow-xl flex items-center gap-4 transition-all hover:border-blue-300">
-              <div className="p-4 bg-blue-100 text-blue-700 rounded-2xl"><History size={20} /></div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Caminhão Pipa</p>
-                <h3 className="text-xl font-black text-slate-800">{waterTruckCount} <span className="text-[9px] font-bold text-slate-400">PEDIDOS</span></h3>
-              </div>
+          <div className="bg-white p-6 rounded-[2.5rem] border-2 border-slate-100 shadow-xl flex items-center gap-4">
+              <div className="p-4 bg-cyan-600 text-white rounded-2xl"><Activity size={20} /></div>
+              <div><p className="text-[10px] font-black uppercase tracking-widest opacity-40">Pipas no Ano</p><h3 className="text-xl font-black text-slate-800">{waterTruckCount}</h3></div>
           </div>
       </div>
 
-      <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-2xl print:hidden">
-          <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight flex items-center gap-2 mb-8">
-              <Activity className="text-blue-600" size={20} /> Evolução Mensal de Consumo
-          </h3>
-          <div style={{ width: '100%', height: 280 }}>
-              <ResponsiveContainer width="100%" height={280}>
-                  <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                      <defs><linearGradient id="colorConsumo" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient></defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fontSize: 9, fontWeight: 700, fill: '#94a3b8'}} dy={10} />
-                      <YAxis axisLine={false} tickLine={false} tick={{fontSize: 9, fontWeight: 700, fill: '#94a3b8'}} />
-                      <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 20px rgba(0,0,0,0.1)', fontSize: '10px' }} />
-                      <Area type="monotone" dataKey="consumo" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorConsumo)" />
-                      <Area type="monotone" dataKey="limite" stroke="#e2e8f0" strokeWidth={2} fill="transparent" strokeDasharray="5 5" />
-                  </AreaChart>
-              </ResponsiveContainer>
+      {/* GRÁFICO */}
+      <div className="bg-white p-6 rounded-[2.5rem] border-2 border-slate-100 shadow-xl print:hidden">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-3 bg-blue-100 rounded-2xl text-blue-600"><TrendingUp size={18} /></div>
+          <div>
+            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Consumo × Limite</h3>
+            <p className="text-xs text-slate-400 font-medium">Comparativo diário do mês</p>
           </div>
+        </div>
+        <ResponsiveContainer width="100%" height={200}>
+          <AreaChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+            <defs>
+              <linearGradient id="colorConsumo" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#2563eb" stopOpacity={0.2}/><stop offset="95%" stopColor="#2563eb" stopOpacity={0}/></linearGradient>
+              <linearGradient id="colorLimite" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.15}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/></linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+            <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 'bold' }} />
+            <YAxis tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 'bold' }} />
+            <Tooltip contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.1)', fontFamily: 'monospace', fontWeight: 'bold' }} />
+            <Area type="monotone" dataKey="consumo" stroke="#2563eb" strokeWidth={3} fillOpacity={1} fill="url(#colorConsumo)" name="Consumo (m³)" dot={false} />
+            <Area type="monotone" dataKey="limite" stroke="#10b981" strokeWidth={2} strokeDasharray="5 5" fillOpacity={1} fill="url(#colorLimite)" name="Limite (m³)" dot={false} />
+          </AreaChart>
+        </ResponsiveContainer>
       </div>
 
-      {(!selectedSchoolId || isManagerRole) && justificationsList.length > 0 && (
-          <div className="space-y-6 print:hidden">
-              <div className="flex items-center gap-3 px-6"><ListFilter className="text-blue-600" /><h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Ocorrências da Rede</h2></div>
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                  {justificationsList.map((log) => (
-                      <div key={log.id} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl flex flex-col gap-6 group relative overflow-hidden transition-all hover:border-blue-300">
-                          <div className="flex justify-between items-start">
-                              <div className="flex items-center gap-4">
-                                  <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-600"><AlertTriangle size={24} /></div>
-                                  <div>
-                                      <h4 className="font-black text-slate-800 uppercase text-sm leading-none">{log.school_name}</h4>
-                                      <span className="text-[10px] text-slate-400 font-bold mt-1 block">{new Date(log.date + 'T12:00:00').toLocaleDateString()}</span>
-                                  </div>
-                              </div>
-                              <span className="bg-red-50 text-red-600 px-3 py-1 rounded-full font-black text-xs">+{log.consumption_diff.toFixed(2)} m³</span>
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase">Justificativa</label><p className="bg-slate-50 p-4 rounded-2xl text-xs text-slate-600 italic leading-relaxed">"{log.justification}"</p></div>
-                              <div className="space-y-1"><label className="text-[9px] font-black text-blue-400 uppercase">Plano de Ação</label><p className="bg-blue-50/30 p-4 rounded-2xl text-xs text-blue-800 leading-relaxed font-medium">{log.action_plan}</p></div>
-                          </div>
-                          <Building2 className="absolute -bottom-6 -right-6 text-slate-50 opacity-20" size={120} />
-                      </div>
-                  ))}
-              </div>
+      {/* CALENDÁRIO */}
+      <div className="bg-white p-6 rounded-[2.5rem] border-2 border-slate-100 shadow-xl">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-slate-100 rounded-2xl text-slate-600"><CalendarDays size={18} /></div>
+            <div>
+              <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest capitalize">{monthName} {currentDate.getFullYear()}</h3>
+              {selectedSchoolId && (
+                <p className="text-xs text-blue-600 font-black mt-0.5 truncate max-w-xs">
+                  {schools.find(s => s.id === selectedSchoolId)?.name}
+                </p>
+              )}
+              {selectedSchoolId && hasMultipleMeters && selectedMeterId && (
+                <p className="text-[10px] text-slate-400 font-bold flex items-center gap-1 mt-0.5">
+                  <Gauge size={10} />
+                  {schoolMeters.find(m => m.id === selectedMeterId)?.name}
+                </p>
+              )}
+            </div>
           </div>
+          <div className="flex items-center gap-2">
+            <button onClick={handlePrevMonth} className="p-2 hover:bg-slate-100 rounded-xl transition-all"><ChevronLeft size={20} className="text-slate-600"/></button>
+            <button onClick={handleNextMonth} className="p-2 hover:bg-slate-100 rounded-xl transition-all"><ChevronRight size={20} className="text-slate-600"/></button>
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-7 gap-2 mb-3">
+          {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(d => (
+            <div key={d} className="text-center text-[10px] font-black text-slate-400 uppercase py-2">{d}</div>
+          ))}
+        </div>
+        
+        <div className="grid grid-cols-7 gap-2">
+          {Array.from({ length: firstDayOfMonth }).map((_, i) => <div key={`empty-${i}`} />)}
+          {Array.from({ length: daysInMonth }, (_, i) => renderDay(i + 1))}
+        </div>
+      </div>
+
+      {/* JUSTIFICATIVAS */}
+      {justificationsList.length > 0 && (
+        <div className="bg-white rounded-[2.5rem] border-2 border-slate-100 shadow-xl overflow-hidden">
+          <div className="p-6 border-b border-slate-100 flex items-center gap-3">
+            <div className="p-3 bg-amber-100 rounded-2xl text-amber-600"><History size={18} /></div>
+            <div>
+              <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Registros com Excedente</h3>
+              <p className="text-xs text-slate-400 font-medium">Dias que ultrapassaram o limite operacional</p>
+            </div>
+          </div>
+          <div className="p-6 space-y-4">
+            {justificationsList.map((log, idx) => (
+              <div key={log.id || idx} className="p-5 bg-amber-50 border border-amber-200 rounded-[1.5rem] space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-amber-500 text-white rounded-xl"><Building2 size={14}/></div>
+                    <div>
+                      <p className="text-xs font-black text-slate-800 uppercase">{log.school_name}</p>
+                      <p className="text-[10px] text-slate-400 font-medium">{new Date(log.date + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-black text-amber-700">{log.consumption_diff.toFixed(2)} m³</p>
+                    <p className="text-[10px] text-amber-500 font-bold uppercase">Excedido</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="bg-white rounded-xl p-3 border border-amber-100">
+                    <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest mb-1">Justificativa</p>
+                    <p className="text-xs text-slate-700 font-medium">{log.justification}</p>
+                  </div>
+                  <div className="bg-white rounded-xl p-3 border border-amber-100">
+                    <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest mb-1">Plano de Ação</p>
+                    <p className="text-xs text-slate-700 font-medium">{log.action_plan}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
-      {(selectedSchoolId || isManagerRole) && (
-          <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-2xl print:hidden">
-              <div className="flex items-center justify-between mb-10">
-                <div className="flex items-center gap-6">
-                    <button onClick={handlePrevMonth} className="p-4 hover:bg-slate-50 rounded-3xl border border-slate-100"><ChevronLeft /></button>
-                    <div className="text-center"><h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter leading-none">{monthName}</h2><span className="text-blue-600 font-bold text-xs">{currentDate.getFullYear()}</span></div>
-                    <button onClick={handleNextMonth} className="p-4 hover:bg-slate-50 rounded-3xl border border-slate-100"><ChevronRight /></button>
-                </div>
-                {canRegisterSuspension && !selectedSchoolId && (
-                    <div className="hidden md:block text-xs font-bold text-slate-400 bg-slate-50 px-4 py-2 rounded-xl">
-                        Clique em uma data para registrar suspensão de expediente
+      {/* ESCOLAS COM ATRASO (só regional_admin na visão geral) */}
+      {userRole === 'regional_admin' && !selectedSchoolId && lateSchools.length > 0 && (
+        <div className="bg-white rounded-[2.5rem] border-2 border-red-100 shadow-xl overflow-hidden print:hidden">
+          <div className="p-6 border-b border-red-100 flex items-center justify-between bg-red-50/40">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-red-500 rounded-2xl text-white"><Clock size={18} /></div>
+              <div>
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Escolas com Registros Atrasados</h3>
+                <p className="text-xs text-slate-400 font-medium">
+                  {lateSchools.length} escola{lateSchools.length > 1 ? 's' : ''} com dias sem lançamento em {MONTHS[currentDate.getMonth()]}/{currentDate.getFullYear()}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleCopyLateList}
+              className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-md ${
+                copiedLate
+                  ? 'bg-emerald-500 text-white shadow-emerald-200'
+                  : 'bg-slate-900 text-white hover:bg-slate-700 shadow-slate-200'
+              }`}
+            >
+              {copiedLate ? <><ClipboardCheck size={15} /> Copiado!</> : <><ClipboardCopy size={15} /> Copiar Lista</>}
+            </button>
+          </div>
+
+          <div className="divide-y divide-red-50">
+            {lateSchools.map((school, idx) => {
+              const lastMissing = school.missingDays[school.missingDays.length - 1];
+              const daysSinceLastMissing = Math.floor(
+                (new Date().getTime() - new Date(lastMissing + 'T12:00:00').getTime()) / (1000 * 60 * 60 * 24)
+              );
+              const severity = school.missingDays.length >= 5 ? 'high' : school.missingDays.length >= 3 ? 'mid' : 'low';
+              const severityColors = {
+                high: 'bg-red-100 text-red-700 border-red-200',
+                mid: 'bg-orange-100 text-orange-700 border-orange-200',
+                low: 'bg-amber-100 text-amber-700 border-amber-200',
+              };
+
+              return (
+                <div key={school.name} className={`flex items-center justify-between px-6 py-4 hover:bg-red-50/30 transition-all ${idx % 2 === 0 ? '' : 'bg-slate-50/30'}`}>
+                  <div className="flex items-center gap-4 min-w-0">
+                    <div className="w-7 h-7 rounded-full bg-red-100 text-red-500 flex items-center justify-center text-[10px] font-black shrink-0">
+                      {idx + 1}
                     </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-black text-slate-800 truncate">{school.name}</p>
+                      <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                        Último dia sem registro: {new Date(lastMissing + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
+                        {daysSinceLastMissing > 0 && <span className="ml-1 text-red-400">({daysSinceLastMissing}d atrás)</span>}
+                      </p>
+                    </div>
+                  </div>
+                  <div className={`shrink-0 ml-4 px-4 py-1.5 rounded-xl border text-[11px] font-black ${severityColors[severity]}`}>
+                    {school.missingDays.length} dia{school.missingDays.length > 1 ? 's' : ''}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Texto pronto para copiar (pré-visualização) */}
+          <div className="p-6 border-t border-red-100 bg-slate-50">
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Pré-visualização do texto copiado</p>
+            <pre className="text-[11px] text-slate-600 font-mono leading-relaxed whitespace-pre-wrap bg-white border border-slate-200 rounded-2xl p-4 select-all">
+{`Escolas com registros atrasados em ${MONTHS[currentDate.getMonth()]}/${currentDate.getFullYear()}:\n\n${lateSchools.map(s => `• ${s.name} — ${s.missingDays.length} dia(s) sem registro`).join('\n')}`}
+            </pre>
+          </div>
+        </div>
+      )}
+
+      {/* Mensagem quando não há atrasos */}
+      {userRole === 'regional_admin' && !selectedSchoolId && lateSchools.length === 0 && schools.length > 0 && (
+        <div className="bg-emerald-50 border-2 border-emerald-100 rounded-[2.5rem] p-6 flex items-center gap-4 print:hidden">
+          <div className="p-3 bg-emerald-500 text-white rounded-2xl shrink-0"><CheckCircle size={20} /></div>
+          <div>
+            <p className="text-sm font-black text-emerald-800 uppercase tracking-widest">Todas as escolas em dia!</p>
+            <p className="text-xs text-emerald-600 font-medium mt-0.5">Nenhuma escola com registros atrasados em {MONTHS[currentDate.getMonth()]}/{currentDate.getFullYear()}.</p>
+          </div>
+        </div>
+      )}
+      ==================================================================== */
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-blue-900/40 backdrop-blur-md p-0 md:p-4 print:hidden">
+          <div className="bg-white rounded-t-[3rem] md:rounded-[3rem] w-full max-w-2xl shadow-2xl animate-in slide-in-from-bottom-8 md:zoom-in-95 duration-300 overflow-hidden border border-white max-h-[95vh] overflow-y-auto">
+            
+            {/* Header do Modal */}
+            <div className="p-6 md:p-8 border-b border-blue-100 flex justify-between items-start bg-blue-50/50 sticky top-0 z-10">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-blue-600 rounded-[1.2rem] flex items-center justify-center text-white shadow-lg shadow-blue-200"><Droplets size={24}/></div>
+                <div>
+                  <h2 className="text-xl font-black text-slate-900 tracking-tighter">Registro Hídrico</h2>
+                  <p className="text-sm text-blue-600 font-bold">
+                    {new Date(selectedDateStr + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
+                  </p>
+                  {/* Mostra qual hidrômetro está sendo registrado */}
+                  {selectedMeterId && schoolMeters.length > 0 && (
+                    <div className="flex items-center gap-1 mt-1">
+                      <Gauge size={11} className="text-slate-400" />
+                      <p className="text-[11px] text-slate-500 font-bold">
+                        {schoolMeters.find(m => m.id === selectedMeterId)?.name || 'Hidrômetro'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button onClick={() => setIsModalOpen(false)} className="p-3 hover:bg-blue-100 rounded-full transition-all text-blue-400"><X size={20}/></button>
+            </div>
+
+            {/* Seletor de hidrômetro dentro do modal (se múltiplos) */}
+            {hasMultipleMeters && (
+              <div className="px-6 md:px-8 pt-6 pb-0">
+                <div className="p-4 bg-blue-50 border-2 border-blue-100 rounded-[1.5rem]">
+                  <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <Gauge size={12} /> Registrando para
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {schoolMeters.map(meter => (
+                      <button
+                        key={meter.id}
+                        type="button"
+                        onClick={async () => {
+                          setSelectedMeterId(meter.id);
+                          // Recarrega leitura anterior para o novo hidrômetro
+                          setLoadingPrev(true);
+                          const { data: prevData } = await (supabase as any)
+                            .from('consumo_agua')
+                            .select('reading_m3')
+                            .eq('school_id', selectedSchoolId)
+                            .eq('meter_id', meter.id)
+                            .lt('date', selectedDateStr)
+                            .gt('reading_m3', 0)
+                            .order('date', { ascending: false })
+                            .limit(1);
+                          setPrevReadingValue(prevData?.[0]?.reading_m3 || 0);
+                          setLoadingPrev(false);
+
+                          // Preenche com dado existente para esse hidrômetro/data
+                          const existingLog = allMonthLogs.find(l => l.date === selectedDateStr && l.meter_id === meter.id);
+                          setFormData(existingLog ? {
+                            reading_m3: existingLog.reading_m3,
+                            student_count: existingLog.student_count,
+                            staff_count: existingLog.staff_count,
+                            justification: existingLog.justification || '',
+                            action_plan: existingLog.action_plan || ''
+                          } : {
+                            reading_m3: 0, student_count: 0, staff_count: 0, justification: '', action_plan: ''
+                          });
+                        }}
+                        className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
+                          selectedMeterId === meter.id 
+                            ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
+                            : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-blue-300'
+                        }`}
+                      >
+                        <Gauge size={12} />
+                        {meter.name}
+                        {selectedMeterId === meter.id && <CheckCircle size={12} />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <form onSubmit={handleSave} className="p-6 md:p-8 space-y-6">
+              
+              {/* Leitura anterior */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-[1.5rem] flex items-center gap-4">
+                <div className="p-3 bg-slate-200 text-slate-600 rounded-xl"><History size={16}/></div>
+                <div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Leitura Anterior</p>
+                  {loadingPrev ? (
+                    <Loader2 className="animate-spin text-slate-400" size={16} />
+                  ) : (
+                    <p className="text-lg font-black text-slate-700 font-mono">{prevReadingValue.toLocaleString()} <span className="text-xs font-bold text-slate-400">m³</span></p>
+                  )}
+                </div>
+                {!loadingPrev && formData.reading_m3 > 0 && (
+                  <>
+                    <ArrowRight size={16} className="text-slate-300" />
+                    <div>
+                      <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Consumo Calculado</p>
+                      <p className="text-lg font-black text-emerald-700 font-mono">{currentConsumption.toFixed(2)} <span className="text-xs font-bold">m³</span></p>
+                    </div>
+                  </>
                 )}
               </div>
-              <div className="grid grid-cols-7 gap-6">
-                  {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(d => (<div key={d} className="text-center text-[11px] font-black text-slate-400 uppercase tracking-widest">{d}</div>))}
-                  {Array.from({ length: firstDayOfMonth }).map((_, i) => <div key={`empty-${i}`}></div>)}
-                  {Array.from({ length: daysInMonth }).map((_, i) => renderDay(i + 1))}
-              </div>
-          </div>
-      )}
 
-      {/* TEMPLATE DE IMPRESSÃO */}
-      <div id="pdf-print-template" style={{ display: 'none', background: 'white', width: '1080px' }}>
-        <div style={{ borderBottom: '4px solid #2563eb', paddingBottom: '20px', marginBottom: '30px' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <tbody>
-                <tr>
-                    <td style={{ border: 'none' }}>
-                        <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 900, color: '#0f172a' }}>RELATÓRIO DE MONITORAMENTO HÍDRICO</h1>
-                        <p style={{ margin: 0, fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Secretaria de Gestão Regional • Auditoria de Recursos</p>
-                    </td>
-                    <td style={{ border: 'none', textAlign: 'right' }}>
-                        <div style={{ background: '#2563eb', color: 'white', padding: '5px 15px', borderRadius: '8px', fontWeight: 900, display: 'inline-block', fontSize: '10px' }}>SGE-GSU v8.0</div>
-                        <p style={{ margin: '5px 0 0', fontWeight: 900, fontSize: '14px', color: '#1e293b' }}>{monthName.toUpperCase()} / {currentDate.getFullYear()}</p>
-                    </td>
-                </tr>
-                </tbody>
-            </table>
-        </div>
-
-        <div style={{ background: '#f8fafc', padding: '15px', borderRadius: '15px', border: '1px solid #e2e8f0', marginBottom: '30px' }}>
-            <span style={{ fontSize: '10px', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase' }}>Unidade Analisada:</span>
-            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#1e293b' }}>{selectedSchoolId ? schools.find(s => s.id === selectedSchoolId)?.name : (userRole === 'supervisor' ? 'VISÃO DE SUPERVISÃO (UNIDADES SELECIONADAS)' : 'REDE REGIONAL GLOBAL (TODAS AS UNIDADES)')}</h2>
-        </div>
-
-        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '10px', marginBottom: '30px' }}>
-            <tbody>
-            <tr>
-                <td style={{ width: '25%', background: isTotalExceeded ? '#fef2f2' : '#eff6ff', padding: '20px', borderRadius: '20px', border: isTotalExceeded ? '2px solid #ef4444' : '1px solid #bfdbfe' }}>
-                    <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#64748b' }}>CONSUMO TOTAL</p>
-                    <h3 style={{ margin: '5px 0 0', fontSize: '20px', fontWeight: 900, color: isTotalExceeded ? '#b91c1c' : '#1e3a8a' }}>{stats.totalConsumption.toFixed(2)} m³</h3>
-                </td>
-                <td style={{ width: '25%', background: '#f8fafc', padding: '20px', borderRadius: '20px', border: '1px solid #e2e8f0' }}>
-                    <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#64748b' }}>TETO LIMITE</p>
-                    <h3 style={{ margin: '5px 0 0', fontSize: '20px', fontWeight: 900, color: '#0f172a' }}>{stats.totalLimit.toFixed(2)} m³</h3>
-                </td>
-                <td style={{ width: '25%', background: '#f8fafc', padding: '20px', borderRadius: '20px', border: '1px solid #e2e8f0' }}>
-                    <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#64748b' }}>MÉDIA DIÁRIA</p>
-                    <h3 style={{ margin: '5px 0 0', fontSize: '20px', fontWeight: 900, color: '#1e3a8a' }}>{stats.avgConsumption.toFixed(2)} m³</h3>
-                </td>
-                <td style={{ width: '25%', background: stats.exceededDays > 0 ? '#fffbeb' : '#f8fafc', padding: '20px', borderRadius: '20px', border: stats.exceededDays > 0 ? '1px solid #fbbf24' : '1px solid #e2e8f0' }}>
-                    <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#64748b' }}>DIAS COM ALERTA</p>
-                    <h3 style={{ margin: '5px 0 0', fontSize: '20px', fontWeight: 900, color: '#92400e' }}>{stats.exceededDays} ocorrências</h3>
-                </td>
-            </tr>
-            </tbody>
-        </table>
-
-        {justificationsList.length > 0 && (
-            <div>
-                <h3 style={{ fontSize: '14px', fontWeight: 900, color: '#1e293b', marginBottom: '15px', textTransform: 'uppercase' }}>Detalhamento de Justificativas e Ações Corretivas</h3>
-                <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-                    <thead>
-                        <tr style={{ background: '#f1f5f9' }}>
-                            <th style={{ width: '18%', padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 900, textAlign: 'left' }}>ESCOLA</th>
-                            <th style={{ width: '10%', padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 900, textAlign: 'center' }}>DATA</th>
-                            <th style={{ width: '8%', padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 900, textAlign: 'center' }}>EXCESSO</th>
-                            <th style={{ width: '32%', padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 900, textAlign: 'left' }}>JUSTIFICATIVA DO GESTOR</th>
-                            <th style={{ width: '32%', padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 900, textAlign: 'left' }}>PLANO DE AÇÃO PLANEJADO</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {justificationsList.map((log) => (
-                            <tr key={log.id}>
-                                <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase' }}>{log.school_name}</td>
-                                <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '10px', textAlign: 'center', color: '#64748b' }}>{new Date(log.date + 'T12:00:00').toLocaleDateString()}</td>
-                                <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '10px', textAlign: 'center', fontWeight: 900, color: '#ef4444' }}>+{log.consumption_diff.toFixed(2)}m³</td>
-                                <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '10px', color: '#334155', fontStyle: 'italic', wordWrap: 'break-word' }}>"{log.justification}"</td>
-                                <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '10px', color: '#1e3a8a', fontWeight: 600, wordWrap: 'break-word' }}>{log.action_plan}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-        )}
-
-        <div style={{ marginTop: '40px', paddingTop: '20px', borderTop: '1px solid #e2e8f0', textAlign: 'center' }}>
-            <p style={{ fontSize: '9px', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '2px' }}>Documento Emitido em {new Date().toLocaleString('pt-BR')} • Sistema SGE-GSU Intelligence</p>
-        </div>
-      </div>
-
-      {/* MODAL INDIVIDUAL (Edição de Escola Específica) */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 print:hidden">
-          <div className="bg-white rounded-[3rem] w-full max-w-3xl shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden border border-white">
-            <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <div className="flex items-center gap-5">
-                <div className="w-14 h-14 bg-blue-600 rounded-[1.5rem] flex items-center justify-center text-white"><Droplets size={28}/></div>
-                <div><h2 className="text-2xl font-black text-slate-900 tracking-tighter text-blue-600">Registro Detalhado</h2><p className="text-xs text-slate-400 font-bold uppercase tracking-[0.2em]">{new Date(selectedDateStr + 'T12:00:00').toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' })}</p></div>
-              </div>
-              <button onClick={() => setIsModalOpen(false)} className="p-4 hover:bg-slate-200 rounded-full transition-all text-slate-400"><X size={24}/></button>
-            </div>
-
-            <form onSubmit={handleSave} className="p-8 space-y-10 overflow-y-auto max-h-[70vh] custom-scrollbar">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="p-4 bg-slate-50/50 border border-slate-100 rounded-3xl flex flex-col items-center justify-center text-center opacity-60">
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Leitura Anterior</span>
-                    {loadingPrev ? <Loader2 className="animate-spin text-slate-400" size={14} /> : <span className="text-sm font-bold text-slate-500">{prevReadingValue.toLocaleString()} m³</span>}
-                </div>
-                <div className="flex items-center justify-center text-slate-200"><ArrowRight className="hidden md:block" size={20} /><ArrowDown className="md:hidden" size={20} /></div>
-                <div className={`p-4 border rounded-3xl flex flex-col items-center justify-center text-center transition-all ${isLimitExceeded ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-100'} opacity-80`}>
-                    <span className={`text-[9px] font-black uppercase tracking-widest mb-1 ${isLimitExceeded ? 'text-amber-500' : 'text-slate-400'}`}>Consumo Calculado</span>
-                    <span className={`text-lg font-black ${isLimitExceeded ? 'text-amber-600' : 'text-slate-600'}`}>{currentConsumption.toFixed(2)} m³</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                <div className="space-y-6 p-6 bg-blue-50/30 rounded-[2rem] border-2 border-blue-100/50 relative">
-                  <div className="absolute -top-3 left-6 px-3 py-1 bg-blue-600 text-white text-[10px] font-black rounded-full shadow-lg">PASSO 1: POPULAÇÃO</div>
-                  <label className="text-[11px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-2 mb-2"><Users size={14} /> Quem estava na unidade?</label>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                        <span className="text-[10px] font-black text-slate-500 uppercase ml-1">Qtde Alunos</span>
-                        <input type="number" placeholder="0" className="w-full p-4 bg-white border-2 border-blue-200 rounded-2xl font-black text-slate-800 focus:border-blue-600 outline-none transition-all shadow-sm" value={formData.student_count || ''} onChange={(e) => setFormData({...formData, student_count: Number(e.target.value)})} />
-                    </div>
-                    <div className="space-y-2">
-                        <span className="text-[10px] font-black text-slate-500 uppercase ml-1">Funcionários</span>
-                        <input type="number" placeholder="0" className="w-full p-4 bg-white border-2 border-blue-200 rounded-2xl font-black text-slate-800 focus:border-blue-600 outline-none transition-all shadow-sm" value={formData.staff_count || ''} onChange={(e) => setFormData({...formData, staff_count: Number(e.target.value)})} />
-                    </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* PASSO 1: Pessoas */}
+                <div className="space-y-6 p-6 rounded-[2rem] bg-blue-50/30 border-2 border-blue-200 shadow-xl shadow-blue-100/50 relative">
+                  <div className="absolute -top-3 left-6 px-3 py-1 bg-blue-600 text-white text-[10px] font-black rounded-full shadow-lg">PASSO 1: PESSOAS</div>
+                  <label className="text-[11px] font-black uppercase tracking-widest flex items-center gap-2 text-blue-600"><Users size={14} /> Informe a quantidade</label>
+                  <div className="space-y-2">
+                      <span className="text-[10px] font-black text-slate-500 uppercase ml-1">Alunos</span>
+                      <input type="number" placeholder="0" className="w-full p-4 bg-white border-2 border-blue-200 rounded-2xl font-black text-slate-800 focus:border-blue-600 outline-none transition-all shadow-sm" value={formData.student_count || ''} onChange={(e) => setFormData({...formData, student_count: Number(e.target.value)})} />
+                  </div>
+                  <div className="space-y-2">
+                      <span className="text-[10px] font-black text-slate-500 uppercase ml-1">Funcionários</span>
+                      <input type="number" placeholder="0" className="w-full p-4 bg-white border-2 border-blue-200 rounded-2xl font-black text-slate-800 focus:border-blue-600 outline-none transition-all shadow-sm" value={formData.staff_count || ''} onChange={(e) => setFormData({...formData, staff_count: Number(e.target.value)})} />
                   </div>
                 </div>
 
+                {/* PASSO 2: Hidrômetro */}
                 <div className={`space-y-6 p-6 rounded-[2rem] border-2 transition-all relative ${isHydrometerBlocked ? 'bg-slate-50 border-slate-100 opacity-50 grayscale' : 'bg-emerald-50/30 border-emerald-200 shadow-xl shadow-emerald-100/50'}`}>
-                  {!isHydrometerBlocked && <div className="absolute -top-3 left-6 px-3 py-1 bg-emerald-600 text-white text-[10px] font-black rounded-full shadow-lg animate-bounce">PASSO 2: HIDRÔMETRO</div>}
-                  <label className={`text-[11px] font-black uppercase tracking-widest flex items-center gap-2 transition-colors ${isHydrometerBlocked ? 'text-slate-300' : 'text-emerald-600'}`}><Droplets size={14} /> Leitura Atual do Relógio</label>
+                  {!isHydrometerBlocked && (
+                    <div className="absolute -top-3 left-6 px-3 py-1 bg-emerald-600 text-white text-[10px] font-black rounded-full shadow-lg animate-bounce">
+                      PASSO 2: HIDRÔMETRO
+                    </div>
+                  )}
+                  <label className={`text-[11px] font-black uppercase tracking-widest flex items-center gap-2 transition-colors ${isHydrometerBlocked ? 'text-slate-300' : 'text-emerald-600'}`}>
+                    <Droplets size={14} /> Leitura Atual do Relógio
+                  </label>
                   <div className="relative group">
                       <input type="number" required disabled={isHydrometerBlocked} className={`w-full p-6 font-mono text-4xl text-center outline-none transition-all placeholder:opacity-20 rounded-[1.5rem] shadow-inner ${isHydrometerBlocked ? 'bg-slate-200 border-slate-200 text-slate-400' : 'bg-slate-900 border-4 border-emerald-500 text-white ring-8 ring-emerald-500/10'}`} placeholder="00000" value={formData.reading_m3 || ''} onChange={(e) => setFormData({...formData, reading_m3: Number(e.target.value)})} />
                   </div>
@@ -924,16 +1368,21 @@ export function ConsumoAgua() {
 
               <div className="pt-6 flex items-center justify-between border-t border-slate-100 sticky bottom-0 bg-white">
                 <div>
-                  {isManagerRole && logs[selectedDateStr] && (
-                    <button 
-                      type="button" 
-                      onClick={handleDelete} 
-                      disabled={saveLoading}
-                      className="px-6 py-4 text-red-500 font-black hover:bg-red-50 hover:text-red-700 rounded-2xl transition-all flex items-center gap-2 uppercase tracking-widest text-[11px]"
-                    >
-                      <Trash2 size={16} /> Excluir
-                    </button>
-                  )}
+                  {isManagerRole && (() => {
+                    const existingForMeter = selectedMeterId
+                      ? allMonthLogs.find(l => l.date === selectedDateStr && l.meter_id === selectedMeterId)
+                      : allMonthLogs.find(l => l.date === selectedDateStr && !l.meter_id);
+                    return existingForMeter ? (
+                      <button 
+                        type="button" 
+                        onClick={handleDelete} 
+                        disabled={saveLoading}
+                        className="px-6 py-4 text-red-500 font-black hover:bg-red-50 hover:text-red-700 rounded-2xl transition-all flex items-center gap-2 uppercase tracking-widest text-[11px]"
+                      >
+                        <Trash2 size={16} /> Excluir
+                      </button>
+                    ) : null;
+                  })()}
                 </div>
                 <div className="flex items-center gap-4">
                   <button type="button" onClick={() => setIsModalOpen(false)} className="px-8 py-4 text-slate-500 font-black hover:text-slate-800 transition-all uppercase tracking-widest text-[11px]">Cancelar</button>
@@ -947,7 +1396,9 @@ export function ConsumoAgua() {
         </div>
       )}
 
-      {/* MODAL DE SUSPENSÃO DE EXPEDIENTE (Global) */}
+      {/* ===================================================================
+          MODAL DE SUSPENSÃO DE EXPEDIENTE (Global)
+      ==================================================================== */}
       {isSuspensionModalOpen && (
          <div className="fixed inset-0 z-50 flex items-center justify-center bg-purple-900/40 backdrop-blur-md p-4 print:hidden">
              <div className="bg-white rounded-[3rem] w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden border border-white">
@@ -960,7 +1411,6 @@ export function ConsumoAgua() {
                 </div>
                 
                 <div className="p-8 space-y-6">
-                    {/* Alerta de Existência */}
                     {existingSuspension ? (
                        <div className="p-6 bg-red-50 rounded-3xl border-2 border-red-100 flex flex-col items-center text-center gap-3 animate-pulse">
                           <div className="p-2 bg-red-100 text-red-600 rounded-full"><AlertTriangle size={20} /></div>
@@ -1020,6 +1470,109 @@ export function ConsumoAgua() {
                 </div>
              </div>
          </div>
+      )}
+
+      {/* ===================================================================
+          MODAL DE GESTÃO DE HIDRÔMETROS (Admin/Dirigente)
+      ==================================================================== */}
+      {isMeterModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-md p-4 print:hidden">
+          <div className="bg-white rounded-[3rem] w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden border border-white max-h-[90vh] flex flex-col">
+            
+            <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-slate-800 rounded-[1.2rem] flex items-center justify-center text-white"><Gauge size={24}/></div>
+                <div>
+                  <h2 className="text-xl font-black text-slate-900 tracking-tighter">Hidrômetros</h2>
+                  <p className="text-xs text-slate-400 font-medium">
+                    {schools.find(s => s.id === meterModalSchoolId)?.name || 'Escola'}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setIsMeterModalOpen(false)} className="p-3 hover:bg-slate-100 rounded-full transition-all text-slate-400"><X size={20}/></button>
+            </div>
+
+            <div className="p-8 overflow-y-auto space-y-6 flex-1">
+              
+              {/* Lista de hidrômetros existentes */}
+              <div className="space-y-3">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Hidrômetros Cadastrados</p>
+                {metersList.length === 0 ? (
+                  <div className="p-6 bg-slate-50 rounded-2xl text-center">
+                    <Gauge size={32} className="text-slate-300 mx-auto mb-2" />
+                    <p className="text-xs text-slate-400 font-medium">Nenhum hidrômetro cadastrado.</p>
+                    <p className="text-[10px] text-slate-300 mt-1">Esta escola usa o fluxo padrão (1 hidrômetro implícito).</p>
+                  </div>
+                ) : (
+                  metersList.map(meter => (
+                    <div key={meter.id} className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${meter.is_active ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-100 opacity-60'}`}>
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-xl ${meter.is_active ? 'bg-blue-100 text-blue-600' : 'bg-slate-200 text-slate-400'}`}>
+                          <Gauge size={16} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-black text-slate-800">{meter.name}</p>
+                          {meter.description && <p className="text-[10px] text-slate-400 font-medium">{meter.description}</p>}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleToggleMeter(meter)}
+                        className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all ${
+                          meter.is_active 
+                            ? 'bg-red-50 text-red-500 hover:bg-red-100' 
+                            : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
+                        }`}
+                      >
+                        {meter.is_active ? 'Desativar' : 'Ativar'}
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Adicionar novo hidrômetro */}
+              <div className="p-6 bg-blue-50 border-2 border-blue-100 rounded-[1.5rem] space-y-4">
+                <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-2">
+                  <Plus size={12} /> Adicionar Hidrômetro
+                </p>
+                <div className="space-y-3">
+                  <input
+                    type="text"
+                    placeholder="Nome (ex: Hidrômetro Bloco A)"
+                    className="w-full p-4 bg-white border-2 border-blue-200 rounded-2xl font-bold text-slate-800 focus:border-blue-600 outline-none text-sm placeholder:text-slate-300"
+                    value={newMeterName}
+                    onChange={(e) => setNewMeterName(e.target.value)}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Descrição / localização (opcional)"
+                    className="w-full p-3 bg-white border-2 border-blue-100 rounded-2xl font-medium text-slate-700 focus:border-blue-400 outline-none text-sm placeholder:text-slate-300"
+                    value={newMeterDesc}
+                    onChange={(e) => setNewMeterDesc(e.target.value)}
+                  />
+                  <button
+                    onClick={handleAddMeter}
+                    disabled={!newMeterName.trim() || savingMeter}
+                    className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-[11px] uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-blue-700 active:scale-95 disabled:opacity-40 transition-all shadow-lg shadow-blue-200"
+                  >
+                    {savingMeter ? <Loader2 className="animate-spin" size={16} /> : <><Plus size={16} /> Adicionar</>}
+                  </button>
+                </div>
+              </div>
+
+              {/* Aviso sobre retrocompatibilidade */}
+              {metersList.filter(m => m.is_active).length >= 2 && (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+                  <p className="text-[10px] text-amber-700 font-bold leading-relaxed">
+                    ⚡ Esta escola agora tem <strong>{metersList.filter(m => m.is_active).length} hidrômetros ativos</strong>. 
+                    O gestor da escola verá um seletor de hidrômetro ao registrar o consumo diário.
+                    Os registros anteriores (sem hidrômetro vinculado) continuam acessíveis normalmente.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
     </div>
