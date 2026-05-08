@@ -247,7 +247,7 @@ export default function DashboardConsumo() {
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(12);
       pdf.setTextColor(71, 85, 105); 
-      const nomeEscolaPDF = filtroEscola === 'todas' ? 'Rede Municipal (Visão Geral)' : filtroEscola;
+      const nomeEscolaPDF = filtroEscola === 'todas' ? 'Rede Estadual (Visão Geral)' : filtroEscola;
       pdf.text(`Unidade Escolar: ${nomeEscolaPDF}`, marginX, 28);
       
       const dataEmissao = new Date().toLocaleString('pt-BR');
@@ -293,7 +293,7 @@ export default function DashboardConsumo() {
       <div className="bg-white p-5 rounded-3xl shadow-sm mb-8 flex flex-wrap items-center gap-6 border border-slate-100">
         <Filter size={20} className="text-blue-600" />
         <select className="bg-slate-50 border-none rounded-xl px-4 py-2 text-sm focus:ring-2 ring-blue-500 min-w-[250px] outline-none" value={filtroEscola} onChange={e => setFiltroEscola(e.target.value)}>
-          <option value="todas">Rede Municipal (Geral)</option>
+          <option value="todas">Rede Estadual (Geral)</option>
           {[...new Set(data.map(d => d.nome_escola))].sort().map(e => <option key={e} value={e}>{e}</option>)}
         </select>
         <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl text-sm">
