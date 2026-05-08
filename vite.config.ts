@@ -8,6 +8,12 @@ export default defineConfig({
   base: './', 
   build: {
     outDir: 'dist',
+  },
+
+  server: {
+  headers: {
+    'Content-Security-Policy': "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://generativelanguage.googleapis.com https://unpkg.com https://cdnjs.cloudflare.com"
   }
+}
   
 })
