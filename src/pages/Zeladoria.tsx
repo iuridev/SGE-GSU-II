@@ -8,7 +8,7 @@ import {
   History, ArrowRight, FileDown,
   BarChart3, PieChart as PieIcon,
   CheckSquare, UserPlus, ShieldCheck,
-  ChevronRight, Filter
+  ChevronRight, Filter, MessageSquare
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -51,6 +51,7 @@ interface Zeladoria {
   imovel_1_porcento: number | null;
   salario_10_porcento: number | null;
   school_id: string | null;
+  admin_notes?: string;
   status_updated_at?: string;
   created_at?: string;
 }
@@ -620,6 +621,14 @@ export function Zeladoria() {
                   </div>
                 </div>
 
+                {/* Nota interna (somente regional_admin) */}
+                {userRole === 'regional_admin' && item.admin_notes && (
+                  <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 flex items-start gap-2">
+                    <MessageSquare size={12} className="text-amber-400 mt-0.5 flex-shrink-0" />
+                    <p className="text-[10px] text-amber-800 font-medium leading-snug">{item.admin_notes}</p>
+                  </div>
+                )}
+
                 {/* Rodapé: tempo + ações */}
                 <div className="flex items-center justify-between pt-3 border-t border-slate-50 gap-2 mt-auto">
                   <div>
@@ -768,6 +777,22 @@ export function Zeladoria() {
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Validade</label>
                   <input type="date" className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold transition-all focus:border-blue-500 focus:bg-white outline-none" value={formData.ate || ''} onChange={e => setFormData({...formData, ate: e.target.value})} />
                 </div>
+              </div>
+
+              {/* Nota interna - exclusiva para regional_admin */}
+              <div className="space-y-2">
+                <label className="text-[11px] font-black text-amber-500 uppercase tracking-widest flex items-center gap-2">
+                  <MessageSquare size={13} />
+                  Nota Interna
+                  <span className="text-[9px] text-slate-300 font-bold normal-case tracking-normal">· invisível para gestores escolares</span>
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="Anotações, lembretes, pendências..."
+                  className="w-full p-3 bg-amber-50 border-2 border-amber-100 rounded-2xl font-medium text-slate-700 text-sm focus:border-amber-300 focus:bg-white outline-none transition-all resize-none"
+                  value={formData.admin_notes || ''}
+                  onChange={e => setFormData({...formData, admin_notes: e.target.value})}
+                />
               </div>
 
               <div className="pt-6 flex justify-end gap-4 border-t border-slate-100">
