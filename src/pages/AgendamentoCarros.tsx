@@ -311,7 +311,7 @@ export function AgendamentoCarros() {
             <img id="pdf-chart-image" alt="Gráfico" style={{ width: '100%', height: 'auto', borderRadius: '8px', display: 'block' }} />
           </div>
           <div style={{ flex: 2, background: '#fff', borderRadius: '14px', padding: '22px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-            <p style={{ margin: '0 0 16px', fontSize: '10px', fontWeight: 900, color: '#334155', textTransform: 'uppercase', letterSpacing: '1px' }}>Top 5 Condutores</p>
+            <p style={{ margin: '0 0 16px', fontSize: '10px', fontWeight: 900, color: '#334155', textTransform: 'uppercase', letterSpacing: '1px' }}>Top 5 - Solicitações</p>
             {topDrivers.map((driver, idx) => {
               const badgeColors = ['#f59e0b', '#94a3b8', '#b45309', '#6366f1', '#8b5cf6'];
               return (
@@ -587,7 +587,7 @@ export function AgendamentoCarros() {
                   </div>
                   <div>
                     <h2 className="text-base font-black text-white uppercase tracking-tight">Ranking</h2>
-                    <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Condutores frequentes</p>
+                    <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Número de Solicitações</p>
                   </div>
                 </div>
 
