@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { 
-  Package, Plus, Search, FileText, 
-  Trash2, Edit, X, Save, Loader2, 
+import {
+  Package, Plus, Search, FileText,
+  Trash2, Edit, X, Save, Loader2,
   Building2, Info, CheckCircle2,
-  Calendar, Eye, // <-- Eye adicionado aqui
-  AlertCircle, History, Flag, ShieldAlert, Gift, 
+  Calendar, Eye,
+  AlertCircle, History, Flag, ShieldAlert, Gift,
   ClipboardList, DollarSign, ListPlus, Calculator,
-  LayoutGrid, CheckCircle, Download, BarChart2, TrendingUp
+  LayoutGrid, CheckCircle, Download, BarChart2, TrendingUp,
+  FileDown
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
 import jsPDF from 'jspdf';
@@ -34,7 +35,7 @@ interface PatrimonioProcess {
   authorship?: string;
   conclusion?: string;
   subtype?: string;
-  items_json?: string; 
+  items_json?: string;
   created_at: string;
   schools?: { name: string };
 }
@@ -67,8 +68,7 @@ export function PatrimonioProcessos() {
   const [schools, setSchools] = useState<School[]>([]);
   const [loading, setLoading] = useState(true);
   const [saveLoading, setSaveLoading] = useState(false);
-  
-  // Estados de Exportação
+
   const [isExporting, setIsExporting] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportTargetSchool, setExportTargetSchool] = useState('');
@@ -76,14 +76,12 @@ export function PatrimonioProcessos() {
   const [userRole, setUserRole] = useState('');
   const [userSchoolId, setUserSchoolId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  
+
   const dashboardRef = useRef<HTMLDivElement>(null);
 
-  // Controle de Abas
   const [activeMainTab, setActiveMainTab] = useState<'doacao' | 'furtos' | 'inserviveis' | 'bandeiras'>('doacao');
   const [activeSubTab, setActiveSubTab] = useState<'pendente' | 'concluido'>('pendente');
 
-  // Estados do Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProcess, setEditingProcess] = useState<PatrimonioProcess | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -132,7 +130,7 @@ export function PatrimonioProcessos() {
 
       const { data: schoolsData } = await (supabase as any).from('schools').select('id, name').order('name');
       setSchools(schoolsData || []);
-      
+
       await fetchProcesses(role, schoolId);
     } catch (error) { console.error(error); } finally { setLoading(false); }
   }
@@ -142,7 +140,7 @@ export function PatrimonioProcessos() {
     const activeSchoolId = sId !== undefined ? sId : userSchoolId;
 
     let query = (supabase as any).from('asset_processes').select('*, schools(name)');
-    
+
     if (activeRole === 'school_manager' && activeSchoolId) {
       query = query.eq('school_id', activeSchoolId);
     }
@@ -152,14 +150,8 @@ export function PatrimonioProcessos() {
   }
 
   const isAdmin = userRole === 'regional_admin';
-  
-  // Regra central de permissão: é leitura apenas se for edição E o usuário não for admin
   const isReadOnly = !!editingProcess && !isAdmin;
 
-  // ---------------------------------------------------------
-  // LÓGICA DE FILTRO PARA A EXPORTAÇÃO
-  // ---------------------------------------------------------
-  
   const activeProcesses = useMemo(() => {
     if (isExporting && exportTargetSchool !== '') {
       return processes.filter(p => p.school_id === exportTargetSchool);
@@ -171,14 +163,15 @@ export function PatrimonioProcessos() {
     const total = activeProcesses.length;
     const concluidos = activeProcesses.filter(p => p.status === 'CONCLUÍDO').length;
     const pendentes = total - concluidos;
-    
+    const taxaConclusao = total > 0 ? Math.round((concluidos / total) * 100) : 0;
+
     const chartData = PROCESS_TYPES.map(type => {
       const typeProcesses = activeProcesses.filter(p => p.type === type.id);
       let xAxisName = type.label;
       if (type.id === 'FURTOS') xAxisName = 'Sinistros';
 
       return {
-        name: xAxisName, 
+        name: xAxisName,
         Total: typeProcesses.length,
         Concluídos: typeProcesses.filter(p => p.status === 'CONCLUÍDO').length,
         Pendentes: typeProcesses.filter(p => p.status !== 'CONCLUÍDO').length,
@@ -194,9 +187,9 @@ export function PatrimonioProcessos() {
 
     const schoolRankingData = Object.values(schoolCounts)
       .sort((a, b) => b.Processos - a.Processos)
-      .slice(0, 10); 
+      .slice(0, 10);
 
-    return { total, concluidos, pendentes, chartData, schoolRankingData };
+    return { total, concluidos, pendentes, taxaConclusao, chartData, schoolRankingData };
   }, [activeProcesses]);
 
   useEffect(() => {
@@ -210,33 +203,35 @@ export function PatrimonioProcessos() {
         const pdfWidth = doc.internal.pageSize.getWidth();
         const margin = 14;
         let currentY = 22;
-        
+
         doc.setFontSize(20);
         doc.setTextColor(79, 70, 229);
-        doc.text('Relatório Mensal - Processos de Patrimônio (SGE-GSU-II)', margin, currentY);
-        
+        doc.text('Relatório de Processos de Patrimônio — SGE-GSU-II', margin, currentY);
+
         currentY += 8;
         doc.setFontSize(10);
         doc.setTextColor(100);
 
-        const schoolName = exportTargetSchool 
-          ? schools.find(s => s.id === exportTargetSchool)?.name 
+        const schoolName = exportTargetSchool
+          ? schools.find(s => s.id === exportTargetSchool)?.name
           : 'Todas as Unidades Escolares';
-        
+
         doc.text(`Filtro Aplicado: ${schoolName}`, margin, currentY);
         currentY += 6;
         doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`, margin, currentY);
-        
+        currentY += 6;
+        doc.text(`Total: ${dashboardMetrics.total} processos | Concluídos: ${dashboardMetrics.concluidos} | Em Andamento: ${dashboardMetrics.pendentes} | Taxa de Conclusão: ${dashboardMetrics.taxaConclusao}%`, margin, currentY);
+
         currentY += 10;
 
         if (dashboardRef.current) {
-          const canvas = await html2canvas(dashboardRef.current, { 
-            scale: 2, 
+          const canvas = await html2canvas(dashboardRef.current, {
+            scale: 2,
             useCORS: true,
-            backgroundColor: '#ffffff' 
+            backgroundColor: '#ffffff'
           });
           const imgData = canvas.toDataURL('image/png');
-          
+
           let printWidth = pdfWidth - (margin * 2);
           let printHeight = (canvas.height * printWidth) / canvas.width;
 
@@ -307,7 +302,6 @@ export function PatrimonioProcessos() {
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
 
-    // Proteção dupla de back-end logic
     if (editingProcess && !isAdmin) {
       setFormError("Apenas usuários com perfil Regional podem atualizar processos.");
       return;
@@ -412,276 +406,382 @@ export function PatrimonioProcessos() {
   };
 
   const mainTabs = [
-    { id: 'doacao', label: 'Doação', icon: <Gift size={18}/>, color: 'text-emerald-600' },
-    { id: 'furtos', label: 'Sinistros / Furtos', icon: <ShieldAlert size={18}/>, color: 'text-red-600' },
-    { id: 'inserviveis', label: 'Inservíveis', icon: <Trash2 size={18}/>, color: 'text-amber-600' },
-    { id: 'bandeiras', label: 'Bandeiras', icon: <Flag size={18}/>, color: 'text-blue-600' }
+    { id: 'doacao', label: 'Doação', icon: <Gift size={15}/>, activeClass: 'bg-emerald-600 text-white shadow-md shadow-emerald-200' },
+    { id: 'furtos', label: 'Sinistros', icon: <ShieldAlert size={15}/>, activeClass: 'bg-red-600 text-white shadow-md shadow-red-200' },
+    { id: 'inserviveis', label: 'Inservíveis', icon: <Trash2 size={15}/>, activeClass: 'bg-amber-500 text-white shadow-md shadow-amber-200' },
+    { id: 'bandeiras', label: 'Bandeiras', icon: <Flag size={15}/>, activeClass: 'bg-blue-600 text-white shadow-md shadow-blue-200' }
   ] as const;
 
+  const catColorMap = {
+    doacao: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', bar: 'bg-emerald-500', icon: 'text-emerald-600' },
+    furtos: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', bar: 'bg-red-500', icon: 'text-red-600' },
+    inserviveis: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', bar: 'bg-amber-500', icon: 'text-amber-600' },
+    bandeiras: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', bar: 'bg-blue-500', icon: 'text-blue-600' },
+  };
+
   return (
-    <div className="min-h-screen space-y-8 pb-32 bg-[#f8fafc]">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="flex items-center gap-5">
-          <div className="p-4 bg-indigo-600 rounded-[2rem] text-white shadow-2xl shadow-indigo-100">
-            <Package size={36} />
-          </div>
-          <div>
-            <h1 className="text-3xl font-black text-slate-900 tracking-tight uppercase leading-none">Processos de Patrimônio</h1>
-            <p className="text-slate-500 font-medium mt-1 uppercase text-xs tracking-widest italic">Monitoramento e Fluxo Regional de Bens</p>
-          </div>
-        </div>
-        
-        <div className="flex gap-4">
-          <button 
-            onClick={() => setShowExportModal(true)} 
-            disabled={isExporting}
-            className="bg-slate-800 hover:bg-slate-900 disabled:opacity-70 text-white px-8 py-5 rounded-[2rem] font-black flex items-center gap-3 shadow-xl transition-all active:scale-95"
-          >
-            {isExporting ? <Loader2 size={20} className="animate-spin" /> : <Download size={20} />} 
-            {isExporting ? 'GERANDO PDF...' : 'PDF CHEFIA'}
-          </button>
+    <div className="min-h-screen bg-slate-50/80 pb-16">
 
-          {/* Removida a restrição isAdmin para que a escola possa cadastrar */}
-          <button 
-            onClick={() => openModal()} 
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-10 py-5 rounded-[2rem] font-black flex items-center gap-3 shadow-xl transition-all active:scale-95 group"
-          >
-            <Plus size={20} className="group-hover:rotate-90 transition-transform"/> ABRIR NOVO PROCESSO
-          </button>
-        </div>
-      </div>
-
-      <div ref={dashboardRef} className="space-y-6 bg-[#f8fafc] p-2 rounded-[3.5rem]">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-lg flex items-center gap-6">
-            <div className="p-4 bg-indigo-50 text-indigo-600 rounded-2xl"><ClipboardList size={32}/></div>
+      {/* ── PAGE HEADER ─────────────────────────────────────────── */}
+      <div className="bg-white border-b border-slate-200/80 shadow-sm mb-6">
+        <div className="px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200 shrink-0">
+              <Package size={20} className="text-white" />
+            </div>
             <div>
-              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Total de Processos</p>
-              <h2 className="text-4xl font-black text-slate-800">{dashboardMetrics.total}</h2>
-            </div>
-          </div>
-          <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-lg flex items-center gap-6">
-            <div className="p-4 bg-emerald-50 text-emerald-600 rounded-2xl"><CheckCircle size={32}/></div>
-            <div>
-              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Concluídos</p>
-              <h2 className="text-4xl font-black text-emerald-600">{dashboardMetrics.concluidos}</h2>
-            </div>
-          </div>
-          <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-lg flex items-center gap-6">
-            <div className="p-4 bg-amber-50 text-amber-600 rounded-2xl"><History size={32}/></div>
-            <div>
-              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Em Andamento</p>
-              <h2 className="text-4xl font-black text-amber-600">{dashboardMetrics.pendentes}</h2>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-6">
-          <div className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-xl">
-            <div className="flex items-center gap-3 mb-8">
-              <BarChart2 className="text-indigo-600" size={24} />
-              <h2 className="text-lg font-black text-slate-800 uppercase tracking-tight">Distribuição de Processos</h2>
-            </div>
-            <div className="h-80 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={dashboardMetrics.chartData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 700 }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 700 }} />
-                  <RechartsTooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
-                  <Legend wrapperStyle={{ paddingTop: '20px', fontWeight: 700, fontSize: '12px' }} />
-                  <Bar dataKey="Pendentes" stackId="a" fill="#fbbf24" radius={[0, 0, 4, 4]} maxBarSize={60} isAnimationActive={!isExporting}/>
-                  <Bar dataKey="Concluídos" stackId="a" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={60} isAnimationActive={!isExporting}/>
-                </BarChart>
-              </ResponsiveContainer>
+              <h1 className="text-lg font-bold text-slate-900 leading-tight tracking-tight">Processos de Patrimônio</h1>
+              <p className="text-xs text-slate-400 font-medium">Monitoramento e Fluxo Regional — SGE-GSU-II</p>
             </div>
           </div>
 
-          <div className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-xl">
-            <div className="flex items-center gap-3 mb-8">
-              <TrendingUp className="text-blue-500" size={24} />
-              <h2 className="text-lg font-black text-slate-800 uppercase tracking-tight">Número Processos por Escola</h2>
-            </div>
-            <div className="h-96 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={dashboardMetrics.schoolRankingData} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                  <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 700 }} />
-                  <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#475569', fontSize: 10, fontWeight: 700 }} width={250} />
-                  <RechartsTooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
-                  <Bar dataKey="Processos" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={24} isAnimationActive={!isExporting}/>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowExportModal(true)}
+              disabled={isExporting}
+              className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all disabled:opacity-60 shadow-sm active:scale-[0.98]"
+            >
+              {isExporting ? <Loader2 size={15} className="animate-spin" /> : <FileDown size={15} />}
+              {isExporting ? 'Gerando PDF...' : 'Exportar PDF'}
+            </button>
+            <button
+              onClick={() => openModal()}
+              className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-all shadow-md shadow-indigo-200 active:scale-[0.98]"
+            >
+              <Plus size={15} /> Novo Processo
+            </button>
           </div>
         </div>
       </div>
 
-      <div className="bg-white p-3 rounded-[3rem] border border-slate-100 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4 mt-8">
-        <div className="flex flex-wrap gap-2 p-1.5 bg-slate-100/50 rounded-[2.5rem] w-full md:w-auto">
-           {mainTabs.map(tab => (
-             <button
-              key={tab.id}
-              onClick={() => { setActiveMainTab(tab.id); setActiveSubTab('pendente'); }}
-              className={`px-8 py-3.5 rounded-[2rem] text-xs font-black uppercase tracking-widest flex items-center gap-3 transition-all ${
-                activeMainTab === tab.id 
-                  ? 'bg-white text-indigo-600 shadow-xl shadow-indigo-100' 
-                  : 'text-slate-400 hover:text-slate-600'
-              }`}
-             >
-               {tab.icon} {tab.label}
-             </button>
-           ))}
-        </div>
+      <div className="px-4 sm:px-6 space-y-6">
 
-        <div className="bg-slate-100 p-1.5 rounded-[2.5rem] flex gap-1 w-full md:w-auto">
-           <button 
-            onClick={() => setActiveSubTab('pendente')}
-            className={`px-6 py-3 rounded-[2rem] text-[10px] font-black uppercase tracking-widest transition-all ${activeSubTab === 'pendente' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-indigo-500'}`}
-           >
-             Não Concluídos
-           </button>
-           <button 
-            onClick={() => setActiveSubTab('concluido')}
-            className={`px-6 py-3 rounded-[2rem] text-[10px] font-black uppercase tracking-widest transition-all ${activeSubTab === 'concluido' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-emerald-500'}`}
-           >
-             Concluídos
-           </button>
-        </div>
-      </div>
+        {/* ── DASHBOARD (capturado para PDF) ────────────────────── */}
+        <div ref={dashboardRef} className="space-y-4 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm">
 
-      <div className="bg-white p-4 rounded-[2.5rem] border border-slate-100 shadow-sm">
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-          <input 
-            type="text" 
-            placeholder="Pesquisar por Nº SEI ou Unidade Escolar..." 
-            className="w-full pl-12 pr-4 py-3 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 font-medium text-slate-700 outline-none"
-            value={searchTerm} 
-            onChange={(e) => setSearchTerm(e.target.value)} 
-          />
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="py-40 flex flex-col items-center justify-center gap-4">
-           <Loader2 className="animate-spin text-indigo-600" size={48} />
-           <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Consultando fluxos...</p>
-        </div>
-      ) : filteredProcesses.length === 0 ? (
-        <div className="py-32 bg-white rounded-[4rem] border-2 border-dashed border-slate-100 text-center flex flex-col items-center justify-center">
-           <div className="w-20 h-20 bg-slate-50 text-slate-200 rounded-full flex items-center justify-center mb-4">
-              <ClipboardList size={40}/>
-           </div>
-           <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Nenhum processo {activeSubTab === 'concluido' ? 'concluído' : 'pendente'} nesta categoria.</h3>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          {filteredProcesses.map((p) => {
-            const typeInfo = PROCESS_TYPES.find(t => t.id === p.type);
-            const workflow = WORKFLOWS[p.type] || [];
-            const stepIndex = workflow.indexOf(p.current_step) + 1;
-            const progress = (stepIndex / workflow.length) * 100;
-            const isCompleted = p.status === 'CONCLUÍDO';
-
-            return (
-              <div key={p.id} className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-[0_20px_50px_rgba(0,0,0,0.05)] group hover:border-indigo-300 transition-all flex flex-col xl:flex-row items-center gap-8 relative overflow-hidden">
-                 <div className={`absolute left-0 top-0 h-full w-2.5 ${isCompleted ? 'bg-emerald-500' : 'bg-indigo-500'}`}></div>
-                 
-                 <div className="flex items-center gap-8 flex-1 w-full min-w-0">
-                    <div className={`w-24 h-24 rounded-[2rem] flex items-center justify-center shrink-0 shadow-lg ${typeInfo?.color || 'bg-slate-100'}`}>
-                       {p.type === 'FURTOS' ? <ShieldAlert size={36}/> : p.type === 'BANDEIRAS' ? <Flag size={36}/> : p.type.includes('DOACAO') ? <Gift size={36}/> : <Package size={36}/>}
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                       <div className="flex flex-wrap items-center gap-2 mb-3">
-                          <span className="bg-slate-900 text-white text-[10px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest shadow-sm">{p.schools?.name}</span>
-                          <span className={`text-[10px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest ${typeInfo?.color}`}>{p.type === 'FURTOS' ? p.subtype : typeInfo?.label}</span>
-                       </div>
-                       
-                       <h3 className="text-3xl font-black text-slate-800 uppercase tracking-tight flex flex-col sm:flex-row sm:items-center gap-3">
-                          SEI {p.sei_number}
-                          <div className="flex items-center gap-2 text-slate-300 font-bold text-sm tracking-normal capitalize">
-                            <Calendar size={16} className="text-indigo-400"/>
-                            {new Date(p.process_date + 'T12:00:00').toLocaleDateString('pt-BR')}
-                          </div>
-                       </h3>
-                       
-                       <div className="mt-8 space-y-3">
-                          <div className="flex justify-between items-end">
-                             <p className={`text-[11px] font-black uppercase tracking-[0.1em] flex items-center gap-2 ${isCompleted ? 'text-emerald-600' : 'text-indigo-600'}`}>
-                                <History size={16}/> {p.current_step}
-                             </p>
-                             <span className="text-xs font-black text-slate-400 tracking-tighter">{Math.round(progress)}% Concluído</span>
-                          </div>
-                          <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-50">
-                             <div 
-                                className={`h-full transition-all duration-1000 ease-out rounded-full ${isCompleted ? 'bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.4)]' : 'bg-indigo-500 shadow-[0_0_15_rgba(99,102,241,0.4)]'}`} 
-                                style={{ width: `${progress}%` }} 
-                             />
-                          </div>
-                       </div>
-                    </div>
-                 </div>
-
-                 <div className="flex items-center gap-6 shrink-0 border-t xl:border-t-0 xl:border-l border-slate-50 pt-8 xl:pt-0 xl:pl-10 w-full xl:w-auto">
-                    <div className="text-center xl:text-right flex-1 xl:flex-none">
-                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Situação Atual</p>
-                       <span className={`px-6 py-2.5 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-inner border-2 ${
-                          isCompleted ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
-                          p.status === 'CORREÇÃO' ? 'bg-red-50 text-red-600 border-red-100 animate-pulse' :
-                          'bg-indigo-50 text-indigo-600 border-indigo-100'
-                       }`}>
-                          {p.status}
-                       </span>
-                    </div>
-                    
-                    <div className="flex gap-2">
-                       <button 
-                        onClick={() => openModal(p)} 
-                        className="p-5 bg-slate-50 text-slate-400 hover:bg-indigo-600 hover:text-white rounded-[1.5rem] transition-all shadow-sm active:scale-95"
-                        title={isAdmin ? "Editar Processo" : "Visualizar Processo"}
-                       >
-                          {isAdmin ? <Edit size={24}/> : <Eye size={24}/>}
-                       </button>
-                       {isAdmin && (
-                         <button 
-                          onClick={() => handleDelete(p.id)} 
-                          className="p-5 bg-slate-50 text-slate-400 hover:bg-red-600 hover:text-white rounded-[1.5rem] transition-all shadow-sm active:scale-95"
-                          title="Excluir Processo"
-                         >
-                            <Trash2 size={24}/>
-                         </button>
-                       )}
-                    </div>
-                 </div>
+          {/* KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-gradient-to-br from-indigo-50 to-white rounded-2xl border border-indigo-100 p-5 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0">
+                <ClipboardList size={22} className="text-indigo-600" />
               </div>
-            );
-          })}
-        </div>
-      )}
-
-      {showExportModal && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/90 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-[3rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-indigo-100"><FileText size={24}/></div>
-                <div>
-                  <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight leading-none">Exportar Relatório</h2>
-                  <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest mt-1">Geração de PDF</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-indigo-400 uppercase tracking-wider mb-0.5">Total de Processos</p>
+                <p className="text-3xl font-bold text-indigo-700 tabular-nums">{dashboardMetrics.total}</p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-xs font-bold text-indigo-300">100%</p>
+                <div className="w-14 h-1.5 bg-indigo-100 rounded-full mt-1.5">
+                  <div className="h-full w-full bg-indigo-500 rounded-full" />
                 </div>
               </div>
-              <button onClick={() => setShowExportModal(false)} className="p-2 hover:bg-white rounded-full transition-all text-slate-400"><X size={24}/></button>
             </div>
-            
-            <div className="p-8 space-y-6">
-              <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                  <Building2 size={14}/> Selecione a Abrangência
+
+            <div className="bg-gradient-to-br from-emerald-50 to-white rounded-2xl border border-emerald-100 p-5 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                <CheckCircle size={22} className="text-emerald-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-0.5">Concluídos</p>
+                <p className="text-3xl font-bold text-emerald-600 tabular-nums">{dashboardMetrics.concluidos}</p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-xs font-bold text-emerald-400">{dashboardMetrics.taxaConclusao}%</p>
+                <div className="w-14 h-1.5 bg-emerald-100 rounded-full mt-1.5">
+                  <div className="h-full bg-emerald-500 rounded-full transition-all duration-700" style={{ width: `${dashboardMetrics.taxaConclusao}%` }} />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-gradient-to-br from-amber-50 to-white rounded-2xl border border-amber-100 p-5 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                <History size={22} className="text-amber-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider mb-0.5">Em Andamento</p>
+                <p className="text-3xl font-bold text-amber-600 tabular-nums">{dashboardMetrics.pendentes}</p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-xs font-bold text-amber-400">
+                  {dashboardMetrics.total > 0 ? Math.round((dashboardMetrics.pendentes / dashboardMetrics.total) * 100) : 0}%
+                </p>
+                <div className="w-14 h-1.5 bg-amber-100 rounded-full mt-1.5">
+                  <div className="h-full bg-amber-500 rounded-full transition-all duration-700" style={{ width: `${dashboardMetrics.total > 0 ? (dashboardMetrics.pendentes / dashboardMetrics.total) * 100 : 0}%` }} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Charts */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div className="bg-slate-50 rounded-2xl border border-slate-100 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <BarChart2 size={17} className="text-indigo-500" />
+                  <h3 className="text-sm font-bold text-slate-700">Distribuição por Tipo</h3>
+                </div>
+                <span className="text-xs text-slate-400 font-medium bg-white px-2.5 py-1 rounded-lg border border-slate-100">Por categoria</span>
+              </div>
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dashboardMetrics.chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 600 }} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 600 }} />
+                    <RechartsTooltip
+                      cursor={{ fill: '#f8fafc' }}
+                      contentStyle={{ borderRadius: '10px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.06)', fontSize: '12px' }}
+                    />
+                    <Legend wrapperStyle={{ paddingTop: '12px', fontWeight: 600, fontSize: '11px' }} />
+                    <Bar dataKey="Pendentes" stackId="a" fill="#fbbf24" radius={[0, 0, 4, 4]} maxBarSize={44} isAnimationActive={!isExporting} />
+                    <Bar dataKey="Concluídos" stackId="a" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={44} isAnimationActive={!isExporting} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 rounded-2xl border border-slate-100 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <TrendingUp size={17} className="text-blue-500" />
+                  <h3 className="text-sm font-bold text-slate-700">Processos por Unidade Escolar</h3>
+                </div>
+                <span className="text-xs text-slate-400 font-medium bg-white px-2.5 py-1 rounded-lg border border-slate-100">Top 10</span>
+              </div>
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dashboardMetrics.schoolRankingData} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 600 }} />
+                    <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#475569', fontSize: 9, fontWeight: 600 }} width={190} />
+                    <RechartsTooltip
+                      cursor={{ fill: '#f8fafc' }}
+                      contentStyle={{ borderRadius: '10px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.06)', fontSize: '12px' }}
+                    />
+                    <Bar dataKey="Processos" fill="#6366f1" radius={[0, 4, 4, 0]} barSize={16} isAnimationActive={!isExporting} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── FILTERS & TABS ────────────────────────────────────── */}
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 flex flex-col lg:flex-row gap-3 items-start lg:items-center">
+          <div className="flex flex-wrap gap-1.5 flex-1">
+            {mainTabs.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => { setActiveMainTab(tab.id); setActiveSubTab('pendente'); }}
+                className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+                  activeMainTab === tab.id
+                    ? tab.activeClass
+                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                }`}
+              >
+                {tab.icon} {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex gap-1.5 shrink-0">
+            <button
+              onClick={() => setActiveSubTab('pendente')}
+              className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+                activeSubTab === 'pendente'
+                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                  : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'
+              }`}
+            >
+              Não Concluídos
+            </button>
+            <button
+              onClick={() => setActiveSubTab('concluido')}
+              className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+                activeSubTab === 'concluido'
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'
+              }`}
+            >
+              Concluídos
+            </button>
+          </div>
+        </div>
+
+        {/* ── SEARCH ────────────────────────────────────────────── */}
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+          <input
+            type="text"
+            placeholder="Pesquisar por Nº SEI ou Unidade Escolar..."
+            className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 text-sm font-medium text-slate-700 outline-none transition-all shadow-sm"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+
+        {/* ── PROCESS LIST ──────────────────────────────────────── */}
+        {loading ? (
+          <div className="py-24 flex flex-col items-center justify-center gap-3">
+            <Loader2 className="animate-spin text-indigo-500" size={36} />
+            <p className="text-sm font-medium text-slate-400">Consultando fluxos...</p>
+          </div>
+        ) : filteredProcesses.length === 0 ? (
+          <div className="py-20 bg-white rounded-2xl border-2 border-dashed border-slate-200 text-center flex flex-col items-center justify-center gap-3">
+            <div className="w-14 h-14 bg-slate-100 text-slate-300 rounded-2xl flex items-center justify-center">
+              <ClipboardList size={28} />
+            </div>
+            <p className="text-sm font-semibold text-slate-400">
+              Nenhum processo {activeSubTab === 'concluido' ? 'concluído' : 'pendente'} nesta categoria.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {filteredProcesses.map((p) => {
+              const typeInfo = PROCESS_TYPES.find(t => t.id === p.type);
+              const workflow = WORKFLOWS[p.type] || [];
+              const stepIndex = workflow.indexOf(p.current_step) + 1;
+              const progress = (stepIndex / workflow.length) * 100;
+              const isCompleted = p.status === 'CONCLUÍDO';
+              const catColor = isCompleted
+                ? { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', bar: 'bg-emerald-500', icon: 'text-emerald-600' }
+                : catColorMap[typeInfo?.category as keyof typeof catColorMap] || catColorMap.doacao;
+
+              return (
+                <div
+                  key={p.id}
+                  className="bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md hover:border-indigo-100 transition-all group overflow-hidden"
+                >
+                  <div className={`h-0.5 w-full ${isCompleted ? 'bg-emerald-500' : catColor.bar}`} />
+                  <div className="p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+                    {/* Icon */}
+                    <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${catColor.bg}`}>
+                      {p.type === 'FURTOS'
+                        ? <ShieldAlert size={20} className={catColor.icon} />
+                        : p.type === 'BANDEIRAS'
+                        ? <Flag size={20} className={catColor.icon} />
+                        : p.type.includes('DOACAO')
+                        ? <Gift size={20} className={catColor.icon} />
+                        : <Package size={20} className={catColor.icon} />}
+                    </div>
+
+                    {/* Main info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                        <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg truncate max-w-xs">
+                          {p.schools?.name}
+                        </span>
+                        <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg border ${catColor.bg} ${catColor.text} ${catColor.border}`}>
+                          {p.type === 'FURTOS' ? p.subtype : typeInfo?.label}
+                        </span>
+                        <span className="text-xs text-slate-400 flex items-center gap-1 ml-auto sm:ml-0">
+                          <Calendar size={12} className="text-indigo-400" />
+                          {new Date(p.process_date + 'T12:00:00').toLocaleDateString('pt-BR')}
+                        </span>
+                      </div>
+
+                      <p className="text-base font-bold text-slate-800 font-mono tracking-tight">SEI {p.sei_number}</p>
+
+                      <div className="mt-3 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-medium text-slate-500 flex items-center gap-1.5 truncate">
+                            <History size={12} className="text-indigo-400 shrink-0" />
+                            <span className="truncate">{p.current_step}</span>
+                          </p>
+                          <span className="text-xs font-semibold text-slate-400 ml-2 shrink-0">{Math.round(progress)}%</span>
+                        </div>
+                        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full transition-all duration-700 rounded-full ${isCompleted ? 'bg-emerald-500' : catColor.bar}`}
+                            style={{ width: `${progress}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Status + Actions */}
+                    <div className="flex items-center gap-3 sm:shrink-0">
+                      <span className={`px-3 py-1.5 rounded-lg font-semibold text-xs border ${
+                        isCompleted ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                        p.status === 'CORREÇÃO' ? 'bg-red-50 text-red-700 border-red-200' :
+                        'bg-indigo-50 text-indigo-700 border-indigo-200'
+                      }`}>
+                        {p.status}
+                      </span>
+
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => openModal(p)}
+                          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                          title={isAdmin ? 'Editar Processo' : 'Visualizar Processo'}
+                        >
+                          {isAdmin ? <Edit size={16} /> : <Eye size={16} />}
+                        </button>
+                        {isAdmin && (
+                          <button
+                            onClick={() => handleDelete(p.id)}
+                            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                            title="Excluir Processo"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── INFO PANEL ────────────────────────────────────────── */}
+        <div className="bg-slate-900 rounded-2xl p-6 text-white">
+          <div className="flex items-start gap-4">
+            <div className="p-2.5 bg-white/10 rounded-xl shrink-0">
+              <Info size={18} className="text-indigo-400" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold uppercase tracking-wide mb-1.5">Normatização Técnica GSU II</h4>
+              <p className="text-xs text-white/60 leading-relaxed">
+                Processos de <strong className="text-emerald-400">Doação</strong> dependem da publicação em Diário Oficial (DOE) para validação legal.
+                Em <strong className="text-red-400">Sinistros</strong>, o valor total calculado deve coincidir com os registros contábeis para baixa patrimonial via SAM.
+                O status <strong className="text-amber-400">Inservíveis</strong> exige laudo técnico da Regional antes do encaminhamento ao EAMEX.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── EXPORT MODAL ──────────────────────────────────────────── */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200 overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-md shadow-indigo-200">
+                  <FileDown size={18} className="text-white" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-800">Exportar Relatório em PDF</h2>
+                  <p className="text-xs text-slate-400 font-medium mt-0.5">Inclui gráficos e métricas completas</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 transition-all"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                  <Building2 size={13} /> Filtrar por Unidade Escolar
                 </label>
-                <select 
-                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-indigo-500 transition-all shadow-inner"
+                <select
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/10 transition-all"
                   value={exportTargetSchool}
                   onChange={(e) => setExportTargetSchool(e.target.value)}
                 >
@@ -689,226 +789,299 @@ export function PatrimonioProcessos() {
                   {schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>
+
+              <div className="bg-indigo-50 rounded-xl p-3 flex items-start gap-2.5 border border-indigo-100">
+                <Info size={14} className="text-indigo-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-indigo-700 font-medium leading-relaxed">
+                  O PDF incluirá os gráficos de distribuição e ranking por escola, métricas de resumo e a tabela completa de processos.
+                </p>
+              </div>
             </div>
 
-            <div className="p-8 border-t border-slate-100 bg-white flex justify-end gap-4">
-              <button onClick={() => setShowExportModal(false)} className="px-6 py-4 font-black text-slate-400 uppercase text-[11px] hover:text-slate-700 tracking-widest">
+            <div className="p-6 border-t border-slate-100 flex justify-end gap-3">
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="px-4 py-2.5 text-sm font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded-xl transition-all"
+              >
                 Cancelar
               </button>
-              <button 
-                onClick={() => setIsExporting(true)} 
-                className="px-8 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[11px] flex items-center gap-3 shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95 tracking-widest"
+              <button
+                onClick={() => setIsExporting(true)}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl shadow-md shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-[0.98]"
               >
-                <Download size={18}/> Confirmar e Gerar
+                <Download size={15} /> Gerar PDF
               </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* ── PROCESS MODAL ─────────────────────────────────────────── */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4 overflow-hidden">
-          <div className="bg-white rounded-[3.5rem] w-full max-w-5xl max-h-[95vh] shadow-2xl animate-in zoom-in-95 duration-200 border border-white flex flex-col overflow-hidden">
-            <div className="p-10 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-indigo-100"><Package size={28}/></div>
-                <div><h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight leading-none">{editingProcess ? (isReadOnly ? 'Visualizar Processo' : 'Atualizar Processo') : 'Novo Processo de Patrimônio'}</h2><p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest mt-2">Detalhamento Patrimonial Regional II</p></div>
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4">
+          <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[95vh] shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col overflow-hidden border border-slate-100">
+
+            {/* Modal header */}
+            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center shadow-md shadow-indigo-200">
+                  <Package size={17} className="text-white" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-slate-800">
+                    {editingProcess ? (isReadOnly ? 'Visualizar Processo' : 'Atualizar Processo') : 'Novo Processo de Patrimônio'}
+                  </h2>
+                  <p className="text-xs text-indigo-500 font-semibold mt-0.5">Detalhamento Patrimonial Regional II</p>
+                </div>
               </div>
-              <button onClick={() => setIsModalOpen(false)} className="p-3 hover:bg-white rounded-full transition-all text-slate-400 border border-transparent hover:border-slate-100"><X size={32}/></button>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 transition-all"
+              >
+                <X size={18} />
+              </button>
             </div>
 
+            {/* Modal body */}
             <form onSubmit={handleSave} className="flex-1 flex flex-col overflow-hidden">
-              <div className="p-10 space-y-10 overflow-y-auto custom-scrollbar flex-1">
+              <div className="p-6 space-y-7 overflow-y-auto flex-1">
+
                 {formError && (
-                  <div className="p-6 bg-red-50 border-2 border-red-100 rounded-[2rem] flex items-start gap-4 animate-in slide-in-from-top-2">
-                    <AlertCircle className="text-red-600 shrink-0" size={24} />
+                  <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3 animate-in slide-in-from-top-2">
+                    <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={17} />
                     <div>
-                      <h4 className="text-sm font-black text-red-800 uppercase">Impossível Salvar</h4>
-                      <p className="text-xs text-red-600 font-medium mt-1">{formError}</p>
+                      <h4 className="text-sm font-bold text-red-800">Impossível Salvar</h4>
+                      <p className="text-xs text-red-600 font-medium mt-0.5">{formError}</p>
                     </div>
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1 flex items-center gap-2"><Building2 size={12}/> Unidade Escolar</label>
-                    <select required disabled={!isAdmin} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-indigo-500 disabled:opacity-50 transition-all shadow-inner" value={formData.school_id} onChange={e => setFormData({...formData, school_id: e.target.value})}>
+                {/* Basic info fields */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <Building2 size={12} /> Unidade Escolar
+                    </label>
+                    <select required disabled={!isAdmin} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:border-indigo-400 disabled:opacity-50 transition-all" value={formData.school_id} onChange={e => setFormData({ ...formData, school_id: e.target.value })}>
                       <option value="">Selecione a Unidade...</option>
                       {schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1 flex items-center gap-2"><ClipboardList size={12}/> Tipo de Fluxo</label>
-                    <select required disabled={isReadOnly} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-indigo-500 disabled:opacity-50 transition-all shadow-inner" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <ClipboardList size={12} /> Tipo de Fluxo
+                    </label>
+                    <select required disabled={isReadOnly} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:border-indigo-400 disabled:opacity-50 transition-all" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}>
                       {PROCESS_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
                     </select>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1 flex items-center gap-2"><FileText size={12}/> Nº Processo SEI</label>
-                    <input required disabled={isReadOnly} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-mono font-bold text-indigo-600 focus:border-indigo-500 outline-none disabled:opacity-50 transition-all shadow-inner" placeholder="000.000.000/0000-00" value={formData.sei_number} onChange={e => setFormData({...formData, sei_number: e.target.value})} />
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <FileText size={12} /> Nº Processo SEI
+                    </label>
+                    <input required disabled={isReadOnly} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm font-semibold text-indigo-600 focus:border-indigo-400 outline-none disabled:opacity-50 transition-all" placeholder="000.000.000/0000-00" value={formData.sei_number} onChange={e => setFormData({ ...formData, sei_number: e.target.value })} />
                   </div>
                 </div>
 
+                {/* FURTOS specific section */}
                 {formData.type === 'FURTOS' && (
-                  <div className="space-y-12 animate-in slide-in-from-top-4 duration-500">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 p-8 bg-red-50/40 border border-red-100 rounded-[2.5rem] shadow-sm">
-                       <div className="space-y-1.5"><label className="text-[10px] font-black text-red-500 uppercase ml-1">Tipo de Ocorrência</label><select disabled={isReadOnly} className="w-full p-4 bg-white border border-red-100 rounded-xl font-bold outline-none disabled:opacity-50" value={formData.subtype} onChange={e => setFormData({...formData, subtype: e.target.value})}><option value="Furto">Furto</option><option value="Roubo">Roubo</option><option value="Extravio">Extravio</option><option value="Incêndio">Incêndio</option><option value="Vandalismo">Vandalismo</option></select></div>
-                       <div className="space-y-1.5"><label className="text-[10px] font-black text-red-500 uppercase ml-1">Data Ocorrência</label><input disabled={isReadOnly} type="date" className="w-full p-4 bg-white border border-red-100 rounded-xl font-bold outline-none disabled:opacity-50" value={formData.occurrence_date} onChange={e => setFormData({...formData, occurrence_date: e.target.value})} /></div>
-                       <div className="space-y-1.5"><label className="text-[10px] font-black text-red-500 uppercase ml-1">Nº Boletim (B.O.)</label><input disabled={isReadOnly} placeholder="B.O. 00000/2026" className="w-full p-4 bg-white border border-red-100 rounded-xl font-bold outline-none disabled:opacity-50" value={formData.bulletin_number} onChange={e => setFormData({...formData, bulletin_number: e.target.value})} /></div>
-                       <div className="space-y-1.5"><label className="text-[10px] font-black text-red-500 uppercase ml-1">Autoria Conhecida?</label><select disabled={isReadOnly} className="w-full p-4 bg-white border border-red-100 rounded-xl font-bold outline-none disabled:opacity-50" value={formData.authorship} onChange={e => setFormData({...formData, authorship: e.target.value})}><option value="Não conhecida">Não conhecida</option><option value="Conhecida">Conhecida</option></select></div>
+                  <div className="space-y-6 animate-in slide-in-from-top-4 duration-500">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 p-5 bg-red-50 border border-red-100 rounded-2xl">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-red-400 uppercase tracking-wider">Tipo de Ocorrência</label>
+                        <select disabled={isReadOnly} className="w-full p-3 bg-white border border-red-100 rounded-xl text-sm font-medium outline-none disabled:opacity-50" value={formData.subtype} onChange={e => setFormData({ ...formData, subtype: e.target.value })}>
+                          <option value="Furto">Furto</option><option value="Roubo">Roubo</option><option value="Extravio">Extravio</option><option value="Incêndio">Incêndio</option><option value="Vandalismo">Vandalismo</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-red-400 uppercase tracking-wider">Data Ocorrência</label>
+                        <input disabled={isReadOnly} type="date" className="w-full p-3 bg-white border border-red-100 rounded-xl text-sm font-medium outline-none disabled:opacity-50" value={formData.occurrence_date} onChange={e => setFormData({ ...formData, occurrence_date: e.target.value })} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-red-400 uppercase tracking-wider">Nº Boletim (B.O.)</label>
+                        <input disabled={isReadOnly} placeholder="B.O. 00000/2026" className="w-full p-3 bg-white border border-red-100 rounded-xl text-sm font-medium outline-none disabled:opacity-50" value={formData.bulletin_number} onChange={e => setFormData({ ...formData, bulletin_number: e.target.value })} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-red-400 uppercase tracking-wider">Autoria Conhecida?</label>
+                        <select disabled={isReadOnly} className="w-full p-3 bg-white border border-red-100 rounded-xl text-sm font-medium outline-none disabled:opacity-50" value={formData.authorship} onChange={e => setFormData({ ...formData, authorship: e.target.value })}>
+                          <option value="Não conhecida">Não conhecida</option><option value="Conhecida">Conhecida</option>
+                        </select>
+                      </div>
                     </div>
 
-                    <div className="space-y-6">
-                       <div className="flex items-center justify-between px-2">
-                          <h3 className="text-sm font-black text-slate-800 uppercase tracking-[0.2em] flex items-center gap-3"><ListPlus size={20} className="text-red-500"/> Relação Técnica de Itens</h3>
-                          {!isReadOnly && <button type="button" onClick={addSinistroItem} className="bg-slate-900 text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-3 shadow-lg active:scale-95"><Plus size={16}/> Adicionar Item</button>}
-                       </div>
-                       
-                       <div className="bg-white border border-slate-100 rounded-[3rem] overflow-hidden shadow-2xl">
-                          <div className="overflow-x-auto">
-                            <table className="w-full">
-                               <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">
-                                  <tr><th className="p-6 text-left pl-10">Equipamento / Material</th><th className="p-6 text-center">Nº Patrimônio</th><th className="p-6 text-center">Valor Unitário (R$)</th><th className="p-6 text-right pr-10">Ações</th></tr>
-                               </thead>
-                               <tbody className="divide-y divide-slate-50">
-                                  {sinistroItems.map((item, idx) => (
-                                    <tr key={idx} className="group hover:bg-slate-50/50 transition-colors">
-                                      <td className="p-4 pl-10"><input required disabled={isReadOnly} placeholder="Descreva o item..." className="w-full p-3.5 bg-slate-50 border-2 border-transparent rounded-xl font-bold text-xs outline-none focus:border-red-400 focus:bg-white disabled:opacity-50 transition-all" value={item.name} onChange={e => updateSinistroItem(idx, 'name', e.target.value)} /></td>
-                                      <td className="p-4"><input required disabled={isReadOnly} placeholder="000.000" className="w-full p-3.5 bg-slate-50 border-2 border-transparent rounded-xl font-mono text-center font-bold text-xs outline-none focus:border-red-400 focus:bg-white disabled:opacity-50 transition-all" value={item.asset_number} onChange={e => updateSinistroItem(idx, 'asset_number', e.target.value)} /></td>
-                                      <td className="p-4">
-                                        <div className="relative group/val">
-                                          <DollarSign size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within/val:text-red-500 transition-colors"/>
-                                          <input disabled={isReadOnly} type="number" step="0.01" className="w-full p-3.5 pl-10 bg-slate-50 border-2 border-transparent rounded-xl font-black text-center text-sm outline-none focus:border-red-400 focus:bg-white disabled:opacity-50 transition-all" value={item.unit_value || ''} onChange={e => updateSinistroItem(idx, 'unit_value', Number(e.target.value))} />
-                                        </div>
-                                      </td>
-                                      <td className="p-4 text-right pr-10">
-                                        {!isReadOnly && <button type="button" onClick={() => removeSinistroItem(idx)} className="p-3 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all active:scale-90"><Trash2 size={20}/></button>}
-                                      </td>
-                                    </tr>
-                                  ))}
-                               </tbody>
-                            </table>
+                    {/* Items table */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                          <ListPlus size={16} className="text-red-500" /> Relação de Itens
+                        </h3>
+                        {!isReadOnly && (
+                          <button type="button" onClick={addSinistroItem} className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 bg-slate-900 text-white rounded-xl hover:bg-black transition-all">
+                            <Plus size={13} /> Adicionar Item
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead className="bg-slate-50 border-b border-slate-100">
+                              <tr>
+                                <th className="p-3 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Equipamento / Material</th>
+                                <th className="p-3 text-center text-xs font-bold text-slate-400 uppercase tracking-wider">Nº Patrimônio</th>
+                                <th className="p-3 text-center text-xs font-bold text-slate-400 uppercase tracking-wider">Valor (R$)</th>
+                                <th className="p-3 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">Ação</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                              {sinistroItems.map((item, idx) => (
+                                <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                                  <td className="p-2.5">
+                                    <input required disabled={isReadOnly} placeholder="Descreva o item..." className="w-full p-2.5 bg-slate-50 border border-transparent rounded-lg text-xs font-medium outline-none focus:border-red-300 focus:bg-white disabled:opacity-50 transition-all" value={item.name} onChange={e => updateSinistroItem(idx, 'name', e.target.value)} />
+                                  </td>
+                                  <td className="p-2.5">
+                                    <input required disabled={isReadOnly} placeholder="000.000" className="w-full p-2.5 bg-slate-50 border border-transparent rounded-lg font-mono text-center text-xs font-medium outline-none focus:border-red-300 focus:bg-white disabled:opacity-50 transition-all" value={item.asset_number} onChange={e => updateSinistroItem(idx, 'asset_number', e.target.value)} />
+                                  </td>
+                                  <td className="p-2.5">
+                                    <div className="relative">
+                                      <DollarSign size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                      <input disabled={isReadOnly} type="number" step="0.01" className="w-full p-2.5 pl-7 bg-slate-50 border border-transparent rounded-lg text-center text-xs font-semibold outline-none focus:border-red-300 focus:bg-white disabled:opacity-50 transition-all" value={item.unit_value || ''} onChange={e => updateSinistroItem(idx, 'unit_value', Number(e.target.value))} />
+                                    </div>
+                                  </td>
+                                  <td className="p-2.5 text-right">
+                                    {!isReadOnly && (
+                                      <button type="button" onClick={() => removeSinistroItem(idx)} className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
+                                        <Trash2 size={14} />
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+                          <div className="flex items-center gap-2 text-white/40 text-xs font-bold uppercase tracking-wider">
+                            <Calculator size={15} /> Total do Prejuízo:
                           </div>
-                          <div className="p-8 bg-slate-900 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
-                             <div className="flex items-center gap-4 text-white/40 font-black uppercase text-[10px] tracking-[0.2em]"><Calculator size={24}/> Total Geral do Prejuízo Calculado:</div>
-                             <div className="text-4xl font-black text-red-400 tabular-nums shadow-sm shadow-red-900/50">R$ {totalSinistroValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-                          </div>
-                       </div>
+                          <span className="text-xl font-bold text-red-400 tabular-nums">
+                            R$ {totalSinistroValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-10 bg-slate-50/50 rounded-[3rem] border border-slate-100 shadow-inner">
-                       <div className="space-y-3">
-                          <label className="text-[10px] font-black text-slate-400 uppercase ml-1 flex items-center gap-2"><CheckCircle size={14}/> Conclusão Técnica</label>
-                          <select disabled={isReadOnly} className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-indigo-500/5 disabled:opacity-50 transition-all shadow-sm" value={formData.conclusion} onChange={e => setFormData({...formData, conclusion: e.target.value})}>
-                            <option value="EM ANDAMENTO">EM ANDAMENTO (APURAÇÃO)</option>
-                            <option value="ENCERRADO COMO CONCLUIDO PELA RESPONSÁBILIDADE">ENCERRADO PELA RESPONSABILIDADE</option>
-                            <option value="ENCERRADO COMO CONCLUIDO PELA NÃO RESPONSÁBILIDADE">ENCERRADO PELA NÃO RESPONSABILIDADE</option>
-                            <option value="NÃO INSTAURADO">NÃO INSTAURADO</option>
-                          </select>
-                       </div>
-                       <div className="space-y-3">
-                          <label className="text-[10px] font-black text-slate-400 uppercase ml-1 flex items-center gap-2"><ShieldAlert size={14}/> NL de Baixa Patrimonial</label>
-                          <select disabled={isReadOnly} className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-indigo-500/5 disabled:opacity-50 transition-all shadow-sm" value={formData.is_nl_low ? 'Sim' : 'Não'} onChange={e => setFormData({...formData, is_nl_low: e.target.value === 'Sim'})}>
-                            <option value="Não">Não (Pendente de Registro no SAM)</option>
-                            <option value="Sim">Sim (Baixa Efetivada)</option>
-                          </select>
-                       </div>
+                    {/* Conclusion fields */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <CheckCircle size={12} /> Conclusão Técnica
+                        </label>
+                        <select disabled={isReadOnly} className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:border-indigo-400 disabled:opacity-50 transition-all" value={formData.conclusion} onChange={e => setFormData({ ...formData, conclusion: e.target.value })}>
+                          <option value="EM ANDAMENTO">EM ANDAMENTO (APURAÇÃO)</option>
+                          <option value="ENCERRADO COMO CONCLUIDO PELA RESPONSÁBILIDADE">ENCERRADO PELA RESPONSABILIDADE</option>
+                          <option value="ENCERRADO COMO CONCLUIDO PELA NÃO RESPONSÁBILIDADE">ENCERRADO PELA NÃO RESPONSABILIDADE</option>
+                          <option value="NÃO INSTAURADO">NÃO INSTAURADO</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <ShieldAlert size={12} /> NL de Baixa Patrimonial
+                        </label>
+                        <select disabled={isReadOnly} className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:border-indigo-400 disabled:opacity-50 transition-all" value={formData.is_nl_low ? 'Sim' : 'Não'} onChange={e => setFormData({ ...formData, is_nl_low: e.target.value === 'Sim' })}>
+                          <option value="Não">Não (Pendente de Registro no SAM)</option>
+                          <option value="Sim">Sim (Baixa Efetivada)</option>
+                        </select>
+                      </div>
                     </div>
                   </div>
                 )}
 
-                <div className="space-y-8">
-                   <div className="flex items-center gap-4 px-2">
-                      <div className="w-1.5 h-8 bg-indigo-600 rounded-full"></div>
-                      <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Status da Etapa no Fluxograma</h3>
-                   </div>
-                   
-                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {WORKFLOWS[formData.type].map((step, idx) => {
-                        const active = formData.current_step === step;
-                        const past = WORKFLOWS[formData.type].indexOf(formData.current_step) > idx;
-                        return (
-                          <button 
-                           key={step} 
-                           type="button"
-                           disabled={isReadOnly}
-                           onClick={() => setFormData({...formData, current_step: step})} 
-                           className={`p-6 rounded-[2rem] border-2 text-left flex flex-col justify-between h-28 transition-all hover:scale-[1.02] active:scale-95 disabled:hover:scale-100 disabled:active:scale-100 disabled:cursor-not-allowed ${
-                             active 
-                               ? 'bg-indigo-600 border-indigo-600 text-white shadow-2xl shadow-indigo-100' 
-                               : past 
-                               ? 'bg-indigo-50 border-indigo-100 text-indigo-700' 
-                               : 'bg-slate-50 border-slate-100 text-slate-400 opacity-60'
-                           }`}
-                          >
-                             <div className="flex justify-between items-start">
-                                <span className="text-2xl font-black opacity-30 italic">{idx + 1}</span>
-                                {past && !active && <CheckCircle2 size={18} className="text-indigo-400"/>}
-                                {active && <div className="w-2 h-2 rounded-full bg-white animate-ping"></div>}
-                             </div>
-                             <span className="text-[10px] font-black uppercase leading-tight tracking-widest">{step}</span>
-                          </button>
-                        );
-                      })}
-                   </div>
+                {/* Workflow steps */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-5 bg-indigo-600 rounded-full" />
+                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Etapa no Fluxograma</h3>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {WORKFLOWS[formData.type].map((step, idx) => {
+                      const active = formData.current_step === step;
+                      const past = WORKFLOWS[formData.type].indexOf(formData.current_step) > idx;
+                      return (
+                        <button
+                          key={step}
+                          type="button"
+                          disabled={isReadOnly}
+                          onClick={() => setFormData({ ...formData, current_step: step })}
+                          className={`p-4 rounded-xl border-2 text-left flex flex-col justify-between h-20 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed disabled:hover:scale-100 ${
+                            active
+                              ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-200'
+                              : past
+                              ? 'bg-indigo-50 border-indigo-100 text-indigo-700'
+                              : 'bg-slate-50 border-slate-100 text-slate-400 opacity-60'
+                          }`}
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className="text-xl font-bold opacity-30">{idx + 1}</span>
+                            {past && !active && <CheckCircle2 size={14} className="text-indigo-400" />}
+                            {active && <div className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />}
+                          </div>
+                          <span className="text-[10px] font-bold uppercase leading-tight tracking-wide">{step}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                <div className="space-y-4">
-                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-[0.2em] px-2 flex items-center gap-2"><LayoutGrid size={14}/> Categoria de Status Final</label>
-                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-2">
-                      {['RECEBIDO', 'EM APURAÇÃO', 'CONCLUÍDO', 'CORREÇÃO'].map(s => (
-                        <button 
-                         key={s} 
-                         type="button" 
-                         disabled={isReadOnly}
-                         onClick={() => setFormData({...formData, status: s})} 
-                         className={`p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 transition-all disabled:cursor-not-allowed ${
-                           formData.status === s 
-                             ? 'bg-slate-900 border-slate-900 text-white shadow-xl' 
-                             : 'bg-white border-slate-100 text-slate-400 hover:border-slate-300'
-                         }`}
-                        >
-                          {s}
-                        </button>
-                      ))}
-                   </div>
+                {/* Final status */}
+                <div className="space-y-3">
+                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <LayoutGrid size={12} /> Status Final
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {['RECEBIDO', 'EM APURAÇÃO', 'CONCLUÍDO', 'CORREÇÃO'].map(s => (
+                      <button
+                        key={s}
+                        type="button"
+                        disabled={isReadOnly}
+                        onClick={() => setFormData({ ...formData, status: s })}
+                        className={`p-3 rounded-xl text-xs font-semibold uppercase tracking-wider border-2 transition-all disabled:cursor-not-allowed ${
+                          formData.status === s
+                            ? 'bg-slate-900 border-slate-900 text-white shadow-md'
+                            : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
+                        }`}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
-              <div className="p-10 border-t border-slate-100 bg-white shrink-0 flex justify-end gap-5">
-                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-10 py-5 text-slate-400 font-black hover:text-slate-700 transition-all uppercase tracking-[0.2em] text-[11px]">
-                   {isReadOnly ? 'Fechar' : 'Cancelar Operação'}
-                 </button>
-                 {!isReadOnly && (
-                   <button 
-                    type="submit" 
-                    disabled={saveLoading} 
-                    className="px-20 py-5 bg-indigo-600 text-white rounded-[2rem] font-black shadow-2xl shadow-indigo-100 hover:bg-indigo-700 flex items-center justify-center gap-4 transition-all active:scale-95"
-                   >
-                     {saveLoading ? <Loader2 className="animate-spin" size={24}/> : <Save size={24}/>}
-                     {editingProcess ? 'ACTUALIZAR PROCESSO NO SISTEMA' : 'LANÇAR NOVO PROCESSO'}
-                   </button>
-                 )}
+              {/* Modal footer */}
+              <div className="p-5 border-t border-slate-100 bg-slate-50/50 shrink-0 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-5 py-2.5 text-sm font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all"
+                >
+                  {isReadOnly ? 'Fechar' : 'Cancelar'}
+                </button>
+                {!isReadOnly && (
+                  <button
+                    type="submit"
+                    disabled={saveLoading}
+                    className="inline-flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl shadow-md shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-[0.98] disabled:opacity-60"
+                  >
+                    {saveLoading ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+                    {editingProcess ? 'Atualizar Processo' : 'Lançar Processo'}
+                  </button>
+                )}
               </div>
             </form>
           </div>
         </div>
       )}
-
-      <div className="bg-slate-900 p-10 rounded-[4rem] text-white shadow-2xl relative overflow-hidden group">
-         <Info className="absolute -right-6 -bottom-6 text-white/5 group-hover:scale-110 transition-transform" size={180} />
-         <div className="flex items-start gap-8 relative z-10">
-            <div className="p-5 bg-white/10 rounded-[1.8rem] backdrop-blur-md border border-white/5 shadow-xl"><Info size={32} className="text-indigo-400"/></div>
-            <div>
-               <h4 className="text-lg font-black uppercase tracking-tight mb-3">Normatização Técnica GSU II</h4>
-               <p className="text-sm text-white/60 leading-relaxed font-medium uppercase italic max-w-3xl">
-                  Lembre-se que processos de <strong className="text-emerald-400">Doação</strong> dependem da publicação em Diário Oficial (DOE) para validação legal. 
-                  Em <strong className="text-red-400">Sinistros</strong>, o valor total calculado deve coincidir com os registros contábeis para baixa patrimonial via SAM.
-                  O status <strong className="text-amber-400">Inservíveis</strong> exige laudo técnico da Regional antes do encaminhamento ao EAMEX.
-               </p>
-            </div>
-         </div>
-      </div>
     </div>
   );
 }
