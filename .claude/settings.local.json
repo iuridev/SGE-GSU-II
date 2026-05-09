@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(powershell -Command \"\\(Get-Content 'c:\\\\Users\\\\Iuri Barreto\\\\Documents\\\\PROJETOS\\\\SGE-GSU-II\\\\src\\\\pages\\\\AgendamentoCarros.tsx' -Raw\\) -replace 'normalize\\\\\\(.NFD.\\\\\\)\\\\s*\\\\n\\\\s*\\\\.replace\\\\\\(/\\\\[.*?\\\\]/g, ..\\\\\\)', 'normalize\\(''NFD''\\)' + [Environment]::NewLine + '    .replace\\(/[̀-ͯ]/g, ''''\\)' | Set-Content 'c:\\\\Users\\\\Iuri Barreto\\\\Documents\\\\PROJETOS\\\\SGE-GSU-II\\\\src\\\\pages\\\\AgendamentoCarros.tsx' -Encoding utf8\")"
     ]
   }
 }
