@@ -477,7 +477,7 @@ export default function App() {
 
   const renderContent = () => {
     switch (currentPage) {
-      case 'dashboard': return <Dashboard />;
+      case 'dashboard': return <Dashboard onNavigate={setCurrentPage} />;
       case 'raiox': return <RaioXEscola />;
       case 'ranking': return <RankingEscolas />;
       case 'reunioes': return <Reunioes />;
