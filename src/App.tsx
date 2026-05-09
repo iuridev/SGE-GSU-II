@@ -2,14 +2,15 @@ import { App as CapApp } from '@capacitor/app';
 import React, { useState, useEffect, useRef } from 'react';
 //import { useNavigate } from 'react-router-dom';
 import { supabase } from './lib/supabase';
-import { 
-  LayoutDashboard, Waves, ShieldCheck, ArrowRightLeft, 
-  Building2, UserCog, LogOut, Menu,  
+import {
+  LayoutDashboard, Waves, ShieldCheck, ArrowRightLeft,
+  Building2, UserCog, LogOut, Menu,
   BookOpen, Calendar, Car, Building,
   AlertTriangle, Scan, ShoppingBag, Trophy, Package,
   Star, ArrowUpCircle, HardHat, TreeDeciduous, Ticket,
   School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown,
-  Bell, MessageSquare, CheckCircle, ClipboardList, ClipboardCheck
+  Bell, MessageSquare, CheckCircle, ClipboardList, ClipboardCheck,
+  Wrench, Search, CalendarCheck
 } from 'lucide-react';
 
 import { Dashboard } from './pages/Dashboard';
@@ -32,12 +33,12 @@ import { PatrimonioProcessos } from './pages/PatrimonioProcessos';
 import { EscolasPrioritarias } from './pages/EscolasPrioritarias';
 import { Elevador } from './pages/Elevador';
 import { Obras } from './pages/Obras';
-import ManejoArboreo from './pages/ManejoArboreo'; 
-import { Chamados } from './pages/Chamados'; 
+import ManejoArboreo from './pages/ManejoArboreo';
+import { Chamados } from './pages/Chamados';
 import ListaEscolas from './pages/escolasbombril';
 import EducacaoPatrimonial from './pages/EducacaoPatrimonial';
-import CadastroFurtos from './pages/Furtos'; 
-import Plantas from './pages/Plantas'; 
+import CadastroFurtos from './pages/Furtos';
+import Plantas from './pages/Plantas';
 import Servicos from './pages/Servicos';
 import FiscalizacaoURE from './pages/FiscalizacaoURE';
 import ListagemPatrimonio from './pages/ListagemPatrimonio';
@@ -74,7 +75,7 @@ interface AppNotification {
   id: string;
   conversa_id: string;
   protocolo: string;
-  type: 'conclusion' | 'chat' | 'chamado' | 'chamado_update'; 
+  type: 'conclusion' | 'chat' | 'chamado' | 'chamado_update';
   count?: number;
   text: string;
   allMsgIds: string[];
@@ -82,110 +83,99 @@ interface AppNotification {
 
 const MENU_GROUPS: MenuGroup[] = [
   {
-    title: 'Principal',
+    title: 'PRINCIPAL',
     items: [
-      { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','supervisor', 'dirigente', 'ure_servico', 'ure_eec'] }, 
-      { id: 'entrada', label: 'Entrada no Prêdio', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'dirigente', 'ure_servico'] }, 
-      { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
-      { id: 'minhas-tarefas', label: 'Agenda Funcional', icon: <LayoutDashboard size={20} />, roles: ['regional_admin','supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
+      { id: 'entrada', label: 'Entrada no Prédio', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'dirigente', 'ure_servico'] },
+      { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
+      { id: 'minhas-tarefas', label: 'Agenda Funcional', icon: <CalendarCheck size={20} />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
     ]
   },
   {
     title: 'RELATÓRIOS',
-    items:[
-      { id: 'raiox', label: 'Raio-X / Vistoria', icon: <Scan size={20} className="text-indigo-500" />, roles: ['regional_admin','supervisor', 'dirigente'] },
-      { id: 'relatorio-fiscalizacao', label: 'Relatórios de Fiscalização', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },    
+    items: [
+      { id: 'raiox', label: 'Raio-X / Vistoria', icon: <Scan size={20} className="text-indigo-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
+      { id: 'relatorio-fiscalizacao', label: 'Relatórios de Fiscalização', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
       { id: 'relatorio-acesso', label: 'Relatórios de Acesso', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
-      { id: 'relatorio-utilidade', label: 'Relatórios de Consumo', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },        
+      { id: 'relatorio-utilidade', label: 'Relatórios de Consumo', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
     ]
   },
   {
     title: 'SEOM-SEFISC',
-    items:[
-      { id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'dirigente'] },
-      { id: 'fluxo', label: 'Fluxo de Pessoas (em teste)', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','ure_servico'] }, 
+    items: [
+      { id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <ClipboardList size={20} className="text-slate-400" />, roles: ['regional_admin', 'dirigente'] },
+      { id: 'fluxo', label: 'Fluxo de Pessoas (em teste)', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'ure_servico'] },
     ]
   },
   {
-    title: 'SECOMSE',
-    items:[
-      { id: 'almoxarifado', label: 'Almoxarifado', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'dirigente','ure_servico','supervisor','ure_eec'] },
+    title: 'SEAFIN-SECOMSE',
+    items: [
+      { id: 'almoxarifado', label: 'Almoxarifado', icon: <Package size={20} className="text-amber-500" />, roles: ['regional_admin', 'dirigente', 'ure_servico', 'supervisor', 'ure_eec'] },
     ]
   },
   {
-    title: 'Atendimento',
+    title: 'ATENDIMENTO',
     items: [
       { id: 'chat', label: 'Chat', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager', 'dirigente'] },
-      { id: 'chamados', label: 'Central de Chamados', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
+      { id: 'chamados', label: 'Central de Chamados', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'demandas', label: 'Demandas / E-mails', icon: <AlertTriangle size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager', 'dirigente'] },
     ]
   },
   {
-    title: 'Fiscalização',
+    title: 'FISCALIZAÇÃO',
     items: [
-      { id: 'consumo', label: 'Consumo de Água', icon: <Waves size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
+      { id: 'consumo', label: 'Consumo de Água', icon: <Waves size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'financeiro-agua', label: 'Importação Financeiro (SABESP)', icon: <Waves size={20} />, roles: ['regional_admin'] },
-      { id: 'fiscalizacao', label: 'Contratos Gov', icon: <ClipboardCheck size={20} />, roles: ['regional_admin', 'school_manager','ure_servico'] },
-      { id: 'fiscalizacaoURE', label: 'Limpeza URE', icon: <Map size={20} />, roles: ['regional_admin'] },
+      { id: 'fiscalizacao', label: 'Contratos Gov', icon: <ClipboardCheck size={20} />, roles: ['regional_admin', 'school_manager', 'ure_servico'] },
+      { id: 'fiscalizacaoURE', label: 'Limpeza URE', icon: <ClipboardCheck size={20} className="text-teal-500" />, roles: ['regional_admin'] },
+      { id: 'zeladoria', label: 'Zeladoria', icon: <ShieldCheck size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
     ]
   },
   {
-    title: 'Vistoria',
+    title: 'INFRAESTRUTURA',
     items: [
+      { id: 'vistorias-prediais-dashboard', label: 'BI Predial', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec', 'school_manager'] },
+      { id: 'obras', label: 'Obras e Reformas', icon: <HardHat size={20} className="text-orange-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'school_manager'] },
+      { id: 'servicos', label: 'Intervenção URE', icon: <Wrench size={20} className="text-slate-400" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
+      { id: 'manejo', label: 'Manejo Arbóreo', icon: <TreeDeciduous size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+      { id: 'elevadores', label: 'Gestão de Elevadores', icon: <ArrowUpCircle size={20} className="text-blue-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
+      { id: 'plantas', label: 'Plantas Prediais', icon: <Map size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+      { id: 'avcb', label: 'AVCB', icon: <Flame size={20} className="text-red-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
     ]
   },
   {
-    title: 'Infraestrutura',
+    title: 'PATRIMÔNIO',
     items: [
-      { id: 'vistorias-prediais-dashboard', label: 'Bi Predial', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec', 'school_manager'] },        
-      { id: 'obras', label: 'Obras e Reformas', icon: <HardHat size={20} className="text-orange-500" />, roles: ['regional_admin','supervisor', 'dirigente'] },
-      { id: 'servicos', label: 'Intervenção URE', icon: <Map size={20} />, roles: ['regional_admin','supervisor', 'dirigente'] },
-      { id: 'manejo', label: 'Manejo Arbóreo', icon: <TreeDeciduous size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
-      { id: 'elevadores', label: 'Gestão de Elevadores', icon: <ArrowUpCircle size={20} className="text-blue-500" />, roles: ['regional_admin','supervisor', 'dirigente'] },
-      { id: 'plantas', label: 'Plantas Prediais', icon: <Map size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
-      { id: 'avcb', label: 'AVCB', icon: <Flame size={20} className="text-red-500"/>, roles: ['regional_admin','supervisor', 'dirigente'] },
+      { id: 'educacao-patrimonial', label: 'Educação Patrimonial', icon: <ShieldAlert size={20} className="text-orange-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+      { id: 'patrimonio', label: 'Processos Patrimônio', icon: <Package size={20} className="text-blue-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+      { id: 'aquisicao', label: 'Aquisição de Itens', icon: <ShoppingBag size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+      { id: 'remanejamento', label: 'Remanejamento', icon: <ArrowRightLeft size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+      { id: 'furtos', label: 'Cadastro de Furtos', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
+      { id: 'listchapa', label: 'Listar Patrimônio', icon: <Package size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
     ]
   },
   {
-    title: 'Patrimônio',
+    title: 'GESTÃO DA URE',
     items: [
-      { id: 'educacao-patrimonial', label: 'Educação Patrimonial', icon: <ShieldAlert size={20} className="text-orange-500" />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
-      { id: 'patrimonio', label: 'Processos Patrimônio', icon: <Package size={20} className="text-blue-500" />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
-      { id: 'aquisicao', label: 'Aquisição de Itens', icon: <ShoppingBag size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
-      { id: 'remanejamento', label: 'Remanejamento', icon: <ArrowRightLeft size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
-      { id: 'furtos', label: 'Cadastro de Furtos', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin','supervisor', 'dirigente'] },
-      { id: 'listchapa', label: 'listar Patrimônio', icon: <Package size={20} className="text-red-500" />, roles: ['regional_admin','school_manager','supervisor', 'dirigente'] },
+      { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
+      { id: 'ambientes', label: 'Reservas Antigo', icon: <Building size={20} />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
+      { id: 'carros', label: 'Carros Oficiais', icon: <Car size={20} />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
+      { id: 'reunioes', label: 'Calendário', icon: <Calendar size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
     ]
   },
   {
-    title: 'Gestão da URE',
-    items: [
-      { id: 'ambientes', label: 'Reservas Antigo', icon: <Building size={20} />, roles: ['regional_admin','supervisor', 'dirigente'] },
-      { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin','supervisor', 'dirigente', 'ure_servico', 'ure_ecc'] },
-      { id: 'carros', label: 'Carros Oficiais', icon: <Car size={20} />, roles: ['regional_admin','supervisor', 'dirigente'] },
-      { id: 'reunioes', label: 'Calendário', icon: <Calendar size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
-    ]
-  },
-   {
-    title: 'Zeladoria',
-    items: [
-      { id: 'zeladoria', label: 'Zeladoria', icon: <ShieldCheck size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
-      ]
-  },
-   {
-    title: 'Gamificação',
+    title: 'GAMIFICAÇÃO',
     items: [
       { id: 'prioritarias', label: 'Escolas Prioritárias', icon: <Star size={20} className="text-amber-500" />, roles: ['regional_admin', 'dirigente'] },
       { id: 'ranking', label: 'Ranking de Escolas', icon: <Trophy size={20} className="text-amber-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
     ]
   },
   {
-    title: 'Sistema',
+    title: 'SISTEMA',
     items: [
       { id: 'escolas', label: 'Escolas (Detalhes)', icon: <Building2 size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'lista-escolas', label: 'Lista de Escolas', icon: <School size={20} />, roles: ['regional_admin'] },
       { id: 'usuarios', label: 'Gestão de Usuários', icon: <UserCog size={20} />, roles: ['regional_admin'] },
-      { id: 'tutoriais', label: 'Manuais e Tutoriais', icon: <BookOpen size={20} />, roles: ['regional_admin', 'school_manager','supervisor', 'dirigente'] },
+      { id: 'tutoriais', label: 'Manuais e Tutoriais', icon: <BookOpen size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'chefes', label: 'Chefes', icon: <BookOpen size={20} />, roles: ['regional_admin'] },
     ]
   },
@@ -199,8 +189,9 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [expandedGroups, setExpandedGroups] = useState<string[]>(['Principal']);
-  
+  const [expandedGroups, setExpandedGroups] = useState<string[]>(['PRINCIPAL']);
+  const [searchQuery, setSearchQuery] = useState('');
+
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
 
@@ -255,11 +246,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const activeGroup = MENU_GROUPS.find(group => 
+    const activeGroup = MENU_GROUPS.find(group =>
       group.items.some(item => item.id === currentPage)
     );
     if (activeGroup) {
-      setExpandedGroups(prev => 
+      setExpandedGroups(prev =>
         prev.includes(activeGroup.title) ? prev : [...prev, activeGroup.title]
       );
     }
@@ -269,8 +260,8 @@ export default function App() {
   // EFEITO DE NOTIFICAÇÕES (CHAT + CHAMADOS)
   // ==========================================
   useEffect(() => {
-    if (!session || !userRole) return; 
-    
+    if (!session || !userRole) return;
+
     let userId = session.user.id;
 
     async function fetchNotifications() {
@@ -282,14 +273,14 @@ export default function App() {
         if (userRole !== 'regional_admin') {
            queryConvs = queryConvs.or(`participante1_id.eq.${userId},participante2_id.eq.${userId}`);
         }
-        
+
         const { data: conversas, error: convError } = await queryConvs as any;
         if (convError) console.error("❌ Erro ao buscar conversas:", convError);
-        
+
         const conversaIds = conversas?.map((c: any) => c.id) || [];
 
         if (conversaIds.length > 0) {
-          
+
           const { data: msgs, error: msgError } = await (supabase as any)
             .from('messages')
             .select('id, content, is_read, sender_id, conversa_id')
@@ -298,7 +289,7 @@ export default function App() {
 
           if (msgError) console.error("❌ Erro ao buscar mensagens:", msgError);
 
-          const unreadMsgs = (msgs || []).filter((m: any) => 
+          const unreadMsgs = (msgs || []).filter((m: any) =>
              m.is_read === false || m.is_read === null || m.is_read === 'false'
           );
 
@@ -339,15 +330,15 @@ export default function App() {
           const { data: chamadosAbertos } = await (supabase as any)
             .from('internal_tickets')
             .select('id, protocol, department')
-            .eq('status', 'ABERTO'); 
-            
+            .eq('status', 'ABERTO');
+
           if (chamadosAbertos && chamadosAbertos.length > 0) {
             chamadosAbertos.forEach((chamado: any) => {
               groupedNotifs.push({
                 id: chamado.id,
-                conversa_id: chamado.id, 
+                conversa_id: chamado.id,
                 protocolo: chamado.protocol,
-                type: 'chamado', 
+                type: 'chamado',
                 text: `Novo chamado pendente para a mesa ${chamado.department}.`,
                 allMsgIds: [chamado.id]
               });
@@ -368,9 +359,9 @@ export default function App() {
                 .from('ticket_messages')
                 .select('*')
                 .in('ticket_id', ticketIds)
-                .neq('user_id', userId); 
+                .neq('user_id', userId);
 
-            const unreadTktFiltered = (unreadTicketMsgs || []).filter((m: any) => 
+            const unreadTktFiltered = (unreadTicketMsgs || []).filter((m: any) =>
                m.is_read === false || m.is_read === null || m.is_read === 'false'
             );
 
@@ -406,7 +397,7 @@ export default function App() {
     const channel = supabase
       .channel('app-notifs-global')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, fetchNotifications)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversas' }, fetchNotifications) 
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversas' }, fetchNotifications)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'internal_tickets' }, fetchNotifications)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ticket_messages' }, fetchNotifications)
       .subscribe();
@@ -419,7 +410,7 @@ export default function App() {
   // ==========================================
   const markAsRead = async (notif: AppNotification) => {
     setNotifications(prev => prev.filter(n => n.id !== notif.id));
-    
+
     if (notifications.length <= 1) {
        setShowDropdown(false);
     }
@@ -435,8 +426,8 @@ export default function App() {
           await (supabase as any)
             .from('messages')
             .update({ is_read: true })
-            .in('id', notif.allMsgIds); 
-            
+            .in('id', notif.allMsgIds);
+
           if (notif.type === 'chat') {
             setCurrentPage('chat');
             setShowDropdown(false);
@@ -448,8 +439,8 @@ export default function App() {
           await (supabase as any)
             .from('ticket_messages')
             .update({ is_read: true })
-            .in('id', notif.allMsgIds); 
-            
+            .in('id', notif.allMsgIds);
+
           setCurrentPage('chamados');
           setShowDropdown(false);
           return;
@@ -465,7 +456,7 @@ export default function App() {
       if (data && data.role) {
         setUserRole(data.role);
       } else {
-        setUserRole('escola'); 
+        setUserRole('escola');
       }
     } catch (error) {
       setUserRole('escola');
@@ -543,9 +534,14 @@ export default function App() {
 
   const unreadCount = notifications.length;
 
+  const allVisibleItems = MENU_GROUPS.flatMap(g => g.items).filter(item => item.roles.includes(userRole));
+  const searchResults = searchQuery.trim()
+    ? allVisibleItems.filter(item => item.label.toLowerCase().includes(searchQuery.toLowerCase()))
+    : [];
+
   return (
-    <div className="min-h-screen bg-[#f8fafc] flex font-sans text-slate-900 print:bg-white print:block">
-      
+    <div className="h-screen overflow-hidden bg-[#f8fafc] flex font-sans text-slate-900 print:bg-white print:block print:h-auto print:overflow-visible">
+
       <aside className={`fixed inset-y-0 left-0 z-50 bg-[#0B1120] text-white transform transition-all duration-300 ease-in-out flex flex-col shadow-2xl ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0 print:hidden ${isCollapsed ? 'w-20' : 'w-72'}`}>
         <div className="h-20 flex items-center justify-between px-4 border-b border-slate-800/50 shrink-0">
           {!isCollapsed && (
@@ -564,33 +560,65 @@ export default function App() {
           </button>
         </div>
 
-        <nav className="flex-1 py-4 flex flex-col px-3 overflow-y-auto custom-scrollbar pb-20">
-          {MENU_GROUPS.map((group, groupIndex) => {
-            const visibleItems = group.items.filter(item => item.roles.includes(userRole));
-            if (visibleItems.length === 0) return null;
-
-            const isOpen = expandedGroups.includes(group.title);
-
-            return (
-              <div key={groupIndex} className="mb-1">
-                {!isCollapsed ? (
-                  <button onClick={() => toggleGroup(group.title)} className="w-full flex items-center justify-between px-3 py-2 mt-2 rounded-lg hover:bg-slate-800/30 transition-colors group">
-                    <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider group-hover:text-slate-300 transition-colors">{group.title}</p>
-                    <ChevronDown size={14} className={`text-slate-500 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
-                  </button>
-                ) : <div className="h-px bg-slate-800 my-4 mx-2"></div>}
-
-                <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ease-in-out ${!isCollapsed && !isOpen ? 'max-h-0 opacity-0' : 'max-h-[1000px] opacity-100 mt-1'}`}>
-                  {visibleItems.map((item) => (
-                    <button key={item.id} onClick={() => { setCurrentPage(item.id); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} title={isCollapsed ? item.label : undefined} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg transition-all duration-200 group ${currentPage === item.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}>
-                      <div className={`${currentPage === item.id ? 'text-white' : 'text-slate-400 group-hover:text-blue-400'} transition-colors flex-shrink-0`}>{item.icon}</div>
-                      {!isCollapsed && <span className="font-medium whitespace-nowrap text-sm text-left truncate">{item.label}</span>}
-                    </button>
-                  ))}
-                </div>
+        <nav className="flex-1 py-4 flex flex-col px-3 overflow-y-auto custom-scrollbar">
+          {!isCollapsed && (
+            <div className="mb-3 px-1">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Buscar..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="w-full bg-slate-800/50 text-sm text-slate-200 placeholder-slate-500 rounded-lg pl-8 pr-3 py-2 border border-slate-700/50 focus:outline-none focus:border-blue-500/50 focus:bg-slate-800 transition-colors"
+                />
               </div>
-            );
-          })}
+            </div>
+          )}
+
+          {searchQuery.trim() ? (
+            <div className="flex flex-col gap-1 mt-1">
+              {searchResults.length > 0 ? searchResults.map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => { setCurrentPage(item.id); setSearchQuery(''); if (window.innerWidth < 1024) setIsSidebarOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group ${currentPage === item.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}
+                >
+                  <div className={`${currentPage === item.id ? 'text-white' : 'text-slate-400 group-hover:text-blue-400'} transition-colors flex-shrink-0`}>{item.icon}</div>
+                  <span className="font-medium whitespace-nowrap text-sm text-left truncate">{item.label}</span>
+                </button>
+              )) : (
+                <p className="text-xs text-slate-500 text-center py-6">Nenhum resultado encontrado.</p>
+              )}
+            </div>
+          ) : (
+            MENU_GROUPS.map((group, groupIndex) => {
+              const visibleItems = group.items.filter(item => item.roles.includes(userRole));
+              if (visibleItems.length === 0) return null;
+
+              const isOpen = expandedGroups.includes(group.title);
+
+              return (
+                <div key={groupIndex} className="mb-1">
+                  {!isCollapsed ? (
+                    <button onClick={() => toggleGroup(group.title)} className="w-full flex items-center justify-between px-3 py-2 mt-2 rounded-lg hover:bg-slate-800/30 transition-colors group">
+                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider group-hover:text-slate-300 transition-colors">{group.title}</p>
+                      <ChevronDown size={14} className={`text-slate-500 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                  ) : <div className="h-px bg-slate-800 my-4 mx-2"></div>}
+
+                  <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ease-in-out ${!isCollapsed && !isOpen ? 'max-h-0 opacity-0' : 'max-h-[1000px] opacity-100 mt-1'}`}>
+                    {visibleItems.map((item) => (
+                      <button key={item.id} onClick={() => { setCurrentPage(item.id); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} title={isCollapsed ? item.label : undefined} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg transition-all duration-200 group ${currentPage === item.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}>
+                        <div className={`${currentPage === item.id ? 'text-white' : 'text-slate-400 group-hover:text-blue-400'} transition-colors flex-shrink-0`}>{item.icon}</div>
+                        {!isCollapsed && <span className="font-medium whitespace-nowrap text-sm text-left truncate">{item.label}</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })
+          )}
         </nav>
 
         <div className="p-4 border-t border-slate-800/50 shrink-0 bg-[#0B1120]">
@@ -605,7 +633,7 @@ export default function App() {
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden h-screen print:h-auto print:overflow-visible print:w-full print:block">
         <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-6 lg:px-8 shrink-0 relative z-40 print:hidden shadow-sm">
-          
+
           <div className="flex items-center gap-4">
             <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-slate-50 rounded-xl text-slate-500 lg:hidden">
               <Menu size={24} />
@@ -616,7 +644,7 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4 lg:gap-6">
-            
+
             {/* NOTIFICAÇÕES (O SINO) */}
             <div className="relative">
               <button onClick={() => setShowDropdown(!showDropdown)} className={`relative p-2.5 rounded-xl transition-all ${unreadCount > 0 ? 'bg-blue-50 text-blue-600' : 'hover:bg-slate-100 text-slate-500'}`}>
@@ -636,12 +664,12 @@ export default function App() {
                     <div className="px-4 pb-2 border-b border-slate-50 mb-2">
                       <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Central de Avisos</p>
                     </div>
-                    
+
                     {unreadCount > 0 ? (
                       <div className="max-h-80 overflow-y-auto custom-scrollbar">
                         {notifications.map(notif => (
                           <div key={notif.id} className="w-full text-left flex items-start gap-4 px-4 py-4 hover:bg-slate-50 border-b border-slate-50 transition-colors last:border-0">
-                            
+
                             {/* ALERTA 1: NOVO CHAMADO (Aparece apenas para Admin) */}
                             {notif.type === 'chamado' ? (
                               <>
@@ -717,7 +745,7 @@ export default function App() {
                    {session.user.email?.split('@')[0]}
                  </p>
                  <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mt-0.5">
-                   {userRole === 'regional_admin' ? 'Administrador' : 
+                   {userRole === 'regional_admin' ? 'Administrador' :
                     userRole === 'supervisor' ? 'Supervisor' :
                     userRole === 'dirigente' ? 'Dirigente' : 'Gestor Unidade'}
                  </p>

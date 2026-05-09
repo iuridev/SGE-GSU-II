@@ -5,7 +5,7 @@ import {
   Ticket, Plus, X, Clock,  
   Paperclip, Send, Building2, CheckCircle2, 
   FileText, Activity, 
-  Filter, Flame, UserPlus, ShieldAlert,
+  Flame, UserPlus, ShieldAlert,
   Search, LayoutDashboard, Settings, FolderTree, Tag, Loader2,
   Trash2
 } from 'lucide-react';
@@ -407,104 +407,130 @@ export function Chamados() {
          </div>
       </div>
 
-      {/* ÁREA DE TRABALHO: FILTROS E LISTA */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-         
-         {/* SIDEBAR DE FILTROS */}
-         <div className="lg:col-span-3 space-y-6">
-            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-xl">
-               <h3 className="text-xs font-black uppercase text-slate-800 tracking-widest mb-6 flex items-center gap-2"><Filter size={16}/> Filtros Ativos</h3>
-               
-               <div className="space-y-6">
-                  <div>
-                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Busca</label>
-                     <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                        <input type="text" placeholder="Protocolo ou Escola..." className="w-full pl-9 pr-3 py-3 bg-slate-50 border-none rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-                     </div>
+      {/* FILTROS INLINE */}
+      <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-5 space-y-4">
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+          <input
+            type="text"
+            placeholder="Buscar por protocolo, título ou escola..."
+            className="w-full pl-11 pr-10 py-3 bg-slate-50 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500 border border-transparent"
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+          />
+          {searchTerm && (
+            <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-slate-200 rounded-full transition-all">
+              <X size={14} className="text-slate-400"/>
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest shrink-0 mr-1">Status:</span>
+          {([
+            { value: 'TODOS', label: 'Todos' },
+            { value: 'ABERTO', label: 'Aberto' },
+            { value: 'EM_ANDAMENTO', label: 'Em Andamento' },
+            { value: 'AGUARDANDO_ESCOLA', label: 'Aguardando' },
+            { value: 'CONCLUIDO', label: 'Concluído' },
+          ] as const).map(({ value, label }) => {
+            const count = value === 'TODOS' ? tickets.length : tickets.filter(t => t.status === value).length;
+            return (
+              <button
+                key={value}
+                onClick={() => setStatusFilter(value)}
+                className={`px-3.5 py-2 rounded-full text-[10px] font-black uppercase tracking-wide transition-all flex items-center gap-1.5 ${statusFilter === value ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+              >
+                {label}
+                <span className={`text-[9px] rounded-full px-1.5 py-0.5 font-black ${statusFilter === value ? 'bg-white/20 text-white' : 'bg-white text-slate-500 border border-slate-200'}`}>{count}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-6 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest shrink-0">Depto:</span>
+            {(['TODOS', 'SEOM', 'SEFISC'] as const).map(d => (
+              <button key={d} onClick={() => setDepartmentFilter(d)} className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase transition-all ${departmentFilter === d ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+                {d}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest shrink-0">Prioridade:</span>
+            {(['TODOS', 'URGENTE', 'ALTA', 'NORMAL', 'BAIXA'] as const).map(p => (
+              <button key={p} onClick={() => setPriorityFilter(p)} className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase transition-all flex items-center gap-1 ${priorityFilter === p ? (p === 'URGENTE' ? 'bg-red-600 text-white' : 'bg-slate-900 text-white') : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+                {p === 'URGENTE' && <Flame size={10}/>}
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* LISTA DE TICKETS */}
+      <div className="space-y-3">
+        {filteredTickets.length === 0 ? (
+          <div className="bg-white p-20 rounded-[2rem] border-2 border-dashed border-slate-100 text-center flex flex-col items-center">
+            <ShieldAlert size={48} className="text-slate-200 mb-4" />
+            <p className="text-slate-400 font-black uppercase tracking-widest text-xs">Nenhum ticket corresponde aos filtros.</p>
+          </div>
+        ) : (
+          filteredTickets.map(ticket => {
+            const statusConfig = {
+              ABERTO: { label: 'Aberto', color: 'bg-blue-100 text-blue-700', bar: 'bg-blue-500', dot: 'bg-blue-500' },
+              EM_ANDAMENTO: { label: 'Em Andamento', color: 'bg-amber-100 text-amber-700', bar: 'bg-amber-500', dot: 'bg-amber-500' },
+              AGUARDANDO_ESCOLA: { label: 'Aguardando', color: 'bg-purple-100 text-purple-700', bar: 'bg-purple-500', dot: 'bg-purple-500' },
+              CONCLUIDO: { label: 'Concluído', color: 'bg-emerald-100 text-emerald-700', bar: 'bg-emerald-500', dot: 'bg-emerald-500' },
+            }[ticket.status];
+
+            return (
+              <div
+                key={ticket.id}
+                onClick={() => openTicketDetails(ticket)}
+                className={`bg-white rounded-[1.5rem] border shadow-sm hover:shadow-lg transition-all cursor-pointer overflow-hidden group ${ticket.priority === 'URGENTE' && ticket.status !== 'CONCLUIDO' ? 'border-red-200 ring-1 ring-red-100' : ticket.status === 'CONCLUIDO' ? 'border-slate-100 opacity-70' : 'border-slate-100 hover:border-indigo-200'}`}
+              >
+                <div className={`h-1 w-full ${ticket.priority === 'URGENTE' && ticket.status !== 'CONCLUIDO' ? 'bg-red-500' : statusConfig.bar}`} />
+                <div className="p-5 flex items-center gap-4">
+                  <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${ticket.priority === 'URGENTE' && ticket.status !== 'CONCLUIDO' ? 'bg-red-500 animate-pulse' : statusConfig.dot}`} />
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <span className="text-[10px] font-black bg-slate-100 text-slate-500 px-2.5 py-1 rounded-md">{ticket.protocol}</span>
+                      <span className={`text-[10px] font-black px-2.5 py-1 rounded-md flex items-center gap-1 ${statusConfig.color}`}>
+                        {ticket.status === 'CONCLUIDO' && <CheckCircle2 size={10}/>}
+                        {ticket.status === 'EM_ANDAMENTO' && <Activity size={10}/>}
+                        {statusConfig.label}
+                      </span>
+                      <span className="text-[9px] font-black bg-indigo-50 text-indigo-600 px-2 py-1 rounded-md border border-indigo-100">{ticket.department}</span>
+                      {ticket.priority === 'URGENTE' && ticket.status !== 'CONCLUIDO' && (
+                        <span className="text-[9px] font-black bg-red-100 text-red-700 px-2 py-1 rounded-md flex items-center gap-1 animate-pulse"><Flame size={9}/> URGENTE</span>
+                      )}
+                    </div>
+                    <h3 className="text-sm font-black text-slate-800 truncate group-hover:text-indigo-700 transition-colors">{ticket.title}</h3>
+                    <p className="text-xs text-slate-400 font-medium mt-0.5 truncate">{ticket.description}</p>
+                    <div className="flex items-center gap-3 mt-2 text-[10px] font-bold text-slate-400 flex-wrap">
+                      <span className="flex items-center gap-1"><Building2 size={11}/> {ticket.schools?.name || 'Escola'}</span>
+                      <span className="w-1 h-1 rounded-full bg-slate-200 shrink-0"/>
+                      <span className="flex items-center gap-1"><Clock size={11}/> {getTimeElapsed(ticket)}</span>
+                      {ticket.category && (
+                        <>
+                          <span className="w-1 h-1 rounded-full bg-slate-200 shrink-0"/>
+                          <span className="truncate">{ticket.category}{ticket.sub_category ? ` › ${ticket.sub_category}` : ''}</span>
+                        </>
+                      )}
+                    </div>
                   </div>
 
-                  <div>
-                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Departamento</label>
-                     <div className="flex flex-col gap-2">
-                        {['TODOS', 'SEOM', 'SEFISC'].map(d => (
-                           <button key={d} onClick={() => setDepartmentFilter(d as any)} className={`text-left px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${departmentFilter === d ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' : 'text-slate-500 hover:bg-slate-50'}`}>
-                              {d}
-                           </button>
-                        ))}
-                     </div>
+                  <div className="flex items-center justify-center w-10 h-10 rounded-full bg-slate-50 border-2 border-slate-100 text-slate-400 shrink-0" title={ticket.assignee?.full_name || 'Não atribuído'}>
+                    {ticket.assignee ? <span className="text-[10px] font-black text-indigo-600 uppercase">{ticket.assignee.full_name.substring(0,2)}</span> : <UserPlus size={15}/>}
                   </div>
-
-                  <div>
-                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Status do Ticket</label>
-                     <div className="flex flex-col gap-2">
-                        {['TODOS', 'ABERTO', 'EM_ANDAMENTO', 'AGUARDANDO_ESCOLA', 'CONCLUIDO'].map(s => (
-                           <button key={s} onClick={() => setStatusFilter(s as any)} className={`text-left px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${statusFilter === s ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' : 'text-slate-500 hover:bg-slate-50'}`}>
-                              {s.replace('_', ' ')}
-                           </button>
-                        ))}
-                     </div>
-                  </div>
-
-                  <div>
-                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Nível de Urgência</label>
-                     <div className="flex flex-col gap-2">
-                        {['TODOS', 'URGENTE', 'ALTA', 'NORMAL', 'BAIXA'].map(p => (
-                           <button key={p} onClick={() => setPriorityFilter(p as any)} className={`flex items-center justify-between px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${priorityFilter === p ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
-                              {p} {p === 'URGENTE' && <Flame size={12} className={priorityFilter === p ? 'text-red-400' : 'text-red-500'}/>}
-                           </button>
-                        ))}
-                     </div>
-                  </div>
-               </div>
-            </div>
-         </div>
-
-         {/* LISTA DE TICKETS KANBAN-STYLE */}
-         <div className="lg:col-span-9 space-y-4">
-            {filteredTickets.length === 0 ? (
-               <div className="bg-white p-20 rounded-[3rem] border-2 border-dashed border-slate-100 text-center flex flex-col items-center">
-                  <ShieldAlert size={48} className="text-slate-200 mb-4" />
-                  <p className="text-slate-400 font-black uppercase tracking-widest text-xs">Nenhum ticket corresponde aos filtros.</p>
-               </div>
-            ) : (
-               filteredTickets.map(ticket => (
-                  <div key={ticket.id} onClick={() => openTicketDetails(ticket)} className={`bg-white p-6 rounded-[2rem] border-l-8 shadow-sm hover:shadow-xl transition-all cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-6 ${ticket.priority === 'URGENTE' && ticket.status !== 'CONCLUIDO' ? 'border-l-red-500 ring-1 ring-red-100' : ticket.status === 'CONCLUIDO' ? 'border-l-emerald-500 opacity-70' : 'border-l-indigo-500 border-y border-r border-slate-100'}`}>
-                     
-                     <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-3 mb-2">
-                           <span className="text-[10px] font-black bg-slate-100 text-slate-600 px-3 py-1 rounded-md">{ticket.protocol}</span>
-                           <span className="text-[9px] font-black bg-indigo-50 text-indigo-600 px-2 py-1 rounded-md border border-indigo-100">{ticket.department}</span>
-                           {ticket.priority === 'URGENTE' && ticket.status !== 'CONCLUIDO' && <span className="text-[9px] font-black bg-red-100 text-red-700 px-2 py-1 rounded-md flex items-center gap-1 animate-pulse"><Flame size={10}/> URGENTE</span>}
-                           {ticket.status === 'CONCLUIDO' && <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-2 py-1 rounded-md flex items-center gap-1"><CheckCircle2 size={10}/> RESOLVIDO</span>}
-                        </div>
-                        <h3 className="text-lg font-black text-slate-800 truncate">{ticket.title}</h3>
-                        <p className="text-xs font-bold text-slate-400 uppercase mt-1 flex items-center gap-2 truncate">
-                           <Building2 size={12}/> {ticket.schools?.name || 'Escola'}
-                           <span className="w-1 h-1 rounded-full bg-slate-300"></span>
-                           {ticket.category} {ticket.sub_category ? `> ${ticket.sub_category}` : ''}
-                        </p>
-                     </div>
-
-                     <div className="flex items-center gap-6 shrink-0 text-right">
-                        <div className="hidden md:block">
-                           <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Status</p>
-                           <p className="text-xs font-bold text-slate-700">{ticket.status.replace('_', ' ')}</p>
-                        </div>
-                        <div className="hidden md:block">
-                           <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">SLA Tempo</p>
-                           <p className="text-xs font-bold text-slate-700 flex items-center gap-1 justify-end"><Clock size={12}/> {getTimeElapsed(ticket)}</p>
-                        </div>
-                        
-                        {/* Avatar do Responsável */}
-                        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-slate-50 border-2 border-slate-100 text-slate-400" title={ticket.assignee?.full_name || 'Não atribuído'}>
-                           {ticket.assignee ? <span className="text-[10px] font-black text-indigo-600 uppercase">{ticket.assignee.full_name.substring(0,2)}</span> : <UserPlus size={16}/>}
-                        </div>
-                     </div>
-                  </div>
-               ))
-            )}
-         </div>
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* --- MODAL NOVO CHAMADO SIMPLIFICADO --- */}

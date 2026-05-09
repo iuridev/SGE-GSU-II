@@ -2,7 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Estilo global para o fundo */
+html,
 body {
+  height: 100%;
+  overflow: hidden;
   @apply bg-gray-50;
+}
+
+@media print {
+  html,
+  body {
+    height: auto;
+    overflow: visible;
+  }
+}
+
+.custom-scrollbar {
+  scrollbar-width: none;
+}
+.custom-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+aside nav {
+  scrollbar-width: none;
+}
+aside nav::-webkit-scrollbar {
+  display: none;
 }
