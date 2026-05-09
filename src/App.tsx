@@ -85,6 +85,7 @@ const MENU_GROUPS: MenuGroup[] = [
   {
     title: 'PRINCIPAL',
     items: [
+      { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
       { id: 'entrada', label: 'Entrada no Prédio', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'dirigente', 'ure_servico'] },
       { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
       { id: 'minhas-tarefas', label: 'Agenda Funcional', icon: <CalendarCheck size={20} />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
