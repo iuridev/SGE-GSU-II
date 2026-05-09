@@ -1,12 +1,14 @@
 // Importa bibliotecas essenciais do React para criar componentes, guardar estados e efeitos
 import React, { useState, useEffect, useMemo } from 'react';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
 // Importa o cliente configurado do Supabase para conectar com o banco de dados
 import { supabase } from '../lib/supabase';
 // Importa a biblioteca de ícones para deixar a interface bonita
-import { 
-  Building2, Calendar, Clock, MapPin, Users, Plus, 
+import {
+  Building2, Calendar, Clock, MapPin, Users, Plus,
   Settings, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight,
-  Trash2, FileDown, Loader2, X, RefreshCw, Check, XCircle, Edit3, History
+  Trash2, FileDown, Loader2, X, RefreshCw, Check, XCircle, Edit3, History,
+  CalendarCheck, Info, BarChart3, TrendingUp, Award
 } from 'lucide-react';
 
 // Puxa a URL oficial do Google Apps Script que configuramos no arquivo .env
@@ -61,7 +63,7 @@ const getFormDefaults = () => {
 export function AgendamentoNovo() {
   // === ESTADOS DE CONTROLE DE INTERFACE ===
   // Controla qual aba está visível: 'calendario', 'agendar' ou 'gerenciar'
-  const [activeTab, setActiveTab] = useState<'calendario' | 'agendar' | 'gerenciar'>('calendario');
+  const [activeTab, setActiveTab] = useState<'calendario' | 'agendar' | 'meus' | 'gerenciar' | 'metricas'>('calendario');
   // Controla se o calendário mostra o "dia" em detalhes ou a grade do "mes"
   const [viewMode, setViewMode] = useState<'dia' | 'mes'>('dia');
   
@@ -84,6 +86,7 @@ export function AgendamentoNovo() {
   const [loading, setLoading] = useState(false);
   // Gira o botão ao gerar o PDF
   const [exporting, setExporting] = useState(false);
+  const [exportingMetrics, setExportingMetrics] = useState(false);
   // Gira o botão ao sincronizar com o Google Sheets
   const [syncing, setSyncing] = useState(false);
   
@@ -153,6 +156,57 @@ export function AgendamentoNovo() {
       // Organiza por data (do mais velho pro mais novo) e depois por hora
       .sort((a, b) => a.data_agendamento.localeCompare(b.data_agendamento) || a.hora_inicio.localeCompare(b.hora_inicio));
   }, [agendamentos]); // Recalcula toda vez que a lista global mudar
+
+  const meusAgendamentos = useMemo(() => {
+    if (!currentUser) return [];
+    return agendamentos
+      .filter(a => a.user_id === currentUser.id)
+      .sort((a, b) => b.data_agendamento.localeCompare(a.data_agendamento) || a.hora_inicio.localeCompare(b.hora_inicio));
+  }, [agendamentos, currentUser]);
+
+  const metricas = useMemo(() => {
+    const validos = agendamentos.filter(a => a.status !== 'reprovado' && a.status !== 'cancelado');
+
+    // Agendamentos por mês (últimos 6 meses)
+    const porMes: Record<string, number> = {};
+    validos.forEach(a => {
+      const mes = a.data_agendamento.slice(0, 7); // "YYYY-MM"
+      porMes[mes] = (porMes[mes] || 0) + 1;
+    });
+    const porMesOrdenado = Object.entries(porMes)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-6);
+
+    // Top 5 ambientes mais agendados
+    const porAmbiente: Record<string, { nome: string; total: number }> = {};
+    validos.forEach(a => {
+      const id = a.ambiente_id;
+      const nome = a.ambientes?.nome || 'Desconhecido';
+      if (!porAmbiente[id]) porAmbiente[id] = { nome, total: 0 };
+      porAmbiente[id].total++;
+    });
+    const top5Ambientes = Object.values(porAmbiente)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
+
+    // Top 5 usuários que mais agendaram
+    const porUsuario: Record<string, { nome: string; total: number }> = {};
+    validos.forEach(a => {
+      const id = a.user_id;
+      const nome = a.user_name || 'Desconhecido';
+      if (!porUsuario[id]) porUsuario[id] = { nome, total: 0 };
+      porUsuario[id].total++;
+    });
+    const top5Usuarios = Object.values(porUsuario)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
+
+    const maxAmbiente = top5Ambientes[0]?.total || 1;
+    const maxUsuario = top5Usuarios[0]?.total || 1;
+    const maxMes = Math.max(...porMesOrdenado.map(([, v]) => v), 1);
+
+    return { porMesOrdenado, top5Ambientes, top5Usuarios, maxAmbiente, maxUsuario, maxMes, totalValidos: validos.length };
+  }, [agendamentos]);
 
   // === FUNÇÕES DE ACESSO AO BANCO DE DADOS ===
 
@@ -596,6 +650,35 @@ export function AgendamentoNovo() {
     }
   };
 
+  const handleExportMetricsPDF = async () => {
+    setExportingMetrics(true);
+    try {
+      const loadScript = (src: string) => new Promise((resolve, reject) => {
+        if (document.querySelector(`script[src="${src}"]`)) return resolve(true);
+        const script = document.createElement('script');
+        script.src = src; script.onload = resolve; script.onerror = reject;
+        document.head.appendChild(script);
+      });
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
+      const template = document.getElementById('metrics-report-template');
+      if (!template) throw new Error('Template de métricas não encontrado.');
+      const opt = {
+        margin: [12, 12, 12, 12],
+        filename: `Metricas_Agendamentos_${new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date())}.pdf`,
+        image: { type: 'jpeg', quality: 1 },
+        html2canvas: { scale: 2, useCORS: true, letterRendering: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['css', 'legacy'] },
+      };
+      await (window as any).html2pdf().set(opt).from(template.innerHTML).save();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao gerar o PDF de métricas.');
+    } finally {
+      setExportingMetrics(false);
+    }
+  };
+
   // Função que devolve uma TAG de design com corzinhas dependendo da palavra "aprovado, reprovado..."
   const renderStatusBadge = (status: string) => {
     if (status === 'aprovado') return <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-md text-[10px] font-black uppercase flex items-center gap-1"><CheckCircle2 size={12}/> Aprovado</span>;
@@ -971,44 +1054,180 @@ export function AgendamentoNovo() {
          </div>
       </div>
 
+      {/* TEMPLATE OCULTO: PDF DE MÉTRICAS */}
+      <div id="metrics-report-template" style={{ display: 'none' }}>
+        <div style={{ fontFamily: 'Arial, sans-serif', padding: '40px', color: '#0f172a', maxWidth: '800px', margin: '0 auto' }}>
+          {/* Cabeçalho */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '40px', paddingBottom: '24px', borderBottom: '3px solid #6366f1' }}>
+            <div>
+              <p style={{ fontSize: '11px', fontWeight: 900, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '4px', marginBottom: '6px' }}>SGE-GSU · URE Guarulhos Sul</p>
+              <h1 style={{ fontSize: '28px', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase', margin: 0 }}>Relatório de Métricas</h1>
+              <p style={{ fontSize: '13px', color: '#64748b', fontWeight: 700, marginTop: '4px' }}>Agendamento de Ambientes</p>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <p style={{ fontSize: '11px', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '2px' }}>Gerado em</p>
+              <p style={{ fontSize: '14px', fontWeight: 900, color: '#334155' }}>{new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
+            </div>
+          </div>
+
+          {/* KPIs */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '40px' }}>
+            {[
+              { label: 'Total de Agendamentos', value: metricas.totalValidos, color: '#6366f1' },
+              { label: 'Este Mês', value: metricas.porMesOrdenado.at(-1)?.[1] ?? 0, color: '#10b981' },
+              { label: 'Ambientes Ativos', value: ambientes.length, color: '#8b5cf6' },
+              { label: 'Pendentes', value: agendamentosPendentesLista.length, color: '#f59e0b' },
+            ].map(({ label, value, color }) => (
+              <div key={label} style={{ background: '#f8fafc', border: `2px solid ${color}30`, borderRadius: '16px', padding: '20px', textAlign: 'center' }}>
+                <p style={{ fontSize: '10px', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '8px' }}>{label}</p>
+                <p style={{ fontSize: '36px', fontWeight: 900, color, margin: 0, lineHeight: 1 }}>{value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Evolução mensal */}
+          <div style={{ marginBottom: '40px' }}>
+            <h2 style={{ fontSize: '14px', fontWeight: 900, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '3px', marginBottom: '16px' }}>Evolução Mensal</h2>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: '#6366f1' }}>
+                  <th style={{ padding: '12px 16px', color: '#fff', fontSize: '12px', fontWeight: 900, textAlign: 'left', textTransform: 'uppercase', letterSpacing: '2px' }}>Mês</th>
+                  <th style={{ padding: '12px 16px', color: '#fff', fontSize: '12px', fontWeight: 900, textAlign: 'center', textTransform: 'uppercase', letterSpacing: '2px', width: '120px' }}>Agendamentos</th>
+                  <th style={{ padding: '12px 16px', color: '#fff', fontSize: '12px', fontWeight: 900, textAlign: 'left', textTransform: 'uppercase', letterSpacing: '2px' }}>Volume</th>
+                </tr>
+              </thead>
+              <tbody>
+                {metricas.porMesOrdenado.map(([mes, total], i) => {
+                  const [ano, m] = mes.split('-');
+                  const label = new Date(Number(ano), Number(m) - 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+                  const pct = Math.round((total / metricas.maxMes) * 100);
+                  return (
+                    <tr key={mes} style={{ background: i % 2 === 0 ? '#f8fafc' : '#fff' }}>
+                      <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 700, color: '#334155', textTransform: 'capitalize', border: '1px solid #e2e8f0' }}>{label}</td>
+                      <td style={{ padding: '12px 16px', fontSize: '18px', fontWeight: 900, color: '#6366f1', textAlign: 'center', border: '1px solid #e2e8f0' }}>{total}</td>
+                      <td style={{ padding: '12px 16px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ background: '#e0e7ff', borderRadius: '999px', height: '10px', overflow: 'hidden' }}>
+                          <div style={{ background: '#6366f1', height: '10px', borderRadius: '999px', width: `${pct}%` }}/>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Top 5 lado a lado */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', marginBottom: '40px' }}>
+            {/* Top 5 Ambientes */}
+            <div>
+              <h2 style={{ fontSize: '14px', fontWeight: 900, color: '#8b5cf6', textTransform: 'uppercase', letterSpacing: '3px', marginBottom: '16px' }}>Top 5 Ambientes</h2>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#8b5cf6' }}>
+                    <th style={{ padding: '10px 12px', color: '#fff', fontSize: '11px', fontWeight: 900, textAlign: 'center', width: '32px' }}>#</th>
+                    <th style={{ padding: '10px 12px', color: '#fff', fontSize: '11px', fontWeight: 900, textAlign: 'left' }}>Ambiente</th>
+                    <th style={{ padding: '10px 12px', color: '#fff', fontSize: '11px', fontWeight: 900, textAlign: 'center' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {metricas.top5Ambientes.map((item, i) => (
+                    <tr key={item.nome} style={{ background: i % 2 === 0 ? '#f5f3ff' : '#fff' }}>
+                      <td style={{ padding: '10px 12px', fontSize: '14px', fontWeight: 900, color: i === 0 ? '#f59e0b' : '#94a3b8', textAlign: 'center', border: '1px solid #e2e8f0' }}>{i + 1}</td>
+                      <td style={{ padding: '10px 12px', fontSize: '12px', fontWeight: 700, color: '#334155', border: '1px solid #e2e8f0' }}>{item.nome}</td>
+                      <td style={{ padding: '10px 12px', fontSize: '16px', fontWeight: 900, color: '#8b5cf6', textAlign: 'center', border: '1px solid #e2e8f0' }}>{item.total}x</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Top 5 Usuários */}
+            <div>
+              <h2 style={{ fontSize: '14px', fontWeight: 900, color: '#10b981', textTransform: 'uppercase', letterSpacing: '3px', marginBottom: '16px' }}>Top 5 Usuários</h2>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#10b981' }}>
+                    <th style={{ padding: '10px 12px', color: '#fff', fontSize: '11px', fontWeight: 900, textAlign: 'center', width: '32px' }}>#</th>
+                    <th style={{ padding: '10px 12px', color: '#fff', fontSize: '11px', fontWeight: 900, textAlign: 'left' }}>Usuário</th>
+                    <th style={{ padding: '10px 12px', color: '#fff', fontSize: '11px', fontWeight: 900, textAlign: 'center' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {metricas.top5Usuarios.map((item, i) => (
+                    <tr key={item.nome} style={{ background: i % 2 === 0 ? '#ecfdf5' : '#fff' }}>
+                      <td style={{ padding: '10px 12px', fontSize: '14px', fontWeight: 900, color: i === 0 ? '#f59e0b' : '#94a3b8', textAlign: 'center', border: '1px solid #e2e8f0' }}>{i + 1}</td>
+                      <td style={{ padding: '10px 12px', fontSize: '12px', fontWeight: 700, color: '#334155', border: '1px solid #e2e8f0' }}>{item.nome}</td>
+                      <td style={{ padding: '10px 12px', fontSize: '16px', fontWeight: 900, color: '#10b981', textAlign: 'center', border: '1px solid #e2e8f0' }}>{item.total}x</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Rodapé */}
+          <div style={{ marginTop: '40px', paddingTop: '20px', borderTop: '2px solid #f1f5f9', textAlign: 'center' }}>
+            <p style={{ fontSize: '11px', fontWeight: 900, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '4px' }}>SGE-GSU Intelligence · Documento Oficial</p>
+          </div>
+        </div>
+      </div>
+
       {/* ----------------------------------------------------- */}
       {/* TELA PRINCIPAL (O QUE OS USUÁRIOS VÊM LOGO DE CARA) */}
       {/* ----------------------------------------------------- */}
 
-      {/* CABEÇALHO (LOGO E NOME DO SISTEMA) */}
-      {/* CABEÇALHO (LOGO E NOME DO SISTEMA) */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-4">
-        <div className="flex items-center gap-5">
-          <div className="p-4 bg-indigo-600 rounded-[2rem] text-white shadow-xl shadow-indigo-200">
-            <Building2 size={36} />
-          </div>
-          <div>
-            {/* NOVO SELO AMARELO AQUI */}
-            <div className="mb-2">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-[9px] font-black uppercase tracking-widest shadow-sm">
-                <AlertTriangle size={12} />
-                Sincronização Planilha - não automática
-              </span>
+      {/* CABEÇALHO E NAVEGAÇÃO */}
+      <div className="bg-white border border-slate-100 rounded-[2.5rem] shadow-xl p-6 md:p-8">
+        {/* Linha do título */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-5">
+            <div className="p-4 bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-[1.5rem] text-white shadow-lg shadow-indigo-200">
+              <Building2 size={32} />
             </div>
-            
-            <h1 className="text-3xl font-black text-slate-900 tracking-tight uppercase leading-none">Agendamento de Ambientes (Novo)</h1>
-            <p className="text-slate-500 font-medium mt-1">Gestão Inteligente de Salas da Unidade Regional de Ensino</p>
-            <p className="text-slate-500 font-medium mt-1">Guarulhos Sul</p>
+            <div>
+              <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight uppercase leading-none">
+                Agendamento de Ambientes
+              </h1>
+              <p className="text-slate-500 font-semibold mt-1 text-sm">
+                URE Guarulhos Sul · Gestão Inteligente de Salas
+              </p>
+            </div>
           </div>
+          {userRole === 'regional_admin' && (
+            <span className="hidden md:inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-[9px] font-black uppercase tracking-widest shrink-0">
+              <AlertTriangle size={10} />
+              Sincronização não é automática
+            </span>
+          )}
         </div>
 
-        {/* NAVEGADOR DE ABAS */}
-        <div className="flex gap-2 p-2 bg-slate-100 rounded-[1.5rem] border border-slate-200">
-          <TabButton active={activeTab === 'calendario'} onClick={() => setActiveTab('calendario')} icon={<Calendar size={16}/>} label="Calendário" />
-          <TabButton active={activeTab === 'agendar'} onClick={() => setActiveTab('agendar')} icon={<Plus size={16}/>} label="Agendar" />
-          {userRole === 'regional_admin' && (
-            <TabButton active={activeTab === 'gerenciar'} onClick={() => setActiveTab('gerenciar')} icon={<Settings size={16}/>} label="Gerenciar" />
-          )}
+        {/* NAVEGADOR DE ABAS — barra única com scroll no mobile */}
+        <div className="overflow-x-auto -mx-1 px-1">
+          <div className="flex gap-1 p-1.5 bg-slate-100 rounded-2xl border border-slate-200 min-w-max">
+            <TabButton active={activeTab === 'calendario'} onClick={() => setActiveTab('calendario')} icon={<Calendar size={15}/>} label="Calendário" />
+            <TabButton active={activeTab === 'agendar'} onClick={() => setActiveTab('agendar')} icon={<Plus size={15}/>} label="Agendar" />
+            <TabButton active={activeTab === 'meus'} onClick={() => setActiveTab('meus')} icon={<CalendarCheck size={15}/>} label="Meus Agendamentos" />
+            <TabButton active={activeTab === 'metricas'} onClick={() => setActiveTab('metricas')} icon={<BarChart3 size={15}/>} label="Métricas" />
+            {userRole === 'regional_admin' && (
+              <TabButton active={activeTab === 'gerenciar'} onClick={() => setActiveTab('gerenciar')} icon={<Settings size={15}/>} label="Gerenciar" />
+            )}
+          </div>
         </div>
       </div>
 
+      {/* AVISO GERAL PARA TODOS OS USUÁRIOS */}
+      <div className="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 px-6 py-4 rounded-[2rem] flex items-start gap-4 shadow-sm">
+        <div className="p-2 bg-indigo-100 text-indigo-600 rounded-xl shrink-0 mt-0.5">
+          <Info size={18} />
+        </div>
+        <p className="text-sm font-semibold text-slate-700 leading-relaxed">
+          <strong className="text-indigo-700 font-black">Atenção:</strong> Por favor, respeite o horário agendado. Caso precise estender o uso do ambiente, atualize sua reserva editando o agendamento antes do término do período reservado.
+        </p>
+      </div>
+
       {/* BANNERS DE ALERTA DO ADMINISTRADOR */}
-      
+
       {/* BANNER 1: EVENTOS PENDENTES (A NOVIDADE AQUI!) */}
       {/* Se tiver evento amarelo (pendente), mostra o banner */}
       {userRole === 'regional_admin' && agendamentosPendentesGeral > 0 && (
@@ -1333,7 +1552,223 @@ export function AgendamentoNovo() {
         </div>
       )}
 
-      {/* CONTEÚDO DA ABA 3: GERENCIAR AMBIENTES (SÓ PARA ADMIN) */}
+      {/* CONTEÚDO DA ABA 3: MEUS AGENDAMENTOS */}
+      {activeTab === 'meus' && (
+        <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100">
+          <div className="flex items-center justify-between mb-8 pb-6 border-b border-slate-100">
+            <div>
+              <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Meus Agendamentos</h2>
+              <p className="text-sm font-bold text-slate-400 mt-1">{meusAgendamentos.length} reserva(s) no total</p>
+            </div>
+          </div>
+
+          {meusAgendamentos.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+              <CalendarCheck size={48} className="mb-4 opacity-50" />
+              <p className="font-bold text-lg text-slate-500">Você ainda não fez nenhum agendamento.</p>
+              <p className="text-sm mt-1">Clique em "Agendar" para reservar um ambiente.</p>
+              <button
+                onClick={() => setActiveTab('agendar')}
+                className="mt-6 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg"
+              >
+                Fazer Agendamento
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {meusAgendamentos.map(b => (
+                <div key={b.id} className={`p-6 border rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${b.status === 'reprovado' || b.status === 'cancelado' ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-slate-50/50 border-slate-200 hover:shadow-md hover:border-indigo-200'}`}>
+                  <div className="flex items-start gap-5">
+                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 ${b.status === 'aprovado' ? 'bg-emerald-100 text-emerald-600' : b.status === 'reprovado' ? 'bg-red-100 text-red-600' : b.status === 'cancelado' ? 'bg-slate-200 text-slate-500' : 'bg-amber-100 text-amber-600'}`}>
+                      <MapPin size={24} />
+                    </div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-3 mb-1">
+                        <h3 className={`font-black uppercase text-lg ${b.status === 'reprovado' || b.status === 'cancelado' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{b.titulo_evento}</h3>
+                        {renderStatusBadge(b.status || 'pendente')}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-4 mt-2 text-sm font-bold text-slate-500">
+                        <span className="flex items-center gap-1.5"><Calendar size={14} className="text-indigo-500"/> {b.data_agendamento.split('-').reverse().join('/')}</span>
+                        <span className="flex items-center gap-1.5"><Building2 size={14} className="text-indigo-500"/> {b.ambientes?.nome}</span>
+                        <span className="flex items-center gap-1.5"><Clock size={14} className="text-indigo-500"/> {b.hora_inicio.slice(0,5)} às {b.hora_fim.slice(0,5)}</span>
+                        <span className="flex items-center gap-1.5"><Users size={14} className="text-indigo-500"/> {b.quantidade_pessoas} pess.</span>
+                      </div>
+                      {b.status === 'reprovado' && b.motivo_reprovacao && (
+                        <p className="text-xs text-red-500 mt-2 font-bold bg-red-50 p-2 rounded-lg inline-block">Motivo: {b.motivo_reprovacao}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0 border-t md:border-t-0 md:border-l border-slate-200 pt-3 md:pt-0 md:pl-4">
+                    {b.status === 'pendente' && (
+                      <button
+                        onClick={() => abrirModalEdicao(b)}
+                        className="px-4 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5"
+                      >
+                        <Edit3 size={14}/> Editar
+                      </button>
+                    )}
+                    {b.status !== 'cancelado' && b.status !== 'reprovado' && (
+                      <button
+                        onClick={() => cancelarMeuAgendamento(b)}
+                        className="px-4 py-2 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* CONTEÚDO DA ABA: MÉTRICAS */}
+      {activeTab === 'metricas' && (
+        <div className="space-y-6 animate-in fade-in duration-300">
+
+          {/* Barra de ações */}
+          <div className="flex justify-end">
+            <button
+              onClick={handleExportMetricsPDF}
+              disabled={exportingMetrics}
+              className="bg-slate-900 hover:bg-black disabled:opacity-50 text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all active:scale-95"
+            >
+              {exportingMetrics ? <Loader2 size={15} className="animate-spin"/> : <FileDown size={15}/>}
+              {exportingMetrics ? 'Gerando...' : 'Exportar PDF'}
+            </button>
+          </div>
+
+          {/* KPIs rápidos */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: 'Total de Agendamentos', value: metricas.totalValidos, icon: <Calendar size={20}/>, color: 'indigo' },
+              { label: 'Este Mês', value: metricas.porMesOrdenado.at(-1)?.[1] ?? 0, icon: <TrendingUp size={20}/>, color: 'emerald' },
+              { label: 'Ambientes Ativos', value: ambientes.length, icon: <Building2 size={20}/>, color: 'violet' },
+              { label: 'Pendentes', value: agendamentosPendentesLista.length, icon: <AlertTriangle size={20}/>, color: 'amber' },
+            ].map(({ label, value, icon, color }) => (
+              <div key={label} className="bg-white border border-slate-100 rounded-[2rem] p-6 shadow-sm flex items-center gap-4">
+                <div className={`p-3 rounded-2xl bg-${color}-100 text-${color}-600 shrink-0`}>{icon}</div>
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">{label}</p>
+                  <p className="text-3xl font-black text-slate-800 leading-none mt-1">{value}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Agendamentos por mês — gráfico de linha */}
+          <div className="bg-white border border-slate-100 rounded-[2rem] p-8 shadow-sm">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-base font-black uppercase tracking-tight text-slate-800 flex items-center gap-2">
+                <TrendingUp size={18} className="text-indigo-500"/> Evolução Mensal de Agendamentos
+              </h2>
+              {metricas.porMesOrdenado.length > 0 && (
+                <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Últimos {metricas.porMesOrdenado.length} meses</span>
+              )}
+            </div>
+            {metricas.porMesOrdenado.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-40 text-slate-400">
+                <BarChart3 size={32} className="mb-2 opacity-40"/>
+                <p className="text-sm font-semibold">Nenhum dado disponível.</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={metricas.porMesOrdenado.map(([mes, total]) => {
+                  const [ano, m] = mes.split('-');
+                  return {
+                    mes: new Date(Number(ano), Number(m) - 1).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }),
+                    total,
+                  };
+                })} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="gradIndigo" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2}/>
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false}/>
+                  <XAxis dataKey="mes" tick={{ fontSize: 11, fontWeight: 700, fill: '#94a3b8' }} axisLine={false} tickLine={false}/>
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fontWeight: 700, fill: '#94a3b8' }} axisLine={false} tickLine={false}/>
+                  <Tooltip
+                    contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 4px 24px rgba(99,102,241,0.12)', fontSize: 12, fontWeight: 700 }}
+                    labelStyle={{ color: '#6366f1', fontWeight: 900, textTransform: 'capitalize' }}
+                    formatter={(v: any) => [`${v} agendamentos`, '']}
+                  />
+                  <Area type="monotone" dataKey="total" stroke="#6366f1" strokeWidth={3} fill="url(#gradIndigo)" dot={{ r: 5, fill: '#6366f1', strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 7 }}/>
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+            {/* Top 5 ambientes */}
+            <div className="bg-white border border-slate-100 rounded-[2rem] p-8 shadow-sm">
+              <h2 className="text-base font-black uppercase tracking-tight text-slate-800 mb-6 flex items-center gap-2">
+                <Building2 size={18} className="text-violet-500"/> Top 5 Ambientes
+              </h2>
+              {metricas.top5Ambientes.length === 0 ? (
+                <p className="text-sm text-slate-400 font-semibold">Nenhum dado disponível.</p>
+              ) : (
+                <div className="space-y-4">
+                  {metricas.top5Ambientes.map((item, i) => {
+                    const pct = Math.round((item.total / metricas.maxAmbiente) * 100);
+                    return (
+                      <div key={item.nome}>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="flex items-center gap-2 text-xs font-black text-slate-700">
+                            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black ${i === 0 ? 'bg-amber-400 text-white' : 'bg-slate-200 text-slate-600'}`}>{i + 1}</span>
+                            {item.nome}
+                          </span>
+                          <span className="text-xs font-black text-violet-600">{item.total}x</span>
+                        </div>
+                        <div className="bg-slate-100 rounded-full h-2 overflow-hidden">
+                          <div className="h-2 rounded-full bg-violet-400 transition-all duration-500" style={{ width: `${pct}%` }}/>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Top 5 usuários */}
+            <div className="bg-white border border-slate-100 rounded-[2rem] p-8 shadow-sm">
+              <h2 className="text-base font-black uppercase tracking-tight text-slate-800 mb-6 flex items-center gap-2">
+                <Award size={18} className="text-emerald-500"/> Top 5 Usuários
+              </h2>
+              {metricas.top5Usuarios.length === 0 ? (
+                <p className="text-sm text-slate-400 font-semibold">Nenhum dado disponível.</p>
+              ) : (
+                <div className="space-y-4">
+                  {metricas.top5Usuarios.map((item, i) => {
+                    const pct = Math.round((item.total / metricas.maxUsuario) * 100);
+                    return (
+                      <div key={item.nome}>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="flex items-center gap-2 text-xs font-black text-slate-700">
+                            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black ${i === 0 ? 'bg-amber-400 text-white' : 'bg-slate-200 text-slate-600'}`}>{i + 1}</span>
+                            {item.nome}
+                          </span>
+                          <span className="text-xs font-black text-emerald-600">{item.total}x</span>
+                        </div>
+                        <div className="bg-slate-100 rounded-full h-2 overflow-hidden">
+                          <div className="h-2 rounded-full bg-emerald-400 transition-all duration-500" style={{ width: `${pct}%` }}/>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* CONTEÚDO DA ABA 4: GERENCIAR AMBIENTES (SÓ PARA ADMIN) */}
       {activeTab === 'gerenciar' && userRole === 'regional_admin' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 relative">
