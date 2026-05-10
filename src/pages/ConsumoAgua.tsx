@@ -178,25 +178,27 @@ export function ConsumoAgua() {
       const { data: { user } } = await supabase.auth.getUser();
       let currentRole = '';
       let currentSupSchools: string[] = [];
+      let profile: any = null;
+
+      if (user) {
+        const { data: profileData } = await (supabase as any).from('profiles').select('role, school_id, supervisor_schools').eq('id', user.id).single();
+        profile = profileData;
+        currentRole = profile?.role || '';
+        currentSupSchools = profile?.supervisor_schools || [];
+      }
+
+      // Busca escolas ANTES de setar qualquer estado, para que todos os setState
+      // abaixo sejam batched pelo React 18 num único render — garante que schools
+      // e userRole estarão disponíveis juntos quando o useEffect disparar fetchLogs.
+      const { data: schoolsData } = await (supabase as any).from('schools').select('id, name').order('name');
 
       if (user) {
         setUserId(user.id);
-        const { data: profile } = await (supabase as any).from('profiles').select('role, school_id, supervisor_schools').eq('id', user.id).single();
-        currentRole = profile?.role || '';
-        currentSupSchools = profile?.supervisor_schools || [];
-
         setUserRole(currentRole);
-        
-        if (currentRole === 'school_manager') {
-          setSelectedSchoolId(profile.school_id);
-        }
-        if (currentRole === 'supervisor') {
-          setSupervisorSchoolIds(currentSupSchools);
-        }
+        if (currentRole === 'school_manager') setSelectedSchoolId(profile.school_id);
+        if (currentRole === 'supervisor') setSupervisorSchoolIds(currentSupSchools);
       }
 
-      const { data: schoolsData } = await (supabase as any).from('schools').select('id, name').order('name');
-      
       if (currentRole === 'supervisor') {
         setSchools((schoolsData || []).filter((s: any) => currentSupSchools.includes(s.id)));
       } else {
@@ -226,26 +228,44 @@ export function ConsumoAgua() {
         }
       }
       
-      const { data, error } = await query
-        .gte('date', firstDay)
-        .lte('date', lastDay)
-        .order('date', { ascending: true });
+      // Query separada para suspensões: usa uma escola como referência (≤31 registros/mês)
+      // para evitar o cap de 1000 linhas do Supabase na query principal.
+      const suspSchoolId = selectedSchoolId || schools[0]?.id;
+      const [{ data, error }, { data: suspData }] = await Promise.all([
+        query
+          .gte('date', firstDay)
+          .lte('date', lastDay)
+          .order('date', { ascending: true }),
+        suspSchoolId
+          ? (supabase as any)
+              .from('consumo_agua')
+              .select('*')
+              .eq('school_id', suspSchoolId)
+              .is('meter_id', null)
+              .gte('date', firstDay)
+              .lte('date', lastDay)
+              .like('justification', 'Suspensão de Expediente:%')
+          : Promise.resolve({ data: [] }),
+      ]);
 
       if (error) throw error;
 
       const rawLogs = (data || []) as WaterLog[];
       setAllMonthLogs(rawLogs);
 
-      // Mapa de suspensões: sempre baseado em meter_id=null, independente do hidrômetro selecionado.
-      // Isso garante que os bloqueios de feriado/fim de semana funcionem para escolas
-      // com múltiplos hidrômetros, já que suspensões são gravadas com meter_id=null.
+      // suspensionLogs vem da query dedicada (garante todos os dias mesmo com cap de 1000 linhas)
       const suspMap: Record<string, WaterLog> = {};
+      (suspData as WaterLog[] || []).forEach((log: WaterLog) => {
+        if (!suspMap[log.date]) suspMap[log.date] = log;
+      });
+      // fallback: inclui suspensões encontradas na query principal (caso suspSchoolId seja nulo)
       rawLogs.forEach((log: WaterLog) => {
-        if (log.justification && log.justification.startsWith('Suspensão de Expediente:')) {
-          if (!suspMap[log.date]) suspMap[log.date] = log;
+        if (log.justification?.startsWith('Suspensão de Expediente:') && !suspMap[log.date]) {
+          suspMap[log.date] = log;
         }
       });
       setSuspensionLogs(suspMap);
+      console.log('[fetchLogs] total:', rawLogs.length, 'suspensions:', Object.keys(suspMap));
 
       if (selectedSchoolId) {
         const logsMap: Record<string, WaterLog> = {};
@@ -877,15 +897,56 @@ export function ConsumoAgua() {
 
       const bulkData = await Promise.all(bulkDataPromises);
 
-      const { error: upsertError } = await (supabase as any)
-        .from('consumo_agua')
-        .upsert(bulkData, { onConflict: 'school_id,date' });
+      // Evita onConflict (tabela sem unique constraint em school_id+date).
+      // Faz todos os selects em paralelo, depois inserts/updates em paralelo.
+      const existingResults = await Promise.all(
+        bulkData.map(record =>
+          (supabase as any)
+            .from('consumo_agua')
+            .select('id')
+            .eq('school_id', record.school_id)
+            .eq('date', record.date)
+            .is('meter_id', null)
+            .maybeSingle()
+        )
+      );
 
-      if (upsertError) throw upsertError;
+      const toInsert: any[] = [];
+      const toUpdate: { id: string; record: any }[] = [];
 
+      existingResults.forEach(({ data: existing, error: selectError }, i) => {
+        if (selectError) throw selectError;
+        if (existing) {
+          toUpdate.push({ id: existing.id, record: bulkData[i] });
+        } else {
+          toInsert.push(bulkData[i]);
+        }
+      });
+
+      console.log('[save] toInsert:', toInsert.length, 'toUpdate:', toUpdate.length, 'date:', selectedDateStr);
+      const ops: Promise<any>[] = [];
+
+      if (toInsert.length > 0) {
+        ops.push(
+          (supabase as any).from('consumo_agua').insert(toInsert).then(({ error }: any) => {
+            if (error) throw error;
+          })
+        );
+      }
+
+      toUpdate.forEach(({ id, record }) => {
+        ops.push(
+          (supabase as any).from('consumo_agua').update(record).eq('id', id).then(({ error }: any) => {
+            if (error) throw error;
+          })
+        );
+      });
+
+      await Promise.all(ops);
+
+      await fetchLogs();
       alert(`Suspensão registrada com sucesso para ${bulkData.length} escolas.`);
       setIsSuspensionModalOpen(false);
-      fetchLogs(); 
 
     } catch (error: any) {
       console.error(error);
