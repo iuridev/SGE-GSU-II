@@ -1,69 +1,298 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
+import type { ReactNode } from 'react';
 import Webcam from 'react-webcam';
 import * as tf from '@tensorflow/tfjs';
 import * as cocossd from '@tensorflow-models/coco-ssd';
-import { Users, AlertCircle, Loader2 } from 'lucide-react';
+import { Users, AlertCircle, Loader2, LogIn, LogOut, UserCheck } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+
+type Side = 'left' | 'right';
 
 interface TrackedPerson {
   id: number;
   x: number;
   y: number;
-  framesTracked: number; // Quantos frames a IA viu essa pessoa
-  hasBeenCounted: boolean; // Se já registramos no contador
-  missedFrames: number; // Quantos frames a IA perdeu essa pessoa de vista
+  bbox: number[];
+  framesTracked: number;
+  missedFrames: number;
+  lastSide: Side | null;
+}
+
+// Color histogram (16 bins × R/G/B = 48 values) used to identify unique persons by appearance
+type AppearanceSignature = number[];
+
+const BINS = 16;
+const SIMILARITY_THRESHOLD = 0.65; // above this = same person seen before
+
+function histogramSimilarity(h1: AppearanceSignature, h2: AppearanceSignature): number {
+  let s = 0;
+  for (let i = 0; i < h1.length; i++) s += Math.min(h1[i], h2[i]);
+  return s;
+}
+
+function StatCard({
+  icon, bg, bg2, border, label, value, textColor, labelColor,
+}: {
+  icon: ReactNode;
+  bg: string; bg2: string; border: string;
+  label: string; value: number;
+  textColor: string; labelColor: string;
+}) {
+  return (
+    <div className={`${bg2} border ${border} px-5 py-4 rounded-xl flex items-center space-x-3 shadow-sm`}>
+      <div className={`${bg} p-2.5 rounded-lg`}>{icon}</div>
+      <div>
+        <p className={`text-xs ${labelColor} font-semibold uppercase tracking-wider`}>{label}</p>
+        <p className={`text-3xl font-bold ${textColor}`}>{value}</p>
+      </div>
+    </div>
+  );
 }
 
 export default function Fluxo() {
   const webcamRef = useRef<Webcam>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  
+  const tempCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
   const [isLoading, setIsLoading] = useState(true);
-  const [count, setCount] = useState(0);
   const [isError, setIsError] = useState(false);
+  const [entries, setEntries] = useState(0);
+  const [exits, setExits] = useState(0);
+  const [unique, setUnique] = useState(0);
+  const [lineRatio, setLineRatio] = useState(0.5);
 
   const tracksRef = useRef<TrackedPerson[]>([]);
   const nextIdRef = useRef(1);
-  const countRef = useRef(0);
-  
-  const pendingSavesRef = useRef(0);
+  const entriesRef = useRef(0);
+  const exitsRef = useRef(0);
+  const uniqueRef = useRef(0);
+  const lineRatioRef = useRef(0.5);
+  const isDetectingRef = useRef(false);
+  const signaturesRef = useRef<AppearanceSignature[]>([]);
+
+  const pendingInserts = useRef<Array<{ tipo: string; pessoa_nova: boolean }>>([]);
+
+  // Capture color histogram of detected person from the live video frame
+  const extractSignature = useCallback((bbox: number[]): AppearanceSignature => {
+    const video = webcamRef.current?.video;
+    if (!video) return [];
+
+    if (!tempCanvasRef.current) {
+      tempCanvasRef.current = document.createElement('canvas');
+    }
+    const tc = tempCanvasRef.current;
+    tc.width = video.videoWidth;
+    tc.height = video.videoHeight;
+    const tctx = tc.getContext('2d');
+    if (!tctx) return [];
+
+    tctx.drawImage(video, 0, 0);
+
+    const [bx, by, bw, bh] = bbox;
+    const px = Math.max(0, Math.round(bx));
+    const py = Math.max(0, Math.round(by));
+    const pw = Math.min(Math.round(bw), video.videoWidth - px);
+    const ph = Math.min(Math.round(bh), video.videoHeight - py);
+    if (pw <= 0 || ph <= 0) return [];
+
+    const { data } = tctx.getImageData(px, py, pw, ph);
+    const hist = new Array(BINS * 3).fill(0);
+    let count = 0;
+
+    // Sample every 8th pixel for performance
+    for (let i = 0; i < data.length; i += 32) {
+      hist[Math.floor(data[i] * BINS / 256)]++;
+      hist[BINS + Math.floor(data[i + 1] * BINS / 256)]++;
+      hist[BINS * 2 + Math.floor(data[i + 2] * BINS / 256)]++;
+      count++;
+    }
+
+    if (count > 0) {
+      for (let i = 0; i < hist.length; i++) hist[i] /= count;
+    }
+    return hist;
+  }, []);
+
+  // Returns true if this appearance has NOT been seen today
+  const isNewPerson = useCallback((sig: AppearanceSignature): boolean => {
+    if (sig.length === 0) return true;
+    return signaturesRef.current.every(stored => histogramSimilarity(sig, stored) < SIMILARITY_THRESHOLD);
+  }, []);
 
   const carregarContagemDoDia = useCallback(async () => {
     const hoje = new Date();
     hoje.setHours(0, 0, 0, 0);
 
-    const { count: total, error } = await (supabase as any)
+    const { data, error } = await (supabase as any)
       .from('fluxo_registros')
-      .select('*', { count: 'exact', head: true })
+      .select('tipo, pessoa_nova')
       .gte('created_at', hoje.toISOString());
 
-    if (!error && total !== null) {
-      countRef.current = total;
-      setCount(total);
+    if (!error && data) {
+      const ent = (data as any[]).filter(r => r.tipo === 'entrada').length;
+      const sai = (data as any[]).filter(r => r.tipo === 'saida').length;
+      const uniq = (data as any[]).filter(r => r.pessoa_nova === true).length;
+      entriesRef.current = ent;
+      exitsRef.current = sai;
+      uniqueRef.current = uniq;
+      setEntries(ent);
+      setExits(sai);
+      setUnique(uniq);
     }
   }, []);
 
-  // Guarda na base de dados a cada 5 segundos se houver novas passagens
   useEffect(() => {
-    const intervalId = setInterval(async () => {
-      if (pendingSavesRef.current > 0) {
-        const quantidadeParaGuardar = pendingSavesRef.current;
-        pendingSavesRef.current = 0;
-
-        const registos = Array(quantidadeParaGuardar).fill({});
-
-        const { error } = await (supabase as any)
-          .from('fluxo_registros')
-          .insert(registos);
-
-        if (error) {
-          console.error(`Erro ao guardar lote:`, error);
-        }
+    const id = setInterval(async () => {
+      if (pendingInserts.current.length === 0) return;
+      const toInsert = [...pendingInserts.current];
+      pendingInserts.current = [];
+      const { error } = await (supabase as any).from('fluxo_registros').insert(toInsert);
+      if (error) {
+        console.error('Erro ao guardar:', error);
+        pendingInserts.current.unshift(...toInsert);
       }
     }, 5000);
-
-    return () => clearInterval(intervalId);
+    return () => clearInterval(id);
   }, []);
+
+  const detect = useCallback((net: cocossd.ObjectDetection) => {
+    if (isDetectingRef.current) return;
+    const video = webcamRef.current?.video;
+    if (!video || video.readyState !== 4) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const videoWidth = video.videoWidth;
+    const videoHeight = video.videoHeight;
+    canvas.width = videoWidth;
+    canvas.height = videoHeight;
+
+    const lineX = videoWidth * lineRatioRef.current;
+
+    isDetectingRef.current = true;
+    net.detect(video).then(predictions => {
+      isDetectingRef.current = false;
+      const people = predictions.filter(p => p.class === 'person');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      ctx.clearRect(0, 0, videoWidth, videoHeight);
+
+      // Draw vertical counting line
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(lineX, 0);
+      ctx.lineTo(lineX, videoHeight);
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([14, 7]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#f59e0b';
+      ctx.font = 'bold 13px Arial';
+      // Left side label (saída)
+      ctx.save();
+      ctx.translate(lineX - 14, videoHeight / 2 + 40);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText('◄ SAÍDA', 0, 0);
+      ctx.restore();
+      // Right side label (entrada)
+      ctx.save();
+      ctx.translate(lineX + 14, videoHeight / 2 - 10);
+      ctx.rotate(Math.PI / 2);
+      ctx.fillText('◄ ENTRADA', 0, 0);
+      ctx.restore();
+      ctx.restore();
+
+      const currentCentroids = people.map(p => {
+        const [x, y, w, h] = p.bbox;
+        return { cx: x + w / 2, cy: y + h / 2, bbox: p.bbox };
+      });
+
+      const maxDist = 150;
+      const newTracks: TrackedPerson[] = [];
+      const matchedIds = new Set<number>();
+
+      currentCentroids.forEach(({ cx, cy, bbox }) => {
+        const matched = tracksRef.current.reduce<TrackedPerson | null>((best, track) => {
+          const d = Math.hypot(cx - track.x, cy - track.y);
+          if (d >= maxDist) return best;
+          if (!best) return track;
+          return d < Math.hypot(cx - best.x, cy - best.y) ? track : best;
+        }, null);
+
+        const currentSide: Side = cx < lineX ? 'left' : 'right';
+
+        // Bounding box
+        const [bx, by, bw, bh] = bbox;
+        ctx.beginPath();
+        ctx.rect(bx, by, bw, bh);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#3b82f6';
+        ctx.stroke();
+
+        if (matched) {
+          matchedIds.add(matched.id);
+          const prevSide = matched.lastSide;
+          matched.x = cx;
+          matched.y = cy;
+          matched.bbox = bbox;
+          matched.framesTracked += 1;
+          matched.missedFrames = 0;
+          matched.lastSide = currentSide;
+
+          // Detect crossing (min 3 frames of tracking to avoid ghost counts)
+          if (prevSide && prevSide !== currentSide && matched.framesTracked >= 3) {
+            const sig = extractSignature(matched.bbox);
+            const novaPessoa = isNewPerson(sig);
+
+            if (novaPessoa && sig.length > 0) {
+              signaturesRef.current.push(sig);
+              uniqueRef.current += 1;
+              setUnique(uniqueRef.current);
+            }
+
+            // right → left = entrada, left → right = saída
+            if (prevSide === 'right' && currentSide === 'left') {
+              entriesRef.current += 1;
+              setEntries(entriesRef.current);
+              pendingInserts.current.push({ tipo: 'entrada', pessoa_nova: novaPessoa });
+            } else {
+              exitsRef.current += 1;
+              setExits(exitsRef.current);
+              pendingInserts.current.push({ tipo: 'saida', pessoa_nova: novaPessoa });
+            }
+          }
+
+          newTracks.push(matched);
+
+          ctx.fillStyle = '#3b82f6';
+          ctx.font = 'bold 13px Arial';
+          ctx.fillText(`#${matched.id}`, cx + 8, cy - 8);
+        } else {
+          newTracks.push({
+            id: nextIdRef.current++,
+            x: cx,
+            y: cy,
+            bbox,
+            framesTracked: 1,
+            missedFrames: 0,
+            lastSide: currentSide,
+          });
+        }
+      });
+
+      // Keep recently-lost tracks in memory (1.5 s grace window)
+      tracksRef.current.forEach(track => {
+        if (!matchedIds.has(track.id)) {
+          track.missedFrames += 1;
+          if (track.missedFrames < 15) newTracks.push(track);
+        }
+      });
+
+      tracksRef.current = newTracks;
+    }).catch(() => { isDetectingRef.current = false; });
+  }, [extractSignature, isNewPerson]);
 
   const runCoco = useCallback(async () => {
     try {
@@ -71,184 +300,95 @@ export default function Fluxo() {
       await tf.ready();
       const net = await cocossd.load();
       setIsLoading(false);
-      
-      setInterval(() => {
-        detect(net);
-      }, 100); 
+      setInterval(() => detect(net), 100);
     } catch (err) {
-      console.error("Erro ao carregar o modelo de IA:", err);
+      console.error('Erro ao carregar modelo:', err);
       setIsError(true);
       setIsLoading(false);
     }
-  }, [carregarContagemDoDia]);
+  }, [carregarContagemDoDia, detect]);
 
-  const detect = async (net: cocossd.ObjectDetection) => {
-    if (
-      typeof webcamRef.current !== "undefined" &&
-      webcamRef.current !== null &&
-      webcamRef.current.video?.readyState === 4
-    ) {
-      const video = webcamRef.current.video;
-      const videoWidth = video.videoWidth;
-      const videoHeight = video.videoHeight;
+  useEffect(() => { runCoco(); }, [runCoco]);
 
-      if (canvasRef.current) {
-        canvasRef.current.width = videoWidth;
-        canvasRef.current.height = videoHeight;
-      }
-
-      const predictions = await net.detect(video);
-      const people = predictions.filter(p => p.class === 'person');
-      
-      const ctx = canvasRef.current?.getContext("2d");
-      if (!ctx) return;
-
-      ctx.clearRect(0, 0, videoWidth, videoHeight);
-
-      const currentCentroids = people.map(person => {
-        const [x, y, width, height] = person.bbox;
-        const cx = x + width / 2;
-        const cy = y + height / 2;
-        
-        ctx.beginPath();
-        ctx.rect(x, y, width, height);
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = '#3b82f6';
-        ctx.stroke();
-        
-        ctx.beginPath();
-        ctx.arc(cx, cy, 5, 0, 2 * Math.PI);
-        ctx.fillStyle = '#10b981';
-        ctx.fill();
-
-        return { cx, cy };
-      });
-
-      const maxDistance = 150; // Distância maior pois em fluxo livre as pessoas andam rápido
-      let newTracks: TrackedPerson[] = [];
-      let matchedTrackIds = new Set<number>();
-
-      // PASSO 1: Tentar ligar as pessoas atuais com as que já conhecemos
-      currentCentroids.forEach(centroid => {
-        let matchedTrack: TrackedPerson | any = null;
-        let minDistance = Infinity;
-
-        tracksRef.current.forEach(track => {
-          const dist = Math.sqrt(Math.pow(centroid.cx - track.x, 2) + Math.pow(centroid.cy - track.y, 2));
-          if (dist < minDistance && dist < maxDistance) {
-            minDistance = dist;
-            matchedTrack = track;
-          }
-        });
-
-        if (matchedTrack) {
-          // Pessoa já conhecida! Atualiza dados.
-          matchedTrackIds.add(matchedTrack.id);
-          matchedTrack.x = centroid.cx;
-          matchedTrack.y = centroid.cy;
-          matchedTrack.framesTracked += 1;
-          matchedTrack.missedFrames = 0; // Reseta o contador de perda, pois a achamos de novo
-
-          // Se a pessoa estiver firme na tela por 5 frames seguidos e ainda não foi contada:
-          if (matchedTrack.framesTracked === 5 && !matchedTrack.hasBeenCounted) {
-            countRef.current += 1;
-            setCount(countRef.current);
-            matchedTrack.hasBeenCounted = true; // Marca como contada para não somar de novo
-            pendingSavesRef.current += 1;
-          }
-
-          newTracks.push(matchedTrack);
-
-          // Mostra o ID e se já foi contada
-          ctx.fillStyle = matchedTrack.hasBeenCounted ? '#10b981' : '#f59e0b';
-          ctx.font = '16px Arial';
-          ctx.fillText(`ID: ${matchedTrack.id} ${matchedTrack.hasBeenCounted ? '✓' : '...'}`, centroid.cx + 10, centroid.cy - 10);
-        } else {
-          // Pessoa totalmente nova apareceu na câmera
-          const newId = nextIdRef.current++;
-          newTracks.push({
-            id: newId,
-            x: centroid.cx,
-            y: centroid.cy,
-            framesTracked: 1,
-            hasBeenCounted: false,
-            missedFrames: 0
-          });
-        }
-      });
-
-      // PASSO 2: Preservar as pessoas que a IA perdeu de vista por um tempo curto (Memória)
-      tracksRef.current.forEach(track => {
-        if (!matchedTrackIds.has(track.id)) {
-          track.missedFrames += 1;
-          // Se sumiu por menos de 15 frames (1.5 segundos), mantém na memória esperando voltar
-          if (track.missedFrames < 15) {
-            newTracks.push(track);
-          }
-        }
-      });
-
-      tracksRef.current = newTracks;
-    }
+  const handleLineChange = (value: number) => {
+    lineRatioRef.current = value / 100;
+    setLineRatio(value / 100);
   };
 
-  useEffect(() => {
-    runCoco();
-  }, [runCoco]);
+  const inside = Math.max(0, entries - exits);
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-800">Controlo Free Flow</h1>
-          <p className="text-slate-500 mt-2">Deteção inteligente de permanência no ambiente</p>
+          <h1 className="text-3xl font-bold text-slate-800">Controlo de Fluxo</h1>
+          <p className="text-slate-500 mt-1">Detecção de entrada e saída por linha virtual</p>
         </div>
-        
-        <div className="bg-blue-50 border border-blue-200 px-6 py-4 rounded-xl flex items-center space-x-4 shadow-sm">
-          <div className="bg-blue-500 p-3 rounded-lg">
-            <Users className="w-8 h-8 text-white" />
-          </div>
-          <div>
-            <p className="text-sm text-blue-600 font-semibold uppercase tracking-wider">Total de Indivíduos</p>
-            <p className="text-4xl font-bold text-blue-900">{count}</p>
-          </div>
+
+        <div className="flex gap-3 flex-wrap">
+          <StatCard
+            icon={<LogIn className="w-6 h-6 text-white" />}
+            bg="bg-emerald-500" bg2="bg-emerald-50" border="border-emerald-200"
+            label="Entradas" value={entries}
+            textColor="text-emerald-900" labelColor="text-emerald-600"
+          />
+          <StatCard
+            icon={<LogOut className="w-6 h-6 text-white" />}
+            bg="bg-red-500" bg2="bg-red-50" border="border-red-200"
+            label="Saídas" value={exits}
+            textColor="text-red-900" labelColor="text-red-600"
+          />
+          <StatCard
+            icon={<Users className="w-6 h-6 text-white" />}
+            bg="bg-blue-500" bg2="bg-blue-50" border="border-blue-200"
+            label="No Prédio" value={inside}
+            textColor="text-blue-900" labelColor="text-blue-600"
+          />
+          <StatCard
+            icon={<UserCheck className="w-6 h-6 text-white" />}
+            bg="bg-violet-500" bg2="bg-violet-50" border="border-violet-200"
+            label="Pessoas Únicas" value={unique}
+            textColor="text-violet-900" labelColor="text-violet-600"
+          />
         </div>
       </div>
 
       {isError && (
-        <div className="bg-red-50 text-red-600 p-4 rounded-lg flex items-center shadow-sm">
+        <div className="bg-red-50 text-red-600 p-4 rounded-lg flex items-center">
           <AlertCircle className="w-6 h-6 mr-3 flex-shrink-0" />
-          <p>Erro ao carregar o modelo de IA. Verifique a sua ligação à internet ou as permissões da câmara.</p>
+          <p>Erro ao carregar o modelo de IA. Verifique a ligação à internet e as permissões da câmara.</p>
         </div>
       )}
 
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-        <div className="relative w-full max-w-3xl mx-auto bg-slate-900 rounded-xl overflow-hidden shadow-inner aspect-video flex items-center justify-center">
-          
+        <div className="relative w-full max-w-3xl mx-auto bg-slate-900 rounded-xl overflow-hidden shadow-inner aspect-video">
           {isLoading && (
             <div className="absolute inset-0 z-10 bg-slate-900/80 flex flex-col items-center justify-center text-white">
               <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-4" />
-              <p className="font-medium animate-pulse">A inicializar Deteção Free Flow...</p>
+              <p className="font-medium animate-pulse">A inicializar detecção...</p>
             </div>
           )}
-
-          <Webcam
-            ref={webcamRef}
-            muted={true} 
-            className="absolute top-0 left-0 w-full h-full object-cover"
-          />
-          
-          <canvas
-            ref={canvasRef}
-            className="absolute top-0 left-0 w-full h-full object-cover z-0"
-          />
-          
+          <Webcam ref={webcamRef} muted className="absolute inset-0 w-full h-full object-cover" />
+          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full object-cover z-0" />
         </div>
-        
-        <div className="mt-6 flex gap-4 text-sm text-slate-600 justify-center">
-          <div className="flex items-center"><span className="w-3 h-3 bg-blue-500 rounded-full inline-block mr-2"></span> Detetando</div>
-          <div className="flex items-center"><span className="w-3 h-3 bg-amber-500 rounded-full inline-block mr-2"></span> Analisando (ID ...)</div>
-          <div className="flex items-center"><span className="w-3 h-3 bg-emerald-500 rounded-full inline-block mr-2"></span> Contabilizado (ID ✓)</div>
+
+        <div className="mt-5 max-w-3xl mx-auto space-y-1">
+          <label className="text-sm font-medium text-slate-700 flex justify-between">
+            <span>Posição da linha de contagem</span>
+            <span className="text-amber-600 font-semibold">{Math.round(lineRatio * 100)}%</span>
+          </label>
+          <input
+            type="range"
+            min={10}
+            max={90}
+            value={Math.round(lineRatio * 100)}
+            onChange={e => handleLineChange(Number(e.target.value))}
+            className="w-full accent-amber-500"
+          />
+          <p className="text-xs text-slate-500">
+            Cruzar da direita para a esquerda = <span className="text-emerald-600 font-medium">entrada</span> · da esquerda para a direita = <span className="text-red-600 font-medium">saída</span>.
+            Pessoas únicas são identificadas pela aparência (cor de roupa) e resetadas à meia-noite.
+          </p>
         </div>
       </div>
     </div>
