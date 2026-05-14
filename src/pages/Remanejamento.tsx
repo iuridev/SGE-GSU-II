@@ -352,7 +352,27 @@ export function Remanejamento() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!userSchoolId) return;
+
+    let effectiveSchoolId = userSchoolId;
+
+    if (!effectiveSchoolId) {
+      if (userRole === 'regional_admin') {
+        const { data: ureSchool } = await (supabase as any)
+          .from('schools')
+          .select('id')
+          .eq('name', 'UNIDADE REGIONAL DE ENSINO')
+          .single();
+        if (!ureSchool) {
+          alert("Erro: Unidade 'URE Guarulhos Sul' não encontrada no sistema.");
+          return;
+        }
+        effectiveSchoolId = ureSchool.id;
+      } else {
+        alert("Erro: Seu perfil não possui uma unidade escolar associada. Contate o administrador do sistema.");
+        return;
+      }
+    }
+
     setSaveLoading(true);
     const bId = crypto.randomUUID();
     try {
@@ -360,7 +380,7 @@ export function Remanejamento() {
         ...formData,
         batch_id: bId,
         asset_number: asset.trim(),
-        school_id: userSchoolId
+        school_id: effectiveSchoolId
       }));
       const { error } = await (supabase as any).from('inventory_items').insert(itemsToInsert);
       if (error) throw error;
