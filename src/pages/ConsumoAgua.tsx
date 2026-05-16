@@ -1,13 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
-  Droplets, ChevronLeft, ChevronRight, 
-  Save, X, AlertTriangle, CheckCircle,  
+  Droplets, ChevronLeft, ChevronRight,
+  Save, X, AlertTriangle, CheckCircle,
   Search, Building2, Users, Loader2,
   AlertCircle, ArrowRight, Activity, ShieldCheck,
   TrendingUp, Waves,
   CalendarDays, FileDown, History, CalendarOff, Trash2,
-  Gauge, Plus, Settings, ClipboardCopy, ClipboardCheck, Clock
+  Gauge, Plus, Settings, ClipboardCopy, ClipboardCheck, Clock,
+  GraduationCap, Briefcase
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -94,6 +95,7 @@ export function ConsumoAgua() {
   const [saveLoading, setSaveLoading] = useState(false);
   const [prevReadingValue, setPrevReadingValue] = useState<number>(0);
   const [loadingPrev, setLoadingPrev] = useState(false);
+  const [isFirstReading, setIsFirstReading] = useState(false);
   
   // States do Modal de Suspensão (Global)
   const [isSuspensionModalOpen, setIsSuspensionModalOpen] = useState(false);
@@ -235,7 +237,8 @@ export function ConsumoAgua() {
         query
           .gte('date', firstDay)
           .lte('date', lastDay)
-          .order('date', { ascending: true }),
+          .order('date', { ascending: true })
+          .limit(5000),
         suspSchoolId
           ? (supabase as any)
               .from('consumo_agua')
@@ -352,14 +355,31 @@ export function ConsumoAgua() {
   // 2. Atualizamos os STATS para usar a lista filtrada
   const stats = useMemo(() => {
     const totalConsumption = filteredMonthLogs.reduce((acc, curr) => acc + (curr.consumption_diff || 0), 0);
-    const totalLimit = filteredMonthLogs.reduce((acc, curr) => acc + (curr.student_count + curr.staff_count) * LIMITE_DIARIO_POR_PESSOA, 0);
-    const totalEntries = filteredMonthLogs.length;
-    
+
+    // Dias com registro real (consumo > 0 e pessoas informadas)
+    const daysWithConsumption = filteredMonthLogs.filter(log => (log.consumption_diff || 0) > 0);
+
+    // Média Diária: soma dos consumos ÷ dias com registro
+    const registeredConsumption = daysWithConsumption.reduce((acc, curr) => acc + (curr.consumption_diff || 0), 0);
+    const avgDailyConsumption = daysWithConsumption.length > 0 ? registeredConsumption / daysWithConsumption.length : 0;
+
+    // Teto Operacional e Média de Limite: calculados sobre os mesmos dias com registro
+    const totalLimit = daysWithConsumption.reduce((acc, log) => acc + (log.student_count + log.staff_count) * LIMITE_DIARIO_POR_PESSOA, 0);
+    const avgLimit = daysWithConsumption.length > 0 ? totalLimit / daysWithConsumption.length : 0;
+
+    // Média de Alunos e Funcionários: média sobre os dias com registro
+    const n = daysWithConsumption.length;
+    const avgStudents = n > 0 ? daysWithConsumption.reduce((acc, log) => acc + log.student_count, 0) / n : 0;
+    const avgStaff    = n > 0 ? daysWithConsumption.reduce((acc, log) => acc + log.staff_count, 0)    / n : 0;
+
     return {
       totalConsumption,
       totalLimit,
-      avgConsumption: totalEntries > 0 ? totalConsumption / totalEntries : 0,
+      avgDailyConsumption,
       exceededDays: filteredMonthLogs.filter(log => log.limit_exceeded).length,
+      avgLimit,
+      avgStudents,
+      avgStaff,
     };
   }, [filteredMonthLogs]);
 
@@ -677,6 +697,7 @@ export function ConsumoAgua() {
 
     const prevReading = await fetchPrevReading();
     setPrevReadingValue(prevReading);
+    setIsFirstReading(prevReading === 0);
     setLoadingPrev(false);
 
     // Busca o registro existente para a data, escola e hidrômetro
@@ -711,12 +732,14 @@ export function ConsumoAgua() {
     e.preventDefault();
     setSaveLoading(true);
     try {
-      if (isLimitExceeded && (!formData.justification || !formData.action_plan)) {
+      if (!isFirstReading && isLimitExceeded && (!formData.justification || !formData.action_plan)) {
           throw new Error("Preencha justificativa e ação para excessos.");
       }
 
       const finalReading = isHydrometerBlocked ? prevReadingValue : formData.reading_m3;
-      const finalConsumption = isHydrometerBlocked ? 0 : currentConsumption;
+      // Primeiro registro da escola: apenas registra a leitura base, consumo = 0
+      const finalConsumption = (isHydrometerBlocked || isFirstReading) ? 0 : currentConsumption;
+      const finalLimitExceeded = isFirstReading ? false : isLimitExceeded;
 
       const meterId = selectedMeterId || null;
 
@@ -728,9 +751,9 @@ export function ConsumoAgua() {
         consumption_diff: finalConsumption,
         student_count: formData.student_count,
         staff_count: formData.staff_count,
-        limit_exceeded: isLimitExceeded,
-        justification: isLimitExceeded ? formData.justification : null,
-        action_plan: isLimitExceeded ? formData.action_plan : null,
+        limit_exceeded: finalLimitExceeded,
+        justification: finalLimitExceeded ? formData.justification : null,
+        action_plan: finalLimitExceeded ? formData.action_plan : null,
         created_by: userId
       };
 
@@ -1142,27 +1165,67 @@ export function ConsumoAgua() {
         </div>
       )}
 
-      {/* STATS */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 print:hidden">
-          <div className={`p-6 rounded-[2.5rem] border-2 transition-all flex items-center gap-4 shadow-xl ${isTotalExceeded ? 'bg-red-50 border-red-200 text-red-700' : 'bg-white border-slate-100'}`}>
-              <div className={`p-4 rounded-2xl ${isTotalExceeded ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'}`}><Waves size={20} /></div>
-              <div><p className="text-[10px] font-black uppercase tracking-widest opacity-60">Total Consumido</p><h3 className="text-xl font-black">{stats.totalConsumption.toFixed(2)} m³</h3></div>
+      {/* STATS — Linha 1: métricas de consumo (4 cards) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 print:hidden">
+          <div className={`p-5 rounded-[2rem] border-2 transition-all flex items-center gap-4 shadow-lg ${isTotalExceeded ? 'bg-red-50 border-red-200 text-red-700' : 'bg-white border-slate-100'}`}>
+              <div className={`p-3 rounded-xl shrink-0 ${isTotalExceeded ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'}`}><Waves size={18} /></div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Total Consumido</p>
+                <h3 className="text-lg font-black">{stats.totalConsumption.toFixed(2)} m³</h3>
+                <p className="text-[10px] opacity-50 mt-0.5 leading-tight">Último registro do mês menos último do mês anterior</p>
+              </div>
           </div>
-          <div className="bg-white p-6 rounded-[2.5rem] border-2 border-slate-100 shadow-xl flex items-center gap-4">
-              <div className="p-4 bg-slate-900 text-white rounded-2xl"><ShieldCheck size={20} /></div>
-              <div><p className="text-[10px] font-black uppercase tracking-widest opacity-40">Teto Operacional</p><h3 className="text-xl font-black text-slate-800">{stats.totalLimit.toFixed(2)} m³</h3></div>
+          <div className="bg-white p-5 rounded-[2rem] border-2 border-slate-100 shadow-lg flex items-center gap-4">
+              <div className="p-3 bg-slate-900 text-white rounded-xl shrink-0"><ShieldCheck size={18} /></div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Limite de Consumo</p>
+                <h3 className="text-lg font-black text-slate-800">{stats.totalLimit.toFixed(2)} m³</h3>
+                <p className="text-[10px] opacity-40 mt-0.5 leading-tight">Limite total que a escola não deve ultrapassar no mês</p>
+              </div>
           </div>
-          <div className="bg-white p-6 rounded-[2.5rem] border-2 border-slate-100 shadow-xl flex items-center gap-4">
-              <div className="p-4 bg-emerald-600 text-white rounded-2xl"><TrendingUp size={20} /></div>
-              <div><p className="text-[10px] font-black uppercase tracking-widest opacity-40">Média Diária</p><h3 className="text-xl font-black text-slate-800">{stats.avgConsumption.toFixed(2)} m³</h3></div>
+          <div className="bg-white p-5 rounded-[2rem] border-2 border-slate-100 shadow-lg flex items-center gap-4">
+              <div className="p-3 bg-emerald-600 text-white rounded-xl shrink-0"><TrendingUp size={18} /></div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Média Diária</p>
+                <h3 className="text-lg font-black text-slate-800">{stats.avgDailyConsumption.toFixed(2)} m³</h3>
+                <p className="text-[10px] opacity-40 mt-0.5 leading-tight">Soma dos consumos ÷ dias com registro no mês</p>
+              </div>
           </div>
-          <div className="bg-white p-6 rounded-[2.5rem] border-2 border-slate-100 shadow-xl flex items-center gap-4">
-              <div className="p-4 bg-amber-500 text-white rounded-2xl"><AlertTriangle size={20} /></div>
-              <div><p className="text-[10px] font-black uppercase tracking-widest opacity-40">Dias Excedidos</p><h3 className="text-xl font-black text-slate-800">{stats.exceededDays}</h3></div>
+          <div className="bg-white p-5 rounded-[2rem] border-2 border-slate-100 shadow-lg flex items-center gap-4">
+              <div className="p-3 bg-amber-500 text-white rounded-xl shrink-0"><AlertTriangle size={18} /></div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Média de Limite</p>
+                <h3 className="text-lg font-black text-slate-800">{stats.avgLimit.toFixed(2)} m³</h3>
+                <p className="text-[10px] opacity-40 mt-0.5 leading-tight">Limite médio diário que a escola não pode passar</p>
+              </div>
           </div>
-          <div className="bg-white p-6 rounded-[2.5rem] border-2 border-slate-100 shadow-xl flex items-center gap-4">
-              <div className="p-4 bg-cyan-600 text-white rounded-2xl"><Activity size={20} /></div>
-              <div><p className="text-[10px] font-black uppercase tracking-widest opacity-40">Pipas no Ano</p><h3 className="text-xl font-black text-slate-800">{waterTruckCount}</h3></div>
+      </div>
+
+      {/* STATS — Linha 2: contexto (3 cards) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 print:hidden">
+          <div className="bg-white p-5 rounded-[2rem] border-2 border-slate-100 shadow-lg flex items-center gap-4">
+              <div className="p-3 bg-violet-600 text-white rounded-xl shrink-0"><GraduationCap size={18} /></div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Média de Alunos</p>
+                <h3 className="text-lg font-black text-slate-800">{Math.round(stats.avgStudents)}</h3>
+                <p className="text-[10px] opacity-40 mt-0.5 leading-tight">Média de alunos informados nos dias registrados</p>
+              </div>
+          </div>
+          <div className="bg-white p-5 rounded-[2rem] border-2 border-slate-100 shadow-lg flex items-center gap-4">
+              <div className="p-3 bg-rose-600 text-white rounded-xl shrink-0"><Briefcase size={18} /></div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Média de Funcionários</p>
+                <h3 className="text-lg font-black text-slate-800">{Math.round(stats.avgStaff)}</h3>
+                <p className="text-[10px] opacity-40 mt-0.5 leading-tight">Média de funcionários informados nos dias registrados</p>
+              </div>
+          </div>
+          <div className="bg-white p-5 rounded-[2rem] border-2 border-slate-100 shadow-lg flex items-center gap-4">
+              <div className="p-3 bg-cyan-600 text-white rounded-xl shrink-0"><Activity size={18} /></div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Pipas no Ano</p>
+                <h3 className="text-lg font-black text-slate-800">{waterTruckCount}</h3>
+                <p className="text-[10px] opacity-40 mt-0.5 leading-tight">Caminhões-pipa solicitados nos últimos 12 meses</p>
+              </div>
           </div>
       </div>
 
@@ -1353,74 +1416,120 @@ export function ConsumoAgua() {
       )}
 
       {/* ===== TEMPLATE DE IMPRESSÃO PDF (oculto, gerado pelo html2pdf) ===== */}
-      <div id="pdf-print-template" style={{ display: 'none', background: 'white', width: '1080px' }}>
-        <div style={{ borderBottom: '4px solid #2563eb', paddingBottom: '20px', marginBottom: '30px' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}><tbody><tr>
-            <td style={{ border: 'none' }}>
-              <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 900, color: '#0f172a' }}>RELATÓRIO DE MONITORAMENTO HÍDRICO</h1>
-              <p style={{ margin: 0, fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Secretaria de Gestão Regional • Auditoria de Recursos</p>
-            </td>
-            <td style={{ border: 'none', textAlign: 'right' }}>
-              <div style={{ background: '#2563eb', color: 'white', padding: '5px 15px', borderRadius: '8px', fontWeight: 900, display: 'inline-block', fontSize: '10px' }}>SGE-GSU</div>
-              <p style={{ margin: '5px 0 0', fontWeight: 900, fontSize: '14px', color: '#1e293b' }}>{monthName.toUpperCase()} / {currentDate.getFullYear()}</p>
-            </td>
-          </tr></tbody></table>
+      <div id="pdf-print-template" style={{ display: 'none', background: 'white', width: '1080px', padding: '30px', fontFamily: 'Arial, sans-serif' }}>
+
+        {/* Cabeçalho */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '4px solid #2563eb', paddingBottom: '16px', marginBottom: '20px' }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 900, color: '#0f172a' }}>RELATÓRIO DE MONITORAMENTO HÍDRICO</h1>
+            <p style={{ margin: '4px 0 0', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Secretaria de Gestão Regional • Auditoria de Recursos</p>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ background: '#2563eb', color: 'white', padding: '4px 14px', borderRadius: '8px', fontWeight: 900, fontSize: '10px', display: 'inline-block' }}>SGE-GSU</div>
+            <p style={{ margin: '6px 0 0', fontWeight: 900, fontSize: '14px', color: '#1e293b' }}>{monthName.toUpperCase()} / {currentDate.getFullYear()}</p>
+          </div>
         </div>
 
-        <div style={{ background: '#f8fafc', padding: '15px', borderRadius: '15px', border: '1px solid #e2e8f0', marginBottom: '30px' }}>
-          <span style={{ fontSize: '10px', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase' }}>Unidade Analisada:</span>
-          <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#1e293b' }}>
+        {/* Unidade */}
+        <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
+          <span style={{ fontSize: '9px', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase' }}>Unidade Analisada</span>
+          <h2 style={{ margin: '2px 0 0', fontSize: '16px', fontWeight: 900, color: '#1e293b' }}>
             {selectedSchoolId
               ? schools.find(s => s.id === selectedSchoolId)?.name
               : (userRole === 'supervisor' ? 'VISÃO DE SUPERVISÃO (UNIDADES SELECIONADAS)' : 'REDE REGIONAL GLOBAL (TODAS AS UNIDADES)')}
           </h2>
           {selectedSchoolId && hasMultipleMeters && selectedMeterId && (
-            <p style={{ margin: '4px 0 0', fontSize: '11px', fontWeight: 700, color: '#2563eb' }}>
+            <p style={{ margin: '3px 0 0', fontSize: '11px', fontWeight: 700, color: '#2563eb' }}>
               {schoolMeters.find(m => m.id === selectedMeterId)?.name}
             </p>
           )}
         </div>
 
-        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '10px', marginBottom: '30px' }}><tbody><tr>
-          <td style={{ width: '25%', background: isTotalExceeded ? '#fef2f2' : '#eff6ff', padding: '20px', borderRadius: '20px', border: isTotalExceeded ? '2px solid #ef4444' : '1px solid #bfdbfe' }}>
-            <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#64748b' }}>CONSUMO TOTAL</p>
-            <h3 style={{ margin: '5px 0 0', fontSize: '20px', fontWeight: 900, color: isTotalExceeded ? '#b91c1c' : '#1e3a8a' }}>{stats.totalConsumption.toFixed(2)} m³</h3>
-          </td>
-          <td style={{ width: '25%', background: '#f8fafc', padding: '20px', borderRadius: '20px', border: '1px solid #e2e8f0' }}>
-            <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#64748b' }}>TETO LIMITE</p>
-            <h3 style={{ margin: '5px 0 0', fontSize: '20px', fontWeight: 900, color: '#0f172a' }}>{stats.totalLimit.toFixed(2)} m³</h3>
-          </td>
-          <td style={{ width: '25%', background: '#f8fafc', padding: '20px', borderRadius: '20px', border: '1px solid #e2e8f0' }}>
-            <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#64748b' }}>MÉDIA DIÁRIA</p>
-            <h3 style={{ margin: '5px 0 0', fontSize: '20px', fontWeight: 900, color: '#1e3a8a' }}>{stats.avgConsumption.toFixed(2)} m³</h3>
-          </td>
-          <td style={{ width: '25%', background: stats.exceededDays > 0 ? '#fffbeb' : '#f8fafc', padding: '20px', borderRadius: '20px', border: stats.exceededDays > 0 ? '1px solid #fbbf24' : '1px solid #e2e8f0' }}>
-            <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#64748b' }}>DIAS COM ALERTA</p>
-            <h3 style={{ margin: '5px 0 0', fontSize: '20px', fontWeight: 900, color: '#92400e' }}>{stats.exceededDays} ocorrências</h3>
-          </td>
-        </tr></tbody></table>
+        {/* Cards linha 1: Consumo (4 cards) */}
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+          <div style={{ flex: 1, background: isTotalExceeded ? '#fef2f2' : '#eff6ff', padding: '14px 16px', borderRadius: '14px', border: isTotalExceeded ? '2px solid #ef4444' : '1px solid #bfdbfe' }}>
+            <p style={{ margin: 0, fontSize: '9px', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Consumido</p>
+            <p style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 900, color: isTotalExceeded ? '#b91c1c' : '#1e3a8a' }}>{stats.totalConsumption.toFixed(2)} m³</p>
+            <p style={{ margin: '3px 0 0', fontSize: '9px', color: '#94a3b8' }}>Último reg. mês − último reg. mês anterior</p>
+          </div>
+          <div style={{ flex: 1, background: '#f8fafc', padding: '14px 16px', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
+            <p style={{ margin: 0, fontSize: '9px', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px' }}>Limite de Consumo</p>
+            <p style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 900, color: '#0f172a' }}>{stats.totalLimit.toFixed(2)} m³</p>
+            <p style={{ margin: '3px 0 0', fontSize: '9px', color: '#94a3b8' }}>Limite total que a escola não deve ultrapassar</p>
+          </div>
+          <div style={{ flex: 1, background: '#f0fdf4', padding: '14px 16px', borderRadius: '14px', border: '1px solid #bbf7d0' }}>
+            <p style={{ margin: 0, fontSize: '9px', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px' }}>Média Diária</p>
+            <p style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 900, color: '#166534' }}>{stats.avgDailyConsumption.toFixed(2)} m³</p>
+            <p style={{ margin: '3px 0 0', fontSize: '9px', color: '#94a3b8' }}>Soma dos consumos ÷ dias com registro</p>
+          </div>
+          <div style={{ flex: 1, background: '#fffbeb', padding: '14px 16px', borderRadius: '14px', border: '1px solid #fde68a' }}>
+            <p style={{ margin: 0, fontSize: '9px', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px' }}>Média de Limite</p>
+            <p style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 900, color: '#92400e' }}>{stats.avgLimit.toFixed(2)} m³</p>
+            <p style={{ margin: '3px 0 0', fontSize: '9px', color: '#94a3b8' }}>Limite médio diário permitido por escola</p>
+          </div>
+        </div>
 
+        {/* Cards linha 2: Contexto (3 cards) */}
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+          <div style={{ flex: 1, background: '#f5f3ff', padding: '14px 16px', borderRadius: '14px', border: '1px solid #ddd6fe' }}>
+            <p style={{ margin: 0, fontSize: '9px', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px' }}>Média de Alunos</p>
+            <p style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 900, color: '#4c1d95' }}>{Math.round(stats.avgStudents)}</p>
+            <p style={{ margin: '3px 0 0', fontSize: '9px', color: '#94a3b8' }}>Média nos dias com registro</p>
+          </div>
+          <div style={{ flex: 1, background: '#fff1f2', padding: '14px 16px', borderRadius: '14px', border: '1px solid #fecdd3' }}>
+            <p style={{ margin: 0, fontSize: '9px', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px' }}>Média de Funcionários</p>
+            <p style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 900, color: '#9f1239' }}>{Math.round(stats.avgStaff)}</p>
+            <p style={{ margin: '3px 0 0', fontSize: '9px', color: '#94a3b8' }}>Média nos dias com registro</p>
+          </div>
+          <div style={{ flex: 1, background: '#ecfeff', padding: '14px 16px', borderRadius: '14px', border: '1px solid #a5f3fc' }}>
+            <p style={{ margin: 0, fontSize: '9px', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px' }}>Pipas no Ano</p>
+            <p style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 900, color: '#0e7490' }}>{waterTruckCount}</p>
+            <p style={{ margin: '3px 0 0', fontSize: '9px', color: '#94a3b8' }}>Caminhões-pipa solicitados nos últimos 12 meses</p>
+          </div>
+        </div>
+
+        {/* Gráfico Consumo x Limite */}
+        <div style={{ background: '#f8fafc', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '16px', marginBottom: '20px' }}>
+          <p style={{ margin: '0 0 4px', fontSize: '11px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '1px' }}>Consumo × Limite — Comparativo Diário</p>
+          <p style={{ margin: '0 0 12px', fontSize: '9px', color: '#94a3b8' }}>
+            <span style={{ display: 'inline-block', width: '20px', height: '3px', background: '#2563eb', verticalAlign: 'middle', marginRight: '4px' }} />Consumo (m³)
+            <span style={{ display: 'inline-block', width: '20px', height: '2px', borderTop: '2px dashed #10b981', verticalAlign: 'middle', margin: '0 4px 0 12px' }} />Limite (m³)
+          </p>
+          <AreaChart width={1000} height={180} data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+            <defs>
+              <linearGradient id="pdfConsumo" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#2563eb" stopOpacity={0.25}/><stop offset="95%" stopColor="#2563eb" stopOpacity={0}/></linearGradient>
+              <linearGradient id="pdfLimite" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.15}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/></linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#94a3b8', fontWeight: 'bold' }} />
+            <YAxis tick={{ fontSize: 9, fill: '#94a3b8', fontWeight: 'bold' }} />
+            <Area type="monotone" dataKey="consumo" stroke="#2563eb" strokeWidth={2} fill="url(#pdfConsumo)" dot={false} />
+            <Area type="monotone" dataKey="limite" stroke="#10b981" strokeWidth={1.5} strokeDasharray="5 3" fill="url(#pdfLimite)" dot={false} />
+          </AreaChart>
+        </div>
+
+        {/* Justificativas — sempre começa em nova página */}
         {justificationsList.length > 0 && (
-          <div>
-            <h3 style={{ fontSize: '14px', fontWeight: 900, color: '#1e293b', marginBottom: '15px', textTransform: 'uppercase' }}>Detalhamento de Justificativas e Ações Corretivas</h3>
+          <div style={{ pageBreakBefore: 'always', paddingTop: '10px', marginBottom: '20px' }}>
+            <h3 style={{ fontSize: '12px', fontWeight: 900, color: '#1e293b', marginBottom: '12px', textTransform: 'uppercase' }}>Detalhamento de Justificativas e Ações Corretivas</h3>
             <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
               <thead>
                 <tr style={{ background: '#f1f5f9' }}>
-                  <th style={{ width: '18%', padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 900, textAlign: 'left' }}>ESCOLA</th>
-                  <th style={{ width: '10%', padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 900, textAlign: 'center' }}>DATA</th>
-                  <th style={{ width: '8%', padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 900, textAlign: 'center' }}>EXCESSO</th>
-                  <th style={{ width: '32%', padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 900, textAlign: 'left' }}>JUSTIFICATIVA DO GESTOR</th>
-                  <th style={{ width: '32%', padding: '12px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 900, textAlign: 'left' }}>PLANO DE AÇÃO PLANEJADO</th>
+                  <th style={{ width: '18%', padding: '10px', border: '1px solid #cbd5e1', fontSize: '9px', fontWeight: 900, textAlign: 'left' }}>ESCOLA</th>
+                  <th style={{ width: '9%', padding: '10px', border: '1px solid #cbd5e1', fontSize: '9px', fontWeight: 900, textAlign: 'center' }}>DATA</th>
+                  <th style={{ width: '8%', padding: '10px', border: '1px solid #cbd5e1', fontSize: '9px', fontWeight: 900, textAlign: 'center' }}>EXCESSO</th>
+                  <th style={{ width: '32%', padding: '10px', border: '1px solid #cbd5e1', fontSize: '9px', fontWeight: 900, textAlign: 'left' }}>JUSTIFICATIVA</th>
+                  <th style={{ width: '33%', padding: '10px', border: '1px solid #cbd5e1', fontSize: '9px', fontWeight: 900, textAlign: 'left' }}>PLANO DE AÇÃO</th>
                 </tr>
               </thead>
               <tbody>
                 {justificationsList.map((log) => (
-                  <tr key={log.id}>
-                    <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase' }}>{log.school_name}</td>
-                    <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '10px', textAlign: 'center', color: '#64748b' }}>{new Date(log.date + 'T12:00:00').toLocaleDateString()}</td>
-                    <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '10px', textAlign: 'center', fontWeight: 900, color: '#ef4444' }}>+{log.consumption_diff.toFixed(2)}m³</td>
-                    <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '10px', color: '#334155', fontStyle: 'italic', wordWrap: 'break-word' }}>"{log.justification}"</td>
-                    <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontSize: '10px', color: '#1e3a8a', fontWeight: 600, wordWrap: 'break-word' }}>{log.action_plan}</td>
+                  <tr key={log.id} style={{ pageBreakInside: 'avoid' }}>
+                    <td style={{ padding: '8px 10px', border: '1px solid #cbd5e1', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase' }}>{log.school_name}</td>
+                    <td style={{ padding: '8px 10px', border: '1px solid #cbd5e1', fontSize: '9px', textAlign: 'center', color: '#64748b' }}>{new Date(log.date + 'T12:00:00').toLocaleDateString()}</td>
+                    <td style={{ padding: '8px 10px', border: '1px solid #cbd5e1', fontSize: '9px', textAlign: 'center', fontWeight: 900, color: '#ef4444' }}>+{log.consumption_diff.toFixed(2)} m³</td>
+                    <td style={{ padding: '8px 10px', border: '1px solid #cbd5e1', fontSize: '9px', color: '#334155', fontStyle: 'italic', wordWrap: 'break-word' }}>"{log.justification}"</td>
+                    <td style={{ padding: '8px 10px', border: '1px solid #cbd5e1', fontSize: '9px', color: '#1e3a8a', fontWeight: 600, wordWrap: 'break-word' }}>{log.action_plan}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1428,9 +1537,10 @@ export function ConsumoAgua() {
           </div>
         )}
 
-        <div style={{ marginTop: '40px', paddingTop: '20px', borderTop: '1px solid #e2e8f0', textAlign: 'center' }}>
-          <p style={{ fontSize: '9px', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '2px' }}>
-            Documento Emitido em {new Date().toLocaleString('pt-BR')} • Sistema SGE-GSU
+        {/* Rodapé */}
+        <div style={{ paddingTop: '16px', borderTop: '1px solid #e2e8f0', textAlign: 'center' }}>
+          <p style={{ fontSize: '9px', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '2px', margin: 0 }}>
+            Documento emitido em {new Date().toLocaleString('pt-BR')} • Sistema SGE-GSU
           </p>
         </div>
       </div>
@@ -1560,13 +1670,24 @@ export function ConsumoAgua() {
                   <label className="text-[11px] font-black uppercase tracking-widest flex items-center gap-2 text-blue-600"><Users size={14} /> Informe a quantidade</label>
                   <div className="space-y-2">
                       <span className="text-[10px] font-black text-slate-500 uppercase ml-1">Alunos</span>
-                      <input type="number" placeholder="0" className="w-full p-4 bg-white border-2 border-blue-200 rounded-2xl font-black text-slate-800 focus:border-blue-600 outline-none transition-all shadow-sm" value={formData.student_count || ''} onChange={(e) => setFormData({...formData, student_count: Number(e.target.value)})} />
+                      <input type="number" placeholder="0" min={0} max={9999} className="w-full p-4 bg-white border-2 border-blue-200 rounded-2xl font-black text-slate-800 focus:border-blue-600 outline-none transition-all shadow-sm" value={formData.student_count || ''} onChange={(e) => setFormData({...formData, student_count: Math.min(9999, Math.max(0, Number(e.target.value)))})} />
                   </div>
                   <div className="space-y-2">
                       <span className="text-[10px] font-black text-slate-500 uppercase ml-1">Funcionários</span>
-                      <input type="number" placeholder="0" className="w-full p-4 bg-white border-2 border-blue-200 rounded-2xl font-black text-slate-800 focus:border-blue-600 outline-none transition-all shadow-sm" value={formData.staff_count || ''} onChange={(e) => setFormData({...formData, staff_count: Number(e.target.value)})} />
+                      <input type="number" placeholder="0" min={0} max={9999} className="w-full p-4 bg-white border-2 border-blue-200 rounded-2xl font-black text-slate-800 focus:border-blue-600 outline-none transition-all shadow-sm" value={formData.staff_count || ''} onChange={(e) => setFormData({...formData, staff_count: Math.min(9999, Math.max(0, Number(e.target.value)))})} />
                   </div>
                 </div>
+
+                {/* Banner: Leitura Inicial */}
+                {isFirstReading && !loadingPrev && (
+                  <div className="flex items-start gap-3 p-4 bg-blue-50 border-2 border-blue-200 rounded-2xl">
+                    <AlertCircle size={18} className="text-blue-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-[11px] font-black text-blue-700 uppercase tracking-widest">Primeiro Registro</p>
+                      <p className="text-[11px] text-blue-600 mt-0.5 leading-snug">Este é o primeiro lançamento da escola. A leitura atual será salva como <strong>leitura base</strong> e o consumo ficará em <strong>0 m³</strong>. O consumo real será calculado a partir do próximo registro.</p>
+                    </div>
+                  </div>
+                )}
 
                 {/* PASSO 2: Hidrômetro */}
                 <div className={`space-y-6 p-6 rounded-[2rem] border-2 transition-all relative ${isHydrometerBlocked ? 'bg-slate-50 border-slate-100 opacity-50 grayscale' : 'bg-emerald-50/30 border-emerald-200 shadow-xl shadow-emerald-100/50'}`}>
