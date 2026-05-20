@@ -56,6 +56,7 @@ import FinanceiroAgua from './pages/ImportacaoFinanceiro';
 import MinhasTarefas from './pages/MinhasTarefas';
 import VistoriasPrediaisDashboard from './pages/biPredial'
 import Almoxarifado from './pages/Almoxarifado';
+import PrevisaoObrasFDE from './pages/PrevisaoObrasFDE';
 
 
 
@@ -136,6 +137,7 @@ const MENU_GROUPS: MenuGroup[] = [
     items: [
       { id: 'vistorias-prediais-dashboard', label: 'BI Predial', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec', 'school_manager'] },
       { id: 'obras', label: 'Obras e Reformas', icon: <HardHat size={20} className="text-orange-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'school_manager'] },
+      { id: 'previsao-obras-fde', label: 'Previsão de Obras FDE', icon: <HardHat size={20} className="text-amber-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico'] },
       { id: 'servicos', label: 'Intervenção URE', icon: <Wrench size={20} className="text-slate-400" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
       { id: 'manejo', label: 'Manejo Arbóreo', icon: <TreeDeciduous size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'elevadores', label: 'Gestão de Elevadores', icon: <ArrowUpCircle size={20} className="text-blue-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
@@ -519,6 +521,7 @@ export default function App() {
       case 'almoxarifado': return <Almoxarifado />;
       case 'vistorias-prediais-dashboard': return <VistoriasPrediaisDashboard/>;
       case 'minhas-tarefas': return <MinhasTarefas/>;
+      case 'previsao-obras-fde': return <PrevisaoObrasFDE />;
       default: return <Dashboard />;
     }
   };
