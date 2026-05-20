@@ -12,7 +12,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 
-const SHEET_ID = '18pJlNROjX524lRa_v_JmA0uUfX3NXZSur0lhp1y8wgE';
+const SHEET_ID = import.meta.env.VITE_FDE_SHEET_ID as string;
 
 interface ObraRow {
   codPredio: string;
@@ -555,13 +555,13 @@ export default function PrevisaoObrasFDE() {
               <YAxis type="category" dataKey="escola" tick={{ fontSize: 9.5, fill: '#64748b' }} width={115} />
               <Tooltip
                 contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}
-                formatter={(v: number) => [formatCurrency(v), 'Valor Orçado']}
+                formatter={(v: any) => formatCurrency(Number(v))}
               />
               <Bar dataKey="valor" fill="#f59e0b" radius={[0, 6, 6, 0]} name="Valor">
                 <LabelList
                   dataKey="valor"
                   position="right"
-                  formatter={(v: number) => `R$ ${(v / 1000).toFixed(0)}K`}
+                  formatter={(v: any) => `R$ ${(Number(v) / 1000).toFixed(0)}K`}
                   style={{ fontSize: 10, fontWeight: 700, fill: '#475569' }}
                 />
               </Bar>
