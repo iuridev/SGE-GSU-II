@@ -56,8 +56,9 @@ serve(async (req: Request) => {
       </div>`;
     } 
 
-    // --- LÓGICA 2: AGENDAMENTO AUTOMÁTICO DE AMBIENTES (CORRIGIDO PARA INTERVALO) ---
+    // --- LÓGICA 2: AGENDAMENTO AUTOMÁTICO DE AMBIENTES (DESATIVADO) ---
     else if (normalizedType === 'ROOM_SCHEDULE_AUTO') {
+      return new Response(JSON.stringify({ success: true, message: 'E-mail de ambientes desativado.' }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 });
       recipients = ['gsu.seom@educacao.sp.gov.br', 'gsu.sefisc@educacao.sp.gov.br'];
       
       // Busca reservas onde amanhã está entre a data de início e a data de fim
