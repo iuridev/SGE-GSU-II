@@ -36,6 +36,7 @@ interface WaterLog {
 interface School {
   id: string;
   name: string;
+  water_exempt?: boolean;
 }
 
 // Hidrômetro cadastrado para uma escola
@@ -124,6 +125,21 @@ export function ConsumoAgua() {
   // Escola selecionada tem múltiplos hidrômetros?
   const hasMultipleMeters = schoolMeters.length > 1;
 
+  // Escola selecionada está isenta do registro de água?
+  const selectedSchool = schools.find(s => s.id === selectedSchoolId);
+  const isWaterExempt = selectedSchool?.water_exempt === true;
+
+  async function handleToggleWaterExempt() {
+    if (!selectedSchoolId) return;
+    const newValue = !isWaterExempt;
+    const { error } = await (supabase as any)
+      .from('schools')
+      .update({ water_exempt: newValue })
+      .eq('id', selectedSchoolId);
+    if (error) { alert(`Erro ao atualizar isenção: ${error.message}`); return; }
+    setSchools(prev => prev.map(s => s.id === selectedSchoolId ? { ...s, water_exempt: newValue } : s));
+  }
+
   useEffect(() => {
     fetchInitialData();
   }, []);
@@ -192,7 +208,7 @@ export function ConsumoAgua() {
       // Busca escolas ANTES de setar qualquer estado, para que todos os setState
       // abaixo sejam batched pelo React 18 num único render — garante que schools
       // e userRole estarão disponíveis juntos quando o useEffect disparar fetchLogs.
-      const { data: schoolsData } = await (supabase as any).from('schools').select('id, name').order('name');
+      const { data: schoolsData } = await (supabase as any).from('schools').select('id, name, water_exempt').order('name');
 
       if (user) {
         setUserId(user.id);
@@ -449,7 +465,7 @@ export function ConsumoAgua() {
     // Para cada escola, verifica quantos dias passados não têm nenhum registro (excluindo suspensões)
     const schoolLateMap: Record<string, { name: string; missingDays: string[] }> = {};
 
-    schools.forEach(school => {
+    schools.filter(school => !school.water_exempt).forEach(school => {
       const schoolLogs = allMonthLogs.filter(l => l.school_id === school.id);
       const registeredDates = new Set(
         schoolLogs
@@ -1024,6 +1040,9 @@ export function ConsumoAgua() {
         }
     }
 
+    const showDispensada = isWaterExempt && !log && !isFuture && dateStr < todayStr;
+    if (showDispensada) stateClass = "bg-cyan-50 text-cyan-700 border-cyan-200";
+
     const isClickable = !!selectedSchoolId || canRegisterSuspension;
 
     return (
@@ -1055,6 +1074,8 @@ export function ConsumoAgua() {
                 </>
               )}
           </div>
+        ) : showDispensada ? (
+          <div className="text-[10px] font-black uppercase text-cyan-600 z-10 italic text-center">Dispensada</div>
         ) : !isFuture && dateStr < todayStr && selectedSchoolId ? (
           <div className="text-[10px] font-black uppercase text-red-500 z-10 italic text-center">Atrasado</div>
         ) : null}
@@ -1141,20 +1162,50 @@ export function ConsumoAgua() {
             ))}
           </div>
           {canManageMeters && (
-            <button
-              onClick={() => openMeterModal(selectedSchoolId)}
-              className="ml-auto p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
-              title="Gerenciar hidrômetros desta escola"
-            >
-              <Settings size={16} />
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              {userRole === 'regional_admin' && (
+                <button
+                  onClick={handleToggleWaterExempt}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-black border rounded-xl transition-all ${
+                    isWaterExempt
+                      ? 'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100'
+                      : 'text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 border-slate-200 hover:border-cyan-200'
+                  }`}
+                  title={isWaterExempt ? 'Remover isenção' : 'Dispensar do registro de água'}
+                >
+                  <Droplets size={12} />
+                  {isWaterExempt ? 'Isenta' : 'Dispensar'}
+                </button>
+              )}
+              <button
+                onClick={() => openMeterModal(selectedSchoolId)}
+                className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                title="Gerenciar hidrômetros desta escola"
+              >
+                <Settings size={16} />
+              </button>
+            </div>
           )}
         </div>
       )}
 
       {/* Botão para admin gerenciar hidrômetros quando escola selecionada tem apenas 1 ou nenhum */}
       {selectedSchoolId && !hasMultipleMeters && canManageMeters && (
-        <div className="flex justify-end print:hidden">
+        <div className="flex justify-end gap-2 print:hidden">
+          {userRole === 'regional_admin' && (
+            <button
+              onClick={handleToggleWaterExempt}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-black border rounded-xl transition-all ${
+                isWaterExempt
+                  ? 'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100'
+                  : 'text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 border-slate-200 hover:border-cyan-200'
+              }`}
+              title={isWaterExempt ? 'Remover isenção de registro de água' : 'Marcar escola como isenta de registro de água'}
+            >
+              <Droplets size={14} />
+              {isWaterExempt ? 'Isenta (remover)' : 'Dispensar do registro'}
+            </button>
+          )}
           <button
             onClick={() => openMeterModal(selectedSchoolId)}
             className="flex items-center gap-2 px-4 py-2 text-xs font-black text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 rounded-xl transition-all"
