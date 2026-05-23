@@ -261,7 +261,7 @@ export function PainelGerencial() {
       const opts = { scale: 2.5, useCORS: true, allowTaint: true, backgroundColor: '#ffffff' };
       const c1 = await html2canvas(printRef1.current, opts);
       const c2 = await html2canvas(printRef2.current, opts);
-      const doc = new jsPDF('landscape', 'mm', 'a3');
+      const doc = new jsPDF('landscape', 'mm', 'a4');
       const pw = doc.internal.pageSize.getWidth();
       const ph = doc.internal.pageSize.getHeight();
       doc.addImage(c1.toDataURL('image/png'), 'PNG', 0, 0, pw, ph);
@@ -289,7 +289,7 @@ export function PainelGerencial() {
       {/* ── Control bar ── */}
       <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between gap-4 sticky top-0 z-10 shadow-sm">
         <div>
-          <h2 className="font-bold text-slate-800">Painel Gerencial — Impressão (2 páginas A3)</h2>
+          <h2 className="font-bold text-slate-800">Painel Gerencial — Impressão (2 páginas A4)</h2>
           {updated && <p className="text-xs text-slate-400 mt-0.5">Dados de: {updated}</p>}
         </div>
         <div className="flex items-center gap-3">
@@ -301,7 +301,7 @@ export function PainelGerencial() {
           <button onClick={handleExportPDF} disabled={loading || exporting}
             className="flex items-center gap-2 px-5 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-sm font-bold shadow transition-all disabled:opacity-60 active:scale-95">
             {exporting ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />}
-            Gerar PDF (2 × A3)
+            Gerar PDF (2 × A4)
           </button>
         </div>
       </div>
@@ -322,7 +322,7 @@ export function PainelGerencial() {
           <div
             ref={printRef1}
             className="bg-white mx-auto overflow-hidden"
-            style={{ width: 1180, boxShadow: '0 0 40px rgba(0,0,0,0.15)' }}
+            style={{ width: 1050, boxShadow: '0 0 40px rgba(0,0,0,0.15)' }}
           >
             {/* Header */}
             <div className="relative overflow-hidden" style={{ background: headerBg }}>
@@ -444,7 +444,7 @@ export function PainelGerencial() {
           <div
             ref={printRef2}
             className="bg-white mx-auto overflow-hidden"
-            style={{ width: 1180, boxShadow: '0 0 40px rgba(0,0,0,0.15)' }}
+            style={{ width: 1050, boxShadow: '0 0 40px rgba(0,0,0,0.15)' }}
           >
             {/* Mini header – continuation banner */}
             <div className="relative overflow-hidden" style={{ background: headerBg }}>
@@ -587,7 +587,7 @@ export function PainelGerencial() {
 
 function PageLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-3 max-w-[1180px] mx-auto">
+    <div className="flex items-center gap-3 max-w-[1050px] mx-auto">
       <div className="flex-1 h-px bg-slate-300" />
       <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">{children}</span>
       <div className="flex-1 h-px bg-slate-300" />
