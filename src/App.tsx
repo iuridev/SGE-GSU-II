@@ -10,7 +10,7 @@ import {
   Star, ArrowUpCircle, HardHat, TreeDeciduous, Ticket,
   School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown,
   Bell, MessageSquare, CheckCircle, ClipboardList, ClipboardCheck,
-  Wrench, Search, CalendarCheck
+  Wrench, Search, CalendarCheck, BarChart2
 } from 'lucide-react';
 
 import { Dashboard } from './pages/Dashboard';
@@ -57,6 +57,7 @@ import MinhasTarefas from './pages/MinhasTarefas';
 import VistoriasPrediaisDashboard from './pages/biPredial'
 import Almoxarifado from './pages/Almoxarifado';
 import PrevisaoObrasFDE from './pages/PrevisaoObrasFDE';
+import { PainelGerencial } from './pages/PainelGerencial';
 
 
 
@@ -95,6 +96,7 @@ const MENU_GROUPS: MenuGroup[] = [
   {
     title: 'RELATÓRIOS',
     items: [
+      { id: 'painel-gerencial', label: 'Painel Gerencial (Impressão)', icon: <BarChart2 size={20} className="text-orange-500" />, roles: ['regional_admin', 'dirigente'] },
       { id: 'raiox', label: 'Raio-X / Vistoria', icon: <Scan size={20} className="text-indigo-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
       { id: 'relatorio-fiscalizacao', label: 'Relatórios de Fiscalização', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
       { id: 'relatorio-acesso', label: 'Relatórios de Acesso', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
@@ -522,6 +524,7 @@ export default function App() {
       case 'vistorias-prediais-dashboard': return <VistoriasPrediaisDashboard/>;
       case 'minhas-tarefas': return <MinhasTarefas/>;
       case 'previsao-obras-fde': return <PrevisaoObrasFDE />;
+      case 'painel-gerencial': return <PainelGerencial />;
       default: return <Dashboard />;
     }
   };
