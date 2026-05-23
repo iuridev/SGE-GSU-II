@@ -15,11 +15,8 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 
-const SHEET_CSV_URL =
-  'https://docs.google.com/spreadsheets/d/e/2PACX-1vQxDP4rgV07LXZsqVb6iRm9FrZupl9GNZhvTqJOsaZ8wXmyBuDRv9uweJiqxLYp7ybYCuz-xmC_67XC/pub?gid=1689661295&single=true&output=csv';
-
-const SHEET_EDIT_URL =
-  'https://docs.google.com/spreadsheets/d/1zBWrvYmRk0RJ4gx3-O2Ja6wDC73I1vwCIV4sCRkex2U/edit?gid=1689661295#gid=1689661295';
+const SHEET_CSV_URL = import.meta.env.VITE_OBRAS_CSV_URL as string;
+const SHEET_EDIT_URL = `https://docs.google.com/spreadsheets/d/${import.meta.env.VITE_ELEVADOR_SHEET_ID}/edit?gid=${import.meta.env.VITE_OBRAS_GID}#gid=${import.meta.env.VITE_OBRAS_GID}`;
 
 interface School {
   id: string;
