@@ -153,7 +153,11 @@ export function PainelGerencial() {
     );
 
     // Zeladoria
-    const zels: any[] = zelRes.data || [];
+    const zels: any[] = (zelRes.data || []).filter((z: any) =>
+      z.ocupada !== 'NÃO POSSUI' &&
+      z.ocupada !== 'NÃO HABITÁVEL' &&
+      z.ocupada !== 'NÃO HABITAVEL'
+    );
     const zelConc = zels.filter(z => z.ocupada === 'CONCLUÍDO').length;
     const zelAnd  = zels.length - zelConc;
     setZelAtivas(zelAnd);
