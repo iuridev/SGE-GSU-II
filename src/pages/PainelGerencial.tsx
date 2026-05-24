@@ -361,7 +361,7 @@ export function PainelGerencial() {
                       Painel de <span style={{ color: '#fb923c' }}>Gestão Integrada</span>
                     </h1>
                     <p className="text-slate-300 mt-1.5 text-sm">
-                      Diretoria de Ensino Região Guarulhos Sul II · Infraestrutura e Serviços
+                      Unidade Regional de Ensino Região Guarulhos Sul · Infraestrutura e Serviços
                     </p>
                   </div>
                   <div className="text-right mt-1">
@@ -589,7 +589,7 @@ export function PainelGerencial() {
                 </div>
               </div>
               <p className="text-[10px] text-slate-400">
-                Página 2 de 2 · Gerado em {updated} · Informações de uso exclusivo da Diretoria
+                Página 2 de 2 · Gerado em {updated} · Informações de uso exclusivo da URE
               </p>
             </div>
           </div>
