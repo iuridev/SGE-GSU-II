@@ -1,5 +1,5 @@
 // Importa bibliotecas essenciais do React para criar componentes, guardar estados e efeitos
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
 // Importa o cliente configurado do Supabase para conectar com o banco de dados
 import { supabase } from '../lib/supabase';
@@ -8,7 +8,7 @@ import {
   Building2, Calendar, Clock, MapPin, Users, Plus,
   Settings, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight,
   Trash2, FileDown, Loader2, X, RefreshCw, Check, XCircle, Edit3, History,
-  CalendarCheck, Info, BarChart3, TrendingUp, Award
+  CalendarCheck, Info, BarChart3, TrendingUp, Award, ListPlus, SendHorizontal, Timer, Lock
 } from 'lucide-react';
 
 // Puxa a URL oficial do Google Apps Script que configuramos no arquivo .env
@@ -122,11 +122,22 @@ export function AgendamentoNovo() {
   // Guarda a data e hora exata de quando o Sheets foi sincronizado pela última vez
   const [ultimaSincronizacao, setUltimaSincronizacao] = useState<Date | null>(null);
 
+  // === ESTADOS DE MULTI-AGENDAMENTO ===
+  const [filaAgendamentos, setFilaAgendamentos] = useState<any[]>([]);
+  const [showFilaInfo, setShowFilaInfo] = useState(false);
+
+  // === ESTADOS DE RESERVA PROVISÓRIA ===
+  const [reservaProvId, setReservaProvId] = useState<string | null>(null);
+  const [reservaExpiresAt, setReservaExpiresAt] = useState<Date | null>(null);
+  const [reservaCountdown, setReservaCountdown] = useState(0);
+  const [reservasProvisoriasAtivas, setReservasProvisoriasAtivas] = useState<any[]>([]);
+  const expiracaoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Efeito que roda assim que o componente nasce na tela
   useEffect(() => {
     // Chama a função que busca quem está logado e puxa tudo do banco
     fetchSessionAndData();
-    
+
     // Procura no disco do navegador se a gente já fez sincronização antes
     const syncSalva = localStorage.getItem('sge_gsu_last_sync');
     // Se achou um registro antigo...
@@ -134,7 +145,42 @@ export function AgendamentoNovo() {
       // Salva essa data no estado para o sistema saber quando foi
       setUltimaSincronizacao(new Date(syncSalva));
     }
+
+    // Limpa reservas provisórias que possam ter ficado penduradas de sessões anteriores
+    return () => {
+      if (expiracaoTimerRef.current) clearTimeout(expiracaoTimerRef.current);
+    };
   }, []); // Array vazio garante que roda só na montagem
+
+  // Busca periódica de locks de outros usuários (a cada 15s)
+  useEffect(() => {
+    if (!currentUser) return;
+    fetchReservasProvisoriasAtivas();
+    const interval = setInterval(fetchReservasProvisoriasAtivas, 15000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
+  // Countdown em tempo real baseado no reservaExpiresAt
+  useEffect(() => {
+    if (!reservaExpiresAt) return;
+    const interval = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((reservaExpiresAt.getTime() - Date.now()) / 1000));
+      setReservaCountdown(remaining);
+      if (remaining === 0) clearInterval(interval);
+    }, 500);
+    return () => clearInterval(interval);
+  }, [reservaExpiresAt]);
+
+  // Limpa a seleção de ambiente quando o lock é removido automaticamente pelo useEffect de horário
+  useEffect(() => {
+    if (!agendamentoForm.ambiente_id && reservaProvId) {
+      (supabase as any).from('reservas_provisorias').delete().eq('id', reservaProvId);
+      setReservaProvId(null);
+      setReservaExpiresAt(null);
+      setReservaCountdown(0);
+      if (expiracaoTimerRef.current) clearTimeout(expiracaoTimerRef.current);
+    }
+  }, [agendamentoForm.ambiente_id]);
 
   // === LÓGICAS MEMORIZADAS (USEMEMO) ===
   
@@ -241,8 +287,20 @@ export function AgendamentoNovo() {
     if (data) setAgendamentos(data); // Salva no state
   }
 
+  // Busca locks provisórios de outros usuários que ainda não expiraram
+  async function fetchReservasProvisoriasAtivas() {
+    if (!currentUser) return;
+    const agora = new Date().toISOString();
+    const { data } = await (supabase as any)
+      .from('reservas_provisorias')
+      .select('*')
+      .gt('expires_at', agora)
+      .neq('user_id', currentUser.id);
+    if (data) setReservasProvisoriasAtivas(data);
+  }
+
   // Lógica matemática para saber se uma sala já está ocupada naquele dia e hora
-  const obterStatusAmbiente = (ambienteId: string, ignorarAgendamentoId?: string) => {
+  const obterStatusAmbiente = (ambienteId: string, ignorarAgendamentoId?: string): 'livre' | 'ocupado' | 'reservado' => {
     // Se o cara nem terminou de preencher a hora no formulário, a gente diz que tá livre
     if (!agendamentoForm.data_agendamento || !agendamentoForm.hora_inicio || !agendamentoForm.hora_fim) return 'livre';
 
@@ -253,22 +311,40 @@ export function AgendamentoNovo() {
     // Vasculha o array de agendamentos pra ver se tem choque
     const conflito = agendamentos.some(ag => {
       // Ignora se for cancelado ou reprovado (porque esses não ocupam sala)
-      if (ag.status === 'reprovado' || ag.status === 'cancelado') return false; 
+      if (ag.status === 'reprovado' || ag.status === 'cancelado') return false;
       // Se o admin tá editando o evento, ignora o próprio evento pra não dar falso positivo
       if (ignorarAgendamentoId && ag.id === ignorarAgendamentoId) return false;
       // Se a sala for diferente ou o dia for diferente, tá liberado
       if (ag.ambiente_id !== ambienteId || ag.data_agendamento !== agendamentoForm.data_agendamento) return false;
-      
+
       // Cria as datas de mentira dos eventos velhos pra comparar
       const agInicio = new Date(`1970-01-01T${ag.hora_inicio}`);
       const agFim = new Date(`1970-01-01T${ag.hora_fim}`);
-      
+
       // Regra da intersecção: O que ele digitou começa antes do evento velho terminar E termina depois dele começar?
       return (formInicio < agFim && formFim > agInicio); // Se sim, BATEU!
     });
+    if (conflito) return 'ocupado';
 
-    // Devolve 'ocupado' se achou choque, senão 'livre'
-    return conflito ? 'ocupado' : 'livre';
+    // Verifica se outro usuário tem uma reserva provisória ativa para este horário
+    const reservado = reservasProvisoriasAtivas.some(r => {
+      if (r.ambiente_id !== ambienteId || r.data_agendamento !== agendamentoForm.data_agendamento) return false;
+      const rInicio = new Date(`1970-01-01T${r.hora_inicio}`);
+      const rFim = new Date(`1970-01-01T${r.hora_fim}`);
+      return (formInicio < rFim && formFim > rInicio);
+    });
+    if (reservado) return 'reservado';
+
+    // Verifica conflito com itens já adicionados à fila local (para não duplicar)
+    const conflitofila = filaAgendamentos.some(ag => {
+      if (ag.ambiente_id !== ambienteId || ag.data_agendamento !== agendamentoForm.data_agendamento) return false;
+      const agInicio = new Date(`1970-01-01T${ag.hora_inicio}`);
+      const agFim = new Date(`1970-01-01T${ag.hora_fim}`);
+      return (formInicio < agFim && formFim > agInicio);
+    });
+    if (conflitofila) return 'ocupado';
+
+    return 'livre';
   };
 
   // Fica observando o usuário preencher o formulário
@@ -412,48 +488,158 @@ export function AgendamentoNovo() {
     }
   };
 
-  // Botão principal do plebeu: Pedir uma sala
+  // Botão laranja: envia o formulário atual (se preenchido) + todos os itens da fila de uma vez
   const handleAgendar = async (e: React.FormEvent) => {
-    e.preventDefault(); // Sem refresh na página
-    setErrorMsg(''); // Some mensagens vermelhas
-    setSuccessMsg(''); // Some mensagens verdes
+    e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
 
-    // Acha na memória a sala que o usuário selecionou no dropdown
+    const formTemAmbiente = !!agendamentoForm.ambiente_id;
+
+    // Se o form tem ambiente selecionado, valida os campos e inclui no lote
+    if (formTemAmbiente) {
+      if (!agendamentoForm.titulo_evento || !agendamentoForm.quantidade_pessoas) {
+        setErrorMsg('Preencha o título e a quantidade de pessoas antes de solicitar.');
+        return;
+      }
+      const ambienteSelecionado = ambientes.find(a => a.id === agendamentoForm.ambiente_id);
+      if (Number(agendamentoForm.quantidade_pessoas) > (ambienteSelecionado?.capacidade || 0)) {
+        setErrorMsg(`A capacidade máxima deste ambiente é de ${ambienteSelecionado?.capacidade} pessoas.`);
+        return;
+      }
+    } else if (filaAgendamentos.length === 0) {
+      setErrorMsg('Selecione um ambiente ou adicione itens à lista antes de solicitar.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const userName = currentUser.user_metadata?.full_name || currentUser.email.split('@')[0];
+
+      // Monta o lote: itens da fila + item do formulário (somente se tiver ambiente selecionado)
+      const inserts = [
+        ...filaAgendamentos.map(ag => ({
+          data_agendamento: ag.data_agendamento,
+          hora_inicio: ag.hora_inicio,
+          hora_fim: ag.hora_fim,
+          ambiente_id: ag.ambiente_id,
+          titulo_evento: ag.titulo_evento,
+          quantidade_pessoas: Number(ag.quantidade_pessoas),
+          observacao: ag.observacao || '',
+          user_id: currentUser.id,
+          user_name: userName,
+          status: 'pendente',
+        })),
+        ...(formTemAmbiente ? [{
+          ...agendamentoForm,
+          quantidade_pessoas: Number(agendamentoForm.quantidade_pessoas),
+          user_id: currentUser.id,
+          user_name: userName,
+          status: 'pendente',
+        }] : []),
+      ];
+
+      const { error } = await (supabase as any).from('agendamentos_ambientes').insert(inserts);
+      if (error) throw error;
+
+      const total = inserts.length;
+      setSuccessMsg(
+        total > 1
+          ? `${total} agendamentos solicitados com sucesso! Aguarde a aprovação.`
+          : 'Agendamento solicitado com sucesso! Aguarde a aprovação.'
+      );
+      setFilaAgendamentos([]);
+      setShowFilaInfo(false);
+      setAgendamentoForm(getFormDefaults());
+      fetchAgendamentos();
+      setTimeout(() => setActiveTab('calendario'), 2000);
+    } catch (err: any) {
+      setErrorMsg(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Seleciona um ambiente e cria um lock provisório de 2 min no banco
+  const handleSelecionarAmbiente = async (novoAmbienteId: string) => {
+    setAgendamentoForm(prev => ({ ...prev, ambiente_id: novoAmbienteId }));
+
+    // Cancela timer e apaga reserva anterior
+    if (expiracaoTimerRef.current) clearTimeout(expiracaoTimerRef.current);
+    if (reservaProvId) {
+      await (supabase as any).from('reservas_provisorias').delete().eq('id', reservaProvId);
+      setReservaProvId(null);
+      setReservaExpiresAt(null);
+      setReservaCountdown(0);
+    }
+
+    if (!novoAmbienteId || !agendamentoForm.data_agendamento || !agendamentoForm.hora_inicio || !agendamentoForm.hora_fim || !currentUser) return;
+
+    const expiresAt = new Date(Date.now() + 2 * 60 * 1000);
+    const { data, error } = await (supabase as any)
+      .from('reservas_provisorias')
+      .insert([{
+        ambiente_id: novoAmbienteId,
+        data_agendamento: agendamentoForm.data_agendamento,
+        hora_inicio: agendamentoForm.hora_inicio,
+        hora_fim: agendamentoForm.hora_fim,
+        user_id: currentUser.id,
+        expires_at: expiresAt.toISOString(),
+      }])
+      .select('id')
+      .single();
+
+    if (!error && data) {
+      const reservaId = data.id;
+      setReservaProvId(reservaId);
+      setReservaExpiresAt(expiresAt);
+
+      // Auto-limpeza quando o tempo acabar
+      expiracaoTimerRef.current = setTimeout(() => {
+        setAgendamentoForm(prev =>
+          prev.ambiente_id === novoAmbienteId ? { ...prev, ambiente_id: '' } : prev
+        );
+        setReservaProvId(prev => (prev === reservaId ? null : prev));
+        setReservaExpiresAt(null);
+        setReservaCountdown(0);
+        setErrorMsg('O tempo de reserva do ambiente expirou. Por favor, selecione-o novamente.');
+      }, 2 * 60 * 1000);
+    }
+  };
+
+  // Adiciona o formulário atual à fila de envio em lote
+  const handleAdicionarAFila = () => {
+    setErrorMsg('');
     const ambienteSelecionado = ambientes.find(a => a.id === agendamentoForm.ambiente_id);
-    // Compara a lotação. Se estourar a capacidade, xinga e barra!
+
+    if (!agendamentoForm.ambiente_id || !agendamentoForm.titulo_evento || !agendamentoForm.quantidade_pessoas) {
+      setErrorMsg('Preencha todos os campos obrigatórios antes de adicionar à lista.');
+      return;
+    }
     if (Number(agendamentoForm.quantidade_pessoas) > (ambienteSelecionado?.capacidade || 0)) {
       setErrorMsg(`A capacidade máxima deste ambiente é de ${ambienteSelecionado?.capacidade} pessoas.`);
       return;
     }
 
-    setLoading(true); // Gira!
-    try {
-      // Pega o nome amigável do perfil, se o cara não tiver nome no banco, usa antes do @ do e-mail
-      const userName = currentUser.user_metadata?.full_name || currentUser.email.split('@')[0];
-      
-      // INSERT na tabela principal
-      const { error } = await (supabase as any).from('agendamentos_ambientes').insert([{
-        ...agendamentoForm, // Despeja datas, horas, títulos...
-        quantidade_pessoas: Number(agendamentoForm.quantidade_pessoas),
-        user_id: currentUser.id, // Amarra na conta do Supabase Auth
-        user_name: userName, // Põe o nomezinho ali
-        status: 'pendente' // Começa sempre bloqueado pro chefe ver
-      }]);
+    setFilaAgendamentos(prev => [...prev, {
+      ...agendamentoForm,
+      ambienteNome: ambienteSelecionado?.nome || '',
+    }]);
 
-      if (error) throw error; // Erro vai pro log
-
-      setSuccessMsg('Agendamento solicitado com sucesso! Aguarde a aprovação.');
-      setAgendamentoForm(getFormDefaults()); // Limpa campos
-      fetchAgendamentos(); // Atualiza painel invisivelmente
-      
-      // Transição mágica: Pula pra aba do calendário dps de 2 segundos pro cara se certificar que ta lá
-      setTimeout(() => setActiveTab('calendario'), 2000);
-    } catch (err: any) {
-      setErrorMsg(err.message); // Se der erro exibe em vermelho
-    } finally {
-      setLoading(false);
+    // Libera a reserva provisória (o item vai para a fila, não precisa mais do lock)
+    if (expiracaoTimerRef.current) clearTimeout(expiracaoTimerRef.current);
+    if (reservaProvId) {
+      (supabase as any).from('reservas_provisorias').delete().eq('id', reservaProvId);
+      setReservaProvId(null);
+      setReservaExpiresAt(null);
+      setReservaCountdown(0);
     }
+
+    // Reseta o form mantendo apenas a data para facilitar múltiplos agendamentos no mesmo dia
+    setAgendamentoForm(prev => ({ ...getFormDefaults(), data_agendamento: prev.data_agendamento }));
+    setShowFilaInfo(true);
   };
+
 
   // Aba Gerenciar: O Admin constrói um novo império (Sala)
   const handleCriarAmbiente = async (e: React.FormEvent) => {
@@ -1366,10 +1552,15 @@ export function AgendamentoNovo() {
                       </div>
 
                       <div className="flex flex-wrap items-center justify-end gap-2 w-full md:w-auto">
-                        {currentUser?.id === b.user_id && b.status !== 'cancelado' && (
-                           <button onClick={() => cancelarMeuAgendamento(b)} className="px-3 py-2 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all">
-                              Cancelar Meu Agendamento
-                           </button>
+                        {/* Cancelar: dono do agendamento ou admin podem cancelar qualquer um não cancelado/reprovado */}
+                        {(currentUser?.id === b.user_id || userRole === 'regional_admin') &&
+                          b.status !== 'cancelado' && b.status !== 'reprovado' && (
+                          <button
+                            onClick={() => cancelarMeuAgendamento(b)}
+                            className="px-3 py-2 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all"
+                          >
+                            {currentUser?.id === b.user_id ? 'Cancelar Meu Agendamento' : 'Cancelar'}
+                          </button>
                         )}
 
                         {userRole === 'regional_admin' && (
@@ -1395,160 +1586,280 @@ export function AgendamentoNovo() {
 
       {/* CONTEÚDO DA ABA 2: AGENDAR (FORMULÁRIO PRINCIPAL DE PEDIR SALA) */}
       {activeTab === 'agendar' && (
-        <div className="max-w-3xl mx-auto bg-white p-10 rounded-[3rem] shadow-xl border border-slate-100">
-          <div className="mb-8">
-            <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Novo Agendamento</h2>
-            <p className="text-sm font-bold text-slate-400 mt-1">Seu pedido passará por aprovação da administração.</p>
-          </div>
+        <div className="max-w-3xl mx-auto space-y-6">
 
-          {errorMsg && (
-             <div className="mb-6 p-4 bg-red-50 text-red-700 border border-red-200 rounded-2xl flex items-center gap-3 font-bold text-sm">
-               <AlertTriangle size={20} /> {errorMsg}
-             </div>
-          )}
-          {successMsg && (
-             <div className="mb-6 p-4 bg-amber-50 text-amber-700 border border-amber-200 rounded-2xl flex items-center gap-3 font-bold text-sm">
-               <Clock size={20} /> {successMsg}
-             </div>
-          )}
-
-          <form onSubmit={handleAgendar} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-6 bg-slate-50 border border-slate-100 rounded-3xl">
+          {/* FORMULÁRIO */}
+          <div className="bg-white p-10 rounded-[3rem] shadow-xl border border-slate-100">
+            <div className="mb-8 flex items-start justify-between gap-4">
               <div>
-                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Data do Evento *</label>
-                <input 
-                  type="date" required
-                  value={agendamentoForm.data_agendamento}
-                  onChange={e => setAgendamentoForm({...agendamentoForm, data_agendamento: e.target.value})}
-                  className="w-full bg-white border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                />
+                <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Novo Agendamento</h2>
+                <p className="text-sm font-bold text-slate-400 mt-1">Seu pedido passará por aprovação da administração.</p>
               </div>
-              <div>
-                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Hora de Início *</label>
-                <input 
-                  type="time" required
-                  value={agendamentoForm.hora_inicio}
-                  onChange={e => setAgendamentoForm({...agendamentoForm, hora_inicio: e.target.value})}
-                  className="w-full bg-white border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Hora de Término *</label>
-                <input 
-                  type="time" required
-                  value={agendamentoForm.hora_fim}
-                  onChange={e => setAgendamentoForm({...agendamentoForm, hora_fim: e.target.value})}
-                  className="w-full bg-white border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Ambiente Disponível *</label>
-                <select 
-                  required
-                  value={agendamentoForm.ambiente_id}
-                  onChange={e => setAgendamentoForm({...agendamentoForm, ambiente_id: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-60 transition-all"
-                  disabled={!agendamentoForm.data_agendamento || !agendamentoForm.hora_inicio || !agendamentoForm.hora_fim}
-                >
-                  <option value="">
-                    {(!agendamentoForm.data_agendamento || !agendamentoForm.hora_inicio || !agendamentoForm.hora_fim) 
-                      ? 'Preencha a data e hora acima primeiro' 
-                      : 'Selecione a sala livre'}
-                  </option>
-                  {ambientes.map(a => {
-                    // Impede o cara de selecionar sala que já tem gente dentro naquele horário
-                    const status = obterStatusAmbiente(a.id); 
-                    return (
-                      <option key={a.id} value={a.id} disabled={status === 'ocupado'} className={status === 'ocupado' ? 'text-red-500 bg-red-50' : ''}>
-                        {a.nome} (Até {a.capacidade} pess.) {status === 'ocupado' ? ' - ⚠️ OCUPADO' : ''}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Título do Evento *</label>
-                <input 
-                  type="text" required
-                  value={agendamentoForm.titulo_evento}
-                  onChange={e => setAgendamentoForm({...agendamentoForm, titulo_evento: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
-                  placeholder="Ex: Reunião de Planejamento"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-              <div className="md:col-span-4">
-                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Qtd. de Pessoas *</label>
-                <input 
-                  type="number" min="1" required
-                  value={agendamentoForm.quantidade_pessoas}
-                  onChange={e => setAgendamentoForm({...agendamentoForm, quantidade_pessoas: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
-                  placeholder="Ex: 15"
-                />
-              </div>
-              <div className="md:col-span-8">
-                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Observação (Opcional)</label>
-                <input 
-                  type="text"
-                  value={agendamentoForm.observacao}
-                  onChange={e => setAgendamentoForm({...agendamentoForm, observacao: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
-                  placeholder="Ex: Necessário projetor e caixa de som."
-                />
-              </div>
-            </div>
-
-            <button 
-              type="submit" disabled={loading || !agendamentoForm.ambiente_id}
-              className="w-full py-4 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl transition-all disabled:opacity-50 mt-4"
-            >
-              {loading ? 'Processando...' : 'Solicitar Agendamento'}
-            </button>
-          </form>
-
-          {/* O "Mini Calendário" que dá um spoiler de como tá o dia no rodapé do formulário */}
-          {agendamentoForm.data_agendamento && (
-            <div className="mt-10 p-6 bg-slate-50 border border-slate-200 rounded-[2rem] animate-in slide-in-from-bottom-2">
-              <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-4 flex items-center gap-2">
-                <Calendar size={18} className="text-indigo-500"/>
-                Agendamentos da Regional no dia {agendamentoForm.data_agendamento.split('-').reverse().join('/')}
-              </h3>
-              
-              {agendamentosDoDiaSelecionado.length > 0 ? (
-                <div className="space-y-3">
-                  {agendamentosDoDiaSelecionado.map(ag => (
-                    <div key={ag.id} className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-sm font-bold text-slate-600">
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-                        <div className="flex items-center gap-2 text-amber-600 bg-amber-50 px-3 py-1 rounded-lg">
-                          <Clock size={14} />
-                          <span>{ag.hora_inicio.slice(0,5)} às {ag.hora_fim.slice(0,5)}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Building2 size={16} className="text-indigo-400" />
-                          <span className="uppercase text-indigo-700">{ag.ambientes?.nome}</span>
-                        </div>
-                      </div>
-                      <span className="text-slate-400 truncate max-w-[150px] sm:max-w-[200px] text-xs uppercase hidden sm:block">
-                        {ag.titulo_evento}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-6 text-slate-400">
-                  <CheckCircle2 size={32} className="mx-auto mb-2 opacity-50 text-emerald-500" />
-                  <p className="text-sm font-bold">Nenhum ambiente reservado para esta data ainda.</p>
-                  <p className="text-xs mt-1">Todas as salas estão livres.</p>
+              {filaAgendamentos.length > 0 && (
+                <div className="shrink-0 flex items-center gap-2 bg-indigo-50 border border-indigo-200 text-indigo-700 px-4 py-2 rounded-2xl">
+                  <ListPlus size={16} />
+                  <span className="text-xs font-black uppercase tracking-widest">{filaAgendamentos.length} na lista</span>
                 </div>
               )}
             </div>
+
+            {errorMsg && (
+              <div className="mb-6 p-4 bg-red-50 text-red-700 border border-red-200 rounded-2xl flex items-center gap-3 font-bold text-sm">
+                <AlertTriangle size={20} /> {errorMsg}
+              </div>
+            )}
+            {successMsg && (
+              <div className="mb-6 p-4 bg-amber-50 text-amber-700 border border-amber-200 rounded-2xl flex items-center gap-3 font-bold text-sm">
+                <Clock size={20} /> {successMsg}
+              </div>
+            )}
+
+            <form onSubmit={handleAgendar} noValidate className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-6 bg-slate-50 border border-slate-100 rounded-3xl">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Data do Evento *</label>
+                  <input
+                    type="date" required
+                    value={agendamentoForm.data_agendamento}
+                    onChange={e => setAgendamentoForm({...agendamentoForm, data_agendamento: e.target.value})}
+                    className="w-full bg-white border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Hora de Início *</label>
+                  <input
+                    type="time" required
+                    value={agendamentoForm.hora_inicio}
+                    onChange={e => setAgendamentoForm({...agendamentoForm, hora_inicio: e.target.value})}
+                    className="w-full bg-white border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Hora de Término *</label>
+                  <input
+                    type="time" required
+                    value={agendamentoForm.hora_fim}
+                    onChange={e => setAgendamentoForm({...agendamentoForm, hora_fim: e.target.value})}
+                    className="w-full bg-white border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-xs font-black text-slate-500 uppercase tracking-widest">Ambiente Disponível *</label>
+                    {/* Badge de countdown visível quando um ambiente está reservado pelo usuário */}
+                    {reservaCountdown > 0 && agendamentoForm.ambiente_id && (
+                      <span className={`flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-widest ${reservaCountdown <= 30 ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-amber-100 text-amber-700'}`}>
+                        <Timer size={12} />
+                        {String(Math.floor(reservaCountdown / 60)).padStart(2, '0')}:{String(reservaCountdown % 60).padStart(2, '0')} restantes
+                      </span>
+                    )}
+                  </div>
+                  <select
+                    required
+                    value={agendamentoForm.ambiente_id}
+                    onChange={e => handleSelecionarAmbiente(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-60 transition-all"
+                    disabled={!agendamentoForm.data_agendamento || !agendamentoForm.hora_inicio || !agendamentoForm.hora_fim}
+                  >
+                    <option value="">
+                      {(!agendamentoForm.data_agendamento || !agendamentoForm.hora_inicio || !agendamentoForm.hora_fim)
+                        ? 'Preencha a data e hora acima primeiro'
+                        : 'Selecione a sala livre'}
+                    </option>
+                    {ambientes.map(a => {
+                      const status = obterStatusAmbiente(a.id);
+                      return (
+                        <option key={a.id} value={a.id} disabled={status !== 'livre'}>
+                          {a.nome} (Até {a.capacidade} pess.)
+                          {status === 'ocupado' ? ' — ⚠️ OCUPADO' : status === 'reservado' ? ' — 🔒 EM AGENDAMENTO (outro usuário)' : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  {/* Aviso de countdown com barra de progresso */}
+                  {reservaCountdown > 0 && agendamentoForm.ambiente_id && (
+                    <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                      <p className="text-[11px] font-bold text-amber-700 flex items-center gap-1.5">
+                        <Lock size={11} />
+                        Ambiente reservado temporariamente para você. Finalize o agendamento antes que o tempo expire.
+                      </p>
+                      <div className="mt-2 h-1.5 bg-amber-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-1000 ${reservaCountdown <= 30 ? 'bg-red-500' : 'bg-amber-400'}`}
+                          style={{ width: `${(reservaCountdown / 120) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Título do Evento *</label>
+                  <input
+                    type="text" required
+                    value={agendamentoForm.titulo_evento}
+                    onChange={e => setAgendamentoForm({...agendamentoForm, titulo_evento: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="Ex: Reunião de Planejamento"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+                <div className="md:col-span-4">
+                  <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Qtd. de Pessoas *</label>
+                  <input
+                    type="number" min="1" required
+                    value={agendamentoForm.quantidade_pessoas}
+                    onChange={e => setAgendamentoForm({...agendamentoForm, quantidade_pessoas: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="Ex: 15"
+                  />
+                </div>
+                <div className="md:col-span-8">
+                  <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Observação (Opcional)</label>
+                  <input
+                    type="text"
+                    value={agendamentoForm.observacao}
+                    onChange={e => setAgendamentoForm({...agendamentoForm, observacao: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="Ex: Necessário projetor e caixa de som."
+                  />
+                </div>
+              </div>
+
+              {/* Botões de ação do formulário */}
+              <div className="flex flex-col sm:flex-row gap-3 mt-4">
+                {/* Adicionar à lista (para envio em lote) */}
+                <button
+                  type="button"
+                  onClick={handleAdicionarAFila}
+                  disabled={!agendamentoForm.ambiente_id}
+                  className="flex-1 py-4 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-2xl font-black text-sm uppercase tracking-widest transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+                >
+                  <ListPlus size={18} /> Adicionar à Lista
+                </button>
+                {/* Enviar formulário atual + tudo da fila */}
+                <button
+                  type="submit"
+                  disabled={loading || (!agendamentoForm.ambiente_id && filaAgendamentos.length === 0)}
+                  className="flex-1 py-4 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {loading ? <Loader2 size={18} className="animate-spin" /> : <SendHorizontal size={18} />}
+                  {loading
+                    ? 'Processando...'
+                    : filaAgendamentos.length > 0 && !agendamentoForm.ambiente_id
+                      ? `Enviar Lista (${filaAgendamentos.length})`
+                      : filaAgendamentos.length > 0
+                        ? `Solicitar Todos (${filaAgendamentos.length + 1})`
+                        : 'Solicitar Agendamento'}
+                </button>
+              </div>
+
+              {/* Aviso exibido ao clicar em "Adicionar à Lista" */}
+              {showFilaInfo && (
+                <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-2xl flex items-start gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <Info size={20} className="text-blue-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-black text-blue-800">Agendamento adicionado à lista — mas ainda não foi salvo!</p>
+                    <p className="text-xs font-semibold text-blue-600 mt-1">
+                      Este botão serve para quem precisa agendar mais de um ambiente de uma vez. Adicione quantos precisar e, ao terminar, preencha o último e clique em <strong>"Solicitar Todos"</strong> — todos serão enviados juntos.
+                    </p>
+                  </div>
+                  <button onClick={() => setShowFilaInfo(false)} className="text-blue-400 hover:text-blue-600 shrink-0 transition-colors">
+                    <X size={16} />
+                  </button>
+                </div>
+              )}
+            </form>
+
+            {/* Mini Calendário do dia */}
+            {agendamentoForm.data_agendamento && (
+              <div className="mt-10 p-6 bg-slate-50 border border-slate-200 rounded-[2rem] animate-in slide-in-from-bottom-2">
+                <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-4 flex items-center gap-2">
+                  <Calendar size={18} className="text-indigo-500"/>
+                  Agendamentos da Regional no dia {agendamentoForm.data_agendamento.split('-').reverse().join('/')}
+                </h3>
+                {agendamentosDoDiaSelecionado.length > 0 ? (
+                  <div className="space-y-3">
+                    {agendamentosDoDiaSelecionado.map(ag => (
+                      <div key={ag.id} className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-sm font-bold text-slate-600">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                          <div className="flex items-center gap-2 text-amber-600 bg-amber-50 px-3 py-1 rounded-lg">
+                            <Clock size={14} />
+                            <span>{ag.hora_inicio.slice(0,5)} às {ag.hora_fim.slice(0,5)}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Building2 size={16} className="text-indigo-400" />
+                            <span className="uppercase text-indigo-700">{ag.ambientes?.nome}</span>
+                          </div>
+                        </div>
+                        <span className="text-slate-400 truncate max-w-[150px] sm:max-w-[200px] text-xs uppercase hidden sm:block">
+                          {ag.titulo_evento}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-6 text-slate-400">
+                    <CheckCircle2 size={32} className="mx-auto mb-2 opacity-50 text-emerald-500" />
+                    <p className="text-sm font-bold">Nenhum ambiente reservado para esta data ainda.</p>
+                    <p className="text-xs mt-1">Todas as salas estão livres.</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* FILA DE AGENDAMENTOS PARA ENVIO EM LOTE */}
+          {filaAgendamentos.length > 0 && (
+            <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-indigo-100 animate-in slide-in-from-bottom-4 duration-300">
+              <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-100">
+                <div className="p-3 bg-indigo-100 text-indigo-600 rounded-2xl">
+                  <ListPlus size={22} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Lista de Agendamentos</h3>
+                  <p className="text-xs font-bold text-slate-400 mt-0.5">
+                    {filaAgendamentos.length} agendamento(s) acumulado(s) — serão enviados juntos ao clicar em <span className="text-amber-600">"Solicitar"</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {filaAgendamentos.map((ag, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-4 bg-indigo-50 border border-indigo-100 rounded-2xl gap-4">
+                    <div className="flex items-center gap-4 min-w-0">
+                      <span className="w-7 h-7 rounded-full bg-indigo-200 text-indigo-700 text-xs font-black flex items-center justify-center shrink-0">{idx + 1}</span>
+                      <div className="min-w-0">
+                        <p className="font-black text-slate-800 uppercase text-sm truncate">{ag.titulo_evento}</p>
+                        <div className="flex flex-wrap items-center gap-3 mt-1 text-xs font-bold text-slate-500">
+                          <span className="flex items-center gap-1"><Calendar size={11} className="text-indigo-400"/> {ag.data_agendamento.split('-').reverse().join('/')}</span>
+                          <span className="flex items-center gap-1"><Clock size={11} className="text-indigo-400"/> {ag.hora_inicio.slice(0,5)} às {ag.hora_fim.slice(0,5)}</span>
+                          <span className="flex items-center gap-1"><Building2 size={11} className="text-indigo-400"/> {ag.ambienteNome}</span>
+                          <span className="flex items-center gap-1"><Users size={11} className="text-indigo-400"/> {ag.quantidade_pessoas} pess.</span>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setFilaAgendamentos(prev => prev.filter((_, i) => i !== idx))}
+                      className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all shrink-0"
+                      title="Remover da lista"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-center text-[11px] font-bold text-slate-400 mt-4 uppercase tracking-widest">
+                Preencha mais um agendamento acima e clique em "Solicitar Todos" para enviar tudo junto
+              </p>
+            </div>
           )}
+
         </div>
       )}
 
@@ -1600,7 +1911,9 @@ export function AgendamentoNovo() {
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0 border-t md:border-t-0 md:border-l border-slate-200 pt-3 md:pt-0 md:pl-4">
-                    {b.status === 'pendente' && (
+                    {/* Admin pode editar qualquer status; usuário comum só edita quando pendente */}
+                    {(b.status === 'pendente' || userRole === 'regional_admin') &&
+                      b.status !== 'cancelado' && b.status !== 'reprovado' && (
                       <button
                         onClick={() => abrirModalEdicao(b)}
                         className="px-4 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5"

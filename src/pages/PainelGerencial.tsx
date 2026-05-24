@@ -262,15 +262,28 @@ export function PainelGerencial() {
     if (!printRef1.current || !printRef2.current) return;
     setExporting(true);
     try {
-      const opts = { scale: 2.5, useCORS: true, allowTaint: true, backgroundColor: '#ffffff' };
+      const opts = { scale: 2, useCORS: true, allowTaint: true, backgroundColor: '#ffffff' };
       const c1 = await html2canvas(printRef1.current, opts);
       const c2 = await html2canvas(printRef2.current, opts);
-      const doc = new jsPDF('landscape', 'mm', 'a4');
+      const doc = new jsPDF('portrait', 'mm', 'a4');
       const pw = doc.internal.pageSize.getWidth();
       const ph = doc.internal.pageSize.getHeight();
-      doc.addImage(c1.toDataURL('image/png'), 'PNG', 0, 0, pw, ph);
+
+      const addFit = (canvas: HTMLCanvasElement) => {
+        const ratio = canvas.width / canvas.height;
+        const pageRatio = pw / ph;
+        let w, h, x, y;
+        if (ratio > pageRatio) {
+          w = pw; h = pw / ratio; x = 0; y = (ph - h) / 2;
+        } else {
+          h = ph; w = ph * ratio; x = (pw - w) / 2; y = 0;
+        }
+        doc.addImage(canvas.toDataURL('image/png'), 'PNG', x, y, w, h);
+      };
+
+      addFit(c1);
       doc.addPage();
-      doc.addImage(c2.toDataURL('image/png'), 'PNG', 0, 0, pw, ph);
+      addFit(c2);
       doc.save(`painel-gerencial-${new Date().toISOString().split('T')[0]}.pdf`);
     } catch (e) { console.error(e); alert('Erro ao gerar PDF.'); }
     finally { setExporting(false); }
@@ -293,7 +306,7 @@ export function PainelGerencial() {
       {/* ── Control bar ── */}
       <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between gap-4 sticky top-0 z-10 shadow-sm">
         <div>
-          <h2 className="font-bold text-slate-800">Painel Gerencial — Impressão (2 páginas A4)</h2>
+          <h2 className="font-bold text-slate-800">Painel Gerencial — Impressão (2 páginas A4 retrato)</h2>
           {updated && <p className="text-xs text-slate-400 mt-0.5">Dados de: {updated}</p>}
         </div>
         <div className="flex items-center gap-3">
@@ -326,7 +339,7 @@ export function PainelGerencial() {
           <div
             ref={printRef1}
             className="bg-white mx-auto overflow-hidden"
-            style={{ width: 1050, boxShadow: '0 0 40px rgba(0,0,0,0.15)' }}
+            style={{ width: 794, boxShadow: '0 0 40px rgba(0,0,0,0.15)' }}
           >
             {/* Header */}
             <div className="relative overflow-hidden" style={{ background: headerBg }}>
@@ -448,7 +461,7 @@ export function PainelGerencial() {
           <div
             ref={printRef2}
             className="bg-white mx-auto overflow-hidden"
-            style={{ width: 1050, boxShadow: '0 0 40px rgba(0,0,0,0.15)' }}
+            style={{ width: 794, boxShadow: '0 0 40px rgba(0,0,0,0.15)' }}
           >
             {/* Mini header – continuation banner */}
             <div className="relative overflow-hidden" style={{ background: headerBg }}>
@@ -591,7 +604,7 @@ export function PainelGerencial() {
 
 function PageLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-3 max-w-[1050px] mx-auto">
+    <div className="flex items-center gap-3 max-w-[794px] mx-auto">
       <div className="flex-1 h-px bg-slate-300" />
       <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">{children}</span>
       <div className="flex-1 h-px bg-slate-300" />

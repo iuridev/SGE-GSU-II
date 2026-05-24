@@ -107,7 +107,6 @@ const MENU_GROUPS: MenuGroup[] = [
     title: 'SEOM-SEFISC',
     items: [
       { id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <ClipboardList size={20} className="text-slate-400" />, roles: ['regional_admin', 'dirigente'] },
-      { id: 'fluxo', label: 'Fluxo de Pessoas (em teste)', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'ure_servico'] },
     ]
   },
   {
