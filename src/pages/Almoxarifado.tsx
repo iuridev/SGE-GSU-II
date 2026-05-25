@@ -634,19 +634,39 @@ export default function Almoxarifado() {
                         </div>
                         <form id={`form-${sol.id}`}>
                           <div className="space-y-2 mb-3">
-                            {sol.itens.map(it => (
-                              <div key={it.id} className="flex items-center justify-between bg-white rounded-xl p-2.5 border border-gray-100">
-                                <div>
-                                  <p className="text-xs font-semibold text-gray-700">{it.item_nome}</p>
-                                  <p className="text-xs text-gray-400">{it.item_unidade} · Pediu: {it.quantidade_solicitada}</p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs font-semibold text-blue-600">Aprovar:</span>
-                                  <input type="number" min="0" name={`q-${it.id}`} defaultValue={it.quantidade_solicitada}
-                                    className="w-16 border border-gray-200 rounded-lg text-center text-sm py-1 outline-none focus:border-blue-500 bg-white" />
+                            {sol.itens.map(it => {
+                              const estoqueItem = itens.find(i => i.id === it.item_id);
+                              const disponivel = estoqueItem?.quantidade ?? null;
+                              const excede = disponivel !== null && it.quantidade_solicitada > disponivel;
+                              return (
+                              <div key={it.id} className={`rounded-xl p-2.5 border ${excede ? 'bg-amber-50 border-amber-300' : 'bg-white border-gray-100'}`}>
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-semibold text-gray-700">{it.item_nome}</p>
+                                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                                      <p className="text-xs text-gray-400">Pediu: <b className="text-gray-600">{it.quantidade_solicitada}</b> {it.item_unidade}</p>
+                                      {disponivel !== null && (
+                                        <p className={`text-xs font-semibold ${excede ? 'text-red-600' : 'text-emerald-600'}`}>
+                                          Estoque: {disponivel} {it.item_unidade}
+                                        </p>
+                                      )}
+                                    </div>
+                                    {excede && (
+                                      <p className="flex items-center gap-1 text-xs text-amber-700 font-semibold mt-1">
+                                        <AlertTriangle size={11} className="shrink-0" />
+                                        Pedido excede o estoque em {it.quantidade_solicitada - disponivel!} {it.item_unidade}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <span className="text-xs font-semibold text-blue-600">Aprovar:</span>
+                                    <input type="number" min="0" name={`q-${it.id}`} defaultValue={it.quantidade_solicitada}
+                                      className="w-16 border border-gray-200 rounded-lg text-center text-sm py-1 outline-none focus:border-blue-500 bg-white" />
+                                  </div>
                                 </div>
                               </div>
-                            ))}
+                            );
+                            })}
                           </div>
                           <input type="text" name="obs" placeholder="Observações (opcional)"
                             className="w-full text-sm p-2.5 mb-3 border border-gray-200 rounded-xl outline-none focus:border-blue-500" />
