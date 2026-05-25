@@ -168,6 +168,10 @@ export default function Almoxarifado() {
   const adicionarAoCarrinho = (item: Item, qtd: number) => {
     if (qtd <= 0) return;
     const existente = cart.find(c => c.item.id === item.id);
+    const totalQtd = existente ? existente.quantidade_solicitada + qtd : qtd;
+    if (totalQtd > item.quantidade) {
+      alert(`Atenção: a quantidade solicitada (${totalQtd} ${item.unidade || 'Unidade'}(s)) pode exceder o estoque atual. O almoxarife avaliará a disponibilidade na hora da aprovação.`);
+    }
     if (existente) {
       setCart(cart.map(c => c.item.id === item.id ? { ...c, quantidade_solicitada: c.quantidade_solicitada + qtd } : c));
     } else {
@@ -346,9 +350,7 @@ export default function Almoxarifado() {
                   <div key={item.id} className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-blue-200 transition-all flex flex-col gap-3">
                     <div>
                       <p className="font-semibold text-gray-800 text-sm leading-snug">{item.nome}</p>
-                      <p className="text-xs text-gray-400 mt-1">
-                        Disponível: <span className="font-bold text-emerald-600">{item.quantidade}</span> {item.unidade || 'Unidade'}(s)
-                      </p>
+                      <p className="text-xs text-gray-400 mt-1">{item.unidade || 'Unidade'}(s)</p>
                     </div>
                     <div className="flex gap-2 mt-auto">
                       <input
@@ -391,13 +393,18 @@ export default function Almoxarifado() {
               ) : (
                 <ul className="space-y-2 mb-5 max-h-56 overflow-y-auto">
                   {cart.map(c => (
-                    <li key={c.item.id} className="flex justify-between items-center bg-blue-50 rounded-xl px-3 py-2 text-sm">
-                      <div>
+                    <li key={c.item.id} className={`flex justify-between items-center rounded-xl px-3 py-2 text-sm ${c.quantidade_solicitada > c.item.quantidade ? 'bg-amber-50 border border-amber-200' : 'bg-blue-50'}`}>
+                      <div className="flex-1 min-w-0">
                         <p className="font-semibold text-gray-800 text-xs">{c.item.nome}</p>
                         <p className="text-xs text-gray-500">{c.quantidade_solicitada} {c.item.unidade || 'Unidade'}(s)</p>
+                        {c.quantidade_solicitada > c.item.quantidade && (
+                          <p className="flex items-center gap-1 text-xs text-amber-600 font-medium mt-0.5">
+                            <AlertTriangle size={11} /> Quantidade pode exceder o estoque
+                          </p>
+                        )}
                       </div>
                       <button onClick={() => setCart(cart.filter(x => x.item.id !== c.item.id))}
-                        className="text-red-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition-colors">
+                        className="text-red-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition-colors ml-2 shrink-0">
                         <Trash2 size={14} />
                       </button>
                     </li>
