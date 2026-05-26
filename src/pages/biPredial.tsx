@@ -152,8 +152,8 @@ export default function VistoriasPrediaisDashboard() {
     reader.onload = async (e) => {
       try {
         const arrayBuffer = e.target?.result as ArrayBuffer;
-        const workbook = xlsx.read(arrayBuffer, { type: 'array', codepage: 65001 });
-        const jsonSheet: any[] = xlsx.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+        const workbook = xlsx.read(arrayBuffer, { type: 'array', codepage: 65001, cellDates: true });
+        const jsonSheet: any[] = xlsx.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { raw: false });
         const normalizedSheet = jsonSheet.map(row => {
           const cleanRow: any = {};
           Object.keys(row).forEach(key => { cleanRow[key.replace(/^\uFEFF/, '').trim()] = row[key]; });
@@ -170,9 +170,24 @@ export default function VistoriasPrediaisDashboard() {
         normalizedSheet.forEach(row => {
           const cieCode = extractCieFromName(row['Unidade de Ensino']);
           if (!cieCode || !schoolMap.has(cieCode)) return;
-          const rawDate = String(row['Data']).split(' ')[0];
-          const [d, m, y] = rawDate.split('/');
-          const inspectionDate = y && m && d ? `${y}-${m}-${d}` : rawDate;
+          const dateVal = row['Data'];
+          let inspectionDate: string;
+          if (dateVal instanceof Date) {
+            const y = dateVal.getFullYear();
+            const m = String(dateVal.getMonth() + 1).padStart(2, '0');
+            const d = String(dateVal.getDate()).padStart(2, '0');
+            inspectionDate = `${y}-${m}-${d}`;
+          } else if (typeof dateVal === 'number') {
+            // Excel serial date fallback
+            const jsDate = new Date(Math.round((dateVal - 25569) * 86400 * 1000));
+            const y = jsDate.getUTCFullYear();
+            const m = String(jsDate.getUTCMonth() + 1).padStart(2, '0');
+            const d = String(jsDate.getUTCDate()).padStart(2, '0');
+            inspectionDate = `${y}-${m}-${d}`;
+          } else {
+            const parts = String(dateVal).split(' ')[0].split('/');
+            inspectionDate = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : String(dateVal);
+          }
           Object.keys(row).forEach(col => {
             if (META_COLUMNS.has(col)) return;
             const numericScore = SCORE_MAP[String(row[col]).trim().toUpperCase()];
