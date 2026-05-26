@@ -153,7 +153,7 @@ export default function VistoriasPrediaisDashboard() {
       try {
         const arrayBuffer = e.target?.result as ArrayBuffer;
         const workbook = xlsx.read(arrayBuffer, { type: 'array', codepage: 65001, cellDates: true });
-        const jsonSheet: any[] = xlsx.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { raw: false });
+        const jsonSheet: any[] = xlsx.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
         const normalizedSheet = jsonSheet.map(row => {
           const cleanRow: any = {};
           Object.keys(row).forEach(key => { cleanRow[key.replace(/^\uFEFF/, '').trim()] = row[key]; });
