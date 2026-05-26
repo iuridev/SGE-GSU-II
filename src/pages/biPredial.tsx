@@ -170,7 +170,9 @@ export default function VistoriasPrediaisDashboard() {
         normalizedSheet.forEach(row => {
           const cieCode = extractCieFromName(row['Unidade de Ensino']);
           if (!cieCode || !schoolMap.has(cieCode)) return;
-          const inspectionDate = String(row['Data']).split(' ')[0];
+          const rawDate = String(row['Data']).split(' ')[0];
+          const [d, m, y] = rawDate.split('/');
+          const inspectionDate = y && m && d ? `${y}-${m}-${d}` : rawDate;
           Object.keys(row).forEach(col => {
             if (META_COLUMNS.has(col)) return;
             const numericScore = SCORE_MAP[String(row[col]).trim().toUpperCase()];
