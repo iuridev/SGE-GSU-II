@@ -204,21 +204,19 @@ export function Zeladoria() {
       await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
       const element = document.getElementById('zeladoria-report-template');
       if (!element) throw new Error("Template de relatório não encontrado.");
-      element.style.display = 'block';
       const opt = {
         margin: [10, 10, 10, 10],
         filename: `Resumo_Estatistico_Zeladoria_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '_')}.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, letterRendering: true, width: 1120 },
+        html2canvas: { scale: 2, useCORS: true, letterRendering: true, width: 1080, logging: false },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
         pagebreak: { mode: ['css', 'legacy'] }
       };
       await (window as any).html2pdf().set(opt).from(element).save();
-      element.style.display = 'none';
-      setExporting(false);
     } catch (err) {
       console.error(err);
       alert("Houve um erro ao gerar o PDF. Tente novamente.");
+    } finally {
       setExporting(false);
     }
   };
@@ -343,25 +341,149 @@ export function Zeladoria() {
     <div className="space-y-6 pb-20 relative">
 
       {/* Template Oculto para PDF */}
-      <div id="zeladoria-report-template" style={{ display: 'none', background: 'white', width: '1080px', padding: '40px' }}>
-          {/* ... (O conteúdo do PDF continua inalterado) ... */}
-          <div style={{ borderBottom: '6px solid #2563eb', paddingBottom: '20px', marginBottom: '30px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <tbody>
-                    <tr>
-                        <td style={{ border: 'none' }}>
-                            <h1 style={{ margin: 0, fontSize: '28px', fontWeight: 900, color: '#0f172a' }}>RELATÓRIO ESTATÍSTICO: GESTÃO DE ZELADORIAS</h1>
-                            <p style={{ margin: 0, fontSize: '11px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '2px' }}>CONSOLIDADO REGIONAL DE INDICADORES E OCUPAÇÃO</p>
-                        </td>
-                        <td style={{ border: 'none', textAlign: 'right' }}>
-                            <p style={{ margin: 0, fontWeight: 900, fontSize: '14px', color: '#1e293b' }}>{new Date().toLocaleDateString('pt-BR')}</p>
-                            <p style={{ margin: 0, fontSize: '9px', color: '#94a3b8', fontWeight: 800 }}>SGE-GSU INTELLIGENCE</p>
-                        </td>
-                    </tr>
-                  </tbody>
-              </table>
+      <div
+        id="zeladoria-report-template"
+        style={{ position: 'fixed', left: '-9999px', top: 0, background: 'white', width: '1080px', padding: '40px', fontFamily: 'Arial, sans-serif' }}
+      >
+        {/* Cabeçalho */}
+        <div style={{ borderBottom: '6px solid #2563eb', paddingBottom: '20px', marginBottom: '30px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 900, color: '#0f172a' }}>RELATÓRIO ESTATÍSTICO: GESTÃO DE ZELADORIAS</h1>
+            <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '2px' }}>CONSOLIDADO REGIONAL DE INDICADORES E OCUPAÇÃO</p>
           </div>
-          {/* ... */}
+          <div style={{ textAlign: 'right' }}>
+            <p style={{ margin: 0, fontWeight: 900, fontSize: '14px', color: '#1e293b' }}>{new Date().toLocaleDateString('pt-BR')}</p>
+            <p style={{ margin: '2px 0 0', fontSize: '9px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>SGE-GSU INTELLIGENCE</p>
+          </div>
+        </div>
+
+        {/* KPIs */}
+        <div style={{ display: 'flex', gap: '16px', marginBottom: '30px' }}>
+          {[
+            { label: 'Zeladorias Ativas', value: stats.totalValidas, color: '#2563eb', bg: '#eff6ff' },
+            { label: 'Processos Concluídos', value: stats.concluidos, color: '#059669', bg: '#ecfdf5' },
+            { label: 'Vagas Disponíveis', value: stats.vagas, color: '#d97706', bg: '#fffbeb' },
+          ].map(kpi => (
+            <div key={kpi.label} style={{ flex: 1, background: kpi.bg, border: `2px solid ${kpi.color}22`, borderRadius: '16px', padding: '20px', textAlign: 'center' }}>
+              <p style={{ margin: 0, fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px' }}>{kpi.label}</p>
+              <p style={{ margin: '8px 0 0', fontSize: '40px', fontWeight: 900, color: kpi.color, lineHeight: 1 }}>{kpi.value}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Distribuição por Etapas */}
+        <div style={{ marginBottom: '30px', background: '#f8fafc', borderRadius: '16px', padding: '24px' }}>
+          <h2 style={{ margin: '0 0 20px', fontSize: '13px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '1px' }}>
+            Distribuição por Etapas do Fluxo
+          </h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {statusChartData.filter(s => s.quantidade > 0).map(stage => {
+              const maxVal = Math.max(...statusChartData.map(s => s.quantidade), 1);
+              const pct = (stage.quantidade / maxVal) * 100;
+              const isConcluido = stage.name === 'CONCLUÍDO';
+              return (
+                <div key={stage.name} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ width: '200px', fontSize: '9px', fontWeight: 700, color: '#475569', textAlign: 'right', flexShrink: 0 }}>
+                    {stage.name}
+                  </div>
+                  <div style={{ flex: 1, background: '#e2e8f0', borderRadius: '6px', height: '20px', overflow: 'hidden' }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: isConcluido ? '#10b981' : '#3b82f6', borderRadius: '6px', transition: 'none' }} />
+                  </div>
+                  <div style={{ width: '28px', fontSize: '11px', fontWeight: 900, color: isConcluido ? '#059669' : '#2563eb', flexShrink: 0 }}>
+                    {stage.quantidade}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* DARE + Resumo lado a lado */}
+        <div style={{ display: 'flex', gap: '16px', marginBottom: '30px' }}>
+          {/* DARE */}
+          <div style={{ flex: 1, background: '#f8fafc', borderRadius: '16px', padding: '24px' }}>
+            <h2 style={{ margin: '0 0 16px', fontSize: '13px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '1px' }}>
+              Situação DARE
+            </h2>
+            {dareChartData.map(item => (
+              <div key={item.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #e2e8f0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: item.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#334155' }}>{item.name}</span>
+                </div>
+                <span style={{ fontSize: '18px', fontWeight: 900, color: item.color }}>{item.value}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Resumo rápido */}
+          <div style={{ flex: 1, background: '#f8fafc', borderRadius: '16px', padding: '24px' }}>
+            <h2 style={{ margin: '0 0 16px', fontSize: '13px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '1px' }}>
+              Progresso Geral
+            </h2>
+            <div style={{ marginBottom: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b' }}>Taxa de Conclusão</span>
+                <span style={{ fontSize: '13px', fontWeight: 900, color: '#059669' }}>
+                  {stats.totalValidas > 0 ? Math.round((stats.concluidos / stats.totalValidas) * 100) : 0}%
+                </span>
+              </div>
+              <div style={{ width: '100%', height: '12px', background: '#e2e8f0', borderRadius: '6px', overflow: 'hidden' }}>
+                <div style={{ width: `${stats.totalValidas > 0 ? (stats.concluidos / stats.totalValidas) * 100 : 0}%`, height: '100%', background: '#10b981', borderRadius: '6px' }} />
+              </div>
+            </div>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b' }}>Vagas em Aberto</span>
+                <span style={{ fontSize: '13px', fontWeight: 900, color: '#d97706' }}>
+                  {stats.totalValidas > 0 ? Math.round((stats.vagas / stats.totalValidas) * 100) : 0}%
+                </span>
+              </div>
+              <div style={{ width: '100%', height: '12px', background: '#e2e8f0', borderRadius: '6px', overflow: 'hidden' }}>
+                <div style={{ width: `${stats.totalValidas > 0 ? (stats.vagas / stats.totalValidas) * 100 : 0}%`, height: '100%', background: '#f59e0b', borderRadius: '6px' }} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Listagem de Zeladorias */}
+        <div style={{ background: '#f8fafc', borderRadius: '16px', padding: '24px' }}>
+          <h2 style={{ margin: '0 0 16px', fontSize: '13px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '1px' }}>
+            Listagem de Processos Ativos
+          </h2>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px' }}>
+            <thead>
+              <tr style={{ background: '#1e293b' }}>
+                {['UE', 'Escola', 'SEI', 'Zelador', 'Etapa Atual', 'DARE', 'Validade'].map(h => (
+                  <th key={h} style={{ padding: '8px 10px', color: '#fff', fontWeight: 800, textAlign: 'left', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {activeData.map((item, idx) => (
+                <tr key={item.id} style={{ background: idx % 2 === 0 ? '#fff' : '#f1f5f9' }}>
+                  <td style={{ padding: '7px 10px', color: '#475569', fontWeight: 700 }}>{item.ue || '-'}</td>
+                  <td style={{ padding: '7px 10px', color: '#1e293b', fontWeight: 700, maxWidth: '200px' }}>{item.nome}</td>
+                  <td style={{ padding: '7px 10px', color: '#3b82f6', fontFamily: 'monospace', fontSize: '9px' }}>{item.sei_numero || '-'}</td>
+                  <td style={{ padding: '7px 10px', color: '#475569' }}>{item.zelador || 'Disponível'}</td>
+                  <td style={{ padding: '7px 10px' }}>
+                    <span style={{ background: item.ocupada === 'CONCLUÍDO' ? '#d1fae5' : '#dbeafe', color: item.ocupada === 'CONCLUÍDO' ? '#065f46' : '#1d4ed8', padding: '2px 6px', borderRadius: '4px', fontWeight: 800, fontSize: '9px' }}>
+                      {item.ocupada}
+                    </span>
+                  </td>
+                  <td style={{ padding: '7px 10px', color: '#475569' }}>{item.dare || '-'}</td>
+                  <td style={{ padding: '7px 10px', color: '#475569' }}>{item.ate ? new Date(item.ate).toLocaleDateString('pt-BR') : '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Rodapé */}
+        <div style={{ marginTop: '24px', borderTop: '2px solid #e2e8f0', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <p style={{ margin: 0, fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>DOCUMENTO GERADO AUTOMATICAMENTE PELO SISTEMA SGE-GSU</p>
+          <p style={{ margin: 0, fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>{new Date().toLocaleString('pt-BR')}</p>
+        </div>
       </div>
 
       {/* CABEÇALHO */}
