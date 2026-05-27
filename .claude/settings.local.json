@@ -5,7 +5,8 @@
       "Bash(powershell -Command \"\\(Get-Content 'c:\\\\Users\\\\Iuri Barreto\\\\Documents\\\\PROJETOS\\\\SGE-GSU-II\\\\src\\\\pages\\\\AgendamentoCarros.tsx' -Raw\\) -replace 'normalize\\\\\\(.NFD.\\\\\\)\\\\s*\\\\n\\\\s*\\\\.replace\\\\\\(/\\\\[.*?\\\\]/g, ..\\\\\\)', 'normalize\\(''NFD''\\)' + [Environment]::NewLine + '    .replace\\(/[̀-ͯ]/g, ''''\\)' | Set-Content 'c:\\\\Users\\\\Iuri Barreto\\\\Documents\\\\PROJETOS\\\\SGE-GSU-II\\\\src\\\\pages\\\\AgendamentoCarros.tsx' -Encoding utf8\")",
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Iuri Barreto\\\\Documents\\\\PROJETOS\\\\SGE-GSU-II\" -Force)",
       "Bash(Select-Object Name, PSIsContainer)",
-      "WebFetch(domain:docs.google.com)"
+      "WebFetch(domain:docs.google.com)",
+      "WebFetch(domain:doc-14-00-sheets.googleusercontent.com)"
     ]
   }
 }
