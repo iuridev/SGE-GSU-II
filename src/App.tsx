@@ -58,6 +58,7 @@ import VistoriasPrediaisDashboard from './pages/biPredial'
 import Almoxarifado from './pages/Almoxarifado';
 import PrevisaoObrasFDE from './pages/PrevisaoObrasFDE';
 import { PainelGerencial } from './pages/PainelGerencial';
+import EstacionamentoCarros from './pages/EstacionamentoCarros';
 
 
 
@@ -163,6 +164,7 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
       { id: 'ambientes', label: 'Reservas Antigo', icon: <Building size={20} />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
       { id: 'carros', label: 'Carros Oficiais', icon: <Car size={20} />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
+      { id: 'estacionamento', label: 'Controle de Estacionamento', icon: <Car size={20} className="text-indigo-400" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
       { id: 'reunioes', label: 'Calendário', icon: <Calendar size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
     ]
   },
@@ -492,6 +494,7 @@ export default function App() {
       case 'obras': return <Obras />;
       case 'manejo': return <ManejoArboreo />;
       case 'carros': return <AgendamentoCarros />;
+      case 'estacionamento': return <EstacionamentoCarros />;
       case 'ambientes': return <AgendamentoAmbientes />;
       case 'tutoriais': return <Tutoriais />;
       case 'fiscalizacao': return <Fiscalizacao />;
