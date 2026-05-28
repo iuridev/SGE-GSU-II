@@ -635,7 +635,7 @@ export default function App() {
         </div>
       </aside>
 
-      {isSidebarOpen && <div className="fixed inset-0 bg-slate-900/50 z-40 lg:hidden backdrop-blur-sm" onClick={() => setIsSidebarOpen(false)} />}
+      {isSidebarOpen && <div className="fixed inset-0 bg-slate-900/50 z-40 lg:hidden backdrop-blur-sm print:hidden" onClick={() => setIsSidebarOpen(false)} />}
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden h-screen print:h-auto print:overflow-visible print:w-full print:block">
         <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-6 lg:px-8 shrink-0 relative z-40 print:hidden shadow-sm">

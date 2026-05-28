@@ -191,28 +191,170 @@ export function Zeladoria() {
   const handleExportPDF = async () => {
     setExporting(true);
     try {
-      const loadScript = (src: string) => {
-        return new Promise((resolve, reject) => {
-          if (document.querySelector(`script[src="${src}"]`)) return resolve(true);
-          const script = document.createElement('script');
-          script.src = src;
-          script.onload = resolve;
-          script.onerror = reject;
-          document.head.appendChild(script);
-        });
-      };
-      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
-      const element = document.getElementById('zeladoria-report-template');
-      if (!element) throw new Error("Template de relatório não encontrado.");
-      const opt = {
-        margin: [10, 10, 10, 10],
-        filename: `Resumo_Estatistico_Zeladoria_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '_')}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, letterRendering: true, width: 1080, logging: false },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
-        pagebreak: { mode: ['css', 'legacy'] }
-      };
-      await (window as any).html2pdf().set(opt).from(element).save();
+      const loadScript = (src: string) => new Promise((resolve, reject) => {
+        if (document.querySelector(`script[src="${src}"]`)) return resolve(true);
+        const s = document.createElement('script');
+        s.src = src; s.onload = resolve; s.onerror = reject;
+        document.head.appendChild(s);
+      });
+      await Promise.all([
+        loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'),
+        loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'),
+      ]);
+
+      const maxVal = Math.max(...statusChartData.map(s => s.quantidade), 1);
+      const conclusaoPct = stats.totalValidas > 0 ? Math.round((stats.concluidos / stats.totalValidas) * 100) : 0;
+      const vagasPct = stats.totalValidas > 0 ? Math.round((stats.vagas / stats.totalValidas) * 100) : 0;
+      const isentos = dareChartData.find(d => d.name === 'Isentas')?.value ?? 0;
+      const pagantes = dareChartData.find(d => d.name === 'Não Isentas')?.value ?? 0;
+
+      const stagesHtml = statusChartData.filter(s => s.quantidade > 0).map(stage => {
+        const pct = Math.round((stage.quantidade / maxVal) * 100);
+        const color = stage.name === 'CONCLUÍDO' ? '#10b981' : '#3b82f6';
+        return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:7px;">
+          <div style="width:190px;font-size:9px;font-weight:700;color:#475569;text-align:right;flex-shrink:0;">${stage.name}</div>
+          <div style="flex:1;background:#e2e8f0;border-radius:4px;height:16px;">
+            <div style="width:${pct}%;height:100%;background:${color};border-radius:4px;"></div>
+          </div>
+          <div style="width:22px;font-size:11px;font-weight:900;color:${color};flex-shrink:0;">${stage.quantidade}</div>
+        </div>`;
+      }).join('');
+
+      const tableRowsHtml = activeData.map((item, idx) => {
+        const bg = idx % 2 === 0 ? '#ffffff' : '#f1f5f9';
+        const sBg = item.ocupada === 'CONCLUÍDO' ? '#d1fae5' : '#dbeafe';
+        const sColor = item.ocupada === 'CONCLUÍDO' ? '#065f46' : '#1d4ed8';
+        const val = item.ate ? new Date(item.ate).toLocaleDateString('pt-BR') : '-';
+        return `<tr style="background:${bg};">
+          <td style="padding:6px 8px;color:#475569;font-weight:700;">${item.ue || '-'}</td>
+          <td style="padding:6px 8px;color:#1e293b;font-weight:700;">${item.nome || '-'}</td>
+          <td style="padding:6px 8px;color:#3b82f6;font-family:monospace;font-size:9px;">${item.sei_numero || '-'}</td>
+          <td style="padding:6px 8px;color:#475569;">${item.zelador || 'Disponível'}</td>
+          <td style="padding:6px 8px;"><span style="background:${sBg};color:${sColor};padding:2px 5px;border-radius:4px;font-weight:800;font-size:8px;">${item.ocupada}</span></td>
+          <td style="padding:6px 8px;color:#475569;">${item.dare || '-'}</td>
+          <td style="padding:6px 8px;color:#475569;">${val}</td>
+        </tr>`;
+      }).join('');
+
+      const html = `<div style="background:white;width:1080px;padding:40px;font-family:Arial,sans-serif;box-sizing:border-box;">
+        <div style="border-bottom:6px solid #2563eb;padding-bottom:18px;margin-bottom:28px;display:flex;justify-content:space-between;align-items:flex-end;">
+          <div>
+            <h1 style="margin:0;font-size:22px;font-weight:900;color:#0f172a;">RELATÓRIO ESTATÍSTICO: GESTÃO DE ZELADORIAS</h1>
+            <p style="margin:4px 0 0;font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:2px;">CONSOLIDADO REGIONAL DE INDICADORES E OCUPAÇÃO</p>
+          </div>
+          <div style="text-align:right;">
+            <p style="margin:0;font-weight:900;font-size:13px;color:#1e293b;">${new Date().toLocaleDateString('pt-BR')}</p>
+            <p style="margin:2px 0 0;font-size:9px;color:#94a3b8;font-weight:700;">SGE-GSU INTELLIGENCE</p>
+          </div>
+        </div>
+        <div style="display:flex;gap:14px;margin-bottom:24px;">
+          <div style="flex:1;background:#eff6ff;border:2px solid #bfdbfe;border-radius:14px;padding:18px;text-align:center;">
+            <p style="margin:0;font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;">Zeladorias Ativas</p>
+            <p style="margin:6px 0 0;font-size:38px;font-weight:900;color:#2563eb;line-height:1;">${stats.totalValidas}</p>
+          </div>
+          <div style="flex:1;background:#ecfdf5;border:2px solid #a7f3d0;border-radius:14px;padding:18px;text-align:center;">
+            <p style="margin:0;font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;">Processos Concluídos</p>
+            <p style="margin:6px 0 0;font-size:38px;font-weight:900;color:#059669;line-height:1;">${stats.concluidos}</p>
+          </div>
+          <div style="flex:1;background:#fffbeb;border:2px solid #fde68a;border-radius:14px;padding:18px;text-align:center;">
+            <p style="margin:0;font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;">Vagas Disponíveis</p>
+            <p style="margin:6px 0 0;font-size:38px;font-weight:900;color:#d97706;line-height:1;">${stats.vagas}</p>
+          </div>
+        </div>
+        <div style="display:flex;gap:14px;margin-bottom:24px;">
+          <div style="flex:2;background:#f8fafc;border-radius:14px;padding:20px;">
+            <h2 style="margin:0 0 16px;font-size:12px;font-weight:900;color:#1e293b;text-transform:uppercase;letter-spacing:1px;">Distribuição por Etapas do Fluxo</h2>
+            ${stagesHtml}
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:14px;">
+            <div style="flex:1;background:#f8fafc;border-radius:14px;padding:20px;">
+              <h2 style="margin:0 0 12px;font-size:12px;font-weight:900;color:#1e293b;text-transform:uppercase;">Situação DARE</h2>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #e2e8f0;">
+                <div style="display:flex;align-items:center;gap:8px;"><div style="width:11px;height:11px;border-radius:50%;background:#10b981;"></div><span style="font-size:11px;font-weight:700;color:#334155;">Isentas</span></div>
+                <span style="font-size:16px;font-weight:900;color:#10b981;">${isentos}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;">
+                <div style="display:flex;align-items:center;gap:8px;"><div style="width:11px;height:11px;border-radius:50%;background:#3b82f6;"></div><span style="font-size:11px;font-weight:700;color:#334155;">Não Isentas</span></div>
+                <span style="font-size:16px;font-weight:900;color:#3b82f6;">${pagantes}</span>
+              </div>
+            </div>
+            <div style="flex:1;background:#f8fafc;border-radius:14px;padding:20px;">
+              <h2 style="margin:0 0 12px;font-size:12px;font-weight:900;color:#1e293b;text-transform:uppercase;">Progresso Geral</h2>
+              <p style="margin:0 0 4px;font-size:10px;font-weight:700;color:#64748b;">Conclusão: <b style="color:#059669;">${conclusaoPct}%</b></p>
+              <div style="width:100%;height:10px;background:#e2e8f0;border-radius:5px;overflow:hidden;margin-bottom:14px;">
+                <div style="width:${conclusaoPct}%;height:100%;background:#10b981;border-radius:5px;"></div>
+              </div>
+              <p style="margin:0 0 4px;font-size:10px;font-weight:700;color:#64748b;">Vagas em aberto: <b style="color:#d97706;">${vagasPct}%</b></p>
+              <div style="width:100%;height:10px;background:#e2e8f0;border-radius:5px;overflow:hidden;">
+                <div style="width:${vagasPct}%;height:100%;background:#f59e0b;border-radius:5px;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="background:#f8fafc;border-radius:14px;padding:20px;">
+          <h2 style="margin:0 0 14px;font-size:12px;font-weight:900;color:#1e293b;text-transform:uppercase;letter-spacing:1px;">Listagem de Processos Ativos</h2>
+          <table style="width:100%;border-collapse:collapse;font-size:10px;">
+            <thead>
+              <tr style="background:#1e293b;">
+                <th style="padding:7px 8px;color:#fff;font-weight:800;text-align:left;text-transform:uppercase;font-size:9px;">UE</th>
+                <th style="padding:7px 8px;color:#fff;font-weight:800;text-align:left;text-transform:uppercase;font-size:9px;">Escola</th>
+                <th style="padding:7px 8px;color:#fff;font-weight:800;text-align:left;text-transform:uppercase;font-size:9px;">SEI</th>
+                <th style="padding:7px 8px;color:#fff;font-weight:800;text-align:left;text-transform:uppercase;font-size:9px;">Zelador</th>
+                <th style="padding:7px 8px;color:#fff;font-weight:800;text-align:left;text-transform:uppercase;font-size:9px;">Etapa</th>
+                <th style="padding:7px 8px;color:#fff;font-weight:800;text-align:left;text-transform:uppercase;font-size:9px;">DARE</th>
+                <th style="padding:7px 8px;color:#fff;font-weight:800;text-align:left;text-transform:uppercase;font-size:9px;">Validade</th>
+              </tr>
+            </thead>
+            <tbody>${tableRowsHtml}</tbody>
+          </table>
+        </div>
+        <div style="margin-top:20px;border-top:2px solid #e2e8f0;padding-top:14px;display:flex;justify-content:space-between;">
+          <p style="margin:0;font-size:8px;color:#94a3b8;font-weight:700;">DOCUMENTO GERADO AUTOMATICAMENTE PELO SISTEMA SGE-GSU</p>
+          <p style="margin:0;font-size:8px;color:#94a3b8;font-weight:700;">${new Date().toLocaleString('pt-BR')}</p>
+        </div>
+      </div>`;
+
+      const container = document.createElement('div');
+      container.style.cssText = 'position:absolute;top:-9999px;left:0;width:1080px;background:white;';
+      container.innerHTML = html;
+      document.body.appendChild(container);
+
+      await new Promise(r => setTimeout(r, 300));
+
+      const containerHeight = container.scrollHeight;
+      const canvas = await (window as any).html2canvas(container, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        width: 1080,
+        height: containerHeight,
+        windowWidth: 1080,
+        windowHeight: containerHeight,
+        onclone: (_clonedDoc: Document, clonedEl: HTMLElement) => {
+          clonedEl.style.position = 'static';
+          clonedEl.style.top = '0';
+          clonedEl.style.left = '0';
+        },
+      });
+
+      document.body.removeChild(container);
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const { jsPDF } = (window as any).jspdf;
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const pw = pdf.internal.pageSize.getWidth();
+      const ph = pdf.internal.pageSize.getHeight();
+      const imgH = (canvas.height * pw) / canvas.width;
+
+      let yOffset = 0;
+      while (yOffset < imgH) {
+        if (yOffset > 0) pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 0, -yOffset, pw, imgH);
+        yOffset += ph;
+      }
+
+      pdf.save(`Resumo_Estatistico_Zeladoria_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '_')}.pdf`);
     } catch (err) {
       console.error(err);
       alert("Houve um erro ao gerar o PDF. Tente novamente.");
@@ -339,152 +481,6 @@ export function Zeladoria() {
 
   return (
     <div className="space-y-6 pb-20 relative">
-
-      {/* Template Oculto para PDF */}
-      <div
-        id="zeladoria-report-template"
-        style={{ position: 'fixed', left: '-9999px', top: 0, background: 'white', width: '1080px', padding: '40px', fontFamily: 'Arial, sans-serif' }}
-      >
-        {/* Cabeçalho */}
-        <div style={{ borderBottom: '6px solid #2563eb', paddingBottom: '20px', marginBottom: '30px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 900, color: '#0f172a' }}>RELATÓRIO ESTATÍSTICO: GESTÃO DE ZELADORIAS</h1>
-            <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '2px' }}>CONSOLIDADO REGIONAL DE INDICADORES E OCUPAÇÃO</p>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <p style={{ margin: 0, fontWeight: 900, fontSize: '14px', color: '#1e293b' }}>{new Date().toLocaleDateString('pt-BR')}</p>
-            <p style={{ margin: '2px 0 0', fontSize: '9px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>SGE-GSU INTELLIGENCE</p>
-          </div>
-        </div>
-
-        {/* KPIs */}
-        <div style={{ display: 'flex', gap: '16px', marginBottom: '30px' }}>
-          {[
-            { label: 'Zeladorias Ativas', value: stats.totalValidas, color: '#2563eb', bg: '#eff6ff' },
-            { label: 'Processos Concluídos', value: stats.concluidos, color: '#059669', bg: '#ecfdf5' },
-            { label: 'Vagas Disponíveis', value: stats.vagas, color: '#d97706', bg: '#fffbeb' },
-          ].map(kpi => (
-            <div key={kpi.label} style={{ flex: 1, background: kpi.bg, border: `2px solid ${kpi.color}22`, borderRadius: '16px', padding: '20px', textAlign: 'center' }}>
-              <p style={{ margin: 0, fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px' }}>{kpi.label}</p>
-              <p style={{ margin: '8px 0 0', fontSize: '40px', fontWeight: 900, color: kpi.color, lineHeight: 1 }}>{kpi.value}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Distribuição por Etapas */}
-        <div style={{ marginBottom: '30px', background: '#f8fafc', borderRadius: '16px', padding: '24px' }}>
-          <h2 style={{ margin: '0 0 20px', fontSize: '13px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '1px' }}>
-            Distribuição por Etapas do Fluxo
-          </h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {statusChartData.filter(s => s.quantidade > 0).map(stage => {
-              const maxVal = Math.max(...statusChartData.map(s => s.quantidade), 1);
-              const pct = (stage.quantidade / maxVal) * 100;
-              const isConcluido = stage.name === 'CONCLUÍDO';
-              return (
-                <div key={stage.name} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ width: '200px', fontSize: '9px', fontWeight: 700, color: '#475569', textAlign: 'right', flexShrink: 0 }}>
-                    {stage.name}
-                  </div>
-                  <div style={{ flex: 1, background: '#e2e8f0', borderRadius: '6px', height: '20px', overflow: 'hidden' }}>
-                    <div style={{ width: `${pct}%`, height: '100%', background: isConcluido ? '#10b981' : '#3b82f6', borderRadius: '6px', transition: 'none' }} />
-                  </div>
-                  <div style={{ width: '28px', fontSize: '11px', fontWeight: 900, color: isConcluido ? '#059669' : '#2563eb', flexShrink: 0 }}>
-                    {stage.quantidade}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* DARE + Resumo lado a lado */}
-        <div style={{ display: 'flex', gap: '16px', marginBottom: '30px' }}>
-          {/* DARE */}
-          <div style={{ flex: 1, background: '#f8fafc', borderRadius: '16px', padding: '24px' }}>
-            <h2 style={{ margin: '0 0 16px', fontSize: '13px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '1px' }}>
-              Situação DARE
-            </h2>
-            {dareChartData.map(item => (
-              <div key={item.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #e2e8f0' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: item.color, flexShrink: 0 }} />
-                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#334155' }}>{item.name}</span>
-                </div>
-                <span style={{ fontSize: '18px', fontWeight: 900, color: item.color }}>{item.value}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Resumo rápido */}
-          <div style={{ flex: 1, background: '#f8fafc', borderRadius: '16px', padding: '24px' }}>
-            <h2 style={{ margin: '0 0 16px', fontSize: '13px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '1px' }}>
-              Progresso Geral
-            </h2>
-            <div style={{ marginBottom: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b' }}>Taxa de Conclusão</span>
-                <span style={{ fontSize: '13px', fontWeight: 900, color: '#059669' }}>
-                  {stats.totalValidas > 0 ? Math.round((stats.concluidos / stats.totalValidas) * 100) : 0}%
-                </span>
-              </div>
-              <div style={{ width: '100%', height: '12px', background: '#e2e8f0', borderRadius: '6px', overflow: 'hidden' }}>
-                <div style={{ width: `${stats.totalValidas > 0 ? (stats.concluidos / stats.totalValidas) * 100 : 0}%`, height: '100%', background: '#10b981', borderRadius: '6px' }} />
-              </div>
-            </div>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b' }}>Vagas em Aberto</span>
-                <span style={{ fontSize: '13px', fontWeight: 900, color: '#d97706' }}>
-                  {stats.totalValidas > 0 ? Math.round((stats.vagas / stats.totalValidas) * 100) : 0}%
-                </span>
-              </div>
-              <div style={{ width: '100%', height: '12px', background: '#e2e8f0', borderRadius: '6px', overflow: 'hidden' }}>
-                <div style={{ width: `${stats.totalValidas > 0 ? (stats.vagas / stats.totalValidas) * 100 : 0}%`, height: '100%', background: '#f59e0b', borderRadius: '6px' }} />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Listagem de Zeladorias */}
-        <div style={{ background: '#f8fafc', borderRadius: '16px', padding: '24px' }}>
-          <h2 style={{ margin: '0 0 16px', fontSize: '13px', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '1px' }}>
-            Listagem de Processos Ativos
-          </h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px' }}>
-            <thead>
-              <tr style={{ background: '#1e293b' }}>
-                {['UE', 'Escola', 'SEI', 'Zelador', 'Etapa Atual', 'DARE', 'Validade'].map(h => (
-                  <th key={h} style={{ padding: '8px 10px', color: '#fff', fontWeight: 800, textAlign: 'left', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {activeData.map((item, idx) => (
-                <tr key={item.id} style={{ background: idx % 2 === 0 ? '#fff' : '#f1f5f9' }}>
-                  <td style={{ padding: '7px 10px', color: '#475569', fontWeight: 700 }}>{item.ue || '-'}</td>
-                  <td style={{ padding: '7px 10px', color: '#1e293b', fontWeight: 700, maxWidth: '200px' }}>{item.nome}</td>
-                  <td style={{ padding: '7px 10px', color: '#3b82f6', fontFamily: 'monospace', fontSize: '9px' }}>{item.sei_numero || '-'}</td>
-                  <td style={{ padding: '7px 10px', color: '#475569' }}>{item.zelador || 'Disponível'}</td>
-                  <td style={{ padding: '7px 10px' }}>
-                    <span style={{ background: item.ocupada === 'CONCLUÍDO' ? '#d1fae5' : '#dbeafe', color: item.ocupada === 'CONCLUÍDO' ? '#065f46' : '#1d4ed8', padding: '2px 6px', borderRadius: '4px', fontWeight: 800, fontSize: '9px' }}>
-                      {item.ocupada}
-                    </span>
-                  </td>
-                  <td style={{ padding: '7px 10px', color: '#475569' }}>{item.dare || '-'}</td>
-                  <td style={{ padding: '7px 10px', color: '#475569' }}>{item.ate ? new Date(item.ate).toLocaleDateString('pt-BR') : '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Rodapé */}
-        <div style={{ marginTop: '24px', borderTop: '2px solid #e2e8f0', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <p style={{ margin: 0, fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>DOCUMENTO GERADO AUTOMATICAMENTE PELO SISTEMA SGE-GSU</p>
-          <p style={{ margin: 0, fontSize: '9px', color: '#94a3b8', fontWeight: 700 }}>{new Date().toLocaleString('pt-BR')}</p>
-        </div>
-      </div>
 
       {/* CABEÇALHO */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

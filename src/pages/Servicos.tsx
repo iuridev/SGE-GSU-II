@@ -7,8 +7,8 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-const SHEETS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSycnsyBxYKCCp6_JTsq9M-acUWw_pVna7rKVEYgKzv_cH2hsXnnr_NqZcSIx8Jq_ccI-Xw3wzeMKZN/pub?gid=1020976651&single=true&output=csv';
-const SHEETS_VIEW_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSycnsyBxYKCCp6_JTsq9M-acUWw_pVna7rKVEYgKzv_cH2hsXnnr_NqZcSIx8Jq_ccI-Xw3wzeMKZN/pubhtml?gid=1020976651&single=true';
+const SHEETS_CSV_URL = import.meta.env.VITE_SHEETS_CSV_URL as string;
+const SHEETS_VIEW_URL = import.meta.env.VITE_SHEETS_VIEW_URL as string;
 
 interface Escola {
   id: string;
@@ -292,7 +292,15 @@ export default function Servicos() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans print:block print:min-h-0 print:bg-white">
+      <style>{`
+        @media print {
+          html, body { background: white !important; }
+          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          [class*="shadow"] { box-shadow: none !important; }
+          [class*="bg-slate-50"], [class*="bg-gray-50"] { background-color: white !important; }
+        }
+      `}</style>
 
       {/* HEADER */}
       <header className="bg-slate-900 text-white p-5 shadow-lg flex flex-col md:flex-row justify-between items-center gap-4 print:hidden">
@@ -332,15 +340,14 @@ export default function Servicos() {
         </div>
       </header>
 
-      <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6">
+      <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6 print:block print:flex-none print:p-4 print:bg-white">
 
         {/* TÍTULO APENAS PARA PDF */}
-        <div className="hidden print:block mb-4 text-center border-b pb-4">
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center justify-center gap-2">
-            <HardHat className="w-6 h-6" /> Gestão de Serviços e Obras
-          </h1>
-          <p className="text-gray-500 text-sm mt-1">Relatório Serviços Solicitados pela URE Guarulhos Sul</p>
-          <p className="text-gray-500 text-sm mt-1">Serviço de Obras e Manutenção Escolar - SEOM</p>
+        <div className="hidden print:block mb-6 text-center border-b-2 border-slate-900 pb-4">
+          <h1 className="text-2xl font-bold text-gray-900">Gestão de Serviços e Obras</h1>
+          <p className="text-gray-500 text-sm mt-1">Relatório de Serviços Solicitados — URE Guarulhos Sul</p>
+          <p className="text-gray-500 text-sm">Serviço de Obras e Manutenção Escolar - SEOM</p>
+          <p className="text-gray-400 text-xs mt-2">{new Date().toLocaleString('pt-BR')}</p>
         </div>
 
         {/* CARDS DE STATUS DINÂMICOS */}
@@ -351,7 +358,7 @@ export default function Servicos() {
               return (
                 <div
                   key={status}
-                  className={`p-4 rounded-2xl border ${style.border} bg-white shadow-sm flex flex-col transition-all hover:shadow-md cursor-default`}
+                  className={`p-4 rounded-2xl border ${style.border} bg-white shadow-sm flex flex-col transition-all hover:shadow-md cursor-default print:rounded-lg print:shadow-none`}
                   title={`Total de serviços "${status}"`}
                 >
                   <div className="flex items-center gap-3 mb-3">
@@ -428,7 +435,7 @@ export default function Servicos() {
         </div>
 
         {/* TABELA DE SERVIÇOS */}
-        <section className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+        <section className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden print:rounded-none print:border print:shadow-none">
 
           {/* Filtros */}
           <div className="p-5 border-b border-gray-200 bg-gray-50 flex flex-col lg:flex-row gap-4 justify-between items-center print:hidden">

@@ -2,7 +2,7 @@
 import { supabase } from '../lib/supabase';
 import {
   Car, ShieldCheck, FileSpreadsheet, ClipboardList,
-  Loader2, Send, ArrowRight, SearchCheck, BarChart3,
+  Loader2, ArrowRight, BarChart3,
   Users, Calendar, Award, Info,
   FileDown, ChevronLeft, ChevronRight, CalendarDays, TrendingUp
 } from 'lucide-react';
@@ -39,12 +39,9 @@ function normalizeName(name: string): string {
 }
 
 export function AgendamentoCarros() {
-  const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [schedules, setSchedules] = useState<CarSchedule[]>([]);
-  const [status, setStatus] = useState<{ type: 'idle' | 'success' | 'none' | 'error', msg?: string }>({ type: 'idle' });
-  const [activeTab, setActiveTab] = useState<'painel' | 'planilha' | 'formulario'>('painel');
   const [selectedDate, setSelectedDate] = useState(new Date());
 
   const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSeBf5H7qaSNSE_6KudfxvN4e0Z53Xgwog5JTt_Fih4HHVwvnA/viewform";
@@ -219,26 +216,6 @@ export function AgendamentoCarros() {
     }
   };
 
-  const handleAutoCheckAndNotify = async () => {
-    setLoading(true);
-    setStatus({ type: 'idle' });
-    try {
-      const { data, error } = await supabase.functions.invoke('send-outage-email', {
-        body: { type: 'CAR_SCHEDULE_AUTO' }
-      });
-      if (error) throw error;
-      if (data?.message?.includes('Nenhum')) {
-        setStatus({ type: 'none', msg: data.message });
-      } else {
-        setStatus({ type: 'success', msg: "Equipa SEOM notificada com a lista de amanhã!" });
-      }
-      fetchSchedules();
-    } catch (err: any) {
-      setStatus({ type: 'error', msg: "Falha técnica: " + err.message });
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const rankBadgeStyle = [
     'bg-gradient-to-br from-amber-400 to-orange-500 shadow-lg shadow-amber-500/40',
@@ -404,15 +381,14 @@ export function AgendamentoCarros() {
           </button>
 
           <div className="flex gap-1.5 p-1.5 bg-slate-100 rounded-2xl border border-slate-200">
-            <TabButton active={activeTab === 'painel'} onClick={() => setActiveTab('painel')} icon={<ShieldCheck size={14}/>} label="Painel" />
-            <TabButton active={activeTab === 'planilha'} onClick={() => setActiveTab('planilha')} icon={<FileSpreadsheet size={14}/>} label="Planilha" />
-            <TabButton active={activeTab === 'formulario'} onClick={() => setActiveTab('formulario')} icon={<ClipboardList size={14}/>} label="Solicitar" />
+            <TabButton active={true} onClick={() => {}} icon={<ShieldCheck size={14}/>} label="Painel" />
+            <TabButton active={false} onClick={() => window.open(SHEET_URL, '_blank', 'noopener,noreferrer')} icon={<FileSpreadsheet size={14}/>} label="Planilha" />
+            <TabButton active={false} onClick={() => window.open(FORM_URL, '_blank', 'noopener,noreferrer')} icon={<ClipboardList size={14}/>} label="Solicitar" />
           </div>
         </div>
       </div>
 
-      {activeTab === 'painel' && (
-        <div className="space-y-6 animate-in fade-in duration-500">
+      <div className="space-y-6 animate-in fade-in duration-500">
 
           {/* KPI Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -422,41 +398,9 @@ export function AgendamentoCarros() {
             <StatCard icon={<Users size={18}/>} label="Condutores Únicos" value={dataLoading ? '...' : stats.uniqueDrivers} accent="amber" />
           </div>
 
-          {/* Notificar + Agendamentos do Dia */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-4">
-              <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl h-full flex flex-col items-center text-center relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-t-3xl"></div>
-                <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 mb-5 mt-2">
-                  <SearchCheck size={32} />
-                </div>
-                <h2 className="text-base font-black text-slate-800 uppercase tracking-tight">Notificar SEOM</h2>
-                <p className="text-[10px] text-slate-400 font-bold mt-1.5 mb-6 max-w-[220px] uppercase tracking-widest leading-relaxed">
-                  Envio automático da lista de amanhã para preparação de frota.
-                </p>
-                {status.type === 'idle' ? (
-                  <button
-                    onClick={handleAutoCheckAndNotify}
-                    disabled={loading}
-                    className="group w-full py-4 bg-slate-900 hover:bg-black text-white rounded-2xl font-black text-[11px] uppercase flex items-center justify-center gap-3 shadow-xl transition-all active:scale-95 disabled:opacity-50 tracking-widest"
-                  >
-                    {loading ? <Loader2 className="animate-spin" size={16}/> : <Send size={16} className="group-hover:translate-x-0.5 transition-transform"/>}
-                    Verificar e Notificar
-                  </button>
-                ) : (
-                  <div className={`w-full p-5 rounded-2xl border-2 animate-in zoom-in-95 ${
-                    status.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' :
-                    status.type === 'none' ? 'bg-amber-50 border-amber-100 text-amber-800' :
-                    'bg-red-50 border-red-100 text-red-800'
-                  }`}>
-                    <p className="font-black uppercase text-[10px] tracking-widest">{status.msg}</p>
-                    <button onClick={() => setStatus({type: 'idle'})} className="mt-2 text-[10px] font-black underline opacity-50 hover:opacity-100">VOLTAR</button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="lg:col-span-8">
+          {/* Agendamentos do Dia */}
+          <div className="grid grid-cols-1 gap-6">
+            <div className="lg:col-span-12">
               <div className="bg-slate-900 p-7 rounded-3xl shadow-2xl h-full text-white relative overflow-hidden">
                 <div className="relative z-10">
                   <div className="flex items-center justify-between mb-6">
@@ -642,13 +586,7 @@ export function AgendamentoCarros() {
             <ExternalCard title="Planilha Mestra" desc="Cronograma detalhado e gestão de motoristas." link={SHEET_URL} icon={<FileSpreadsheet size={28}/>} color="emerald"/>
           </div>
         </div>
-      )}
 
-      {(activeTab === 'planilha' || activeTab === 'formulario') && (
-        <div className="bg-white p-4 rounded-[3.5rem] border border-slate-100 shadow-2xl h-[750px] overflow-hidden">
-          <iframe src={activeTab === 'planilha' ? SHEET_URL : FORM_URL} className="w-full h-full rounded-[2.5rem]" title="Google"/>
-        </div>
-      )}
     </div>
   );
 }
