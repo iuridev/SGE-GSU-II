@@ -24,20 +24,19 @@ const CSV_URL =
 // Cache global entre re-renders
 const imageCache: Record<string, string | null> = {};
 
-// Mapeamento modelo → título exato no Wikipedia EN
-// Cobre os modelos mais comuns no mercado brasileiro
+// Mapeamento carros → título Wikipedia (PT e EN compartilham o mesmo slug)
 const CAR_WIKI: Record<string, string> = {
   // Fiat
-  'ARGO': 'Fiat_Argo', 'CRONOS': 'Fiat_Cronos', 'MOBY': 'Fiat_Moby',
+  'ARGO': 'Fiat_Argo', 'CRONOS': 'Fiat_Cronos', 'MOBI': 'Fiat_Mobi',
   'TORO': 'Fiat_Toro', 'PULSE': 'Fiat_Pulse', 'STRADA': 'Fiat_Strada',
   'DOBLO': 'Fiat_Doblò', 'DOBLÔ': 'Fiat_Doblò', 'UNO': 'Fiat_Uno',
   'PALIO': 'Fiat_Palio', 'SIENA': 'Fiat_Siena', 'LINEA': 'Fiat_Linea',
   'BRAVO': 'Fiat_Bravo', 'PUNTO': 'Fiat_Punto', 'DUCATO': 'Fiat_Ducato',
   'IDEA': 'Fiat_Idea', 'STILO': 'Fiat_Stilo', 'TEMPRA': 'Fiat_Tempra',
-  'MAREA': 'Fiat_Marea', 'BRAVA': 'Fiat_Brava',
+  'MAREA': 'Fiat_Marea', 'BRAVA': 'Fiat_Brava', 'FREEMONT': 'Fiat_Freemont',
   // Volkswagen
   'GOL': 'Volkswagen_Gol', 'POLO': 'Volkswagen_Polo', 'VIRTUS': 'Volkswagen_Virtus',
-  'VOYAGE': 'Volkswagen_Voyage', 'UP': 'Volkswagen_up!',
+  'VOYAGE': 'Volkswagen_Voyage', 'UP': 'Volkswagen_up!', 'UP!': 'Volkswagen_up!',
   'T-CROSS': 'Volkswagen_T-Cross', 'TCROSS': 'Volkswagen_T-Cross', 'T CROSS': 'Volkswagen_T-Cross',
   'TIGUAN': 'Volkswagen_Tiguan', 'AMAROK': 'Volkswagen_Amarok', 'SAVEIRO': 'Volkswagen_Saveiro',
   'FOX': 'Volkswagen_Fox', 'GOLF': 'Volkswagen_Golf', 'JETTA': 'Volkswagen_Jetta',
@@ -49,10 +48,10 @@ const CAR_WIKI: Record<string, string> = {
   'TRAILBLAZER': 'Chevrolet_TrailBlazer', 'EQUINOX': 'Chevrolet_Equinox',
   'MONTANA': 'Chevrolet_Montana', 'COBALT': 'Chevrolet_Cobalt',
   'BLAZER': 'Chevrolet_Blazer', 'PRISMA': 'Chevrolet_Prisma',
-  'MERIVA': 'Chevrolet_Meriva', 'VECTRA': 'Chevrolet_Vectra', 'ZAFIRA': 'Opel_Zafira',
+  'MERIVA': 'Opel_Meriva', 'VECTRA': 'Chevrolet_Vectra', 'ZAFIRA': 'Opel_Zafira',
   'AGILE': 'Chevrolet_Agile', 'CLASSIC': 'Chevrolet_Classic',
   // Hyundai
-  'HB20': 'Hyundai_HB20', 'HB20S': 'Hyundai_HB20', 'HB20X': 'Hyundai_HB20',
+  'HB20': 'Hyundai_HB20', 'HB20S': 'Hyundai_HB20', 'HB20X': 'Hyundai_HB20X',
   'CRETA': 'Hyundai_Creta', 'TUCSON': 'Hyundai_Tucson', 'IX35': 'Hyundai_ix35',
   'SANTA FE': 'Hyundai_Santa_Fe', 'VELOSTER': 'Hyundai_Veloster',
   // Ford
@@ -64,9 +63,8 @@ const CAR_WIKI: Record<string, string> = {
   // Toyota
   'COROLLA': 'Toyota_Corolla', 'HILUX': 'Toyota_Hilux', 'YARIS': 'Toyota_Yaris',
   'RAV4': 'Toyota_RAV4', 'SW4': 'Toyota_4Runner', 'PRIUS': 'Toyota_Prius',
-  'CAMRY': 'Toyota_Camry',
-  'ETIOS': 'Toyota_Etios', 'ETYOS': 'Toyota_Etios',  // variante de grafia
-  // Honda
+  'CAMRY': 'Toyota_Camry', 'ETIOS': 'Toyota_Etios', 'ETYOS': 'Toyota_Etios',
+  // Honda (carros)
   'CIVIC': 'Honda_Civic', 'FIT': 'Honda_Fit', 'HR-V': 'Honda_HR-V',
   'HRV': 'Honda_HR-V', 'CR-V': 'Honda_CR-V', 'CRV': 'Honda_CR-V',
   'WR-V': 'Honda_WR-V', 'CITY': 'Honda_City',
@@ -90,20 +88,178 @@ const CAR_WIKI: Record<string, string> = {
   // Peugeot
   '208': 'Peugeot_208', '2008': 'Peugeot_2008', '3008': 'Peugeot_3008',
   '408': 'Peugeot_408', 'PARTNER': 'Peugeot_Partner', 'BOXER': 'Peugeot_Boxer',
+  // BYD
+  'DOLPHIN': 'BYD_Dolphin', 'SEAL': 'BYD_Seal', 'HAN': 'BYD_Han', 'ATTO 3': 'BYD_Atto_3',
   // Outros
   'FORESTER': 'Subaru_Forester', 'IMPREZA': 'Subaru_Impreza',
   'GLA': 'Mercedes-Benz_GLA-Class', 'GLC': 'Mercedes-Benz_GLC-Class',
   'X1': 'BMW_X1', 'X3': 'BMW_X3', 'SERIE 1': 'BMW_1_Series',
 };
 
-function findWikiTitle(modelo: string): string | null {
-  const words = modelo.toUpperCase().trim().split(/\s+/);
-  // Tenta todas as subcombinações do maior para o menor
-  for (let start = 0; start < words.length; start++) {
-    for (let end = words.length; end > start; end--) {
-      const phrase = words.slice(start, end).join(' ');
-      if (CAR_WIKI[phrase]) return CAR_WIKI[phrase];
+// Mapeamento motocicletas → título Wikipedia
+const MOTO_WIKI: Record<string, string> = {
+  // Honda — Honda_CG cobre todos os submodelos (125/150/160)
+  'CG': 'Honda_CG', 'CG 125': 'Honda_CG', 'CG 150': 'Honda_CG',
+  'CG 160': 'Honda_CG', 'CG125': 'Honda_CG', 'CG150': 'Honda_CG', 'CG160': 'Honda_CG',
+  'TITAN': 'Honda_Titan_(motocicleta)',
+  'TITAN 125': 'Honda_Titan_(motocicleta)', 'TITAN 150': 'Honda_Titan_(motocicleta)',
+  'TITAN 160': 'Honda_Titan_(motocicleta)',
+  'BROS': 'Honda_NXR', 'NXR': 'Honda_NXR',
+  'BROS 125': 'Honda_NXR', 'BROS 150': 'Honda_NXR', 'BROS 160': 'Honda_NXR',
+  'POP': 'Honda_CG_125_Pop', 'POP 100': 'Honda_CG_125_Pop', 'POP 110': 'Honda_CG_125_Pop',
+  'BIZ': 'Honda_Biz', 'BIZ 100': 'Honda_Biz', 'BIZ 125': 'Honda_Biz',
+  'PCX': 'Honda_PCX', 'PCX 150': 'Honda_PCX', 'PCX 160': 'Honda_PCX',
+  'CB 300': 'Honda_CB300R', 'CB300': 'Honda_CB300R',
+  'CB 500': 'Honda_CB500F', 'CB500': 'Honda_CB500F',
+  'CB 650': 'Honda_CB650R', 'CB650': 'Honda_CB650R',
+  'XRE': 'Honda_XRE_300', 'XRE 300': 'Honda_XRE_300', 'XRE300': 'Honda_XRE_300',
+  'HORNET': 'Honda_CB_Hornet',
+  'LEAD': 'Honda_Lead',
+  // Yamaha
+  'YBR': 'Yamaha_YBR', 'YBR 125': 'Yamaha_YBR', 'YBR125': 'Yamaha_YBR',
+  'FACTOR': 'Yamaha_YBZ', 'FACTOR 125': 'Yamaha_YBZ', 'FACTOR 150': 'Yamaha_YBZ',
+  'FAZER': 'Yamaha_Fazer', 'FAZER 150': 'Yamaha_Fazer', 'FAZER 250': 'Yamaha_Fazer',
+  'CROSSER': 'Yamaha_Crosser', 'CROSSER 150': 'Yamaha_Crosser',
+  'LANDER': 'Yamaha_XTZ_250_Lander', 'XTZ 250': 'Yamaha_XTZ_250_Lander',
+  'XTZ': 'Yamaha_XTZ_125',
+  'MT-03': 'Yamaha_MT-03', 'MT 03': 'Yamaha_MT-03', 'MT03': 'Yamaha_MT-03',
+  'MT-07': 'Yamaha_MT-07', 'MT 07': 'Yamaha_MT-07', 'MT07': 'Yamaha_MT-07',
+  'NMAX': 'Yamaha_NMAX', 'N-MAX': 'Yamaha_NMAX',
+  // Suzuki
+  'EN': 'Suzuki_EN125', 'EN 125': 'Suzuki_EN125', 'EN125': 'Suzuki_EN125',
+  'BURGMAN': 'Suzuki_Burgman',
+  // Kawasaki
+  'NINJA': 'Kawasaki_Ninja_400', 'NINJA 400': 'Kawasaki_Ninja_400',
+  'Z 400': 'Kawasaki_Z400', 'Z400': 'Kawasaki_Z400',
+  // Yamaha Drag Star (XVS 650) — vários formatos de escrita
+  'DRAG STAR': 'Yamaha_V-Star_650', 'DRAG STAR 650': 'Yamaha_V-Star_650',
+  'DRAG-STAR': 'Yamaha_V-Star_650', 'DRAG-STAR-650': 'Yamaha_V-Star_650',
+  'DRAGSTAR': 'Yamaha_V-Star_650', 'DRAGSTAR 650': 'Yamaha_V-Star_650',
+  'XVS': 'Yamaha_V-Star_650', 'XVS 650': 'Yamaha_V-Star_650',
+  'V-STAR': 'Yamaha_V-Star_650', 'V STAR': 'Yamaha_V-Star_650', 'V STAR 650': 'Yamaha_V-Star_650',
+};
+
+// Prefixos de marca ignorados na lookup (só o modelo importa)
+const BRAND_PREFIXES = new Set([
+  'FIAT', 'VOLKSWAGEN', 'VW', 'CHEVROLET', 'GM', 'HYUNDAI', 'FORD',
+  'TOYOTA', 'HONDA', 'JEEP', 'RENAULT', 'NISSAN', 'MITSUBISHI',
+  'CITROEN', 'CITROËN', 'PEUGEOT', 'SUBARU', 'MERCEDES', 'BENZ', 'BMW',
+  'BYD', 'JAC', 'CHERY', 'CAOA', 'YAMAHA', 'SUZUKI', 'KAWASAKI', 'ROYAL',
+]);
+
+// Sufixos de versão/combustível — não fazem parte do nome do modelo
+const TRIM_NOISE = new Set([
+  'LT', 'LTZ', 'LTD', 'LX', 'GL', 'GLS', 'GLX', 'PLUS', 'SPORT', 'SE',
+  'LS', 'RS', 'EX', 'EXL', 'PREMIER', 'TURBO', 'ELITE', 'EVO', 'LIMITED',
+  'ADVENTURE', 'CROSSWAY', 'CROSS', 'ACTIVE', 'COMFORT', 'CONFORT',
+  'MANUAL', 'AUTOMATICO', 'AUTOMATICA', 'CVT',
+  'FLEX', 'DIESEL', 'GASOLINA', 'GNV', 'HIBRIDO',
+]);
+
+// Palavras que sinalizam motocicleta (para melhorar busca textual)
+const MOTO_KEYWORDS = new Set([
+  'CG', 'TITAN', 'BROS', 'NXR', 'BIZ', 'PCX', 'XRE', 'HORNET', 'LEAD',
+  'YBR', 'FACTOR', 'FAZER', 'CROSSER', 'LANDER', 'NMAX', 'XTZ',
+  'BURGMAN', 'NINJA', 'DRAGSTAR', 'DRAGSTAR', 'XVS',
+  'MOTO', 'MOTOCICLETA',
+]);
+
+function normalizeModel(modelo: string): string {
+  return modelo
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')  // acentos
+    .replace(/\([^)]*\)/g, ' ')                         // (parenthetical) → "Up (Up)" correto
+    .replace(/\//g, ' ')                                // "CHEVROLET/ONIX" → dois tokens
+    .replace(/\s+-\s+/g, ' ')                           // " - " separador
+    .toUpperCase().trim()
+    .replace(/\s+/g, ' ');
+}
+
+// Remove ano, motor (inclui "1.4MT") e sufixos de versão
+function stripNoise(words: string[]): string[] {
+  return words.filter(w =>
+    !/^(19[5-9]\d|20[0-3]\d)$/.test(w) &&  // ano (1950-2039)
+    !/^\d+[,.]\d+\w*$/.test(w) &&           // motor: 1.0 / 1.4 / 1.4MT / 2.0…
+    !TRIM_NOISE.has(w)
+  );
+}
+
+type VehicleMatch = { title: string; isMoto: boolean };
+
+function findVehicleTitle(modelo: string): VehicleMatch | null {
+  const norm = normalizeModel(modelo);
+  const allWords = norm.split(/\s+/);
+  // "DRAG-STAR-650" → ["DRAG", "STAR", "650"] para suportar hifens como separadores
+  const deHyph = allWords.flatMap(w => w.split('-')).filter(Boolean);
+  const withoutBrand = allWords.filter(w => !BRAND_PREFIXES.has(w));
+  const deHyphNoBrand = deHyph.filter(w => !BRAND_PREFIXES.has(w));
+  const cleaned = stripNoise(allWords);
+  const cleanedNoBrand = stripNoise(withoutBrand);
+  const cleanedDeHyph = stripNoise(deHyph);
+  const cleanedDeHyphNoBrand = stripNoise(deHyphNoBrand);
+
+  // Variantes em ordem de prioridade (sem duplicatas)
+  const seen = new Set<string>();
+  const variants: string[][] = [];
+  for (const v of [allWords, deHyph, withoutBrand, deHyphNoBrand, cleaned, cleanedNoBrand, cleanedDeHyph, cleanedDeHyphNoBrand]) {
+    const k = v.join('|');
+    if (!seen.has(k)) { seen.add(k); variants.push(v); }
+  }
+
+  for (const variant of variants) {
+    for (let s = 0; s < variant.length; s++) {
+      for (let e = variant.length; e > s; e--) {
+        const phrase = variant.slice(s, e).join(' ');
+        if (MOTO_WIKI[phrase]) return { title: MOTO_WIKI[phrase], isMoto: true };
+        if (CAR_WIKI[phrase]) return { title: CAR_WIKI[phrase], isMoto: false };
+      }
     }
+  }
+  return null;
+}
+
+function looksLikeMoto(modelo: string): boolean {
+  return normalizeModel(modelo).split(/\s+/).some(w => MOTO_KEYWORDS.has(w));
+}
+
+async function fetchWikiImage(title: string, lang: 'en' | 'pt'): Promise<string | null> {
+  const url =
+    `https://${lang}.wikipedia.org/w/api.php?action=query` +
+    `&titles=${encodeURIComponent(title)}` +
+    `&prop=pageimages&format=json&origin=*&pithumbsize=500&redirects=1`;
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const pages = data.query?.pages;
+    if (!pages) return null;
+    const page = Object.values(pages)[0] as any;
+    if (page?.missing !== undefined) return null;
+    return page?.thumbnail?.source ?? null;
+  } catch { return null; }
+}
+
+// Busca textual — PT primeiro (modelos nacionais), depois EN
+async function searchWikiImage(modelo: string, isMoto: boolean): Promise<string | null> {
+  const norm = normalizeModel(modelo);
+  const pairs: Array<['pt' | 'en', string]> = isMoto
+    ? [['pt', 'motocicleta'], ['en', 'motorcycle']]
+    : [['pt', 'automovel'], ['en', 'car']];
+
+  for (const [lang, suffix] of pairs) {
+    const url =
+      `https://${lang}.wikipedia.org/w/api.php?action=query` +
+      `&list=search&srsearch=${encodeURIComponent(`${norm} ${suffix}`)}` +
+      `&srlimit=3&format=json&origin=*`;
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      const results: Array<{ title: string }> = data.query?.search ?? [];
+      for (const r of results) {
+        const img = await fetchWikiImage(r.title, lang);
+        if (img) return img;
+      }
+    } catch { continue; }
   }
   return null;
 }
@@ -112,28 +268,19 @@ async function fetchCarImage(modelo: string): Promise<string | null> {
   const key = modelo.trim().toLowerCase();
   if (key in imageCache) return imageCache[key];
 
-  try {
-    const title = findWikiTitle(modelo);
-    if (title) {
-      // Busca direta pelo artigo — muito mais precisa que search
-      const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
-      const resp = await fetch(url);
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data.thumbnail?.source) {
-          imageCache[key] = data.thumbnail.source;
-          return imageCache[key];
-        }
-      }
-    }
+  let img: string | null = null;
+  const found = findVehicleTitle(modelo);
 
-    // Sem fallback de busca genérica: melhor "sem imagem" do que resultado errado
-    imageCache[key] = null;
-    return null;
-  } catch {
-    imageCache[key] = null;
-    return null;
+  if (found) {
+    img = await fetchWikiImage(found.title, 'pt');   // PT primeiro
+    if (!img) img = await fetchWikiImage(found.title, 'en');
+    if (!img) img = await searchWikiImage(modelo, found.isMoto);
+  } else {
+    img = await searchWikiImage(modelo, looksLikeMoto(modelo));
   }
+
+  imageCache[key] = img;
+  return img;
 }
 
 function parseCSV(text: string): VagaRow[] {
