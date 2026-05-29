@@ -1,10 +1,11 @@
-﻿import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import {
   Car, ShieldCheck, FileSpreadsheet, ClipboardList,
   Loader2, ArrowRight, BarChart3,
   Users, Calendar, Award, Info,
-  FileDown, ChevronLeft, ChevronRight, CalendarDays, TrendingUp
+  FileDown, ChevronLeft, ChevronRight, CalendarDays, TrendingUp,
+  Gauge, Zap, Flag
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -34,7 +35,7 @@ function normalizeName(name: string): string {
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .split(' ')
-    .slice(0, 3)
+    .slice(0, 2)
     .join(' ');
 }
 
@@ -176,11 +177,9 @@ export function AgendamentoCarros() {
         document.head.appendChild(s);
       });
 
-      // html2canvas deve ser carregado antes do html2pdf (o bundle não o expõe globalmente)
       await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
       await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
 
-      // Captura o gráfico visível na tela como imagem
       const chartEl = document.getElementById('pdf-chart-source');
       if (chartEl) {
         const canvas = await (window as any).html2canvas(chartEl, {
@@ -216,7 +215,6 @@ export function AgendamentoCarros() {
     }
   };
 
-
   const rankBadgeStyle = [
     'bg-gradient-to-br from-amber-400 to-orange-500 shadow-lg shadow-amber-500/40',
     'bg-gradient-to-br from-slate-300 to-slate-500 shadow-lg shadow-slate-400/30',
@@ -228,11 +226,11 @@ export function AgendamentoCarros() {
     'from-amber-400 to-orange-500',
     'from-slate-300 to-slate-400',
     'from-amber-700 to-orange-700',
-    'from-indigo-400 to-indigo-600',
-    'from-indigo-300 to-indigo-500',
+    'from-red-400 to-red-600',
+    'from-red-300 to-red-500',
   ];
   const rankCardStyle = [
-    'bg-amber-400/10 border-amber-400/20 hover:bg-amber-400/15',
+    'bg-amber-400/10 border-amber-400/30 hover:bg-amber-400/15',
     'bg-white/5 border-white/10 hover:bg-white/8',
     'bg-white/5 border-white/10 hover:bg-white/8',
     'bg-white/5 border-white/10 hover:bg-white/8',
@@ -244,31 +242,27 @@ export function AgendamentoCarros() {
 
       {/* PDF Template (hidden) */}
       <div id="car-report-template" style={{ display: 'none', background: '#f1f5f9', width: '1440px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-
-        {/* Header escuro */}
         <div style={{ background: '#0f172a', padding: '32px 48px 28px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '6px' }}>
-                <div style={{ width: '5px', height: '36px', background: '#6366f1', borderRadius: '3px', flexShrink: 0 }}></div>
+                <div style={{ width: '5px', height: '36px', background: '#dc2626', borderRadius: '3px', flexShrink: 0 }}></div>
                 <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 900, color: '#fff', letterSpacing: '-0.5px', lineHeight: 1.1 }}>RELATÓRIO DE GESTÃO DE FROTA</h1>
               </div>
               <p style={{ margin: '0 0 0 19px', fontSize: '10px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '3px' }}>Consolidado de Uso Mensal e Condutores</p>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <div style={{ background: '#6366f1', padding: '10px 22px', borderRadius: '10px', display: 'inline-block', marginBottom: '8px' }}>
+              <div style={{ background: '#dc2626', padding: '10px 22px', borderRadius: '10px', display: 'inline-block', marginBottom: '8px' }}>
                 <p style={{ margin: 0, fontWeight: 900, fontSize: '18px', color: '#fff', lineHeight: 1 }}>{MONTHS[selectedDate.getMonth()].toUpperCase()}</p>
-                <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#c7d2fe', lineHeight: 1 }}>{selectedDate.getFullYear()}</p>
+                <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#fca5a5', lineHeight: 1 }}>{selectedDate.getFullYear()}</p>
               </div>
               <p style={{ margin: 0, fontSize: '8px', color: '#475569', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '2px' }}>SGE-GSU INTELLIGENCE II</p>
             </div>
           </div>
         </div>
-
-        {/* KPI Cards */}
         <div style={{ padding: '24px 48px 0', display: 'flex', gap: '16px' }}>
           {[
-            { label: 'Total de Viagens', value: String(stats.total), sub: 'total geral de registros', accent: '#6366f1' },
+            { label: 'Total de Viagens', value: String(stats.total), sub: 'total geral de registros', accent: '#dc2626' },
             { label: 'Confirmadas', value: String(stats.approved), sub: 'viagens aprovadas', accent: '#10b981' },
             { label: 'Condutor Destaque', value: topDrivers[0]?.name || 'N/A', sub: `${topDrivers[0]?.count || 0} saídas confirmadas`, accent: '#f59e0b', small: true },
             { label: 'Condutores Únicos', value: String(stats.uniqueDrivers), sub: 'pessoas diferentes', accent: '#8b5cf6' },
@@ -280,8 +274,6 @@ export function AgendamentoCarros() {
             </div>
           ))}
         </div>
-
-        {/* Gráfico + Top 5 */}
         <div style={{ padding: '20px 48px 0', display: 'flex', gap: '20px' }}>
           <div style={{ flex: 3, background: '#fff', borderRadius: '14px', padding: '22px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
             <p style={{ margin: '0 0 14px', fontSize: '10px', fontWeight: 900, color: '#334155', textTransform: 'uppercase', letterSpacing: '1px' }}>Fluxo de Agendamentos — Últimos 12 Meses</p>
@@ -290,7 +282,7 @@ export function AgendamentoCarros() {
           <div style={{ flex: 2, background: '#fff', borderRadius: '14px', padding: '22px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
             <p style={{ margin: '0 0 16px', fontSize: '10px', fontWeight: 900, color: '#334155', textTransform: 'uppercase', letterSpacing: '1px' }}>Top 5 - Solicitações</p>
             {topDrivers.map((driver, idx) => {
-              const badgeColors = ['#f59e0b', '#94a3b8', '#b45309', '#6366f1', '#8b5cf6'];
+              const badgeColors = ['#f59e0b', '#94a3b8', '#b45309', '#dc2626', '#ef4444'];
               return (
                 <div key={driver.name} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
                   <div style={{ width: '26px', height: '26px', borderRadius: '7px', background: badgeColors[idx] || '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '11px', color: '#fff', flexShrink: 0 }}>{idx + 1}</div>
@@ -298,9 +290,9 @@ export function AgendamentoCarros() {
                     <p style={{ margin: 0, fontSize: '10px', fontWeight: 800, color: '#1e293b', textTransform: 'uppercase' }}>{driver.name}</p>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '5px' }}>
                       <div style={{ flex: 1, height: '5px', background: '#f1f5f9', borderRadius: '3px', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', borderRadius: '3px', background: badgeColors[idx] || '#6366f1', width: `${(driver.count / topDrivers[0].count) * 100}%` }}></div>
+                        <div style={{ height: '100%', borderRadius: '3px', background: badgeColors[idx] || '#dc2626', width: `${(driver.count / topDrivers[0].count) * 100}%` }}></div>
                       </div>
-                      <span style={{ fontSize: '11px', fontWeight: 900, color: badgeColors[idx] || '#6366f1', flexShrink: 0, minWidth: '20px', textAlign: 'right' }}>{driver.count}</span>
+                      <span style={{ fontSize: '11px', fontWeight: 900, color: badgeColors[idx] || '#dc2626', flexShrink: 0, minWidth: '20px', textAlign: 'right' }}>{driver.count}</span>
                     </div>
                   </div>
                 </div>
@@ -308,8 +300,6 @@ export function AgendamentoCarros() {
             })}
           </div>
         </div>
-
-        {/* Tabela de saídas */}
         <div style={{ padding: '20px 48px 40px' }}>
           <div style={{ background: '#fff', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
             <div style={{ background: '#f8fafc', padding: '14px 20px', borderBottom: '1px solid #e2e8f0' }}>
@@ -345,12 +335,10 @@ export function AgendamentoCarros() {
             )}
           </div>
         </div>
-
-        {/* Footer */}
         <div style={{ background: '#0f172a', padding: '14px 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <p style={{ margin: 0, fontSize: '8px', fontWeight: 900, color: '#334155', textTransform: 'uppercase', letterSpacing: '3px' }}>SGE-GSU INTELLIGENCE II • RELATÓRIO OFICIAL DE FROTA • DOCUMENTO INTERNO</p>
-          <div style={{ background: '#6366f1', padding: '8px 18px', borderRadius: '8px', textAlign: 'center', flexShrink: 0 }}>
-            <p style={{ margin: 0, fontSize: '8px', fontWeight: 700, color: '#c7d2fe', textTransform: 'uppercase', letterSpacing: '1px' }}>Gerado em</p>
+          <div style={{ background: '#dc2626', padding: '8px 18px', borderRadius: '8px', textAlign: 'center', flexShrink: 0 }}>
+            <p style={{ margin: 0, fontSize: '8px', fontWeight: 700, color: '#fca5a5', textTransform: 'uppercase', letterSpacing: '1px' }}>Gerado em</p>
             <p style={{ margin: '2px 0 0', fontSize: '13px', fontWeight: 900, color: '#fff', whiteSpace: 'nowrap', lineHeight: 1 }}>
               {new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })} • {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
             </p>
@@ -358,234 +346,332 @@ export function AgendamentoCarros() {
         </div>
       </div>
 
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="p-3.5 bg-slate-900 rounded-2xl text-white shadow-xl shadow-slate-200">
-            <Car size={28} />
-          </div>
-          <div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight uppercase leading-none">Logística de Veículos</h1>
-            <p className="text-slate-400 font-semibold text-sm mt-0.5">Inteligência de Frota Regional II</p>
-          </div>
+      {/* ── HERO HEADER ── */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-zinc-900 p-7 shadow-2xl border border-white/5">
+        {/* Racing stripes decorativas */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 via-red-500 to-transparent" />
+          <div className="absolute top-1 left-0 right-0 h-px bg-gradient-to-r from-red-900/60 to-transparent" />
+          <div className="absolute -right-20 top-0 bottom-0 w-72 bg-gradient-to-l from-red-950/20 to-transparent skew-x-[-20deg]" />
+          <Car className="absolute -bottom-6 -right-4 text-white/[0.04] w-72 h-72 -rotate-6" />
+          <div className="absolute top-5 right-36 w-1 h-20 bg-red-800/20 rounded-full" />
+          <div className="absolute top-8 right-40 w-0.5 h-14 bg-red-800/10 rounded-full" />
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={handleExportPDF}
-            disabled={exporting || dataLoading}
-            className="flex items-center gap-2 px-5 py-2.5 bg-slate-900 hover:bg-black text-white rounded-xl font-black text-[11px] uppercase tracking-widest shadow-lg transition-all active:scale-95 disabled:opacity-50"
-          >
-            {exporting ? <Loader2 className="animate-spin" size={15}/> : <FileDown size={15}/>}
-            {exporting ? 'Gerando...' : 'Exportar PDF'}
-          </button>
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="flex items-center gap-5">
+            {/* Ícone estilo cockpit */}
+            <div className="relative shrink-0">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center shadow-xl shadow-red-900/50">
+                <Car size={30} className="text-white" />
+              </div>
+              <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-2 border-slate-900 flex items-center justify-center">
+                <Zap size={9} className="text-white" />
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center gap-3 mb-1">
+                <div className="w-6 h-0.5 bg-red-500 rounded-full" />
+                <span className="text-red-500 text-[9px] font-black uppercase tracking-[0.3em]">Frota Regional II</span>
+              </div>
+              <h1 className="text-3xl font-black text-white tracking-tight uppercase leading-none">Logística de<br/>Veículos</h1>
+              <p className="text-white/30 font-semibold text-xs mt-1.5">Painel de inteligência operacional da frota</p>
+            </div>
+          </div>
 
-          <div className="flex gap-1.5 p-1.5 bg-slate-100 rounded-2xl border border-slate-200">
-            <TabButton active={true} onClick={() => {}} icon={<ShieldCheck size={14}/>} label="Painel" />
-            <TabButton active={false} onClick={() => window.open(SHEET_URL, '_blank', 'noopener,noreferrer')} icon={<FileSpreadsheet size={14}/>} label="Planilha" />
-            <TabButton active={false} onClick={() => window.open(FORM_URL, '_blank', 'noopener,noreferrer')} icon={<ClipboardList size={14}/>} label="Solicitar" />
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={handleExportPDF}
+              disabled={exporting || dataLoading}
+              className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-[11px] uppercase tracking-widest shadow-lg shadow-red-900/40 transition-all active:scale-95 disabled:opacity-50"
+            >
+              {exporting ? <Loader2 className="animate-spin" size={15}/> : <FileDown size={15}/>}
+              {exporting ? 'Gerando...' : 'Exportar PDF'}
+            </button>
+
+            <div className="flex gap-1 p-1.5 bg-white/5 rounded-xl border border-white/10">
+              <TabButton active={true} onClick={() => {}} icon={<Gauge size={13}/>} label="Painel" />
+              <TabButton active={false} onClick={() => window.open(SHEET_URL, '_blank', 'noopener,noreferrer')} icon={<FileSpreadsheet size={13}/>} label="Planilha" />
+              <TabButton active={false} onClick={() => window.open(FORM_URL, '_blank', 'noopener,noreferrer')} icon={<ClipboardList size={13}/>} label="Solicitar" />
+            </div>
           </div>
         </div>
       </div>
 
       <div className="space-y-6 animate-in fade-in duration-500">
 
-          {/* KPI Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard icon={<Car size={18}/>} label="Total Registros" value={dataLoading ? '...' : stats.total} accent="slate" />
-            <StatCard icon={<ShieldCheck size={18}/>} label="Confirmadas" value={dataLoading ? '...' : stats.approved} accent="emerald" />
-            <StatCard icon={<TrendingUp size={18}/>} label="Este Mês" value={dataLoading ? '...' : stats.thisMonth} accent="indigo" />
-            <StatCard icon={<Users size={18}/>} label="Condutores Únicos" value={dataLoading ? '...' : stats.uniqueDrivers} accent="amber" />
-          </div>
+        {/* KPI Cards — painel de instrumentos */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <InstrumentCard
+            icon={<Car size={18}/>}
+            label="Total Registros"
+            value={dataLoading ? '...' : stats.total}
+            accent="red"
+            sublabel="saídas totais"
+          />
+          <InstrumentCard
+            icon={<ShieldCheck size={18}/>}
+            label="Confirmadas"
+            value={dataLoading ? '...' : stats.approved}
+            accent="emerald"
+            sublabel="aprovadas"
+          />
+          <InstrumentCard
+            icon={<TrendingUp size={18}/>}
+            label="Este Mês"
+            value={dataLoading ? '...' : stats.thisMonth}
+            accent="amber"
+            sublabel="mês corrente"
+          />
+          <InstrumentCard
+            icon={<Users size={18}/>}
+            label="Condutores"
+            value={dataLoading ? '...' : stats.uniqueDrivers}
+            accent="indigo"
+            sublabel="únicos"
+          />
+        </div>
 
-          {/* Agendamentos do Dia */}
-          <div className="grid grid-cols-1 gap-6">
-            <div className="lg:col-span-12">
-              <div className="bg-slate-900 p-7 rounded-3xl shadow-2xl h-full text-white relative overflow-hidden">
-                <div className="relative z-10">
-                  <div className="flex items-center justify-between mb-6">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2.5 bg-white/10 rounded-xl"><Calendar size={20} className="text-indigo-400"/></div>
+        {/* Saídas do Dia */}
+        <div className="relative overflow-hidden rounded-3xl shadow-2xl border border-white/5"
+          style={{ background: 'linear-gradient(135deg, #0c0c14 0%, #0f172a 50%, #130a0a 100%)' }}
+        >
+          {/* Listra de corrida lateral */}
+          <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-red-600 via-red-500 to-red-700" />
+          <div className="absolute left-1 top-0 bottom-0 w-px bg-red-900/30" />
+
+          {/* Silhueta decorativa */}
+          <Car className="absolute -bottom-10 -right-10 text-white/[0.04] w-80 h-80 -rotate-12" />
+
+          <div className="relative z-10 p-7">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-red-600/20 border border-red-500/20 rounded-xl">
+                  <Calendar size={20} className="text-red-400"/>
+                </div>
+                <div>
+                  <h2 className="text-lg font-black uppercase tracking-tight text-white">Saídas: {displayDateLabel}</h2>
+                  <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest">{selectedDate.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}</p>
+                </div>
+                {dateBookings.length > 0 && (
+                  <div className="ml-2 px-2.5 py-1 bg-red-600 rounded-full">
+                    <span className="text-[10px] font-black text-white">{dateBookings.length}</span>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button onClick={handlePrevDay} className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all text-white/50 hover:text-white">
+                  <ChevronLeft size={18}/>
+                </button>
+                <button onClick={handleGoToToday} className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg shadow-red-900/40 transition-all">
+                  Hoje
+                </button>
+                <button onClick={handleNextDay} className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all text-white/50 hover:text-white">
+                  <ChevronRight size={18}/>
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2.5 max-h-[280px] overflow-y-auto pr-1 custom-scrollbar">
+              {dataLoading ? (
+                <div className="py-16 flex flex-col items-center justify-center gap-3 text-white/30">
+                  <Loader2 className="animate-spin" size={28}/>
+                  <p className="text-[10px] font-black uppercase tracking-widest">Sincronizando...</p>
+                </div>
+              ) : dateBookings.length === 0 ? (
+                <div className="py-16 text-center flex flex-col items-center justify-center gap-3">
+                  <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center opacity-30">
+                    <CalendarDays size={32} className="text-white"/>
+                  </div>
+                  <div className="opacity-30">
+                    <p className="text-sm text-white font-bold">Sem veículos escalados</p>
+                    <p className="text-[9px] text-white/60 font-black uppercase tracking-[0.2em] mt-1">Navegue pelas setas acima</p>
+                  </div>
+                </div>
+              ) : dateBookings.map((booking, i) => {
+                const isApproved = booking.status?.toUpperCase().includes('APROVADO') || booking.status?.toUpperCase() === 'OK';
+                return (
+                  <div
+                    key={booking.id}
+                    className="group relative bg-white/5 border border-white/10 p-4 rounded-2xl flex items-center justify-between hover:bg-white/8 hover:border-white/20 transition-all animate-in slide-in-from-right-2"
+                    style={{ animationDelay: `${i * 40}ms` }}
+                  >
+                    <div className={`absolute left-0 top-3 bottom-3 w-0.5 rounded-r-full ${isApproved ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                    <div className="flex items-center gap-3 pl-2">
+                      <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/10 flex items-center justify-center text-white font-black text-sm">
+                        {booking.requester_name.charAt(0)}
+                      </div>
                       <div>
-                        <h2 className="text-lg font-black uppercase tracking-tight">Saídas: {displayDateLabel}</h2>
-                        <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">{selectedDate.toLocaleDateString('pt-BR')}</p>
+                        <p className="font-black uppercase text-xs tracking-tight text-white">{booking.requester_name}</p>
+                        <span className={`text-[8px] font-black px-2 py-0.5 rounded-md uppercase mt-1 inline-block ${isApproved ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'}`}>
+                          {booking.status || 'Pendente'}
+                        </span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button onClick={handlePrevDay} className="p-2 bg-white/5 hover:bg-white/15 rounded-xl transition-all text-white/60 hover:text-white"><ChevronLeft size={18}/></button>
-                      <button onClick={handleGoToToday} className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg transition-all">Hoje</button>
-                      <button onClick={handleNextDay} className="p-2 bg-white/5 hover:bg-white/15 rounded-xl transition-all text-white/60 hover:text-white"><ChevronRight size={18}/></button>
+                    <div className="p-1.5 bg-white/5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                      <ArrowRight size={13} className="text-white/50"/>
                     </div>
                   </div>
-                  <div className="space-y-2.5 max-h-[280px] overflow-y-auto pr-1 custom-scrollbar">
-                    {dataLoading ? (
-                      <div className="py-16 flex flex-col items-center justify-center gap-3 text-white/40">
-                        <Loader2 className="animate-spin" size={28}/>
-                        <p className="text-[10px] font-black uppercase tracking-widest">Sincronizando...</p>
-                      </div>
-                    ) : dateBookings.length === 0 ? (
-                      <div className="py-16 text-center flex flex-col items-center justify-center opacity-25 gap-3">
-                        <CalendarDays size={52}/>
-                        <p className="italic text-sm">Sem veículos escalados para este dia.</p>
-                        <p className="text-[9px] font-black uppercase tracking-[0.2em]">Navegue pelas setas acima</p>
-                      </div>
-                    ) : dateBookings.map(booking => (
-                      <div key={booking.id} className="bg-white/5 border border-white/10 p-3.5 rounded-2xl flex items-center justify-between group hover:bg-white/10 transition-all animate-in slide-in-from-right-2">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-xl bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-black text-sm">
-                            {booking.requester_name.charAt(0)}
-                          </div>
-                          <div>
-                            <p className="font-black uppercase text-xs tracking-tight">{booking.requester_name}</p>
-                            <span className={`text-[8px] font-black px-2 py-0.5 rounded-md uppercase mt-1 inline-block ${booking.status?.toUpperCase().includes('APROVADO') ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white'}`}>
-                              {booking.status || 'Pendente'}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="p-1.5 bg-white/5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"><ArrowRight size={13}/></div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <Car className="absolute -bottom-8 -right-8 text-white/5 w-56 h-56 -rotate-12" />
-              </div>
+                );
+              })}
             </div>
-          </div>
-
-          {/* Gráfico + Ranking */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-8">
-              <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl h-full relative overflow-hidden">
-                <div className="absolute top-0 right-0 p-8 opacity-[0.03] pointer-events-none">
-                  <BarChart3 size={100}/>
-                </div>
-                <div className="flex items-center gap-3 mb-8">
-                  <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl"><BarChart3 size={20}/></div>
-                  <div>
-                    <h2 className="text-base font-black text-slate-800 uppercase tracking-tight">Fluxo de Agendamentos</h2>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Desempenho da frota regional nos últimos 12 meses</p>
-                  </div>
-                </div>
-                <div id="pdf-chart-source" className="h-[300px] w-full">
-                  {dataLoading ? (
-                    <div className="h-full flex flex-col items-center justify-center gap-3 text-slate-300">
-                      <Loader2 className="animate-spin" size={36}/>
-                      <p className="text-[10px] font-black uppercase tracking-widest">Gerando gráfico...</p>
-                    </div>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#818cf8" stopOpacity={0.7}/>
-                            <stop offset="100%" stopColor="#4f46e5" stopOpacity={1}/>
-                          </linearGradient>
-                          <linearGradient id="activeGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#6366f1" stopOpacity={1}/>
-                            <stop offset="100%" stopColor="#312e81" stopOpacity={1}/>
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9"/>
-                        <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 900, fill: '#94a3b8'}} dy={12}/>
-                        <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 900, fill: '#cbd5e1'}}/>
-                        <Tooltip
-                          cursor={{fill: '#f8fafc', radius: 8}}
-                          contentStyle={{ borderRadius: '14px', border: 'none', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', fontSize: '11px', fontWeight: '900', padding: '10px 14px', textTransform: 'uppercase'}}
-                          itemStyle={{ color: '#4f46e5' }}
-                          formatter={(value: any) => [`${value} Saídas`, 'Total']}
-                        />
-                        <Bar dataKey="count" radius={[6, 6, 0, 0]} barSize={26} animationDuration={1500}>
-                          {chartData.map((entry, index) => (
-                            <Cell
-                              key={`cell-${index}`}
-                              fill={index === chartData.length - 1 ? "url(#activeGradient)" : "url(#barGradient)"}
-                              fillOpacity={index === chartData.length - 1 ? 1 : (entry.count === 0 ? 0.1 : 0.35 + (index / 22))}
-                            />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-                <div className="mt-6 flex items-center gap-5">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-full bg-indigo-600"></div>
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Mês Atual</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-full bg-indigo-200"></div>
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Histórico</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Ranking Card — dark themed */}
-            <div className="lg:col-span-4">
-              <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-7 rounded-3xl shadow-2xl h-full flex flex-col relative overflow-hidden">
-                <Award className="absolute -bottom-8 -right-8 text-white/5 w-44 h-44"/>
-
-                <div className="flex items-center gap-3 mb-6 relative z-10">
-                  <div className="p-2.5 bg-amber-400/20 rounded-xl">
-                    <Award size={20} className="text-amber-400"/>
-                  </div>
-                  <div>
-                    <h2 className="text-base font-black text-white uppercase tracking-tight">Ranking</h2>
-                    <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Número de Solicitações</p>
-                  </div>
-                </div>
-
-                <div className="space-y-2.5 flex-1 relative z-10">
-                  {dataLoading ? (
-                    <div className="h-full flex flex-col items-center justify-center gap-2 text-white/30">
-                      <Loader2 className="animate-spin" size={22}/>
-                      <p className="text-[9px] font-black uppercase tracking-widest text-center">Calculando...</p>
-                    </div>
-                  ) : topDrivers.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-10 opacity-20 text-white">
-                      <Users size={40} className="mb-2"/>
-                      <p className="text-xs font-bold uppercase">Sem histórico</p>
-                    </div>
-                  ) : topDrivers.map((driver, idx) => (
-                    <div key={driver.name} className={`p-3.5 rounded-2xl border transition-all ${rankCardStyle[idx] ?? 'bg-white/5 border-white/10'}`}>
-                      <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-[11px] text-white shrink-0 ${rankBadgeStyle[idx] ?? 'bg-white/10'}`}>
-                          {idx + 1}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[11px] font-black text-white uppercase leading-none truncate">{driver.name}</p>
-                          <div className="mt-2 flex items-center gap-2">
-                            <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full bg-gradient-to-r ${rankBarStyle[idx] ?? 'from-indigo-400 to-indigo-600'} rounded-full transition-all duration-700`}
-                                style={{ width: `${(driver.count / topDrivers[0].count) * 100}%` }}
-                              />
-                            </div>
-                            <span className="text-[10px] font-black text-white/60 shrink-0 tabular-nums">{driver.count}</span>
-                          </div>
-                          <p className="text-[8px] font-bold text-white/30 mt-0.5 uppercase tracking-tight">saídas confirmadas</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-5 p-3.5 bg-white/5 rounded-2xl border border-white/10 relative z-10">
-                  <div className="flex items-start gap-2">
-                    <Info size={11} className="text-white/25 mt-0.5 shrink-0"/>
-                    <p className="text-[9px] text-white/25 font-medium leading-relaxed uppercase tracking-tight">Base de dados sincronizada via Google Sheets. Nomes similares são consolidados automaticamente.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Links externos */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <ExternalCard title="Formulário de Pedidos" desc="Abertura de novas solicitações via formulário institucional." link={FORM_URL} icon={<ClipboardList size={28}/>} color="blue"/>
-            <ExternalCard title="Planilha Mestra" desc="Cronograma detalhado e gestão de motoristas." link={SHEET_URL} icon={<FileSpreadsheet size={28}/>} color="emerald"/>
           </div>
         </div>
+
+        {/* Gráfico + Ranking */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+          {/* Gráfico */}
+          <div className="lg:col-span-8">
+            <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl h-full relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 to-red-400 rounded-t-3xl" />
+              <div className="absolute top-0 right-0 p-8 opacity-[0.03] pointer-events-none">
+                <BarChart3 size={120}/>
+              </div>
+              <div className="flex items-center gap-3 mb-8">
+                <div className="p-2.5 bg-red-50 text-red-600 rounded-xl border border-red-100">
+                  <BarChart3 size={20}/>
+                </div>
+                <div>
+                  <h2 className="text-base font-black text-slate-800 uppercase tracking-tight">Fluxo de Agendamentos</h2>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Desempenho da frota regional — últimos 12 meses</p>
+                </div>
+              </div>
+              <div id="pdf-chart-source" className="h-[300px] w-full">
+                {dataLoading ? (
+                  <div className="h-full flex flex-col items-center justify-center gap-3 text-slate-300">
+                    <Loader2 className="animate-spin" size={36}/>
+                    <p className="text-[10px] font-black uppercase tracking-widest">Gerando gráfico...</p>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#f87171" stopOpacity={0.7}/>
+                          <stop offset="100%" stopColor="#dc2626" stopOpacity={1}/>
+                        </linearGradient>
+                        <linearGradient id="activeGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#ef4444" stopOpacity={1}/>
+                          <stop offset="100%" stopColor="#7f1d1d" stopOpacity={1}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9"/>
+                      <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 900, fill: '#94a3b8'}} dy={12}/>
+                      <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 900, fill: '#cbd5e1'}}/>
+                      <Tooltip
+                        cursor={{fill: '#fef2f2', radius: 8}}
+                        contentStyle={{ borderRadius: '14px', border: 'none', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', fontSize: '11px', fontWeight: '900', padding: '10px 14px', textTransform: 'uppercase'}}
+                        itemStyle={{ color: '#dc2626' }}
+                        formatter={(value: any) => [`${value} Saídas`, 'Total']}
+                      />
+                      <Bar dataKey="count" radius={[6, 6, 0, 0]} barSize={26} animationDuration={1500}>
+                        {chartData.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={index === chartData.length - 1 ? "url(#activeGradient)" : "url(#barGradient)"}
+                            fillOpacity={index === chartData.length - 1 ? 1 : (entry.count === 0 ? 0.1 : 0.3 + (index / 22))}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+              <div className="mt-6 flex items-center gap-5">
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-700"></div>
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Mês Atual</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-300"></div>
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Histórico</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Ranking — pódio */}
+          <div className="lg:col-span-4">
+            <div className="relative overflow-hidden rounded-3xl shadow-2xl h-full flex flex-col border border-white/5"
+              style={{ background: 'linear-gradient(145deg, #0c0c14 0%, #0f172a 60%, #1a0505 100%)' }}
+            >
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 to-orange-600" />
+              <Flag className="absolute -bottom-8 -right-8 text-white/[0.04] w-44 h-44" />
+
+              <div className="flex items-center gap-3 p-7 pb-4 relative z-10">
+                <div className="p-2.5 bg-amber-400/15 border border-amber-400/20 rounded-xl">
+                  <Award size={20} className="text-amber-400"/>
+                </div>
+                <div>
+                  <h2 className="text-base font-black text-white uppercase tracking-tight">Ranking</h2>
+                  <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest">Top 5 Condutores</p>
+                </div>
+              </div>
+
+              <div className="space-y-2 flex-1 px-7 pb-4 relative z-10">
+                {dataLoading ? (
+                  <div className="h-full flex flex-col items-center justify-center gap-2 text-white/30 py-10">
+                    <Loader2 className="animate-spin" size={22}/>
+                    <p className="text-[9px] font-black uppercase tracking-widest">Calculando...</p>
+                  </div>
+                ) : topDrivers.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-10 opacity-20 text-white">
+                    <Users size={40} className="mb-2"/>
+                    <p className="text-xs font-bold uppercase">Sem histórico</p>
+                  </div>
+                ) : topDrivers.map((driver, idx) => (
+                  <div key={driver.name} className={`p-3.5 rounded-2xl border transition-all ${rankCardStyle[idx] ?? 'bg-white/5 border-white/10'}`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-[11px] text-white shrink-0 ${rankBadgeStyle[idx] ?? 'bg-white/10'}`}>
+                        {idx + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-black text-white uppercase leading-none truncate">{driver.name}</p>
+                        <div className="mt-2 flex items-center gap-2">
+                          <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full bg-gradient-to-r ${rankBarStyle[idx] ?? 'from-red-400 to-red-600'} rounded-full transition-all duration-700`}
+                              style={{ width: `${(driver.count / topDrivers[0].count) * 100}%` }}
+                            />
+                          </div>
+                          <span className="text-[10px] font-black text-white/60 shrink-0 tabular-nums">{driver.count}</span>
+                        </div>
+                        <p className="text-[8px] font-bold text-white/25 mt-0.5 uppercase tracking-tight">saídas confirmadas</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mx-7 mb-7 p-3 bg-white/[0.04] rounded-xl border border-white/[0.07] relative z-10">
+                <div className="flex items-start gap-2">
+                  <Info size={11} className="text-white/20 mt-0.5 shrink-0"/>
+                  <p className="text-[9px] text-white/20 font-medium leading-relaxed uppercase tracking-tight">Dados sincronizados via Google Sheets. Nomes similares são consolidados automaticamente.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Links externos */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <ExternalCard
+            title="Formulário de Pedidos"
+            desc="Abertura de novas solicitações via formulário institucional."
+            link={FORM_URL}
+            icon={<ClipboardList size={26}/>}
+            color="red"
+          />
+          <ExternalCard
+            title="Planilha Mestra"
+            desc="Cronograma detalhado e gestão de motoristas."
+            link={SHEET_URL}
+            icon={<FileSpreadsheet size={26}/>}
+            color="emerald"
+          />
+        </div>
+      </div>
 
     </div>
   );
@@ -595,8 +681,10 @@ function TabButton({ active, onClick, icon, label }: any) {
   return (
     <button
       onClick={onClick}
-      className={`px-5 py-2.5 flex items-center gap-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
-        active ? 'bg-white text-indigo-600 shadow-lg shadow-indigo-100' : 'text-slate-400 hover:text-slate-600'
+      className={`px-4 py-2 flex items-center gap-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+        active
+          ? 'bg-red-600 text-white shadow-lg shadow-red-900/40'
+          : 'text-white/40 hover:text-white/70 hover:bg-white/5'
       }`}
     >
       {icon} {label}
@@ -604,40 +692,55 @@ function TabButton({ active, onClick, icon, label }: any) {
   );
 }
 
-function StatCard({ icon, label, value, accent }: { icon: any; label: string; value: number | string; accent: string }) {
-  const styles: Record<string, { wrap: string; icon: string; val: string }> = {
-    slate:   { wrap: 'border-slate-100',   icon: 'bg-slate-100 text-slate-600',   val: 'text-slate-900' },
-    emerald: { wrap: 'border-emerald-100', icon: 'bg-emerald-100 text-emerald-600', val: 'text-emerald-700' },
-    indigo:  { wrap: 'border-indigo-100',  icon: 'bg-indigo-100 text-indigo-600',  val: 'text-indigo-700' },
-    amber:   { wrap: 'border-amber-100',   icon: 'bg-amber-100 text-amber-600',    val: 'text-amber-700' },
+function InstrumentCard({ icon, label, value, accent, sublabel }: {
+  icon: any; label: string; value: number | string; accent: string; sublabel: string;
+}) {
+  const styles: Record<string, { border: string; icon: string; val: string; stripe: string; sub: string }> = {
+    red:     { border: 'border-red-100',     icon: 'bg-red-50 text-red-600 border border-red-100',       val: 'text-red-700',     stripe: 'bg-red-500',     sub: 'text-red-400' },
+    emerald: { border: 'border-emerald-100', icon: 'bg-emerald-50 text-emerald-600 border border-emerald-100', val: 'text-emerald-700', stripe: 'bg-emerald-500', sub: 'text-emerald-400' },
+    amber:   { border: 'border-amber-100',   icon: 'bg-amber-50 text-amber-600 border border-amber-100',   val: 'text-amber-700',   stripe: 'bg-amber-500',   sub: 'text-amber-400' },
+    indigo:  { border: 'border-indigo-100',  icon: 'bg-indigo-50 text-indigo-600 border border-indigo-100',  val: 'text-indigo-700',  stripe: 'bg-indigo-500',  sub: 'text-indigo-400' },
   };
-  const s = styles[accent] ?? styles.slate;
+  const s = styles[accent] ?? styles.red;
   return (
-    <div className={`bg-white p-5 rounded-2xl border shadow-sm flex items-center gap-4 ${s.wrap}`}>
-      <div className={`p-2.5 rounded-xl shrink-0 ${s.icon}`}>{icon}</div>
-      <div>
-        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{label}</p>
-        <p className={`text-2xl font-black leading-tight mt-0.5 ${s.val}`}>{value}</p>
+    <div className={`relative bg-white p-5 rounded-2xl border shadow-sm overflow-hidden ${s.border}`}>
+      <div className={`absolute top-0 left-0 right-0 h-1 ${s.stripe}`} />
+      <div className="flex items-start gap-4 mt-1">
+        <div className={`p-2.5 rounded-xl shrink-0 ${s.icon}`}>{icon}</div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{label}</p>
+          <p className={`text-2xl font-black leading-tight mt-0.5 ${s.val}`}>{value}</p>
+          <p className={`text-[9px] font-bold uppercase tracking-wide mt-0.5 ${s.sub} opacity-70`}>{sublabel}</p>
+        </div>
       </div>
     </div>
   );
 }
 
 function ExternalCard({ title, desc, link, icon, color }: any) {
-  const colorMap: any = {
-    blue: 'bg-blue-50 text-blue-600 border-blue-100',
-    emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100'
+  const colorMap: Record<string, string> = {
+    red:     'bg-red-50 text-red-600 border-red-100',
+    emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+  };
+  const hoverMap: Record<string, string> = {
+    red:     'hover:border-red-300 hover:shadow-red-100/50',
+    emerald: 'hover:border-emerald-300 hover:shadow-emerald-100/50',
   };
   return (
-    <a href={link} target="_blank" rel="noopener noreferrer"
-      className="group bg-white p-6 rounded-3xl border border-slate-100 shadow-lg hover:border-indigo-300 transition-all hover:-translate-y-1 flex items-center gap-5"
+    <a
+      href={link}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`group bg-white p-6 rounded-3xl border border-slate-100 shadow-lg transition-all hover:-translate-y-1 flex items-center gap-5 ${hoverMap[color]}`}
     >
-      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 shadow-md ${colorMap[color]}`}>{icon}</div>
+      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 shadow-md border ${colorMap[color]}`}>
+        {icon}
+      </div>
       <div className="flex-1">
         <h3 className="text-base font-black text-slate-800 uppercase tracking-tight">{title}</h3>
         <p className="text-xs text-slate-400 font-medium leading-relaxed mt-0.5">{desc}</p>
       </div>
-      <ArrowRight size={18} className="text-slate-200 group-hover:text-indigo-500 transition-colors shrink-0"/>
+      <ArrowRight size={18} className="text-slate-200 group-hover:text-slate-500 transition-colors shrink-0"/>
     </a>
   );
 }
