@@ -202,6 +202,11 @@ export function Zeladoria() {
         loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'),
       ]);
 
+      const escapeHtml = (v: string | number | null | undefined): string => {
+        if (v === null || v === undefined) return '';
+        return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+      };
+
       const maxVal = Math.max(...statusChartData.map(s => s.quantidade), 1);
       const conclusaoPct = stats.totalValidas > 0 ? Math.round((stats.concluidos / stats.totalValidas) * 100) : 0;
       const vagasPct = stats.totalValidas > 0 ? Math.round((stats.vagas / stats.totalValidas) * 100) : 0;
@@ -212,7 +217,7 @@ export function Zeladoria() {
         const pct = Math.round((stage.quantidade / maxVal) * 100);
         const color = stage.name === 'CONCLUÍDO' ? '#10b981' : '#3b82f6';
         return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:7px;">
-          <div style="width:190px;font-size:9px;font-weight:700;color:#475569;text-align:right;flex-shrink:0;">${stage.name}</div>
+          <div style="width:190px;font-size:9px;font-weight:700;color:#475569;text-align:right;flex-shrink:0;">${escapeHtml(stage.name)}</div>
           <div style="flex:1;background:#e2e8f0;border-radius:4px;height:16px;">
             <div style="width:${pct}%;height:100%;background:${color};border-radius:4px;"></div>
           </div>
@@ -226,13 +231,13 @@ export function Zeladoria() {
         const sColor = item.ocupada === 'CONCLUÍDO' ? '#065f46' : '#1d4ed8';
         const val = item.ate ? new Date(item.ate).toLocaleDateString('pt-BR') : '-';
         return `<tr style="background:${bg};">
-          <td style="padding:6px 8px;color:#475569;font-weight:700;">${item.ue || '-'}</td>
-          <td style="padding:6px 8px;color:#1e293b;font-weight:700;">${item.nome || '-'}</td>
-          <td style="padding:6px 8px;color:#3b82f6;font-family:monospace;font-size:9px;">${item.sei_numero || '-'}</td>
-          <td style="padding:6px 8px;color:#475569;">${item.zelador || 'Disponível'}</td>
-          <td style="padding:6px 8px;"><span style="background:${sBg};color:${sColor};padding:2px 5px;border-radius:4px;font-weight:800;font-size:8px;">${item.ocupada}</span></td>
-          <td style="padding:6px 8px;color:#475569;">${item.dare || '-'}</td>
-          <td style="padding:6px 8px;color:#475569;">${val}</td>
+          <td style="padding:6px 8px;color:#475569;font-weight:700;">${escapeHtml(item.ue) || '-'}</td>
+          <td style="padding:6px 8px;color:#1e293b;font-weight:700;">${escapeHtml(item.nome) || '-'}</td>
+          <td style="padding:6px 8px;color:#3b82f6;font-family:monospace;font-size:9px;">${escapeHtml(item.sei_numero) || '-'}</td>
+          <td style="padding:6px 8px;color:#475569;">${escapeHtml(item.zelador) || 'Disponível'}</td>
+          <td style="padding:6px 8px;"><span style="background:${sBg};color:${sColor};padding:2px 5px;border-radius:4px;font-weight:800;font-size:8px;">${escapeHtml(item.ocupada)}</span></td>
+          <td style="padding:6px 8px;color:#475569;">${escapeHtml(item.dare) || '-'}</td>
+          <td style="padding:6px 8px;color:#475569;">${escapeHtml(val)}</td>
         </tr>`;
       }).join('');
 

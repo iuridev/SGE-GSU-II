@@ -3,13 +3,10 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { GoogleSpreadsheet } from "npm:google-spreadsheet@4.1.1"
 // @ts-ignore
 import { JWT } from "npm:google-auth-library@9.6.3"
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+import { getCorsHeaders } from '../_shared/cors.ts'
 
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req.headers.get('origin'))
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
   try {
