@@ -8,6 +8,42 @@ export function Login() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [lockoutSeconds, setLockoutSeconds] = useState(0);
+
+  // Retorna quantos segundos bloquear baseado no número de tentativas
+  const getLockoutDuration = (attempts: number): number => {
+    if (attempts >= 10) return 30 * 60; // 30 minutos
+    if (attempts >= 5)  return 5 * 60;  // 5 minutos
+    if (attempts >= 3)  return 30;       // 30 segundos
+    return 0;
+  };
+
+  const getStoredAttempts = (e: string) => {
+    try {
+      const raw = localStorage.getItem(`login_fail_${btoa(e)}`);
+      if (!raw) return { count: 0, lockedUntil: 0 };
+      return JSON.parse(raw) as { count: number; lockedUntil: number };
+    } catch { return { count: 0, lockedUntil: 0 }; }
+  };
+
+  const setStoredAttempts = (e: string, count: number, lockedUntil: number) => {
+    localStorage.setItem(`login_fail_${btoa(e)}`, JSON.stringify({ count, lockedUntil }));
+  };
+
+  // Contador regressivo quando há bloqueio ativo
+  useEffect(() => {
+    const stored = getStoredAttempts(email);
+    if (!email || stored.lockedUntil <= Date.now()) { setLockoutSeconds(0); return; }
+
+    const update = () => {
+      const remaining = Math.ceil((stored.lockedUntil - Date.now()) / 1000);
+      if (remaining <= 0) { setLockoutSeconds(0); }
+      else { setLockoutSeconds(remaining); }
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [email]);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mouseRef = useRef({ x: -9999, y: -9999 });
@@ -132,11 +168,19 @@ export function Login() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Bloquear se ainda em período de lockout
+    const stored = getStoredAttempts(email);
+    if (stored.lockedUntil > Date.now()) {
+      const remaining = Math.ceil((stored.lockedUntil - Date.now()) / 1000);
+      setLockoutSeconds(remaining);
+      return;
+    }
+
     setLoading(true);
     setErrorMsg(null);
 
     try {
-      // 1. Autenticação via Supabase Auth
       const { data: { user }, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -145,10 +189,9 @@ export function Login() {
       if (authError) throw authError;
 
       if (user) {
-        console.log("Login Auth SUCESSO. Validando perfil no código...");
+        // Login bem-sucedido — zera o contador de tentativas
+        localStorage.removeItem(`login_fail_${btoa(email)}`);
 
-        // 2. Busca o cargo (role) na tabela profiles
-        // Como o RLS está desativado, esta consulta funcionará livremente para qualquer usuário logado
         const { data: profileData, error: profileError } = await (supabase as any)
           .from('profiles')
           .select('role')
@@ -156,15 +199,12 @@ export function Login() {
           .single();
 
         if (profileError || !profileData) {
-          console.error("Erro ou perfil inexistente:", profileError);
           await supabase.auth.signOut();
           throw new Error("Usuário autenticado, mas o perfil não foi encontrado na tabela 'profiles'.");
         }
 
         const role = profileData.role;
 
-        // 3. Redirecionamento por Código
-        // Forçamos o reload total da página para evitar conflitos de estado do React Router
         if (role === 'regional_admin' || role === 'school_manager' || role === 'supervisor' || role === 'dirigente'|| role === 'ure_servico'|| role === 'ure_ecc') {
           window.location.href = '/painel-regional';
         } else {
@@ -173,9 +213,14 @@ export function Login() {
         }
       }
     } catch (error: any) {
-      console.error("Falha no acesso:", error);
-      
-      // Tratamento para o Erro 500 do servidor Supabase
+      // Registrar tentativa falha e aplicar bloqueio se necessário
+      const current = getStoredAttempts(email);
+      const newCount = current.count + 1;
+      const duration = getLockoutDuration(newCount);
+      const lockedUntil = duration > 0 ? Date.now() + duration * 1000 : 0;
+      setStoredAttempts(email, newCount, lockedUntil);
+      if (duration > 0) setLockoutSeconds(duration);
+
       if (error.message?.includes('schema') || error.status === 500) {
         setErrorMsg("Erro interno no banco (500). Verifique se as permissões do esquema 'public' estão corretas no Supabase.");
       } else if (error.message === 'Invalid login credentials') {
@@ -301,16 +346,31 @@ export function Login() {
               </div>
             )}
 
+            {lockoutSeconds > 0 && (
+              <div className="p-3 bg-orange-50 text-orange-700 text-xs font-bold rounded-lg border border-orange-200 flex items-start gap-2">
+                <span className="mt-0.5">🔒</span>
+                <span>
+                  Muitas tentativas incorretas. Aguarde{' '}
+                  {lockoutSeconds >= 60
+                    ? `${Math.ceil(lockoutSeconds / 60)} minuto(s)`
+                    : `${lockoutSeconds} segundo(s)`}{' '}
+                  para tentar novamente.
+                </span>
+              </div>
+            )}
+
             <button
               type="submit"
-              disabled={loading}
-              className={`w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-600/20 transition-all flex justify-center items-center gap-2 active:scale-[0.98] ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
+              disabled={loading || lockoutSeconds > 0}
+              className={`w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-600/20 transition-all flex justify-center items-center gap-2 active:scale-[0.98] ${loading || lockoutSeconds > 0 ? 'opacity-70 cursor-not-allowed' : ''}`}
             >
               {loading ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   Validando...
                 </>
+              ) : lockoutSeconds > 0 ? (
+                `Bloqueado por ${lockoutSeconds >= 60 ? `${Math.ceil(lockoutSeconds / 60)}min` : `${lockoutSeconds}s`}`
               ) : (
                 'Entrar no Sistema'
               )}
