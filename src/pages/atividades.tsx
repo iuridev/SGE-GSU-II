@@ -22,7 +22,6 @@ export default function RelatorioAtividades() {
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); // Formato 'YYYY-MM'
 
-  const SCRIPT_URL = import.meta.env.VITE_ATIVIDADES_SCRIPT_URL as string;
 
   const [formData, setFormData] = useState({
     data: new Date().toISOString().split('T')[0],
@@ -102,9 +101,10 @@ export default function RelatorioAtividades() {
   const fetchAtividades = async () => {
     setLoading(true);
     try {
-      const response = await fetch(SCRIPT_URL);
-      const data = await response.json();
-      
+      const { data, error } = await supabase.functions.invoke('proxy-atividades-script', {
+        method: 'GET',
+      });
+      if (error) throw error;
       if (Array.isArray(data)) {
         setAtividades(data);
       }
@@ -118,16 +118,12 @@ export default function RelatorioAtividades() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    
+
     try {
-      await fetch(SCRIPT_URL, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
+      const { error } = await supabase.functions.invoke('proxy-atividades-script', {
+        body: formData,
       });
+      if (error) throw error;
       
       setFormData({ ...formData, atividade: '' }); 
       

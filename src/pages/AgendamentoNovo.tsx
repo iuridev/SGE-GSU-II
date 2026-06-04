@@ -11,8 +11,6 @@ import {
   CalendarCheck, Info, BarChart3, TrendingUp, Award, ListPlus, SendHorizontal, Timer, Lock
 } from 'lucide-react';
 
-// Puxa a URL oficial do Google Apps Script que configuramos no arquivo .env
-const GOOGLE_SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL_AGENDAMENTO;
 
 // Define a "fôrma" (tipagem) dos dados de um Ambiente para o TypeScript não reclamar
 interface Ambiente {
@@ -376,7 +374,7 @@ export function AgendamentoNovo() {
     let motivo = '';
     // Se apertou em reprovar, sobe uma caixa de texto simples do navegador pedindo a justificativa
     if (novoStatus === 'reprovado') {
-      motivo = prompt('Qual o motivo da reprovação? (Opcional)') || 'Não informado';
+      motivo = (prompt('Qual o motivo da reprovação? (Opcional)') || 'Não informado').trim().slice(0, 500);
     }
 
     try {
@@ -674,40 +672,28 @@ export function AgendamentoNovo() {
   // EXPORTAÇÃO PARA O GOOGLE SHEETS COM BYPASS DE CORS (AULA DE CIBERSEGURANÇA)
   // ========================================================================
   const handleSyncSheet = async () => {
-    // Segurança pra não tentar enviar pro vazio
-    if (!GOOGLE_SCRIPT_URL) {
-      alert("URL da planilha não configurada no .env!");
-      return;
-    }
-    
-    setSyncing(true); // O icone de reciclar começa a girar
+    setSyncing(true);
     try {
-      // Mapeia o pacotão pesado do banco e transforma num pacotinho mastigado pro Excel
       const payload = agendamentos.map(ag => ({
         id: ag.id,
-        data_agendamento: ag.data_agendamento.split('-').reverse().join('/'), // DD/MM/AAAA BR
-        hora_inicio: ag.hora_inicio.slice(0, 5), // Corta os segundos inúteis (HH:MM)
-        hora_fim: ag.hora_fim.slice(0, 5), 
-        ambiente: ag.ambientes?.nome || 'Ambiente Excluído', // Se a sala foi apagada, diz isso
+        data_agendamento: ag.data_agendamento.split('-').reverse().join('/'),
+        hora_inicio: ag.hora_inicio.slice(0, 5),
+        hora_fim: ag.hora_fim.slice(0, 5),
+        ambiente: ag.ambientes?.nome || 'Ambiente Excluído',
         titulo_evento: ag.titulo_evento,
         responsavel: ag.user_name,
         quantidade_pessoas: ag.quantidade_pessoas,
-        observacao: ag.observacao || "", // Se não tiver, manda vazio pra não dar pau
-        status: ag.status.toUpperCase(), // CAIXA ALTA PORQUE SIM
+        observacao: ag.observacao || "",
+        status: ag.status.toUpperCase(),
         motivo_reprovacao: ag.motivo_reprovacao || "",
         historico_edicao: ag.historico_edicao || "",
-        criado_em: "Exportado via Sistema" // Aviso
+        criado_em: "Exportado via Sistema"
       }));
 
-      // A REQUISIÇÃO OFICIAL QUE VAI PRO GOOGLE
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        mode: 'no-cors', 
-        headers: { 
-          'Content-Type': 'text/plain;charset=utf-8' 
-        },
-        body: JSON.stringify(payload)
+      const { error } = await supabase.functions.invoke('salvar-agendamento-planilha', {
+        body: payload
       });
+      if (error) throw error;
 
       // Se passou batido e enviou, salva a hora do sucesso
       const agora = new Date(); 

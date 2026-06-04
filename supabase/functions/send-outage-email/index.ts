@@ -27,6 +27,16 @@ serve(async (req: Request) => {
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
     if (authError || !user) throw new Error('Token inválido ou expirado.')
 
+    const escapeHtml = (v: unknown): string => {
+      if (v === null || v === undefined) return ''
+      return String(v)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;')
+    }
+
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     const body = await req.json()
     const { type, schoolName, data, userName } = body
@@ -59,8 +69,8 @@ serve(async (req: Request) => {
       subject = `🚗 FROTA: Agendamentos para ${displayDate}`;
       htmlContent = `<div style="font-family: sans-serif; padding: 20px; color: #1e293b;">
         <h2>Frota Regional - ${displayDate}</h2>
-        ${aprovados.length > 0 ? `<div style="padding: 15px; background: #ecfdf5; border-radius: 10px; border: 1px solid #a7f3d0; margin-bottom: 10px;"><p><b>✅ APROVADOS:</b></p><ul>${aprovados.map(n => `<li>${n}</li>`).join('')}</ul></div>` : ''}
-        ${aguardando.length > 0 ? `<div style="padding: 15px; background: #fffbeb; border-radius: 10px; border: 1px solid #fde68a;"><p><b>⏳ AGUARDANDO:</b></p><ul>${aguardando.map(n => `<li>${n}</li>`).join('')}</ul></div>` : ''}
+        ${aprovados.length > 0 ? `<div style="padding: 15px; background: #ecfdf5; border-radius: 10px; border: 1px solid #a7f3d0; margin-bottom: 10px;"><p><b>✅ APROVADOS:</b></p><ul>${aprovados.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul></div>` : ''}
+        ${aguardando.length > 0 ? `<div style="padding: 15px; background: #fffbeb; border-radius: 10px; border: 1px solid #fde68a;"><p><b>⏳ AGUARDANDO:</b></p><ul>${aguardando.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul></div>` : ''}
       </div>`;
     } 
 
@@ -96,9 +106,9 @@ serve(async (req: Request) => {
           <div style="margin-top: 20px;">
             ${ativos.map(r => `
               <div style="padding: 15px; border: 1px solid #e2e8f0; border-radius: 12px; margin-bottom: 10px; background: #f8fafc;">
-                <p style="margin: 0; font-size: 11px; font-weight: 800; color: #6366f1; text-transform: uppercase;">LOCAL: ${r.room_name}</p>
-                <p style="margin: 5px 0 0; font-size: 16px; font-weight: 900; color: #1e293b;">${r.start_time} às ${r.end_time}</p>
-                <p style="margin: 5px 0 0; font-size: 10px; color: #94a3b8;">Período: ${r.start_date.split('-').reverse().join('/')} até ${r.end_date.split('-').reverse().join('/')}</p>
+                <p style="margin: 0; font-size: 11px; font-weight: 800; color: #6366f1; text-transform: uppercase;">LOCAL: ${escapeHtml(r.room_name)}</p>
+                <p style="margin: 5px 0 0; font-size: 16px; font-weight: 900; color: #1e293b;">${escapeHtml(r.start_time)} às ${escapeHtml(r.end_time)}</p>
+                <p style="margin: 5px 0 0; font-size: 10px; color: #94a3b8;">Período: ${escapeHtml(r.start_date.split('-').reverse().join('/'))} até ${escapeHtml(r.end_date.split('-').reverse().join('/'))}</p>
               </div>
             `).join('')}
           </div>
@@ -110,7 +120,7 @@ serve(async (req: Request) => {
     // --- FALLBACK PARA ALERTAS (PIPA/ENERGIA) ---
     else if (normalizedType === 'WATER_TRUCK' || normalizedType === 'POWER_OUTAGE') {
       subject = normalizedType === 'WATER_TRUCK' ? `💧 PIPA: ${schoolName}` : `⚠️ ENERGIA: ${schoolName}`;
-      htmlContent = `<div style="font-family: sans-serif; padding: 20px;"><h3>Solicitante: ${userName}</h3><pre>${data?.notes}</pre></div>`;
+      htmlContent = `<div style="font-family: sans-serif; padding: 20px;"><h3>Solicitante: ${escapeHtml(userName)}</h3><pre>${escapeHtml(data?.notes)}</pre></div>`;
     }
 
     // DISPARO

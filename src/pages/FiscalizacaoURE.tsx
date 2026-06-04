@@ -331,7 +331,7 @@ export default function FiscalizacaoLimpeza() {
     setIsDrawing(false);
     
     if (currentBox.width > 2 && currentBox.height > 2) {
-      const nomeSala = window.prompt("Qual o nome desta sala?");
+      const nomeSala = (window.prompt("Qual o nome desta sala?") || '').trim().slice(0, 100);
       if (nomeSala) {
         const idSala = nomeSala.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now().toString().slice(-4);
         setMappedRooms(prev => [...prev, {
