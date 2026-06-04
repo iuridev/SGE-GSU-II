@@ -4,7 +4,7 @@ import {
   Building2, Droplets, Zap, ShieldCheck, AlertTriangle, ArrowRight,
   Calendar, CheckCircle2, Waves, ZapOff, History, ChevronRight,
   ArrowRightLeft, Map as MapIcon, Loader2, Info, X,
-  HardHat, Bell, ClipboardList, Truck
+  HardHat, Bell, ClipboardList, Truck, Clock
 } from 'lucide-react';
 import { WaterTruckModal } from '../components/WaterTruckModal';
 import { PowerOutageModal } from '../components/PowerOutageModal';
@@ -37,6 +37,24 @@ interface MapSchool {
   has_elevator: boolean;
 }
 
+interface UpcomingEvent {
+  id: string;
+  title: string;
+  date: string;
+  time: string;
+  event_type: string;
+  schools?: { name: string };
+}
+
+const EVENT_TYPE_STYLES: Record<string, { bar: string; bg: string; text: string; label: string }> = {
+  REUNIAO:          { bar: 'bg-indigo-500',  bg: 'bg-indigo-50',  text: 'text-indigo-600',  label: 'Reunião' },
+  VISITA_TECNICA:   { bar: 'bg-emerald-500', bg: 'bg-emerald-50', text: 'text-emerald-600', label: 'Visita Técnica' },
+  ABERTURA_OBRA:    { bar: 'bg-orange-500',  bg: 'bg-orange-50',  text: 'text-orange-600',  label: 'Abert. Obra' },
+  FINALIZACAO_OBRA: { bar: 'bg-green-500',   bg: 'bg-green-50',   text: 'text-green-600',   label: 'Final. Obra' },
+  AVISO_ENERGIA:    { bar: 'bg-amber-500',   bg: 'bg-amber-50',   text: 'text-amber-600',   label: 'Falta Energia' },
+  AVISO_AGUA:       { bar: 'bg-blue-500',    bg: 'bg-blue-50',    text: 'text-blue-600',    label: 'Falta Água' },
+};
+
 interface DashboardProps {
   onNavigate?: (page: string) => void;
 }
@@ -64,6 +82,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   const [isWaterTruckModalOpen, setIsWaterTruckModalOpen] = useState(false);
   const [isPowerOutageModalOpen, setIsPowerOutageModalOpen] = useState(false);
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(true);
+  const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
 
   const [selectedPeriods, setSelectedPeriods] = useState<string[]>(PERIOD_OPTIONS);
   const [filterOnlyElevator, setFilterOnlyElevator] = useState(false);
@@ -181,8 +200,22 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           await fetchStats(profile.role, null);
           await fetchMapData();
         }
+
+        await fetchUpcomingEvents();
       }
     } catch (error) { console.error(error); } finally { setLoading(false); }
+  }
+
+  async function fetchUpcomingEvents() {
+    const today = new Date().toISOString().split('T')[0];
+    const { data } = await (supabase as any)
+      .from('meetings')
+      .select('id, title, date, time, event_type, schools(name)')
+      .gte('date', today)
+      .order('date', { ascending: true })
+      .order('time', { ascending: true })
+      .limit(8);
+    setUpcomingEvents(data || []);
   }
 
   function handleSupervisorFilterChange(value: string) {
@@ -516,6 +549,86 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         </div>
       )}
 
+      {/* ── PRÓXIMOS EVENTOS ── */}
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-50 rounded-xl text-indigo-600">
+              <Calendar size={18} />
+            </div>
+            <div>
+              <h2 className="text-base font-extrabold text-slate-800 leading-none">Próximos Eventos</h2>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                Agenda Regional
+                {upcomingEvents.length > 0 && (
+                  <> · <span className="text-indigo-500">{upcomingEvents.length} agendado{upcomingEvents.length !== 1 ? 's' : ''}</span></>
+                )}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigate?.('reunioes')}
+            className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-white bg-indigo-50 hover:bg-indigo-600 px-4 py-2.5 rounded-xl transition-all"
+          >
+            Ver agenda completa <ChevronRight size={14} />
+          </button>
+        </div>
+
+        {upcomingEvents.length === 0 ? (
+          <div className="py-12 flex flex-col items-center justify-center gap-3">
+            <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center">
+              <Calendar size={24} className="text-slate-300" />
+            </div>
+            <div className="text-center">
+              <p className="text-sm font-bold text-slate-400">Nenhum evento agendado</p>
+              <p className="text-xs text-slate-300 font-medium mt-0.5">Eventos criados no Calendário aparecerão aqui</p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex gap-4 overflow-x-auto px-6 py-5 pb-6">
+            {upcomingEvents.map(event => {
+              const style = EVENT_TYPE_STYLES[event.event_type] ?? EVENT_TYPE_STYLES['REUNIAO'];
+              const isToday = event.date === new Date().toISOString().split('T')[0];
+              return (
+                <div
+                  key={event.id}
+                  className="flex-shrink-0 w-52 bg-slate-50 hover:bg-white border border-slate-100 hover:border-indigo-200 rounded-2xl overflow-hidden transition-all hover:shadow-lg group cursor-default"
+                >
+                  <div className={`h-1.5 ${style.bar}`} />
+                  <div className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-2 min-h-[28px]">
+                      <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-lg ${style.bg} ${style.text}`}>
+                        {style.label}
+                      </span>
+                      {isToday && (
+                        <span className="text-[9px] font-black uppercase px-2 py-1 rounded-lg bg-slate-900 text-white flex-shrink-0">
+                          Hoje
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[12px] font-extrabold text-slate-800 leading-tight line-clamp-2 group-hover:text-indigo-700 transition-colors min-h-[36px]">
+                      {event.title}
+                    </p>
+                    <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                      <div className="flex items-center gap-1.5">
+                        <Clock size={10} className="text-slate-400 flex-shrink-0" />
+                        <span className="text-[10px] text-slate-500 font-semibold">{formatEventDate(event.date)} · {event.time}h</span>
+                      </div>
+                      {event.schools?.name && (
+                        <div className="flex items-center gap-1.5">
+                          <Building2 size={10} className="text-indigo-400 flex-shrink-0" />
+                          <span className="text-[10px] text-indigo-500 font-semibold truncate">{event.schools.name}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* ── GRADE DE MÉTRICAS ── */}
       {isGlobal ? (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -709,6 +822,13 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       )}
     </div>
   );
+}
+
+// ── Helpers ───────────────────────────────────────────────
+function formatEventDate(dateStr: string) {
+  const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  const [, month, day] = dateStr.split('-');
+  return `${parseInt(day)} ${months[parseInt(month) - 1]}`;
 }
 
 // ── StatCard ──────────────────────────────────────────────

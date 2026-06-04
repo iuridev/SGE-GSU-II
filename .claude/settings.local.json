@@ -7,7 +7,8 @@
       "Bash(Select-Object Name, PSIsContainer)",
       "WebFetch(domain:docs.google.com)",
       "WebFetch(domain:doc-14-00-sheets.googleusercontent.com)",
-      "WebFetch(domain:doc-0c-8k-sheets.googleusercontent.com)"
+      "WebFetch(domain:doc-0c-8k-sheets.googleusercontent.com)",
+      "Bash(sed \"s/.*\\\\.from\\('\\\\\\([^']*\\\\\\)'.*/\\\\1/\")"
     ]
   }
 }

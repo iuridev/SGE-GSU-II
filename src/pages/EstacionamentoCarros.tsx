@@ -15,11 +15,8 @@ interface VagaRow {
   [key: string]: string;
 }
 
-const SHEET_URL =
-  'https://docs.google.com/spreadsheets/d/e/2PACX-1vRYv6CtO7OTyaUSR4gf5SZbBOL0FEGcGK1dr10is9PYRZ69Tb69_K2i_h7iq4KBmt9d24ERXaDUSaK0/pubhtml?gid=577993019&single=true';
-
-const CSV_URL =
-  'https://docs.google.com/spreadsheets/d/e/2PACX-1vRYv6CtO7OTyaUSR4gf5SZbBOL0FEGcGK1dr10is9PYRZ69Tb69_K2i_h7iq4KBmt9d24ERXaDUSaK0/pub?gid=577993019&single=true&output=csv';
+const SHEET_URL = import.meta.env.VITE_ESTACIONAMENTO_SHEET_URL as string;
+const CSV_URL = import.meta.env.VITE_ESTACIONAMENTO_CSV_URL as string;
 
 // Cache global entre re-renders
 const imageCache: Record<string, string | null> = {};

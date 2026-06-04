@@ -40,8 +40,7 @@ interface School {
 
 const SERVICE_TYPES = ['LIMPEZA', 'CUIDADOR', 'MERENDA', 'VIGILANTE', 'TELEFONE'];
 
-const SHEET_AVCB_URL =
-  'https://docs.google.com/spreadsheets/d/1AaxxhCNUYJwI4xgsGsAmFkk0VDMoKIN0fpYjHmfSof8/gviz/tq?tqx=out:csv&sheet=avcb';
+const SHEET_AVCB_URL = import.meta.env.VITE_AVCB_SHEET_CSV_URL as string;
 
 const normalizeText = (value: any) =>
   String(value || '')

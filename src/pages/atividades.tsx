@@ -22,7 +22,7 @@ export default function RelatorioAtividades() {
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); // Formato 'YYYY-MM'
 
-  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzVrSkRmH8WLN1N49ZXf-JqbHt1mskGsjyxOUgdngwUp94vMn_TnW3RyCYAdygHlxIA/exec";
+  const SCRIPT_URL = import.meta.env.VITE_ATIVIDADES_SCRIPT_URL as string;
 
   const [formData, setFormData] = useState({
     data: new Date().toISOString().split('T')[0],

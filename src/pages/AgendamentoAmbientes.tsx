@@ -39,10 +39,8 @@ export function AgendamentoAmbientes() {
   // Estado para a data selecionada no visualizador linear
   const [selectedDate, setSelectedDate] = useState(new Date());
 
-  const FORM_URL = "https://docs.google.com/forms/d/15DLCkBhBcdzeSjcHOayi9P1tp1q36LBLafAjyxIxiGI/viewform?embedded=true";
-  
-  // Link atualizado com a nova planilha, mantendo os parâmetros de iframe
-  const SHEET_URL = "https://docs.google.com/spreadsheets/d/1M6h1QSbe_ISNGKouuZ9mbkWQHSHjNXtSS7Eb3Efj2iw/htmlembed?widget=true&headers=false";
+  const FORM_URL = import.meta.env.VITE_AGENDAMENTO_AMBIENTES_FORM_URL as string;
+  const SHEET_URL = import.meta.env.VITE_AGENDAMENTO_AMBIENTES_SHEET_URL as string;
 
   useEffect(() => {
     fetchSchedules();

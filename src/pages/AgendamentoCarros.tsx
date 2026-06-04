@@ -45,8 +45,8 @@ export function AgendamentoCarros() {
   const [schedules, setSchedules] = useState<CarSchedule[]>([]);
   const [selectedDate, setSelectedDate] = useState(new Date());
 
-  const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSeBf5H7qaSNSE_6KudfxvN4e0Z53Xgwog5JTt_Fih4HHVwvnA/viewform";
-  const SHEET_URL = "https://docs.google.com/spreadsheets/d/1q67248Gbn9IBlNS9D89p_LuG6ttWSZ-TErtUMHF3BE4/edit?gid=1619415650#gid=1619415650";
+  const FORM_URL = import.meta.env.VITE_AGENDAMENTO_CARROS_FORM_URL as string;
+  const SHEET_URL = import.meta.env.VITE_AGENDAMENTO_CARROS_SHEET_URL as string;
 
   useEffect(() => {
     fetchSchedules();

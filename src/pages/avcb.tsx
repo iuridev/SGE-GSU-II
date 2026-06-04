@@ -38,8 +38,7 @@ interface AvcbData {
   fase: string;
 }
 
-const SHEET_CSV_URL =
-  'https://docs.google.com/spreadsheets/d/1AaxxhCNUYJwI4xgsGsAmFkk0VDMoKIN0fpYjHmfSof8/gviz/tq?tqx=out:csv&sheet=avcb';
+const SHEET_CSV_URL = import.meta.env.VITE_AVCB_SHEET_CSV_URL as string;
 
 const normalizeText = (value: any) =>
   String(value || '')

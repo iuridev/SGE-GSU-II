@@ -54,7 +54,7 @@ export default function ListagemPatrimonio() {
     setBuscaRealizada(true);
     setItens([]); // Limpa a tabela antes de começar a nova busca
 
-    const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/12y3vNtkcw34T6t1mafdFvuBG--vDZM4dDXlaQ5dvvRE/export?format=csv";
+    const GOOGLE_SHEET_CSV_URL = import.meta.env.VITE_PATRIMONIO_SHEET_CSV_URL as string;
 
     let itensEncontrados: ItemPatrimonio[] = [];
 

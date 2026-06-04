@@ -85,7 +85,7 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, schoolId, userNam
       const reportDetails = formatReport();
 
       // 1. Dispara E-mail via Edge Function
-      const emailRes = await fetch('https://crmihiulaxxwmzivfmsm.supabase.co/functions/v1/send-outage-email', {
+      const emailRes = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-outage-email`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
