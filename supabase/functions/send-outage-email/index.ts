@@ -11,10 +11,21 @@ serve(async (req: Request) => {
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-    
-    if (!RESEND_API_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')
+
+    if (!RESEND_API_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !SUPABASE_ANON_KEY) {
       throw new Error("Secrets do Supabase não configurados.")
     }
+
+    // Valida que o chamador é um usuário autenticado
+    const authHeader = req.headers.get('Authorization')
+    if (!authHeader) throw new Error('Não autorizado.')
+
+    const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: authHeader } }
+    })
+    const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
+    if (authError || !user) throw new Error('Token inválido ou expirado.')
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     const body = await req.json()

@@ -84,14 +84,9 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, schoolId, userNam
     try {
       const reportDetails = formatReport();
 
-      // 1. Dispara E-mail via Edge Function
-      const emailRes = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-outage-email`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
-        },
-        body: JSON.stringify({
+      // 1. Dispara E-mail via Edge Function (token do usuário injetado automaticamente)
+      const { error: emailError } = await supabase.functions.invoke('send-outage-email', {
+        body: {
           type: 'WATER_TRUCK',
           schoolName: selectedSchoolName,
           userName: userName,
@@ -99,10 +94,10 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, schoolId, userNam
             notes: reportDetails,
             sabespCode: selectedSabesp
           }
-        })
+        }
       });
 
-      if (!emailRes.ok) throw new Error('Falha no envio do e-mail');
+      if (emailError) throw new Error('Falha no envio do e-mail');
 
       // 2. Salva no Banco de Dados (Tabela occurrences)
       const { error: dbError } = await (supabase as any).from('occurrences').insert({
