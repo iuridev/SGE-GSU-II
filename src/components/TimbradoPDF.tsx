@@ -1,4 +1,3 @@
-import React from 'react';
 
 const LOGO_URL = import.meta.env.VITE_TIMBRADO_LOGO_URL as string | undefined;
 
