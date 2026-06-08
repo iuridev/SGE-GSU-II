@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
 // Importa o cliente configurado do Supabase para conectar com o banco de dados
 import { supabase } from '../lib/supabase';
+import { TimbradoHeader, TimbradoFooter } from '../components/TimbradoPDF';
 // Importa a biblioteca de ícones para deixar a interface bonita
 import {
   Building2, Calendar, Clock, MapPin, Users, Plus,
@@ -1152,6 +1153,7 @@ export function AgendamentoNovo() {
       {/* Esse div precisa ser invisivel pra não feiar o site, a biblioteca chupa ele */}
       {/* ----------------------------------------------------- */}
       <div id="weekly-report-template" style={{ display: 'none' }}>
+         <TimbradoHeader />
          <div style={{ background: 'white', width: '1080px', padding: '40px', boxSizing: 'border-box', color: 'black', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
            <div style={{ borderBottom: '6px solid #4f46e5', paddingBottom: '25px', marginBottom: '40px', pageBreakInside: 'avoid' }}>
                <table style={{ width: '100%' }}>
@@ -1224,10 +1226,12 @@ export function AgendamentoNovo() {
                <p style={{ fontSize: '14px', fontWeight: 900, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '5px' }}>SGE-GSU INTELLIGENCE • DOCUMENTO OFICIAL</p>
            </div>
          </div>
+         <TimbradoFooter />
       </div>
 
       {/* TEMPLATE OCULTO: PDF DE MÉTRICAS */}
       <div id="metrics-report-template" style={{ display: 'none' }}>
+        <TimbradoHeader />
         <div style={{ fontFamily: 'Arial, sans-serif', padding: '40px', color: '#0f172a', maxWidth: '800px', margin: '0 auto' }}>
           {/* Cabeçalho */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '40px', paddingBottom: '24px', borderBottom: '3px solid #6366f1' }}>
@@ -1343,6 +1347,7 @@ export function AgendamentoNovo() {
             <p style={{ fontSize: '11px', fontWeight: 900, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '4px' }}>SGE-GSU Intelligence · Documento Oficial</p>
           </div>
         </div>
+        <TimbradoFooter />
       </div>
 
       {/* ----------------------------------------------------- */}

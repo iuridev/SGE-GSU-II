@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 import {
   Plus, Search, Edit, Trash2, FileText,
   Calendar,
@@ -351,14 +352,18 @@ export function Zeladoria() {
       const pw = pdf.internal.pageSize.getWidth();
       const ph = pdf.internal.pageSize.getHeight();
       const imgH = (canvas.height * pw) / canvas.width;
+      const topMargin = 32;
+      const botMargin = 12;
+      const usableH = ph - topMargin - botMargin;
 
       let yOffset = 0;
       while (yOffset < imgH) {
         if (yOffset > 0) pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 0, -yOffset, pw, imgH);
-        yOffset += ph;
+        pdf.addImage(imgData, 'JPEG', 0, topMargin - yOffset, pw, imgH);
+        yOffset += usableH;
       }
 
+      addTimbradoAllPages(pdf);
       pdf.save(`Resumo_Estatistico_Zeladoria_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '_')}.pdf`);
     } catch (err) {
       console.error(err);

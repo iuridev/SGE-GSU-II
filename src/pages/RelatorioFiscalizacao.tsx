@@ -8,6 +8,7 @@ import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 // Importa o jsPDF para gerar o documento PDF final
 import jsPDF from 'jspdf';
+import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 // Importa o html2canvas para capturar a tela (inclusive gráficos) e transformar em imagem para o PDF
 import html2canvas from 'html2canvas';
 // Importa componentes visuais (gráficos) da biblioteca Recharts, que são modernos e responsivos
@@ -143,7 +144,7 @@ export default function RelatorioFiscalizacao() {
       
       // Adiciona a imagem PNG no documento PDF nas coordenadas X=0 e Y=0
       pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-      // Salva e baixa o PDF no dispositivo com nome baseado na data atual
+      addTimbradoAllPages(pdf);
       pdf.save(`Relatorio_Fiscalizacao_${format(new Date(), 'dd-MM-yyyy')}.pdf`);
       
       // Atualiza o toast notificando que deu tudo certo

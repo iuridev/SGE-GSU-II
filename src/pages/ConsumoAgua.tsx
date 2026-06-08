@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import { 
+import { addTimbradoAllPages } from '../lib/pdfTimbrado';
+import {
   Droplets, ChevronLeft, ChevronRight,
   Save, X, AlertTriangle, CheckCircle,
   Search, Building2, Users, Loader2,
@@ -594,7 +595,7 @@ export function ConsumoAgua() {
         : (userRole === 'supervisor' ? 'Supervisao' : 'Rede_Global');
 
       const opt = {
-        margin: [5, 5, 5, 5],
+        margin: [35, 5, 15, 5],
         filename: `Relatorio_Executivo_Consumo_${pdfNameScope}_${monthName}.pdf`,
         image: { type: 'jpeg', quality: 1 },
         html2canvas: { 
@@ -605,11 +606,13 @@ export function ConsumoAgua() {
           width: 1120 
         },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
-        pagebreak: { mode: ['css', 'legacy'] }
+        pagebreak: { before: ['#justifications-section'], avoid: ['tr'] }
       };
 
       element.style.display = 'block';
-      await (window as any).html2pdf().set(opt).from(element).save();
+      const pdfInstance = await (window as any).html2pdf().set(opt).from(element).toPdf().get('pdf');
+      addTimbradoAllPages(pdfInstance as any);
+      pdfInstance.save(opt.filename);
       element.style.display = 'none';
       setExporting(false);
 
@@ -1467,7 +1470,7 @@ export function ConsumoAgua() {
       )}
 
       {/* ===== TEMPLATE DE IMPRESSÃO PDF (oculto, gerado pelo html2pdf) ===== */}
-      <div id="pdf-print-template" style={{ display: 'none', background: 'white', width: '1080px', padding: '30px', fontFamily: 'Arial, sans-serif' }}>
+      <div id="pdf-print-template" style={{ display: 'none', background: 'white', width: '1080px', padding: '10px 30px', fontFamily: 'Arial, sans-serif' }}>
 
         {/* Cabeçalho */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '4px solid #2563eb', paddingBottom: '16px', marginBottom: '20px' }}>
@@ -1546,7 +1549,7 @@ export function ConsumoAgua() {
             <span style={{ display: 'inline-block', width: '20px', height: '3px', background: '#2563eb', verticalAlign: 'middle', marginRight: '4px' }} />Consumo (m³)
             <span style={{ display: 'inline-block', width: '20px', height: '2px', borderTop: '2px dashed #10b981', verticalAlign: 'middle', margin: '0 4px 0 12px' }} />Limite (m³)
           </p>
-          <AreaChart width={1000} height={180} data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+          <AreaChart width={1000} height={120} data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
             <defs>
               <linearGradient id="pdfConsumo" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#2563eb" stopOpacity={0.25}/><stop offset="95%" stopColor="#2563eb" stopOpacity={0}/></linearGradient>
               <linearGradient id="pdfLimite" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.15}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/></linearGradient>
@@ -1561,7 +1564,7 @@ export function ConsumoAgua() {
 
         {/* Justificativas — sempre começa em nova página */}
         {justificationsList.length > 0 && (
-          <div style={{ pageBreakBefore: 'always', paddingTop: '10px', marginBottom: '20px' }}>
+          <div id="justifications-section" style={{ paddingTop: '10px', marginBottom: '20px' }}>
             <h3 style={{ fontSize: '12px', fontWeight: 900, color: '#1e293b', marginBottom: '12px', textTransform: 'uppercase' }}>Detalhamento de Justificativas e Ações Corretivas</h3>
             <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
               <thead>

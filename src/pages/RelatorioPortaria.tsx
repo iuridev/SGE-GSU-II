@@ -8,6 +8,7 @@ import { format, startOfYear, endOfYear, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 // Importa o jsPDF, que será responsável por criar o arquivo PDF final
 import jsPDF from 'jspdf';
+import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 // Importa o html2canvas, que tira um "print" da tela (transforma HTML em Imagem) para o PDF
 import html2canvas from 'html2canvas';
 // Importa os componentes do Recharts para criar gráficos modernos, responsivos e interativos
@@ -113,7 +114,7 @@ export default function RelatorioPortaria() {
       
       // Adiciona a imagem gerada na posição (X:0, Y:0) com a largura e altura calculadas
       pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-      // Salva o arquivo no computador do usuário com um nome dinâmico baseado na data de hoje
+      addTimbradoAllPages(pdf);
       pdf.save(`Relatorio_Acessos_${format(new Date(), 'dd-MM-yyyy')}.pdf`);
       
       // Atualiza a notificação de "carregando" para "sucesso" (toast verde)

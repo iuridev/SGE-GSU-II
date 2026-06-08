@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { TimbradoHeader, TimbradoFooter } from '../components/TimbradoPDF';
 import { 
   ShieldAlert, Leaf, Plus, FileText, 
   AlertTriangle, School, 
@@ -473,7 +474,7 @@ export default function EducacaoPatrimonial() {
 
   return (
     <div id="educacao-patrimonial-content" className="p-8 max-w-[1600px] mx-auto min-h-screen bg-slate-50/50">
-      
+      <TimbradoHeader />
       {/* Header da Página */}
       <header className="flex flex-col md:flex-row md:items-center justify-between mb-10 gap-6">
         <div>
@@ -933,6 +934,7 @@ export default function EducacaoPatrimonial() {
           </div>
         </div>
       )}
+      <TimbradoFooter />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import Papa from 'papaparse';
 import { supabase } from '../lib/supabase';
+import { TimbradoHeader, TimbradoFooter } from '../components/TimbradoPDF';
 import {
   Building2,
   Droplets,
@@ -837,6 +838,7 @@ export function RaioXEscola() {
 
       {selectedSchool && (
         <div id="xray-pdf-template" style={{ display: 'none' }}>
+          <TimbradoHeader />
           <div style={{ padding: 30, fontFamily: 'Arial' }}>
             <h1>FICHA ESTRATÉGICA DE VISTORIA</h1>
             <p>Relatório Consolidado de Inteligência Regional</p>
@@ -917,6 +919,7 @@ export function RaioXEscola() {
               RELATÓRIO GERADO PARA USO EXCLUSIVO DA EQUIPE TÉCNICA REGIONAL
             </p>
           </div>
+          <TimbradoFooter />
         </div>
       )}
     </div>

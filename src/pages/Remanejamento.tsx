@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import { 
+import { TimbradoHeader, TimbradoFooter } from '../components/TimbradoPDF';
+import {
   Plus, Search, Package, Image as ImageIcon, 
   Trash2, Upload, Loader2, 
   CheckCircle2, X, Building2, Tag, 
@@ -742,6 +743,7 @@ export function Remanejamento() {
       {/* --- TEMPLATE PARA PDF (OCULTO) --- */}
       {batchToExport && (
         <div id="remanejamento-term-template" style={{ display: 'none', background: 'white', width: '700px', minHeight: '900px', padding: '40px', fontFamily: 'sans-serif' }}>
+          <TimbradoHeader />
           <div style={{ borderBottom: '4px solid #4f46e5', paddingBottom: '15px', marginBottom: '30px' }}>
              <table style={{ width: '100%' }}>
                 <tbody>
@@ -846,6 +848,7 @@ export function Remanejamento() {
           <div style={{ marginTop: '40px', textAlign: 'center', borderTop: '1px dashed #f1f5f9', paddingTop: '15px' }}>
              <p style={{ fontSize: '8px', color: '#cbd5e1', fontWeight: 900, letterSpacing: '2px' }}>DOCUMENTO GERADO PELO SISTEMA SGE-GSU EM {new Date().toLocaleString('pt-BR')}</p>
           </div>
+          <TimbradoFooter />
         </div>
       )}
     </div>

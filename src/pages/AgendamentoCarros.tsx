@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { TimbradoHeader, TimbradoFooter } from '../components/TimbradoPDF';
 import {
   Car, ShieldCheck, FileSpreadsheet, ClipboardList,
   Loader2, ArrowRight, BarChart3,
@@ -242,6 +243,7 @@ export function AgendamentoCarros() {
 
       {/* PDF Template (hidden) */}
       <div id="car-report-template" style={{ display: 'none', background: '#f1f5f9', width: '1440px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+        <TimbradoHeader />
         <div style={{ background: '#0f172a', padding: '32px 48px 28px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
@@ -671,6 +673,7 @@ export function AgendamentoCarros() {
             color="emerald"
           />
         </div>
+        <TimbradoFooter />
       </div>
 
     </div>

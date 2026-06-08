@@ -12,6 +12,7 @@ import {
   HardHat, CalendarDays, User, Tag
 } from 'lucide-react';
 import jsPDF from 'jspdf';
+import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 
@@ -253,15 +254,6 @@ export function Obras() {
     try {
       const doc = new jsPDF('landscape', 'mm', 'a4');
       const pageW = doc.internal.pageSize.getWidth();
-      doc.setFillColor(234, 88, 12);
-      doc.rect(0, 0, pageW, 28, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(18); doc.setFont('helvetica', 'bold');
-      doc.text('PAINEL DE OBRAS E REFORMAS', 14, 12);
-      doc.setFontSize(8); doc.setFont('helvetica', 'normal');
-      doc.text('SGE · GSU-II · Infraestrutura', 14, 19);
-      doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`, pageW - 14, 19, { align: 'right' });
-
       doc.setTextColor(0, 0, 0); doc.setFontSize(7); doc.setFont('helvetica', 'bold');
       doc.text('MÉTRICAS GERAIS', 14, 38);
       const kpis = [
@@ -307,11 +299,7 @@ export function Obras() {
         alternateRowStyles: { fillColor: [248, 250, 252] },
         columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 48 }, 2: { cellWidth: 36 }, 3: { cellWidth: 24 }, 4: { cellWidth: 22 }, 5: { cellWidth: 'auto' } },
       });
-      const totalPages = (doc as any).internal.getNumberOfPages();
-      for (let i = 1; i <= totalPages; i++) {
-        doc.setPage(i); doc.setFontSize(6.5); doc.setTextColor(148, 163, 184); doc.setFont('helvetica', 'normal');
-        doc.text(`Página ${i} de ${totalPages} · SGE-GSU-II`, pageW / 2, doc.internal.pageSize.getHeight() - 6, { align: 'center' });
-      }
+      addTimbradoAllPages(doc);
       doc.save(`relatorio-obras-${new Date().toISOString().split('T')[0]}.pdf`);
     } catch (err) {
       console.error('Erro ao gerar PDF:', err);

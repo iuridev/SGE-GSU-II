@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 
 // ── Utilities ────────────────────────────────────────────────
 function parseCSVLine(line: string): string[] {
@@ -269,14 +270,16 @@ export function PainelGerencial() {
       const pw = doc.internal.pageSize.getWidth();
       const ph = doc.internal.pageSize.getHeight();
 
+      const usableTop = 32;
+      const usableH = ph - 32 - 12;
       const addFit = (canvas: HTMLCanvasElement) => {
         const ratio = canvas.width / canvas.height;
-        const pageRatio = pw / ph;
+        const usableRatio = pw / usableH;
         let w, h, x, y;
-        if (ratio > pageRatio) {
-          w = pw; h = pw / ratio; x = 0; y = (ph - h) / 2;
+        if (ratio > usableRatio) {
+          w = pw; h = pw / ratio; x = 0; y = usableTop + (usableH - h) / 2;
         } else {
-          h = ph; w = ph * ratio; x = (pw - w) / 2; y = 0;
+          h = usableH; w = usableH * ratio; x = (pw - w) / 2; y = usableTop;
         }
         doc.addImage(canvas.toDataURL('image/png'), 'PNG', x, y, w, h);
       };
@@ -284,6 +287,7 @@ export function PainelGerencial() {
       addFit(c1);
       doc.addPage();
       addFit(c2);
+      addTimbradoAllPages(doc);
       doc.save(`painel-gerencial-${new Date().toISOString().split('T')[0]}.pdf`);
     } catch (e) { console.error(e); alert('Erro ao gerar PDF.'); }
     finally { setExporting(false); }

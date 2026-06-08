@@ -9,6 +9,7 @@ import {
   ChevronLeft, ChevronRight, X, TrendingUp, Layers,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
+import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 
@@ -235,31 +236,25 @@ export default function PrevisaoObrasFDE() {
       const doc = new jsPDF('p', 'mm', 'a4');
       const pw = doc.internal.pageSize.getWidth();
 
-      // ── Cabeçalho ──
-      doc.setFillColor(15, 23, 42);
-      doc.rect(0, 0, pw, 55, 'F');
-      doc.setFillColor(249, 115, 22);
-      doc.rect(0, 49, pw, 6, 'F');
-
-      doc.setFontSize(22);
-      doc.setTextColor(255, 255, 255);
+      // ── Subtítulo (timbrado adicionado via addTimbradoAllPages ao final) ──
       doc.setFont('helvetica', 'bold');
-      doc.text('Previsão de Obras FDE', 14, 24);
-
-      doc.setFontSize(10);
+      doc.setFontSize(13);
+      doc.setTextColor(15, 23, 42);
+      doc.text('Previsão de Obras FDE', 14, 36);
       doc.setFont('helvetica', 'normal');
-      doc.setTextColor(148, 163, 184);
-      doc.text('Fundação para o Desenvolvimento da Educação', 14, 33);
-      doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`, 14, 41);
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139);
+      doc.text('Fundação para o Desenvolvimento da Educação', 14, 42);
+      doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`, 14, 47);
 
       // ── KPIs ──
       doc.setTextColor(30, 41, 59);
-      doc.setFontSize(13);
+      doc.setFontSize(11);
       doc.setFont('helvetica', 'bold');
-      doc.text('Indicadores Gerais', 14, 68);
+      doc.text('Indicadores Gerais', 14, 55);
 
       autoTable(doc, {
-        startY: 73,
+        startY: 59,
         head: [['Indicador', 'Valor']],
         body: [
           ['Total de Obras / Intervenções', kpis.total.toLocaleString('pt-BR')],
@@ -276,12 +271,10 @@ export default function PrevisaoObrasFDE() {
       // ── Gráficos (captura visual) ──
       if (chartsRef.current) {
         doc.addPage();
-        doc.setFillColor(15, 23, 42);
-        doc.rect(0, 0, pw, 18, 'F');
-        doc.setFontSize(13);
         doc.setFont('helvetica', 'bold');
-        doc.setTextColor(255, 255, 255);
-        doc.text('Análise Gráfica', 14, 12);
+        doc.setFontSize(11);
+        doc.setTextColor(15, 23, 42);
+        doc.text('Análise Gráfica', 14, 36);
 
         const canvas = await html2canvas(chartsRef.current, {
           scale: 2,
@@ -293,25 +286,23 @@ export default function PrevisaoObrasFDE() {
         const imgW = pw - 20;
         const imgH = (canvas.height * imgW) / canvas.width;
 
-        let yPos = 24;
-        if (yPos + imgH > doc.internal.pageSize.getHeight() - 10) {
+        let yPos = 42;
+        if (yPos + imgH > doc.internal.pageSize.getHeight() - 12) {
           doc.addPage();
-          yPos = 14;
+          yPos = 36;
         }
         doc.addImage(imgData, 'PNG', 10, yPos, imgW, imgH);
       }
 
       // ── Tabela de dados ──
       doc.addPage();
-      doc.setFillColor(15, 23, 42);
-      doc.rect(0, 0, pw, 18, 'F');
-      doc.setFontSize(13);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(255, 255, 255);
-      doc.text(`Listagem Detalhada (${filteredObras.length} registros)`, 14, 12);
+      doc.setFontSize(11);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`Listagem Detalhada (${filteredObras.length} registros)`, 14, 36);
 
       autoTable(doc, {
-        startY: 24,
+        startY: 42,
         head: [['Cód.', 'Escola', 'Fase', 'Situação', 'Intervenção', 'Valor Orçado']],
         body: filteredObras.map(o => [
           o.codPredio,
@@ -334,14 +325,7 @@ export default function PrevisaoObrasFDE() {
         },
       });
 
-      const pageCount = (doc as any).internal.getNumberOfPages();
-      for (let i = 1; i <= pageCount; i++) {
-        doc.setPage(i);
-        doc.setFontSize(8);
-        doc.setTextColor(148, 163, 184);
-        doc.text(`Página ${i} de ${pageCount} • SGE-GSU Intelligence II`, pw / 2, doc.internal.pageSize.getHeight() - 8, { align: 'center' });
-      }
-
+      addTimbradoAllPages(doc);
       doc.save(`previsao-obras-fde-${new Date().toISOString().slice(0, 10)}.pdf`);
     } catch (err) {
       console.error('Erro ao exportar PDF:', err);

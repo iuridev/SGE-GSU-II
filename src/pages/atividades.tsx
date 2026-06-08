@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase'; 
+import { supabase } from '../lib/supabase';
+import { TimbradoHeader, TimbradoFooter } from '../components/TimbradoPDF';
 import { 
   Calendar, CalendarDays, Plus, 
   FileDown, Loader2, ClipboardList, CheckSquare, X
@@ -249,6 +250,7 @@ export default function RelatorioAtividades() {
 
       {/* Template PDF */}
       <div id="relatorio-mensal-template" style={{ display: 'none', background: 'white', width: '100%', padding: '30px' }}>
+        <TimbradoHeader />
         <div style={{ borderBottom: '2px solid #1e293b', paddingBottom: '20px', marginBottom: '30px', textAlign: 'center' }}>
             <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase' }}>Governo do Estado de São Paulo</h1>
             <h2 style={{ margin: '5px 0 0', fontSize: '16px', fontWeight: 700, color: '#334155' }}>Relatório Mensal de Atividades - SGE/GSU</h2>
@@ -282,6 +284,7 @@ export default function RelatorioAtividades() {
                 <p style={{ margin: '2px 0 0', fontSize: '9px', color: '#94a3b8' }}>Agente de Organização Escolar</p>
             </div>
         </div>
+        <TimbradoFooter />
       </div>
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

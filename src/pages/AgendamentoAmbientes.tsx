@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import { 
+import { TimbradoHeader, TimbradoFooter } from '../components/TimbradoPDF';
+import {
   Building2, ShieldCheck, FileSpreadsheet, ClipboardList, 
   Loader2, BarChart3, Calendar, Award, FileDown, Clock, MapPin,
   Users, ChevronLeft, ChevronRight, CalendarDays
@@ -218,6 +219,7 @@ export function AgendamentoAmbientes() {
       
       {/* --- TEMPLATE PARA PDF (OCULTO) --- */}
       <div id="room-report-template" style={{ display: 'none', background: 'white', width: '1080px', padding: '40px' }}>
+          <TimbradoHeader />
           <div style={{ borderBottom: '6px solid #4f46e5', paddingBottom: '20px', marginBottom: '30px' }}>
               <table style={{ width: '100%' }}>
                   <tbody>
@@ -307,6 +309,7 @@ export function AgendamentoAmbientes() {
           <div style={{ marginTop: '100px', paddingTop: '20px', borderTop: '2px solid #f1f5f9', textAlign: 'center' }}>
               <p style={{ fontSize: '10px', fontWeight: 900, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '4px' }}>SGE-GSU INTELLIGENCE • RELATÓRIO OFICIAL DE OCUPAÇÃO</p>
           </div>
+          <TimbradoFooter />
       </div>
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">

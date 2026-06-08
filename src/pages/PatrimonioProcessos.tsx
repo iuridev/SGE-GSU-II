@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
 import jsPDF from 'jspdf';
+import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 
@@ -202,9 +203,9 @@ export function PatrimonioProcessos() {
         const doc = new jsPDF('landscape');
         const pdfWidth = doc.internal.pageSize.getWidth();
         const margin = 14;
-        let currentY = 22;
+        let currentY = 36;
 
-        doc.setFontSize(20);
+        doc.setFontSize(14);
         doc.setTextColor(79, 70, 229);
         doc.text('Relatório de Processos de Patrimônio — SGE-GSU-II', margin, currentY);
 
@@ -271,6 +272,7 @@ export function PatrimonioProcessos() {
           alternateRowStyles: { fillColor: [248, 250, 252] },
         });
 
+        addTimbradoAllPages(doc);
         doc.save(`Relatorio_Patrimonio_${new Date().toISOString().split('T')[0]}.pdf`);
       } catch (error) {
         console.error("Erro ao gerar PDF:", error);

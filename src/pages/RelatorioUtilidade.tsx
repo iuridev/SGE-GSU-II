@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 
 const extractCIE = (val: any) => {
   if (val === null || val === undefined) return '';
@@ -273,19 +274,20 @@ export default function DashboardConsumo() {
       const canvas = await html2canvas(dashboardRef.current, { scale: 2 });
       const pdf = new jsPDF('p', 'mm', 'a4');
       const marginX = 14;
-      pdf.setFont('helvetica', 'bold'); pdf.setFontSize(16); pdf.setTextColor(15, 23, 42);
-      pdf.text('Relatório de Consumo e Auditoria Física', marginX, 20);
-      pdf.setFont('helvetica', 'normal'); pdf.setFontSize(12); pdf.setTextColor(71, 85, 105);
+      pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12); pdf.setTextColor(15, 23, 42);
+      pdf.text('Relatório de Consumo e Auditoria Física', marginX, 36);
+      pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10); pdf.setTextColor(71, 85, 105);
       const nomeEscolaPDF = filtroEscola === 'todas' ? 'Rede Estadual (Visão Geral)' : filtroEscola;
-      pdf.text(`Unidade Escolar: ${nomeEscolaPDF}`, marginX, 28);
-      pdf.setFontSize(10); pdf.setTextColor(100, 116, 139);
-      pdf.text(`Data de emissão: ${new Date().toLocaleString('pt-BR')}`, marginX, 34);
+      pdf.text(`Unidade Escolar: ${nomeEscolaPDF}`, marginX, 42);
+      pdf.setFontSize(9); pdf.setTextColor(100, 116, 139);
+      pdf.text(`Data de emissão: ${new Date().toLocaleString('pt-BR')}`, marginX, 47);
       pdf.setDrawColor(226, 232, 240); pdf.setLineWidth(0.5);
-      pdf.line(marginX, 38, pdf.internal.pageSize.getWidth() - marginX, 38);
+      pdf.line(marginX, 51, pdf.internal.pageSize.getWidth() - marginX, 51);
       const imgData = canvas.toDataURL('image/png');
       const imgWidth = pdf.internal.pageSize.getWidth() - marginX * 2;
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      pdf.addImage(imgData, 'PNG', marginX, 44, imgWidth, imgHeight);
+      pdf.addImage(imgData, 'PNG', marginX, 55, imgWidth, imgHeight);
+      addTimbradoAllPages(pdf);
       pdf.save(`Relatorio_${nomeEscolaPDF.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
     } finally {
       setGerandoPDF(false);

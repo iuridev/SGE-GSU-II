@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import { 
+import { TimbradoHeader, TimbradoFooter } from '../components/TimbradoPDF';
+import {
   ClipboardCheck, Plus, Calendar as CalendarIcon, 
   ChevronLeft, ChevronRight, CheckCircle2, 
   AlertCircle, X, Search, Building2, 
@@ -647,6 +648,7 @@ export function Fiscalizacao() {
       {/* --- TEMPLATE PARA PDF --- */}
       {selectedEvent && (
         <div id="regional-monitoring-pdf-template" style={{ display: 'none', background: 'white', width: '700px', minHeight: '900px', padding: '50px', fontFamily: 'sans-serif' }}>
+          <TimbradoHeader />
           <div style={{ borderBottom: '6px solid #1e293b', paddingBottom: '20px', marginBottom: '30px' }}>
              <table style={{ width: '100%' }}>
                 <tbody>
@@ -722,6 +724,7 @@ export function Fiscalizacao() {
              <p style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 900, letterSpacing: '4px' }}>RELATÓRIO DE QUALIDADE GERADO PELO SISTEMA SGE-GSU</p>
              <p style={{ margin: '10px 0 0', fontSize: '8px', color: '#cbd5e1' }}>Emitido em {new Date().toLocaleString('pt-BR')}</p>
           </div>
+          <TimbradoFooter />
         </div>
       )}
     </div>

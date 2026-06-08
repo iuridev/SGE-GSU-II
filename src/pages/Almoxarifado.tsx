@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 
 interface Item {
   id: string;
@@ -244,15 +245,13 @@ export default function Almoxarifado() {
 
   const gerarRelatorioPDF = () => {
     const doc = new jsPDF();
-    doc.text("SGE-GSU-II - Relatório de Inventário (Almoxarifado)", 14, 15);
-    doc.setFontSize(10);
-    doc.text(`Gerado por: ${userName} em ${new Date().toLocaleString('pt-BR')}`, 14, 22);
     autoTable(doc, {
-      startY: 28,
+      startY: 35,
       head: [['Material', 'Unidade', 'Estoque']],
       body: itens.map(i => [i.nome, i.unidade || 'Unidade', i.quantidade.toString()]),
       headStyles: { fillColor: [37, 99, 235] },
     });
+    addTimbradoAllPages(doc);
     doc.save(`estoque_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 

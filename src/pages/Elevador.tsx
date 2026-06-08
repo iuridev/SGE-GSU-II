@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 import {
   ArrowUpCircle,
   CheckCircle2,
@@ -255,33 +256,30 @@ export function Elevador() {
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const dataGeracao = new Date().toLocaleString('pt-BR');
 
-    // Cabeçalho
-    doc.setFillColor(15, 23, 42);
-    doc.rect(0, 0, 297, 30, 'F');
-    doc.setTextColor(251, 191, 36);
-    doc.setFontSize(16);
+    // Subtítulo (timbrado desenhado por addTimbradoAllPages ao final)
     doc.setFont('helvetica', 'bold');
-    doc.text('GESTÃO DE ELEVADORES', 14, 12);
-    doc.setTextColor(148, 163, 184);
-    doc.setFontSize(8);
+    doc.setFontSize(10);
+    doc.setTextColor(15, 23, 42);
+    doc.text('GESTÃO DE ELEVADORES — PAINEL DE MANUTENÇÃO E CONTROLE', 14, 36);
     doc.setFont('helvetica', 'normal');
-    doc.text('PAINEL DE MANUTENÇÃO E CONTROLE', 14, 19);
-    doc.text(`Gerado em: ${dataGeracao}`, 14, 25);
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Gerado em: ${dataGeracao}`, 14, 41);
 
-    // KPIs no cabeçalho
+    // KPIs
     const kpis = [
       `Total: ${stats.total}`,
       `Funcionando: ${stats.funcionando}`,
       `Parados: ${stats.parados}`,
       `Orçamento: ${fmtCurrency(stats.totalOrcamento)}`,
     ];
-    doc.setTextColor(203, 213, 225);
     doc.setFontSize(8);
-    kpis.forEach((k, i) => doc.text(k, 180 + i * 0, 12 + i * 6));
+    doc.text(`${kpis[0]}   ${kpis[1]}`, 200, 36);
+    doc.text(`${kpis[2]}   ${kpis[3]}`, 200, 41);
 
     // Tabela
     autoTable(doc, {
-      startY: 35,
+      startY: 47,
       head: [['CIE', 'Escola', 'Contrato', 'Bairro', 'Paradas', 'Funcionando?', 'Status', 'Orçamento', 'Problema']],
       body: filtered.map((e) => [
         e.cie,
@@ -317,15 +315,7 @@ export function Elevador() {
       },
     });
 
-    // Rodapé
-    const pageCount = (doc as any).internal.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      doc.setFontSize(7);
-      doc.setTextColor(148, 163, 184);
-      doc.text(`Página ${i} de ${pageCount}`, 283, 205, { align: 'right' });
-      doc.text('SGE-GSU-II · Diretoria de Ensino de Guarulhos Sul', 14, 205);
-    }
+    addTimbradoAllPages(doc);
 
     const filtroLabel = filter !== 'all' ? `_${filter}` : '';
     doc.save(`elevadores${filtroLabel}_${new Date().toISOString().slice(0, 10)}.pdf`);
