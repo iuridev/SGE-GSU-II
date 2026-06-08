@@ -89,31 +89,9 @@ const MENU_GROUPS: MenuGroup[] = [
     title: 'PRINCIPAL',
     items: [
       { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
-      { id: 'entrada', label: 'Entrada no Prédio', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'dirigente', 'ure_servico'] },
       { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
       { id: 'minhas-tarefas', label: 'Agenda Funcional', icon: <CalendarCheck size={20} />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
-    ]
-  },
-  {
-    title: 'RELATÓRIOS',
-    items: [
-      { id: 'painel-gerencial', label: 'Painel Gerencial (Impressão)', icon: <BarChart2 size={20} className="text-orange-500" />, roles: ['regional_admin', 'dirigente'] },
-      { id: 'raiox', label: 'Raio-X / Vistoria', icon: <Scan size={20} className="text-indigo-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
-      { id: 'relatorio-fiscalizacao', label: 'Relatórios de Fiscalização', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
-      { id: 'relatorio-acesso', label: 'Relatórios de Acesso', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
-      { id: 'relatorio-utilidade', label: 'Relatórios de Consumo', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
-    ]
-  },
-  {
-    title: 'SEOM-SEFISC',
-    items: [
       { id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <ClipboardList size={20} className="text-slate-400" />, roles: ['regional_admin', 'dirigente'] },
-    ]
-  },
-  {
-    title: 'SEAFIN-SECOMSE',
-    items: [
-      { id: 'almoxarifado', label: 'Almoxarifado', icon: <Package size={20} className="text-amber-500" />, roles: ['regional_admin', 'dirigente', 'ure_servico', 'supervisor', 'ure_eec'] },
     ]
   },
   {
@@ -125,13 +103,13 @@ const MENU_GROUPS: MenuGroup[] = [
     ]
   },
   {
-    title: 'FISCALIZAÇÃO',
+    title: 'GESTÃO DA URE',
     items: [
-      { id: 'consumo', label: 'Consumo de Água', icon: <Waves size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
-      { id: 'financeiro-agua', label: 'Importação Financeiro (SABESP)', icon: <Waves size={20} />, roles: ['regional_admin'] },
-      { id: 'fiscalizacao', label: 'Contratos Gov', icon: <ClipboardCheck size={20} />, roles: ['regional_admin', 'school_manager', 'ure_servico'] },
-      { id: 'fiscalizacaoURE', label: 'Limpeza URE', icon: <ClipboardCheck size={20} className="text-teal-500" />, roles: ['regional_admin'] },
-      { id: 'zeladoria', label: 'Zeladoria', icon: <ShieldCheck size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+      { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
+      { id: 'ambientes', label: 'Reservas Antigo', icon: <Building size={20} />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
+      { id: 'carros', label: 'Carros Oficiais', icon: <Car size={20} />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
+      { id: 'estacionamento', label: 'Controle de Estacionamento', icon: <Car size={20} className="text-indigo-400" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
+      { id: 'reunioes', label: 'Calendário', icon: <Calendar size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
     ]
   },
   {
@@ -148,6 +126,23 @@ const MENU_GROUPS: MenuGroup[] = [
     ]
   },
   {
+    title: 'GAMIFICAÇÃO',
+    items: [
+      { id: 'prioritarias', label: 'Escolas Prioritárias', icon: <Star size={20} className="text-amber-500" />, roles: ['regional_admin', 'dirigente'] },
+      { id: 'ranking', label: 'Ranking de Escolas', icon: <Trophy size={20} className="text-amber-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+    ]
+  },
+  {
+    title: 'FISCALIZAÇÃO',
+    items: [
+      { id: 'consumo', label: 'Consumo de Água', icon: <Waves size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+      { id: 'financeiro-agua', label: 'Importação Financeiro (SABESP)', icon: <Waves size={20} />, roles: ['regional_admin'] },
+      { id: 'fiscalizacao', label: 'Contratos Gov', icon: <ClipboardCheck size={20} />, roles: ['regional_admin', 'school_manager', 'ure_servico'] },
+      { id: 'fiscalizacaoURE', label: 'Limpeza URE', icon: <ClipboardCheck size={20} className="text-teal-500" />, roles: ['regional_admin'] },
+      { id: 'zeladoria', label: 'Zeladoria', icon: <ShieldCheck size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+    ]
+  },
+  {
     title: 'PATRIMÔNIO',
     items: [
       { id: 'educacao-patrimonial', label: 'Educação Patrimonial', icon: <ShieldAlert size={20} className="text-orange-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
@@ -159,20 +154,13 @@ const MENU_GROUPS: MenuGroup[] = [
     ]
   },
   {
-    title: 'GESTÃO DA URE',
+    title: 'RELATÓRIOS',
     items: [
-      { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
-      { id: 'ambientes', label: 'Reservas Antigo', icon: <Building size={20} />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
-      { id: 'carros', label: 'Carros Oficiais', icon: <Car size={20} />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
-      { id: 'estacionamento', label: 'Controle de Estacionamento', icon: <Car size={20} className="text-indigo-400" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
-      { id: 'reunioes', label: 'Calendário', icon: <Calendar size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
-    ]
-  },
-  {
-    title: 'GAMIFICAÇÃO',
-    items: [
-      { id: 'prioritarias', label: 'Escolas Prioritárias', icon: <Star size={20} className="text-amber-500" />, roles: ['regional_admin', 'dirigente'] },
-      { id: 'ranking', label: 'Ranking de Escolas', icon: <Trophy size={20} className="text-amber-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+      { id: 'painel-gerencial', label: 'Painel Gerencial (Impressão)', icon: <BarChart2 size={20} className="text-orange-500" />, roles: ['regional_admin', 'dirigente'] },
+      { id: 'raiox', label: 'Raio-X / Vistoria', icon: <Scan size={20} className="text-indigo-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
+      { id: 'relatorio-fiscalizacao', label: 'Relatórios de Fiscalização', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
+      { id: 'relatorio-acesso', label: 'Relatórios de Acesso', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
+      { id: 'relatorio-utilidade', label: 'Relatórios de Consumo', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
     ]
   },
   {
@@ -183,6 +171,14 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'usuarios', label: 'Gestão de Usuários', icon: <UserCog size={20} />, roles: ['regional_admin'] },
       { id: 'tutoriais', label: 'Manuais e Tutoriais', icon: <BookOpen size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'chefes', label: 'Chefes', icon: <BookOpen size={20} />, roles: ['regional_admin'] },
+    ]
+  },
+   {
+    title: 'SEAFIN-SECOMSE',
+    items: [
+      { id: 'almoxarifado', label: 'Almoxarifado', icon: <Package size={20} className="text-amber-500" />, roles: ['regional_admin', 'dirigente', 'ure_servico', 'supervisor', 'ure_eec'] },
+      { id: 'entrada', label: 'Entrada no Prédio', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'dirigente', 'ure_servico'] },
+
     ]
   },
 ];
