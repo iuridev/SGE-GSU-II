@@ -123,11 +123,6 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'elevadores', label: 'Gestão de Elevadores', icon: <ArrowUpCircle size={20} className="text-blue-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
       { id: 'plantas', label: 'Plantas Prediais', icon: <Map size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'avcb', label: 'AVCB', icon: <Flame size={20} className="text-red-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
-    ]
-  },
-  {
-    title: 'GAMIFICAÇÃO',
-    items: [
       { id: 'prioritarias', label: 'Escolas Prioritárias', icon: <Star size={20} className="text-amber-500" />, roles: ['regional_admin', 'dirigente'] },
       { id: 'ranking', label: 'Ranking de Escolas', icon: <Trophy size={20} className="text-amber-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
     ]
