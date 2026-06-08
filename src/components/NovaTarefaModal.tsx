@@ -159,64 +159,63 @@ export default function NovaTarefaModal({ isOpen, onClose, onSuccess, tarefaEdit
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1 tracking-wider">
                 <School size={14} /> Escola
               </label>
-              <input 
+              <input
                 className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition"
-                value={formData.escola} 
-                onChange={e => setFormData({ ...formData, escola: e.target.value })} 
+                value={formData.escola}
+                onChange={e => setFormData({ ...formData, escola: e.target.value })}
                 placeholder="Unidade escolar..."
               />
             </div>
             <div>
               <label className="block text-xs font-bold text-gray-700 uppercase mb-1 tracking-wider">Data Limite</label>
-              <input 
-                type="date" 
-                required 
+              <input
+                type="date"
+                required
                 className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition"
-                value={formData.data_vencimento} 
-                onChange={e => setFormData({ ...formData, data_vencimento: e.target.value })} 
+                value={formData.data_vencimento}
+                onChange={e => setFormData({ ...formData, data_vencimento: e.target.value })}
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase mb-1 tracking-wider">Prioridade</label>
-              <select 
-                className="w-full p-3 border border-gray-200 rounded-xl outline-none bg-white focus:ring-2 focus:ring-blue-500 transition"
-                value={formData.prioridade} 
-                onChange={e => setFormData({ ...formData, prioridade: e.target.value })}
+          <div>
+            <label className="block text-xs font-bold text-gray-700 uppercase mb-1 tracking-wider">Prioridade</label>
+            <select
+              className="w-full p-3 border border-gray-200 rounded-xl outline-none bg-white focus:ring-2 focus:ring-blue-500 transition"
+              value={formData.prioridade}
+              onChange={e => setFormData({ ...formData, prioridade: e.target.value })}
+            >
+              <option value="baixa">Baixa</option>
+              <option value="media">Média</option>
+              <option value="alta">Alta</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1 tracking-wider">
+              <TagIcon size={14} /> Etiqueta
+            </label>
+            <div className="flex gap-2">
+              <select
+                className="flex-1 min-w-0 p-3 border border-gray-200 rounded-xl outline-none bg-white focus:ring-2 focus:ring-blue-500 transition text-sm"
+                value={formData.tag_id}
+                onChange={e => setFormData({ ...formData, tag_id: e.target.value })}
               >
-                <option value="baixa">Baixa</option>
-                <option value="media">Média</option>
-                <option value="alta">Alta</option>
+                <option value="">Sem tag</option>
+                {tags.map(tag => <option key={tag.id} value={tag.id}>{tag.nome}</option>)}
               </select>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1 tracking-wider">
-                <TagIcon size={14} /> Etiqueta
-              </label>
-              <div className="flex gap-2">
-                <select 
-                  className="flex-1 p-3 border border-gray-200 rounded-xl outline-none bg-white focus:ring-2 focus:ring-blue-500 transition text-sm"
-                  value={formData.tag_id} 
-                  onChange={e => setFormData({ ...formData, tag_id: e.target.value })}
-                >
-                  <option value="">Sem tag</option>
-                  {tags.map(tag => <option key={tag.id} value={tag.id}>{tag.nome}</option>)}
-                </select>
-                <button 
-                  type="button" 
-                  onClick={() => setShowNovaTag(!showNovaTag)} 
-                  className="p-3 bg-gray-100 rounded-xl hover:bg-gray-200 transition"
-                >
-                  <PlusCircle size={20} className="text-gray-600" />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowNovaTag(!showNovaTag)}
+                className="p-3 bg-gray-100 rounded-xl hover:bg-gray-200 transition shrink-0"
+              >
+                <PlusCircle size={20} className="text-gray-600" />
+              </button>
             </div>
           </div>
 
