@@ -9,7 +9,7 @@ import {
   TrendingUp, Waves,
   CalendarDays, FileDown, History, CalendarOff, Trash2,
   Gauge, Plus, Settings, ClipboardCopy, ClipboardCheck, Clock,
-  GraduationCap, Briefcase
+  GraduationCap, Briefcase, BookOpen, Play, Pause
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -58,6 +58,29 @@ const MONTHS = [
 const YEARS = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i);
 
 const LIMITE_DIARIO_POR_PESSOA = 0.009;
+
+// ─── Tutorial ────────────────────────────────────────────────────────────────
+const TUTORIAL_SLIDES = [
+  { badge: null,        title: 'Guia de Registro de Consumo de Água',   desc: 'Aprenda em poucos passos como registrar o consumo hídrico diário da sua escola de forma simples e rápida.', accent: 'blue'    },
+  { badge: 'Visão Geral', title: 'Entendendo o Calendário',             desc: 'O calendário mostra todos os dias do mês. Cada cor indica o estado do dia: verde = ok, amarelo = excedido, vermelho = atrasado, roxo = suspensão.', accent: 'slate'   },
+  { badge: 'Passo 1',   title: 'Clique no Dia que Deseja Registrar',   desc: 'Toque ou clique em qualquer dia passado do calendário para abrir o formulário. Dias futuros e dias de suspensão não podem ser editados.', accent: 'blue'    },
+  { badge: 'Passo 2',   title: 'Informe Alunos e Funcionários',        desc: 'No Passo 1 do formulário, preencha quantos alunos e funcionários estavam presentes. Esses números definem o limite diário de consumo (9 L por pessoa).', accent: 'violet'  },
+  { badge: 'Passo 3',   title: 'Faça a Leitura do Hidrômetro',        desc: 'Vá até o hidrômetro físico e anote os números exibidos no mostrador. Digite esse valor no campo grande escuro (Passo 2 do formulário).', accent: 'emerald' },
+  { badge: 'Automático', title: 'O Sistema Calcula o Consumo',         desc: 'O consumo do dia é calculado automaticamente: Leitura Atual − Leitura Anterior = Consumo. Você não precisa fazer nenhuma conta!', accent: 'cyan'    },
+  { badge: 'Normal',    title: 'Consumo Dentro do Limite',             desc: 'Se o consumo estiver abaixo do limite, o formulário ficará verde. É só clicar em SALVAR. O dia aparecerá verde no calendário.', accent: 'emerald' },
+  { badge: 'Atenção',   title: 'Quando o Limite é Ultrapassado',       desc: 'Se o consumo exceder o limite, aparecerão dois campos obrigatórios: Justificativa (o motivo) e Plano de Ação (o que será feito). Preencha ambos e salve normalmente.', accent: 'amber'   },
+  { badge: 'Pronto!',   title: 'Registro Concluído',                   desc: 'Clique em SALVAR REGISTRO. O calendário atualizará na hora! Registre todos os dias úteis para manter o histórico completo da escola.', accent: 'blue'    },
+] as const;
+
+const TUTORIAL_ACCENT: Record<string, { gradient: string; light: string; badge: string; btn: string }> = {
+  blue:    { gradient: 'from-blue-600 to-blue-800',       light: 'bg-blue-50',    badge: 'bg-blue-100 text-blue-700',    btn: 'bg-blue-600 hover:bg-blue-700'    },
+  slate:   { gradient: 'from-slate-700 to-slate-900',     light: 'bg-slate-50',   badge: 'bg-slate-100 text-slate-700',  btn: 'bg-slate-800 hover:bg-slate-700'  },
+  violet:  { gradient: 'from-violet-600 to-violet-800',   light: 'bg-violet-50',  badge: 'bg-violet-100 text-violet-700',btn: 'bg-violet-600 hover:bg-violet-700'},
+  emerald: { gradient: 'from-emerald-600 to-emerald-800', light: 'bg-emerald-50', badge: 'bg-emerald-100 text-emerald-700', btn: 'bg-emerald-600 hover:bg-emerald-700' },
+  cyan:    { gradient: 'from-cyan-600 to-cyan-800',       light: 'bg-cyan-50',    badge: 'bg-cyan-100 text-cyan-700',    btn: 'bg-cyan-600 hover:bg-cyan-700'    },
+  amber:   { gradient: 'from-amber-500 to-amber-700',     light: 'bg-amber-50',   badge: 'bg-amber-100 text-amber-700',  btn: 'bg-amber-600 hover:bg-amber-700'  },
+};
+// ─────────────────────────────────────────────────────────────────────────────
 
 function formatDateToYMD(date: Date) {
   const year = date.getFullYear();
@@ -112,6 +135,11 @@ export function ConsumoAgua() {
     justification: '',
     action_plan: ''
   });
+
+  // Tutorial
+  const [isTutorialOpen, setIsTutorialOpen] = useState(false);
+  const [tutorialSlide, setTutorialSlide] = useState(0);
+  const [tutorialPlaying, setTutorialPlaying] = useState(false);
 
   // --- Constantes de Calendário e Papéis ---
   const monthName = currentDate.toLocaleString('pt-BR', { month: 'long' });
@@ -334,6 +362,19 @@ export function ConsumoAgua() {
       console.error('Erro ao buscar consumos:', error);
     }
   }
+
+  // Autoplay do tutorial: avança um slide a cada 5 s enquanto estiver tocando
+  useEffect(() => {
+    if (!isTutorialOpen || !tutorialPlaying) return;
+    const t = setTimeout(() => {
+      if (tutorialSlide < TUTORIAL_SLIDES.length - 1) {
+        setTutorialSlide(s => s + 1);
+      } else {
+        setTutorialPlaying(false);
+      }
+    }, 5000);
+    return () => clearTimeout(t);
+  }, [isTutorialOpen, tutorialPlaying, tutorialSlide]);
 
   // Rebusca logs quando o meter selecionado mudar
   useEffect(() => {
@@ -1114,8 +1155,16 @@ export function ConsumoAgua() {
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3">
+            <button
+              onClick={() => { setTutorialSlide(0); setTutorialPlaying(false); setIsTutorialOpen(true); }}
+              className="flex items-center justify-center gap-2 px-4 py-3 text-xs font-black bg-indigo-50 text-indigo-600 border-2 border-indigo-200 rounded-2xl hover:bg-indigo-100 transition-all active:scale-95"
+            >
+              <BookOpen size={16} />
+              Como Registrar?
+            </button>
+
             {isManagerRole && (
-                <button 
+                <button
                     onClick={handleExportPDF}
                     disabled={exporting}
                     className="bg-slate-900 text-white px-6 py-3 rounded-2xl font-black flex items-center justify-center gap-2 shadow-xl hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50"
@@ -2027,6 +2076,284 @@ export function ConsumoAgua() {
           </div>
         </div>
       )}
+
+      {/* ===================================================================
+          MODAL TUTORIAL — Como Registrar o Consumo Diário
+      ==================================================================== */}
+      {isTutorialOpen && (() => {
+        const slide = TUTORIAL_SLIDES[tutorialSlide];
+        const accent = TUTORIAL_ACCENT[slide.accent];
+        const total = TUTORIAL_SLIDES.length;
+        const isLast = tutorialSlide === total - 1;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-slate-900/60 backdrop-blur-md p-0 md:p-4 print:hidden">
+            <div className="bg-white rounded-t-[3rem] md:rounded-[3rem] w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[95vh]">
+
+              {/* Header colorido com barra de progresso */}
+              <div className={`bg-gradient-to-br ${accent.gradient} p-6 text-white shrink-0`}>
+                <div className="flex justify-between items-center mb-4">
+                  <div className="flex items-center gap-2">
+                    <BookOpen size={16} className="opacity-80" />
+                    <span className="text-[11px] font-black uppercase tracking-widest opacity-80">Tutorial de Registro</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] font-bold opacity-60">{tutorialSlide + 1} / {total}</span>
+                    <button onClick={() => { setIsTutorialOpen(false); setTutorialPlaying(false); }} className="p-1.5 hover:bg-white/20 rounded-full transition-all">
+                      <X size={16} />
+                    </button>
+                  </div>
+                </div>
+                {/* Indicadores de slide clicáveis */}
+                <div className="flex gap-1.5">
+                  {TUTORIAL_SLIDES.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => { setTutorialSlide(i); setTutorialPlaying(false); }}
+                      className={`h-1.5 rounded-full transition-all flex-1 ${i === tutorialSlide ? 'bg-white' : i < tutorialSlide ? 'bg-white/55' : 'bg-white/25'}`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Área visual do slide */}
+              <div className={`${accent.light} flex items-center justify-center py-8 px-6 shrink-0`} style={{ minHeight: 200 }}>
+
+                {/* Slide 0 — Boas-vindas */}
+                {tutorialSlide === 0 && (
+                  <div className="text-center">
+                    <div className="inline-flex items-center justify-center w-24 h-24 bg-blue-600 rounded-[2rem] shadow-2xl shadow-blue-200 mb-4">
+                      <Droplets size={44} className="text-white" />
+                    </div>
+                    <div className="flex justify-center gap-2">
+                      {[0, 150, 300].map(d => (
+                        <div key={d} className="w-2.5 h-2.5 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: `${d}ms` }} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Slide 1 — Cores do calendário */}
+                {tutorialSlide === 1 && (
+                  <div className="grid grid-cols-2 gap-3 w-full max-w-xs">
+                    {[
+                      { bg: 'bg-emerald-50 border-emerald-200', icon: <CheckCircle size={15} className="text-emerald-500" />, label: 'REGISTRADO', sub: 'Tudo certo' },
+                      { bg: 'bg-amber-50 border-amber-300',    icon: <AlertTriangle size={15} className="text-amber-500" />,  label: 'EXCEDIDO',   sub: 'Limite ultrapassado' },
+                      { bg: 'bg-red-50 border-red-200',        icon: <AlertCircle size={15} className="text-red-500" />,      label: 'ATRASADO',   sub: 'Sem registro' },
+                      { bg: 'bg-purple-50 border-purple-200',  icon: <CalendarOff size={15} className="text-purple-500" />,   label: 'SUSPENSÃO',  sub: 'Sem expediente' },
+                    ].map(item => (
+                      <div key={item.label} className={`p-3 ${item.bg} border-2 rounded-2xl flex items-center gap-2`}>
+                        <div className="shrink-0">{item.icon}</div>
+                        <div>
+                          <p className="text-[10px] font-black text-slate-700">{item.label}</p>
+                          <p className="text-[9px] text-slate-400">{item.sub}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Slide 2 — Clicar no dia */}
+                {tutorialSlide === 2 && (
+                  <div className="relative">
+                    <div className="w-32 h-32 rounded-[2rem] bg-red-50 border-2 border-red-200 p-4 flex flex-col justify-between relative z-10">
+                      <span className="text-2xl font-black text-red-700">15</span>
+                      <div className="text-[10px] font-black text-red-500 uppercase">Atrasado</div>
+                    </div>
+                    <div className="absolute inset-0 rounded-[2rem] border-4 border-blue-500 animate-ping opacity-60" />
+                    <div className="absolute inset-0 rounded-[2rem] border-2 border-blue-400" />
+                  </div>
+                )}
+
+                {/* Slide 3 — Alunos e funcionários */}
+                {tutorialSlide === 3 && (
+                  <div className="w-full max-w-xs space-y-3">
+                    <div className="p-4 bg-white border-2 border-violet-200 rounded-2xl flex items-center gap-3">
+                      <GraduationCap size={22} className="text-violet-500 shrink-0" />
+                      <div>
+                        <p className="text-[9px] font-black text-violet-500 uppercase">Alunos</p>
+                        <p className="text-2xl font-black text-slate-800 font-mono">250</p>
+                      </div>
+                    </div>
+                    <div className="p-4 bg-white border-2 border-violet-200 rounded-2xl flex items-center gap-3">
+                      <Briefcase size={22} className="text-rose-500 shrink-0" />
+                      <div>
+                        <p className="text-[9px] font-black text-rose-500 uppercase">Funcionários</p>
+                        <p className="text-2xl font-black text-slate-800 font-mono">35</p>
+                      </div>
+                    </div>
+                    <div className="p-3 bg-slate-800 rounded-2xl flex justify-between items-center">
+                      <span className="text-[10px] text-slate-400 font-bold">Limite do dia</span>
+                      <span className="text-sm font-black text-white font-mono">2.565 m³</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Slide 4 — Leitura do hidrômetro */}
+                {tutorialSlide === 4 && (
+                  <div className="w-full max-w-xs space-y-3">
+                    <div className="p-4 bg-white border-2 border-slate-200 rounded-2xl flex items-center gap-3">
+                      <History size={20} className="text-slate-400 shrink-0" />
+                      <div>
+                        <p className="text-[9px] font-black text-slate-400 uppercase">Leitura Anterior</p>
+                        <p className="text-xl font-black font-mono text-slate-700">5.380</p>
+                      </div>
+                    </div>
+                    <div className="p-5 bg-slate-900 border-4 border-emerald-500 rounded-2xl text-center ring-8 ring-emerald-500/10">
+                      <p className="text-[9px] font-black text-emerald-400 uppercase mb-1">← Digite aqui a leitura atual</p>
+                      <p className="text-3xl font-black font-mono text-white tracking-widest">5.392</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Slide 5 — Cálculo automático */}
+                {tutorialSlide === 5 && (
+                  <div className="flex items-center gap-3 flex-wrap justify-center">
+                    {[
+                      { label: 'Atual', value: '5.392', color: 'border-cyan-300 bg-white' },
+                    ].map(b => (
+                      <div key={b.label} className={`p-3 ${b.color} border-2 rounded-2xl text-center`}>
+                        <p className="text-[9px] text-slate-400 font-black">{b.label}</p>
+                        <p className="text-lg font-black font-mono text-slate-800">{b.value}</p>
+                      </div>
+                    ))}
+                    <span className="text-2xl font-black text-slate-400">−</span>
+                    <div className="p-3 border-2 border-slate-200 bg-white rounded-2xl text-center">
+                      <p className="text-[9px] text-slate-400 font-black">Anterior</p>
+                      <p className="text-lg font-black font-mono text-slate-800">5.380</p>
+                    </div>
+                    <span className="text-2xl font-black text-slate-400">=</span>
+                    <div className="p-3 border-2 border-cyan-300 bg-cyan-50 rounded-2xl text-center">
+                      <p className="text-[9px] text-cyan-600 font-black">Consumo</p>
+                      <p className="text-lg font-black font-mono text-cyan-700">0.012 m³</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Slide 6 — Dentro do limite */}
+                {tutorialSlide === 6 && (
+                  <div className="w-full max-w-xs space-y-3">
+                    <div className="p-4 bg-white border-2 border-emerald-200 rounded-2xl">
+                      <div className="flex justify-between mb-2">
+                        <span className="text-[10px] font-black text-slate-500 uppercase">Consumo × Limite</span>
+                      </div>
+                      <div className="flex items-end gap-1 mb-2">
+                        <span className="text-xl font-black text-emerald-700 font-mono">2.1</span>
+                        <span className="text-xs text-slate-400 mb-0.5">m³ / 2.565 m³</span>
+                      </div>
+                      <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden">
+                        <div className="bg-emerald-500 h-4 rounded-full flex items-center justify-end pr-2" style={{ width: '82%' }}>
+                          <span className="text-[8px] font-black text-white">82%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="p-3 bg-emerald-50 border-2 border-emerald-200 rounded-2xl flex items-center gap-3">
+                      <CheckCircle size={20} className="text-emerald-500 shrink-0" />
+                      <p className="text-xs font-black text-emerald-700">Dentro do limite — é só salvar!</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Slide 7 — Limite excedido */}
+                {tutorialSlide === 7 && (
+                  <div className="w-full max-w-xs space-y-2">
+                    <div className="p-3 bg-amber-50 border-2 border-amber-300 rounded-2xl flex items-center gap-2">
+                      <AlertTriangle size={18} className="text-amber-500 shrink-0" />
+                      <p className="text-[11px] font-black text-amber-700 uppercase">Alerta de Excesso!</p>
+                    </div>
+                    <div className="p-3 bg-white border-2 border-amber-200 rounded-xl">
+                      <p className="text-[9px] font-black text-amber-600 uppercase mb-1.5">Justificativa (obrigatório)</p>
+                      <div className="h-9 bg-slate-50 rounded-lg border border-slate-200 flex items-center px-3">
+                        <span className="text-[10px] text-slate-400 italic">Ex: Vazamento no banheiro...</span>
+                      </div>
+                    </div>
+                    <div className="p-3 bg-white border-2 border-amber-200 rounded-xl">
+                      <p className="text-[9px] font-black text-amber-600 uppercase mb-1.5">Plano de Ação (obrigatório)</p>
+                      <div className="h-9 bg-slate-50 rounded-lg border border-slate-200 flex items-center px-3">
+                        <span className="text-[10px] text-slate-400 italic">Ex: Acionar manutenção...</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Slide 8 — Salvar */}
+                {tutorialSlide === 8 && (
+                  <div className="flex flex-col items-center gap-4 w-full max-w-xs">
+                    <div className="w-full p-4 bg-blue-600 text-white rounded-2xl flex items-center justify-center gap-3 shadow-xl shadow-blue-200">
+                      <Save size={20} />
+                      <span className="font-black text-sm uppercase tracking-widest">Salvar Registro</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-slate-300 w-full">
+                      <div className="h-px flex-1 bg-slate-200" />
+                      <span className="text-[10px] font-bold text-slate-400">calendário atualiza</span>
+                      <div className="h-px flex-1 bg-slate-200" />
+                    </div>
+                    <div className="w-28 h-28 rounded-[2rem] bg-emerald-50 border-2 border-emerald-200 p-3 flex flex-col justify-between">
+                      <div className="flex justify-between items-start">
+                        <span className="text-xl font-black text-emerald-700">15</span>
+                        <CheckCircle size={14} className="text-emerald-500" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-black text-slate-900 font-mono">5.392</div>
+                        <div className="text-[8px] font-bold text-slate-400 uppercase">m³ Registrado</div>
+                        <div className="mt-1 px-2 py-0.5 bg-emerald-200 text-emerald-800 text-[9px] font-black rounded-full inline-block">0.012 m³</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+
+              {/* Texto do slide */}
+              <div className="px-6 py-5 flex-1 overflow-y-auto">
+                {slide.badge && (
+                  <span className={`px-3 py-1 ${accent.badge} rounded-full text-[10px] font-black uppercase tracking-widest`}>
+                    {slide.badge}
+                  </span>
+                )}
+                <h2 className="text-lg font-black text-slate-900 mt-3 mb-2 leading-tight">{slide.title}</h2>
+                <p className="text-sm text-slate-600 font-medium leading-relaxed">{slide.desc}</p>
+              </div>
+
+              {/* Navegação */}
+              <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between shrink-0">
+                <button
+                  onClick={() => { setTutorialSlide(s => Math.max(0, s - 1)); setTutorialPlaying(false); }}
+                  disabled={tutorialSlide === 0}
+                  className="flex items-center gap-1 px-4 py-3 text-[11px] font-black text-slate-500 hover:text-slate-800 disabled:opacity-25 transition-all"
+                >
+                  <ChevronLeft size={15} /> Anterior
+                </button>
+
+                <button
+                  onClick={() => setTutorialPlaying(p => !p)}
+                  title={tutorialPlaying ? 'Pausar' : 'Reproduzir automaticamente'}
+                  className={`p-3 rounded-full transition-all ${tutorialPlaying ? 'bg-slate-800 text-white shadow-lg' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                >
+                  {tutorialPlaying ? <Pause size={15} /> : <Play size={15} />}
+                </button>
+
+                {isLast ? (
+                  <button
+                    onClick={() => { setIsTutorialOpen(false); setTutorialPlaying(false); }}
+                    className="flex items-center gap-1 px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black rounded-2xl transition-all active:scale-95"
+                  >
+                    Concluir <CheckCircle size={15} />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => { setTutorialSlide(s => s + 1); setTutorialPlaying(false); }}
+                    className={`flex items-center gap-1 px-5 py-3 ${accent.btn} text-white text-[11px] font-black rounded-2xl transition-all active:scale-95`}
+                  >
+                    Próximo <ChevronRight size={15} />
+                  </button>
+                )}
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );
