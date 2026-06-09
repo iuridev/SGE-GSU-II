@@ -236,10 +236,26 @@ export function ConsumoAgua() {
         currentSupSchools = profile?.supervisor_schools || [];
       }
 
-      // Busca escolas ANTES de setar qualquer estado, para que todos os setState
-      // abaixo sejam batched pelo React 18 num único render — garante que schools
-      // e userRole estarão disponíveis juntos quando o useEffect disparar fetchLogs.
-      const { data: schoolsData } = await (supabase as any).from('schools').select('id, name, water_exempt').order('name');
+      // Busca escolas com paginação (Supabase limita 1000 linhas por requisição por padrão).
+      // Iterar páginas garante que todas as escolas da rede apareçam no lateSchools/excessSchools.
+      const fetchAllSchools = async () => {
+        const PAGE = 1000;
+        const all: any[] = [];
+        let from = 0;
+        while (true) {
+          const { data: page } = await (supabase as any)
+            .from('schools')
+            .select('id, name, water_exempt')
+            .order('name')
+            .range(from, from + PAGE - 1);
+          if (!page || page.length === 0) break;
+          all.push(...page);
+          if (page.length < PAGE) break;
+          from += PAGE;
+        }
+        return all;
+      };
+      const schoolsData = await fetchAllSchools();
 
       if (user) {
         setUserId(user.id);
