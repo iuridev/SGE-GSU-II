@@ -439,6 +439,7 @@ export function ConsumoAgua() {
   // ESCOLAS COM REGISTROS ATRASADOS (só para regional_admin)
   // ============================================================
   const [copiedLate, setCopiedLate] = useState(false);
+  const [activeInfoTab, setActiveInfoTab] = useState<'excedentes' | 'pendentes'>('excedentes');
 
   const lateSchools = useMemo(() => {
     if (userRole !== 'regional_admin' || selectedSchoolId) return [];
@@ -485,7 +486,7 @@ export function ConsumoAgua() {
       }
     });
 
-    return Object.values(schoolLateMap).sort((a, b) => b.missingDays.length - a.missingDays.length);
+    return Object.values(schoolLateMap).sort((a, b) => a.name.localeCompare(b.name));
   }, [allMonthLogs, schools, userRole, selectedSchoolId, currentDate]);
 
   function handleCopyLateList() {
@@ -1346,126 +1347,168 @@ export function ConsumoAgua() {
         </div>
       </div>
 
-      {/* JUSTIFICATIVAS */}
-      {justificationsList.length > 0 && (
-        <div className="bg-white rounded-[2.5rem] border-2 border-slate-100 shadow-xl overflow-hidden">
-          <div className="p-6 border-b border-slate-100 flex items-center gap-3">
-            <div className="p-3 bg-amber-100 rounded-2xl text-amber-600"><History size={18} /></div>
-            <div>
-              <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Registros com Excedente</h3>
-              <p className="text-xs text-slate-400 font-medium">Dias que ultrapassaram o limite operacional</p>
-            </div>
-          </div>
-          <div className="p-6 space-y-4">
-            {justificationsList.map((log, idx) => (
-              <div key={log.id || idx} className="p-5 bg-amber-50 border border-amber-200 rounded-[1.5rem] space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-amber-500 text-white rounded-xl"><Building2 size={14}/></div>
-                    <div>
-                      <p className="text-xs font-black text-slate-800 uppercase">{log.school_name}</p>
-                      <p className="text-[10px] text-slate-400 font-medium">{new Date(log.date + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-black text-amber-700">{log.consumption_diff.toFixed(2)} m³</p>
-                    <p className="text-[10px] text-amber-500 font-bold uppercase">Excedido</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="bg-white rounded-xl p-3 border border-amber-100">
-                    <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest mb-1">Justificativa</p>
-                    <p className="text-xs text-slate-700 font-medium">{log.justification}</p>
-                  </div>
-                  <div className="bg-white rounded-xl p-3 border border-amber-100">
-                    <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest mb-1">Plano de Ação</p>
-                    <p className="text-xs text-slate-700 font-medium">{log.action_plan}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* ABAS: Registros com Excedente + Escolas Pendentes */}
+      {(justificationsList.length > 0 || (userRole === 'regional_admin' && !selectedSchoolId)) && (
+        <div className="bg-white rounded-[2.5rem] border-2 border-slate-100 shadow-xl overflow-hidden print:hidden">
 
-      {/* ESCOLAS COM ATRASO (só regional_admin na visão geral) */}
-      {userRole === 'regional_admin' && !selectedSchoolId && lateSchools.length > 0 && (
-        <div className="bg-white rounded-[2.5rem] border-2 border-red-100 shadow-xl overflow-hidden print:hidden">
-          <div className="p-6 border-b border-red-100 flex items-center justify-between bg-red-50/40">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-red-500 rounded-2xl text-white"><Clock size={18} /></div>
-              <div>
-                <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Escolas com Registros Atrasados</h3>
-                <p className="text-xs text-slate-400 font-medium">
-                  {lateSchools.length} escola{lateSchools.length > 1 ? 's' : ''} com dias sem lançamento em {MONTHS[currentDate.getMonth()]}/{currentDate.getFullYear()}
-                </p>
-              </div>
-            </div>
+          {/* Cabeçalho das abas */}
+          <div className="flex border-b-2 border-slate-100">
             <button
-              onClick={handleCopyLateList}
-              className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-md ${
-                copiedLate
-                  ? 'bg-emerald-500 text-white shadow-emerald-200'
-                  : 'bg-slate-900 text-white hover:bg-slate-700 shadow-slate-200'
+              onClick={() => setActiveInfoTab('excedentes')}
+              className={`flex-1 px-6 py-4 text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all border-b-2 -mb-[2px] ${
+                activeInfoTab === 'excedentes'
+                  ? 'bg-amber-50 text-amber-700 border-amber-500'
+                  : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50 border-transparent'
               }`}
             >
-              {copiedLate ? <><ClipboardCheck size={15} /> Copiado!</> : <><ClipboardCopy size={15} /> Copiar Lista</>}
+              <History size={14} />
+              Registros com Excedente
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                activeInfoTab === 'excedentes'
+                  ? 'bg-amber-500 text-white'
+                  : 'bg-slate-200 text-slate-500'
+              }`}>
+                {justificationsList.length}
+              </span>
             </button>
+
+            {userRole === 'regional_admin' && !selectedSchoolId && (
+              <button
+                onClick={() => setActiveInfoTab('pendentes')}
+                className={`flex-1 px-6 py-4 text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all border-b-2 -mb-[2px] ${
+                  activeInfoTab === 'pendentes'
+                    ? 'bg-red-50 text-red-700 border-red-500'
+                    : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50 border-transparent'
+                }`}
+              >
+                <Clock size={14} />
+                Escolas Pendentes
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                  activeInfoTab === 'pendentes'
+                    ? lateSchools.length > 0 ? 'bg-red-500 text-white' : 'bg-emerald-500 text-white'
+                    : 'bg-slate-200 text-slate-500'
+                }`}>
+                  {lateSchools.length}
+                </span>
+              </button>
+            )}
           </div>
 
-          <div className="divide-y divide-red-50">
-            {lateSchools.map((school, idx) => {
-              const lastMissing = school.missingDays[school.missingDays.length - 1];
-              const daysSinceLastMissing = Math.floor(
-                (new Date().getTime() - new Date(lastMissing + 'T12:00:00').getTime()) / (1000 * 60 * 60 * 24)
-              );
-              const severity = school.missingDays.length >= 5 ? 'high' : school.missingDays.length >= 3 ? 'mid' : 'low';
-              const severityColors = {
-                high: 'bg-red-100 text-red-700 border-red-200',
-                mid: 'bg-orange-100 text-orange-700 border-orange-200',
-                low: 'bg-amber-100 text-amber-700 border-amber-200',
-              };
+          {/* Conteúdo: Registros com Excedente */}
+          {activeInfoTab === 'excedentes' && (
+            <div>
+              {justificationsList.length === 0 ? (
+                <div className="p-12 flex flex-col items-center justify-center gap-3 text-center">
+                  <div className="p-4 bg-emerald-100 rounded-2xl text-emerald-600"><CheckCircle size={28} /></div>
+                  <p className="text-sm font-black text-slate-500 uppercase tracking-widest">Nenhum excedente</p>
+                  <p className="text-xs text-slate-400 font-medium">Nenhum registro ultrapassou o limite operacional em {MONTHS[currentDate.getMonth()]}/{currentDate.getFullYear()}.</p>
+                </div>
+              ) : (
+                <div className="p-6 space-y-4">
+                  {justificationsList.map((log, idx) => (
+                    <div key={log.id || idx} className="p-5 bg-amber-50 border border-amber-200 rounded-[1.5rem] space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-amber-500 text-white rounded-xl"><Building2 size={14}/></div>
+                          <div>
+                            <p className="text-xs font-black text-slate-800 uppercase">{log.school_name}</p>
+                            <p className="text-[10px] text-slate-400 font-medium">{new Date(log.date + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-black text-amber-700">{log.consumption_diff.toFixed(2)} m³</p>
+                          <p className="text-[10px] text-amber-500 font-bold uppercase">Excedido</p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="bg-white rounded-xl p-3 border border-amber-100">
+                          <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest mb-1">Justificativa</p>
+                          <p className="text-xs text-slate-700 font-medium">{log.justification}</p>
+                        </div>
+                        <div className="bg-white rounded-xl p-3 border border-amber-100">
+                          <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest mb-1">Plano de Ação</p>
+                          <p className="text-xs text-slate-700 font-medium">{log.action_plan}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
-              return (
-                <div key={school.name} className={`flex items-center justify-between px-6 py-4 hover:bg-red-50/30 transition-all ${idx % 2 === 0 ? '' : 'bg-slate-50/30'}`}>
-                  <div className="flex items-center gap-4 min-w-0">
-                    <div className="w-7 h-7 rounded-full bg-red-100 text-red-500 flex items-center justify-center text-[10px] font-black shrink-0">
-                      {idx + 1}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-black text-slate-800 truncate">{school.name}</p>
-                      <p className="text-[10px] text-slate-400 font-medium mt-0.5">
-                        Último dia sem registro: {new Date(lastMissing + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
-                        {daysSinceLastMissing > 0 && <span className="ml-1 text-red-400">({daysSinceLastMissing}d atrás)</span>}
-                      </p>
-                    </div>
+          {/* Conteúdo: Escolas Pendentes */}
+          {activeInfoTab === 'pendentes' && userRole === 'regional_admin' && !selectedSchoolId && (
+            <div>
+              {lateSchools.length === 0 ? (
+                <div className="p-12 flex flex-col items-center justify-center gap-3 text-center">
+                  <div className="p-4 bg-emerald-100 rounded-2xl text-emerald-600"><CheckCircle size={28} /></div>
+                  <p className="text-sm font-black text-emerald-700 uppercase tracking-widest">Todas as escolas em dia!</p>
+                  <p className="text-xs text-emerald-600 font-medium">Nenhuma escola com registros atrasados em {MONTHS[currentDate.getMonth()]}/{currentDate.getFullYear()}.</p>
+                </div>
+              ) : (
+                <div>
+                  <div className="p-6 border-b border-red-100 flex items-center justify-between bg-red-50/40">
+                    <p className="text-xs text-slate-400 font-medium">
+                      {lateSchools.length} escola{lateSchools.length > 1 ? 's' : ''} com dias sem lançamento em {MONTHS[currentDate.getMonth()]}/{currentDate.getFullYear()}
+                    </p>
+                    <button
+                      onClick={handleCopyLateList}
+                      className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-md ${
+                        copiedLate
+                          ? 'bg-emerald-500 text-white shadow-emerald-200'
+                          : 'bg-slate-900 text-white hover:bg-slate-700 shadow-slate-200'
+                      }`}
+                    >
+                      {copiedLate ? <><ClipboardCheck size={15} /> Copiado!</> : <><ClipboardCopy size={15} /> Copiar Lista</>}
+                    </button>
                   </div>
-                  <div className={`shrink-0 ml-4 px-4 py-1.5 rounded-xl border text-[11px] font-black ${severityColors[severity]}`}>
-                    {school.missingDays.length} dia{school.missingDays.length > 1 ? 's' : ''}
+
+                  <div className="divide-y divide-red-50">
+                    {lateSchools.map((school, idx) => {
+                      const lastMissing = school.missingDays[school.missingDays.length - 1];
+                      const daysSinceLastMissing = Math.floor(
+                        (new Date().getTime() - new Date(lastMissing + 'T12:00:00').getTime()) / (1000 * 60 * 60 * 24)
+                      );
+                      const severity = school.missingDays.length >= 5 ? 'high' : school.missingDays.length >= 3 ? 'mid' : 'low';
+                      const severityColors = {
+                        high: 'bg-red-100 text-red-700 border-red-200',
+                        mid: 'bg-orange-100 text-orange-700 border-orange-200',
+                        low: 'bg-amber-100 text-amber-700 border-amber-200',
+                      };
+
+                      return (
+                        <div key={school.name} className={`flex items-center justify-between px-6 py-4 hover:bg-red-50/30 transition-all ${idx % 2 === 0 ? '' : 'bg-slate-50/30'}`}>
+                          <div className="flex items-center gap-4 min-w-0">
+                            <div className="w-7 h-7 rounded-full bg-red-100 text-red-500 flex items-center justify-center text-[10px] font-black shrink-0">
+                              {idx + 1}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-black text-slate-800 truncate">{school.name}</p>
+                              <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                                Último dia sem registro: {new Date(lastMissing + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
+                                {daysSinceLastMissing > 0 && <span className="ml-1 text-red-400">({daysSinceLastMissing}d atrás)</span>}
+                              </p>
+                            </div>
+                          </div>
+                          <div className={`shrink-0 ml-4 px-4 py-1.5 rounded-xl border text-[11px] font-black ${severityColors[severity]}`}>
+                            {school.missingDays.length} dia{school.missingDays.length > 1 ? 's' : ''}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="p-6 border-t border-red-100 bg-slate-50">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Pré-visualização do texto copiado</p>
+                    <pre className="text-[11px] text-slate-600 font-mono leading-relaxed whitespace-pre-wrap bg-white border border-slate-200 rounded-2xl p-4 select-all">
+{`Escolas com registros atrasados em ${MONTHS[currentDate.getMonth()]}/${currentDate.getFullYear()}:\n\n${lateSchools.map(s => `• ${s.name} — ${s.missingDays.length} dia(s) sem registro`).join('\n')}`}
+                    </pre>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-
-          {/* Texto pronto para copiar (pré-visualização) */}
-          <div className="p-6 border-t border-red-100 bg-slate-50">
-            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Pré-visualização do texto copiado</p>
-            <pre className="text-[11px] text-slate-600 font-mono leading-relaxed whitespace-pre-wrap bg-white border border-slate-200 rounded-2xl p-4 select-all">
-{`Escolas com registros atrasados em ${MONTHS[currentDate.getMonth()]}/${currentDate.getFullYear()}:\n\n${lateSchools.map(s => `• ${s.name} — ${s.missingDays.length} dia(s) sem registro`).join('\n')}`}
-            </pre>
-          </div>
-        </div>
-      )}
-
-      {/* Mensagem quando não há atrasos */}
-      {userRole === 'regional_admin' && !selectedSchoolId && lateSchools.length === 0 && schools.length > 0 && (
-        <div className="bg-emerald-50 border-2 border-emerald-100 rounded-[2.5rem] p-6 flex items-center gap-4 print:hidden">
-          <div className="p-3 bg-emerald-500 text-white rounded-2xl shrink-0"><CheckCircle size={20} /></div>
-          <div>
-            <p className="text-sm font-black text-emerald-800 uppercase tracking-widest">Todas as escolas em dia!</p>
-            <p className="text-xs text-emerald-600 font-medium mt-0.5">Nenhuma escola com registros atrasados em {MONTHS[currentDate.getMonth()]}/{currentDate.getFullYear()}.</p>
-          </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
