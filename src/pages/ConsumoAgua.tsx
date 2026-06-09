@@ -255,7 +255,7 @@ export function ConsumoAgua() {
           .gte('date', firstDay)
           .lte('date', lastDay)
           .order('date', { ascending: true })
-          .limit(5000),
+          .limit(100000),
         suspSchoolId
           ? (supabase as any)
               .from('consumo_agua')
