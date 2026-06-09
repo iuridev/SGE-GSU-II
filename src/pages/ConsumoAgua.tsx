@@ -247,15 +247,32 @@ export function ConsumoAgua() {
         }
       }
       
-      // Query separada para suspensões: usa uma escola como referência (≤31 registros/mês)
-      // para evitar o cap de 1000 linhas do Supabase na query principal.
+      // Paginação para contornar o limite máximo de linhas do Supabase por requisição.
+      // Cada .range() busca até 1000 linhas; iteramos até não ter mais páginas.
+      // O query builder do Supabase JS é imutável: .range() cria uma nova requisição
+      // sem modificar `query`, então é seguro reusar o mesmo builder em cada iteração.
+      const fetchAllPages = async (): Promise<WaterLog[]> => {
+        const PAGE = 1000;
+        const all: WaterLog[] = [];
+        let from = 0;
+        while (true) {
+          const { data: page, error: pageErr } = await query
+            .gte('date', firstDay)
+            .lte('date', lastDay)
+            .order('date', { ascending: true })
+            .range(from, from + PAGE - 1);
+          if (pageErr) throw pageErr;
+          if (!page || page.length === 0) break;
+          all.push(...page);
+          if (page.length < PAGE) break;
+          from += PAGE;
+        }
+        return all;
+      };
+
       const suspSchoolId = selectedSchoolId || schools[0]?.id;
-      const [{ data, error }, { data: suspData }] = await Promise.all([
-        query
-          .gte('date', firstDay)
-          .lte('date', lastDay)
-          .order('date', { ascending: true })
-          .limit(100000),
+      const [rawLogs, { data: suspData }] = await Promise.all([
+        fetchAllPages(),
         suspSchoolId
           ? (supabase as any)
               .from('consumo_agua')
@@ -267,10 +284,6 @@ export function ConsumoAgua() {
               .like('justification', 'Suspensão de Expediente:%')
           : Promise.resolve({ data: [] }),
       ]);
-
-      if (error) throw error;
-
-      const rawLogs = (data || []) as WaterLog[];
       setAllMonthLogs(rawLogs);
 
       // suspensionLogs vem da query dedicada (garante todos os dias mesmo com cap de 1000 linhas)
@@ -446,48 +459,42 @@ export function ConsumoAgua() {
 
     const todayStr = formatDateToYMD(new Date());
 
-    // Monta o conjunto de datas úteis (não-futuras, não-hoje) do mês
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const totalDays = new Date(year, month + 1, 0).getDate();
-    
 
-    // Dias que contam como "deveriam ter registro"
+    // Datas com suspensão global já registrada (feriados, recesso etc.)
+    // suspensionLogs é keyed por data e cobre toda a rede
+    const globalSuspensionDates = new Set(Object.keys(suspensionLogs));
+
+    // Dias úteis passados que deveriam ter registro:
+    // exclui fins de semana (escolas não registram Sáb/Dom) e dias com suspensão global
     const pastDays: string[] = [];
     for (let d = 1; d <= totalDays; d++) {
-      const dateStr = formatDateToYMD(new Date(year, month, d));
-      // Apenas dias passados e que não são hoje
-      if (dateStr < todayStr) {
+      const date = new Date(year, month, d);
+      const dateStr = formatDateToYMD(date);
+      const dow = date.getDay(); // 0 = Dom, 6 = Sáb
+      if (dateStr < todayStr && dow !== 0 && dow !== 6 && !globalSuspensionDates.has(dateStr)) {
         pastDays.push(dateStr);
       }
     }
 
     if (pastDays.length === 0) return [];
 
-    // Para cada escola, verifica quantos dias passados não têm nenhum registro (excluindo suspensões)
     const schoolLateMap: Record<string, { name: string; missingDays: string[] }> = {};
 
     schools.filter(school => !school.water_exempt).forEach(school => {
-      const schoolLogs = allMonthLogs.filter(l => l.school_id === school.id);
-      const registeredDates = new Set(
-        schoolLogs
-          .filter(l => !(l.justification && l.justification.startsWith('Suspensão de Expediente:')))
-          .map(l => l.date)
+      const coveredDates = new Set(
+        allMonthLogs.filter(l => l.school_id === school.id).map(l => l.date)
       );
-      const suspensionDates = new Set(
-        schoolLogs
-          .filter(l => l.justification && l.justification.startsWith('Suspensão de Expediente:'))
-          .map(l => l.date)
-      );
-
-      const missing = pastDays.filter(d => !registeredDates.has(d) && !suspensionDates.has(d));
+      const missing = pastDays.filter(d => !coveredDates.has(d));
       if (missing.length > 0) {
         schoolLateMap[school.id] = { name: school.name, missingDays: missing };
       }
     });
 
     return Object.values(schoolLateMap).sort((a, b) => a.name.localeCompare(b.name));
-  }, [allMonthLogs, schools, userRole, selectedSchoolId, currentDate]);
+  }, [allMonthLogs, schools, userRole, selectedSchoolId, currentDate, suspensionLogs]);
 
   function handleCopyLateList() {
     const monthLabel = `${MONTHS[currentDate.getMonth()]}/${currentDate.getFullYear()}`;
