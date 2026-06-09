@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import { addTimbradoAllPages } from '../lib/pdfTimbrado';
+import { addTimbradoAllPages, TIMBRADO_HEADER_H } from '../lib/pdfTimbrado';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import {
   Droplets, ChevronLeft, ChevronRight,
   Save, X, AlertTriangle, CheckCircle,
@@ -493,7 +495,25 @@ export function ConsumoAgua() {
   // ESCOLAS COM REGISTROS ATRASADOS (só para regional_admin)
   // ============================================================
   const [copiedLate, setCopiedLate] = useState(false);
-  const [activeInfoTab, setActiveInfoTab] = useState<'excedentes' | 'pendentes'>('excedentes');
+  const [activeInfoTab, setActiveInfoTab] = useState<'excedentes' | 'escolas-excedentes' | 'pendentes'>('excedentes');
+
+  // Ranking de escolas pelo excedente mensal em m³ (consumo total − limite total do mês)
+  const excessSchools = useMemo(() => {
+    if (selectedSchoolId) return [];
+    const map: Record<string, { name: string; totalConsumption: number; totalLimit: number }> = {};
+    allMonthLogs
+      .filter(l => !(l.justification?.startsWith('Suspensão de Expediente:')))
+      .forEach(l => {
+        const name = schools.find(s => s.id === l.school_id)?.name || 'Escola não identificada';
+        if (!map[l.school_id]) map[l.school_id] = { name, totalConsumption: 0, totalLimit: 0 };
+        map[l.school_id].totalConsumption += l.consumption_diff || 0;
+        map[l.school_id].totalLimit += (l.student_count + l.staff_count) * LIMITE_DIARIO_POR_PESSOA;
+      });
+    return Object.values(map)
+      .map(s => ({ ...s, excess: s.totalConsumption - s.totalLimit }))
+      .filter(s => s.excess > 0)
+      .sort((a, b) => b.excess - a.excess);
+  }, [allMonthLogs, schools, selectedSchoolId]);
 
   const lateSchools = useMemo(() => {
     if (userRole !== 'regional_admin' || selectedSchoolId) return [];
@@ -670,6 +690,71 @@ export function ConsumoAgua() {
       alert('Erro na geração do relatório executivo.');
       setExporting(false);
     }
+  };
+
+  const exportRankingPDF = () => {
+    if (excessSchools.length === 0) return;
+    const month = currentDate.getMonth();
+    const year  = currentDate.getFullYear();
+    const monthLabel = `${MONTHS[month]}/${year}`;
+
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const startY = TIMBRADO_HEADER_H + 8;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(15, 23, 42);
+    doc.text('RANKING DE EXCEDENTES — CONSUMO DE ÁGUA', 14, startY);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text(
+      `${monthLabel}  ·  ${excessSchools.length} escola${excessSchools.length > 1 ? 's' : ''} com consumo acima do limite  ·  Emitido em ${new Date().toLocaleString('pt-BR')}`,
+      14, startY + 6
+    );
+
+    const medal = (idx: number) =>
+      idx === 0 ? [253, 224, 71] : idx === 1 ? [203, 213, 225] : idx === 2 ? [217, 119, 6] : [255, 255, 255];
+
+    autoTable(doc, {
+      startY: startY + 12,
+      head: [['#', 'Escola', 'Consumo (m³)', 'Limite (m³)', 'Excedente (m³)', '% do Limite']],
+      body: excessSchools.map((s, idx) => [
+        `${idx + 1}°`,
+        s.name,
+        s.totalConsumption.toFixed(3),
+        s.totalLimit.toFixed(3),
+        `+${s.excess.toFixed(3)}`,
+        `${((s.totalConsumption / (s.totalLimit || 1)) * 100).toFixed(1)}%`,
+      ]),
+      headStyles: {
+        fillColor: [15, 23, 42],
+        textColor: [251, 191, 36],
+        fontStyle: 'bold',
+        fontSize: 8,
+      },
+      bodyStyles: { fontSize: 8, textColor: [15, 23, 42] },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 10 },
+        2: { halign: 'right' },
+        3: { halign: 'right' },
+        4: { halign: 'right', fontStyle: 'bold', textColor: [194, 65, 12] },
+        5: { halign: 'right' },
+      },
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.column.index === 0) {
+          const [r, g, b] = medal(data.row.index);
+          data.cell.styles.fillColor = [r, g, b];
+          data.cell.styles.fontStyle = 'bold';
+        }
+      },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      margin: { left: 14, right: 14 },
+    });
+
+    addTimbradoAllPages(doc);
+    doc.save(`Ranking_Excedentes_Agua_${MONTHS[month]}_${year}.pdf`);
   };
 
   const handleMonthChange = (monthIdx: number) => {
@@ -1404,7 +1489,7 @@ export function ConsumoAgua() {
       </div>
 
       {/* ABAS: Registros com Excedente + Escolas Pendentes */}
-      {(justificationsList.length > 0 || (userRole === 'regional_admin' && !selectedSchoolId)) && (
+      {(justificationsList.length > 0 || (isManagerRole && !selectedSchoolId) || (userRole === 'regional_admin' && !selectedSchoolId)) && (
         <div className="bg-white rounded-[2.5rem] border-2 border-slate-100 shadow-xl overflow-hidden print:hidden">
 
           {/* Cabeçalho das abas */}
@@ -1427,6 +1512,27 @@ export function ConsumoAgua() {
                 {justificationsList.length}
               </span>
             </button>
+
+            {isManagerRole && !selectedSchoolId && (
+              <button
+                onClick={() => setActiveInfoTab('escolas-excedentes')}
+                className={`flex-1 px-6 py-4 text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all border-b-2 -mb-[2px] ${
+                  activeInfoTab === 'escolas-excedentes'
+                    ? 'bg-orange-50 text-orange-700 border-orange-500'
+                    : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50 border-transparent'
+                }`}
+              >
+                <TrendingUp size={14} />
+                Ranking de Excedentes
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                  activeInfoTab === 'escolas-excedentes'
+                    ? excessSchools.length > 0 ? 'bg-orange-500 text-white' : 'bg-emerald-500 text-white'
+                    : 'bg-slate-200 text-slate-500'
+                }`}>
+                  {excessSchools.length}
+                </span>
+              </button>
+            )}
 
             {userRole === 'regional_admin' && !selectedSchoolId && (
               <button
@@ -1488,6 +1594,78 @@ export function ConsumoAgua() {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Conteúdo: Ranking de Escolas com Excedente */}
+          {activeInfoTab === 'escolas-excedentes' && isManagerRole && !selectedSchoolId && (
+            <div>
+              {excessSchools.length === 0 ? (
+                <div className="p-12 flex flex-col items-center justify-center gap-3 text-center">
+                  <div className="p-4 bg-emerald-100 rounded-2xl text-emerald-600"><CheckCircle size={28} /></div>
+                  <p className="text-sm font-black text-slate-500 uppercase tracking-widest">Nenhum excedente</p>
+                  <p className="text-xs text-slate-400 font-medium">Nenhuma escola ultrapassou o limite em {MONTHS[currentDate.getMonth()]}/{currentDate.getFullYear()}.</p>
+                </div>
+              ) : (
+                <div>
+                  <div className="px-6 pt-5 pb-3 flex items-center justify-between">
+                    <p className="text-xs text-slate-400 font-medium">
+                      {excessSchools.length} escola{excessSchools.length > 1 ? 's' : ''} com excedente em {MONTHS[currentDate.getMonth()]}/{currentDate.getFullYear()} · ordenado por m³ excedido
+                    </p>
+                    <button
+                      onClick={exportRankingPDF}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-black bg-orange-50 text-orange-600 border border-orange-200 rounded-xl hover:bg-orange-100 transition-all active:scale-95"
+                    >
+                      <FileDown size={13} /> Exportar PDF
+                    </button>
+                  </div>
+                  <div className="divide-y divide-slate-50">
+                    {excessSchools.map((school, idx) => {
+                      const medal = idx === 0
+                        ? 'bg-yellow-400 text-yellow-900'
+                        : idx === 1
+                        ? 'bg-slate-300 text-slate-700'
+                        : idx === 2
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-orange-100 text-orange-700';
+                      const pct = school.totalLimit > 0 ? (school.totalConsumption / school.totalLimit) * 100 : 0;
+                      const severity = pct >= 150 ? 'high' : pct >= 120 ? 'mid' : 'low';
+                      const severityTag = {
+                        high: 'bg-red-100 text-red-700 border-red-200',
+                        mid:  'bg-orange-100 text-orange-700 border-orange-200',
+                        low:  'bg-amber-100 text-amber-700 border-amber-200',
+                      }[severity];
+
+                      return (
+                        <div key={school.name} className={`flex items-center justify-between px-6 py-4 hover:bg-orange-50/30 transition-all ${idx % 2 === 0 ? '' : 'bg-slate-50/30'}`}>
+                          <div className="flex items-center gap-4 min-w-0 flex-1">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-black shrink-0 ${medal}`}>
+                              {idx + 1}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-black text-slate-800 truncate">{school.name}</p>
+                              <div className="flex items-center gap-3 mt-1">
+                                <div className="flex-1 max-w-[140px] bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                  <div
+                                    className="bg-orange-500 h-1.5 rounded-full"
+                                    style={{ width: `${Math.min(100, (pct / 200) * 100)}%` }}
+                                  />
+                                </div>
+                                <p className="text-[10px] text-slate-400 font-medium whitespace-nowrap">
+                                  {school.totalConsumption.toFixed(2)} / {school.totalLimit.toFixed(2)} m³
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                          <div className={`shrink-0 ml-4 px-4 py-1.5 rounded-xl border text-[11px] font-black ${severityTag}`}>
+                            +{school.excess.toFixed(2)} m³
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
