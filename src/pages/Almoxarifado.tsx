@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import {
   ShoppingCart, Package, Settings, Plus, Trash2,
   Check, Edit2, FileText, X, Save, History, ClipboardList,
-  Clock, CheckCircle, XCircle, Layers, CalendarDays, AlertTriangle
+  Clock, CheckCircle, XCircle, Layers, CalendarDays, AlertTriangle, Bell
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -80,6 +80,10 @@ export default function Almoxarifado() {
 
   const [todosUsuarios, setTodosUsuarios] = useState<any[]>([]);
   const [responsaveis, setResponsaveis] = useState<string[]>([]);
+  const [novoPedidoToast, setNovoPedidoToast] = useState(false);
+  const activeTabRef = useRef(activeTab);
+
+  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
 
   useEffect(() => {
     carregarUsuarioEPermissoes();
@@ -94,6 +98,29 @@ export default function Almoxarifado() {
   useEffect(() => {
     if (activeTab === 'minhas' && userId) carregarMinhasSolicitacoes();
   }, [activeTab, userId]);
+
+  useEffect(() => {
+    if (!isAuthorized) return;
+
+    const channel = supabase
+      .channel('almoxarifado_realtime')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'almoxarifado_solicitacoes' },
+        (payload) => {
+          if (payload.new?.status === 'pendente') {
+            carregarSolicitacoes();
+            if (activeTabRef.current !== 'painel') {
+              setNovoPedidoToast(true);
+              setTimeout(() => setNovoPedidoToast(false), 5000);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [isAuthorized]);
 
   const carregarUsuarioEPermissoes = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -815,6 +842,23 @@ export default function Almoxarifado() {
           </div>
         )}
       </div>
+
+      {/* TOAST: NOVO PEDIDO */}
+      {novoPedidoToast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-amber-500 text-white px-5 py-3.5 rounded-2xl shadow-xl animate-bounce-once">
+          <Bell size={18} className="shrink-0" />
+          <div>
+            <p className="font-bold text-sm">Novo pedido recebido!</p>
+            <button onClick={() => { setActiveTab('painel'); setNovoPedidoToast(false); }}
+              className="text-xs underline underline-offset-2 opacity-90 hover:opacity-100">
+              Ver no Painel
+            </button>
+          </div>
+          <button onClick={() => setNovoPedidoToast(false)} className="ml-1 opacity-70 hover:opacity-100">
+            <X size={16} />
+          </button>
+        </div>
+      )}
 
       {/* MODAL: EDITAR ITEM */}
       {itemEditando && (

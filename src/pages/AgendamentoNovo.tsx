@@ -121,6 +121,12 @@ export function AgendamentoNovo() {
   // Guarda a data e hora exata de quando o Sheets foi sincronizado pela última vez
   const [ultimaSincronizacao, setUltimaSincronizacao] = useState<Date | null>(null);
 
+  // === REALTIME ===
+  // Alerta visual quando chega novo agendamento pendente (só para admins)
+  const [novoPendenteAlert, setNovoPendenteAlert] = useState(false);
+  // Ref para acessar o userRole atual dentro do callback do Realtime (evita stale closure)
+  const userRoleRef = useRef<string>('');
+
   // === ESTADOS DE MULTI-AGENDAMENTO ===
   const [filaAgendamentos, setFilaAgendamentos] = useState<any[]>([]);
   const [showFilaInfo, setShowFilaInfo] = useState(false);
@@ -132,6 +138,9 @@ export function AgendamentoNovo() {
   const [reservasProvisoriasAtivas, setReservasProvisoriasAtivas] = useState<any[]>([]);
   const expiracaoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Mantém o ref sempre atualizado com o role atual (evita stale closure no callback do Realtime)
+  useEffect(() => { userRoleRef.current = userRole; }, [userRole]);
+
   // Efeito que roda assim que o componente nasce na tela
   useEffect(() => {
     // Chama a função que busca quem está logado e puxa tudo do banco
@@ -139,15 +148,41 @@ export function AgendamentoNovo() {
 
     // Procura no disco do navegador se a gente já fez sincronização antes
     const syncSalva = localStorage.getItem('sge_gsu_last_sync');
-    // Se achou um registro antigo...
     if (syncSalva) {
-      // Salva essa data no estado para o sistema saber quando foi
       setUltimaSincronizacao(new Date(syncSalva));
     }
 
-    // Limpa reservas provisórias que possam ter ficado penduradas de sessões anteriores
+    // Polling garantido a cada 30s — funciona mesmo sem Realtime habilitado no Supabase
+    const pollingInterval = setInterval(fetchAgendamentos, 30000);
+
+    // Supabase Realtime: atualização instantânea quando a tabela muda
+    // Requer Replication ativo para agendamentos_ambientes no painel do Supabase
+    const channel = (supabase as any)
+      .channel('agendamentos_realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'agendamentos_ambientes' },
+        (payload: any) => {
+          fetchAgendamentos();
+          // Notifica o admin quando um novo agendamento pendente chega
+          if (
+            userRoleRef.current === 'regional_admin' &&
+            payload.eventType === 'INSERT' &&
+            payload.new?.status === 'pendente'
+          ) {
+            setNovoPendenteAlert(true);
+          }
+        }
+      )
+      .subscribe((status: string) => {
+        // Loga o status da conexão Realtime no console para diagnóstico
+        console.log('[Realtime agendamentos]', status);
+      });
+
     return () => {
       if (expiracaoTimerRef.current) clearTimeout(expiracaoTimerRef.current);
+      clearInterval(pollingInterval);
+      supabase.removeChannel(channel);
     };
   }, []); // Array vazio garante que roda só na montagem
 
@@ -945,7 +980,36 @@ export function AgendamentoNovo() {
   return (
     // Fundo da Tela
     <div className="space-y-8 pb-20 animate-in fade-in duration-500 relative">
-      
+
+      {/* BANNER: Novo agendamento pendente recebido em tempo real */}
+      {novoPendenteAlert && userRole === 'regional_admin' && (
+        <div className="fixed top-4 right-4 z-[60] animate-in slide-in-from-top-2 duration-300">
+          <div className="bg-amber-500 text-white rounded-2xl shadow-2xl px-5 py-4 flex items-center gap-4 max-w-sm">
+            <div className="w-10 h-10 bg-amber-400 rounded-xl flex items-center justify-center shrink-0">
+              <AlertTriangle size={20} />
+            </div>
+            <div className="flex-1">
+              <p className="font-black text-sm uppercase tracking-tight">Novo agendamento pendente!</p>
+              <p className="text-xs opacity-80 font-medium mt-0.5">Um pedido chegou e aguarda aprovação.</p>
+            </div>
+            <div className="flex flex-col gap-1.5 shrink-0">
+              <button
+                onClick={() => { setNovoPendenteAlert(false); setShowPendentesModal(true); }}
+                className="px-3 py-1.5 bg-white text-amber-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-50 transition-all"
+              >
+                Ver
+              </button>
+              <button
+                onClick={() => setNovoPendenteAlert(false)}
+                className="px-3 py-1.5 bg-amber-400/50 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-400 transition-all"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ----------------------------------------------------- */}
       {/* SESSÃO DE MODAIS (CAIXAS FLUTUANTES)                  */}
       {/* ----------------------------------------------------- */}
