@@ -57,6 +57,8 @@ interface Zeladoria {
   sei_regularizacao?: string;
   certidao_matricula: boolean | null;
   sei_certidao?: string;
+  cartorio_matricula?: string;
+  numero_matricula?: string;
   status_updated_at?: string;
   created_at?: string;
 }
@@ -923,9 +925,17 @@ export function Zeladoria() {
                     </div>
                   </div>
                 ) : item.certidao_matricula === true ? (
-                  <div className="flex items-center gap-1.5">
-                    <FileCheck2 size={11} className="text-emerald-500 flex-shrink-0" />
-                    <span className="text-[9px] font-bold text-emerald-600 uppercase tracking-wide">Certidão de matrícula OK</span>
+                  <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 flex items-start gap-2">
+                    <FileCheck2 size={12} className="text-emerald-500 mt-0.5 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-[9px] font-black text-emerald-600 uppercase tracking-wide">Certidão de matrícula</p>
+                      {item.cartorio_matricula && (
+                        <p className="text-[10px] font-bold text-emerald-700 mt-0.5">{item.cartorio_matricula} de Imóveis de Guarulhos</p>
+                      )}
+                      {item.numero_matricula && (
+                        <p className="text-[10px] font-mono text-emerald-700">Matrícula nº {item.numero_matricula}</p>
+                      )}
+                    </div>
                   </div>
                 ) : null}
 
@@ -1141,7 +1151,7 @@ export function Zeladoria() {
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
-                    onClick={() => setFormData({ ...formData, certidao_matricula: true, sei_certidao: '' })}
+                    onClick={() => setFormData({ ...formData, certidao_matricula: true, sei_certidao: '' , cartorio_matricula: formData.cartorio_matricula || '' })}
                     className={`flex items-center gap-2.5 p-3.5 rounded-2xl border-2 font-bold text-sm transition-all ${
                       formData.certidao_matricula === true
                         ? 'bg-emerald-50 border-emerald-400 text-emerald-700'
@@ -1164,6 +1174,38 @@ export function Zeladoria() {
                     Sem certidão
                   </button>
                 </div>
+                {formData.certidao_matricula === true && (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-emerald-600 uppercase mb-2">Cartório de Registro</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {['1º Cartório', '2º Cartório'].map(cartorio => (
+                          <button
+                            key={cartorio}
+                            type="button"
+                            onClick={() => setFormData({ ...formData, cartorio_matricula: cartorio })}
+                            className={`p-3 rounded-2xl border-2 font-bold text-sm transition-all ${
+                              formData.cartorio_matricula === cartorio
+                                ? 'bg-emerald-50 border-emerald-400 text-emerald-700'
+                                : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-slate-200'
+                            }`}
+                          >
+                            {cartorio} de Imóveis de Guarulhos
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-emerald-600 uppercase mb-2">Número da Matrícula</label>
+                      <input
+                        placeholder="Ex: 12.345"
+                        className="w-full p-3 bg-emerald-50 border-2 border-emerald-100 rounded-2xl font-mono text-emerald-700 transition-all focus:border-emerald-400 focus:bg-white outline-none"
+                        value={formData.numero_matricula || ''}
+                        onChange={e => setFormData({ ...formData, numero_matricula: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                )}
                 {formData.certidao_matricula === false && (
                   <div>
                     <label className="block text-[10px] font-bold text-orange-500 uppercase mb-2">Nº SEI — Obtenção da Certidão (se houver)</label>
