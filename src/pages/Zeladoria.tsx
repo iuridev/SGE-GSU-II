@@ -9,7 +9,7 @@ import {
   History, ArrowRight, FileDown,
   BarChart3, PieChart as PieIcon,
   CheckSquare, UserPlus, ShieldCheck,
-  ChevronRight, Filter, MessageSquare, MapPin, AlertTriangle
+  ChevronRight, Filter, MessageSquare, MapPin, AlertTriangle, FileCheck2
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -55,6 +55,8 @@ interface Zeladoria {
   admin_notes?: string;
   terreno_fazenda_estado: boolean | null;
   sei_regularizacao?: string;
+  certidao_matricula: boolean | null;
+  sei_certidao?: string;
   status_updated_at?: string;
   created_at?: string;
 }
@@ -174,7 +176,8 @@ export function Zeladoria() {
       !z.zelador || z.zelador.trim() === ""
     ).length;
     const terrenosPendentes = activeData.filter(z => z.terreno_fazenda_estado === false).length;
-    return { totalValidas: activeData.length, concluidos, vagas, terrenosPendentes };
+    const certidoesPendentes = activeData.filter(z => z.certidao_matricula === false).length;
+    return { totalValidas: activeData.length, concluidos, vagas, terrenosPendentes, certidoesPendentes };
   }, [activeData]);
 
   const statusChartData = useMemo(() => {
@@ -200,6 +203,17 @@ export function Zeladoria() {
     return [
       { name: 'Fazenda do Estado', value: regularizado, color: '#10b981' },
       { name: 'Pendente Regularização', value: pendente, color: '#ef4444' },
+      { name: 'Não Informado', value: naoInformado, color: '#cbd5e1' },
+    ].filter(d => d.value > 0);
+  }, [activeData]);
+
+  const certidaoChartData = useMemo(() => {
+    const comCertidao = activeData.filter(z => z.certidao_matricula === true).length;
+    const semCertidao = activeData.filter(z => z.certidao_matricula === false).length;
+    const naoInformado = activeData.filter(z => z.certidao_matricula === null || z.certidao_matricula === undefined).length;
+    return [
+      { name: 'Com Certidão', value: comCertidao, color: '#10b981' },
+      { name: 'Sem Certidão', value: semCertidao, color: '#f97316' },
       { name: 'Não Informado', value: naoInformado, color: '#cbd5e1' },
     ].filter(d => d.value > 0);
   }, [activeData]);
@@ -539,7 +553,7 @@ export function Zeladoria() {
       </div>
 
       {/* CARDS DE INDICADORES */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-xl shadow-slate-200/50 flex items-center gap-4 transition-all hover:scale-[1.02]">
           <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl"><Building2 size={24} /></div>
           <div>
@@ -566,6 +580,13 @@ export function Zeladoria() {
           <div>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Regularização de Terreno</p>
             <h3 className="text-2xl font-black text-slate-800">{stats.terrenosPendentes} <span className="text-xs text-slate-400 font-bold uppercase">Pendentes</span></h3>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-xl shadow-slate-200/50 flex items-center gap-4 transition-all hover:scale-[1.02]">
+          <div className="p-4 bg-orange-50 text-orange-500 rounded-2xl"><FileCheck2 size={24} /></div>
+          <div>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Certidão de Matrícula</p>
+            <h3 className="text-2xl font-black text-slate-800">{stats.certidoesPendentes} <span className="text-xs text-slate-400 font-bold uppercase">Sem Doc.</span></h3>
           </div>
         </div>
       </div>
@@ -615,53 +636,103 @@ export function Zeladoria() {
           </div>
         </div>
 
-        {/* Gráfico — Situação dos Terrenos */}
-        <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl shadow-slate-200/40">
-          <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight mb-6 flex items-center gap-2">
-            <MapPin size={18} className="text-red-500" /> Situação da Matrícula dos Terrenos
-          </h3>
-          <div className="flex flex-col md:flex-row items-center gap-8">
-            {/* Donut */}
-            <div className="h-[220px] w-full md:w-[240px] flex-shrink-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={terrenoChartData} innerRadius={65} outerRadius={90} paddingAngle={4} dataKey="value" startAngle={90} endAngle={-270}>
-                    {terrenoChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <RechartsTooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px rgba(0,0,0,0.1)', fontSize: '12px', fontWeight: 700 }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            {/* Legenda detalhada */}
-            <div className="flex flex-col gap-4 flex-1 w-full">
-              {terrenoChartData.map(item => {
-                const total = terrenoChartData.reduce((acc, d) => acc + d.value, 0);
-                const pct = total > 0 ? Math.round((item.value / total) * 100) : 0;
-                return (
-                  <div key={item.name}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: item.color }} />
-                        <span className="text-xs font-black text-slate-700 uppercase tracking-tight">{item.name}</span>
+        {/* Gráficos — Terreno e Certidão lado a lado */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+          {/* Terreno */}
+          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl shadow-slate-200/40">
+            <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight mb-6 flex items-center gap-2">
+              <MapPin size={18} className="text-red-500" /> Matrícula do Terreno
+            </h3>
+            <div className="flex flex-col md:flex-row items-center gap-8">
+              <div className="h-[200px] w-full md:w-[220px] flex-shrink-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={terrenoChartData} innerRadius={58} outerRadius={82} paddingAngle={4} dataKey="value" startAngle={90} endAngle={-270}>
+                      {terrenoChartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <RechartsTooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px rgba(0,0,0,0.1)', fontSize: '12px', fontWeight: 700 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex flex-col gap-4 flex-1 w-full">
+                {terrenoChartData.map(item => {
+                  const total = terrenoChartData.reduce((acc, d) => acc + d.value, 0);
+                  const pct = total > 0 ? Math.round((item.value / total) * 100) : 0;
+                  return (
+                    <div key={item.name}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: item.color }} />
+                          <span className="text-[11px] font-black text-slate-700 uppercase tracking-tight">{item.name}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-black" style={{ color: item.color }}>{item.value}</span>
+                          <span className="text-[10px] font-bold text-slate-400">{pct}%</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-black" style={{ color: item.color }}>{item.value}</span>
-                        <span className="text-[10px] font-bold text-slate-400">{pct}%</span>
+                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: item.color }} />
                       </div>
                     </div>
-                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: item.color }} />
-                    </div>
-                  </div>
-                );
-              })}
-              {terrenoChartData.length === 0 && (
-                <p className="text-xs text-slate-400 font-bold text-center py-8">Nenhum dado de terreno registrado ainda.</p>
-              )}
+                  );
+                })}
+                {terrenoChartData.length === 0 && (
+                  <p className="text-xs text-slate-400 font-bold text-center py-8">Nenhum dado registrado ainda.</p>
+                )}
+              </div>
             </div>
           </div>
+
+          {/* Certidão de Matrícula */}
+          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl shadow-slate-200/40">
+            <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight mb-6 flex items-center gap-2">
+              <FileCheck2 size={18} className="text-orange-500" /> Certidão de Matrícula do Imóvel
+            </h3>
+            <div className="flex flex-col md:flex-row items-center gap-8">
+              <div className="h-[200px] w-full md:w-[220px] flex-shrink-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={certidaoChartData} innerRadius={58} outerRadius={82} paddingAngle={4} dataKey="value" startAngle={90} endAngle={-270}>
+                      {certidaoChartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <RechartsTooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px rgba(0,0,0,0.1)', fontSize: '12px', fontWeight: 700 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex flex-col gap-4 flex-1 w-full">
+                {certidaoChartData.map(item => {
+                  const total = certidaoChartData.reduce((acc, d) => acc + d.value, 0);
+                  const pct = total > 0 ? Math.round((item.value / total) * 100) : 0;
+                  return (
+                    <div key={item.name}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: item.color }} />
+                          <span className="text-[11px] font-black text-slate-700 uppercase tracking-tight">{item.name}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-black" style={{ color: item.color }}>{item.value}</span>
+                          <span className="text-[10px] font-bold text-slate-400">{pct}%</span>
+                        </div>
+                      </div>
+                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: item.color }} />
+                      </div>
+                    </div>
+                  );
+                })}
+                {certidaoChartData.length === 0 && (
+                  <p className="text-xs text-slate-400 font-bold text-center py-8">Nenhum dado registrado ainda.</p>
+                )}
+              </div>
+            </div>
+          </div>
+
         </div>
         </div>
       )}
@@ -837,6 +908,24 @@ export function Zeladoria() {
                   <div className="flex items-center gap-1.5">
                     <MapPin size={11} className="text-emerald-500 flex-shrink-0" />
                     <span className="text-[9px] font-bold text-emerald-600 uppercase tracking-wide">Terreno em nome da Fazenda do Estado</span>
+                  </div>
+                ) : null}
+
+                {/* Certidão de matrícula */}
+                {item.certidao_matricula === false ? (
+                  <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 flex items-start gap-2">
+                    <FileCheck2 size={12} className="text-orange-400 mt-0.5 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-[9px] font-black text-orange-500 uppercase tracking-wide">Sem certidão de matrícula do imóvel</p>
+                      {item.sei_certidao && (
+                        <p className="text-[10px] font-mono text-orange-700 mt-0.5 truncate">SEI: {item.sei_certidao}</p>
+                      )}
+                    </div>
+                  </div>
+                ) : item.certidao_matricula === true ? (
+                  <div className="flex items-center gap-1.5">
+                    <FileCheck2 size={11} className="text-emerald-500 flex-shrink-0" />
+                    <span className="text-[9px] font-bold text-emerald-600 uppercase tracking-wide">Certidão de matrícula OK</span>
                   </div>
                 ) : null}
 
@@ -1038,6 +1127,51 @@ export function Zeladoria() {
                       className="w-full p-3 bg-red-50 border-2 border-red-100 rounded-2xl font-mono text-red-700 transition-all focus:border-red-400 focus:bg-white outline-none"
                       value={formData.sei_regularizacao || ''}
                       onChange={e => setFormData({ ...formData, sei_regularizacao: e.target.value })}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Certidão de Matrícula do Imóvel */}
+              <div className="space-y-3">
+                <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <div className="w-1 h-3 bg-orange-400 rounded-full" />
+                  Certidão de Matrícula do Imóvel
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, certidao_matricula: true, sei_certidao: '' })}
+                    className={`flex items-center gap-2.5 p-3.5 rounded-2xl border-2 font-bold text-sm transition-all ${
+                      formData.certidao_matricula === true
+                        ? 'bg-emerald-50 border-emerald-400 text-emerald-700'
+                        : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-slate-200'
+                    }`}
+                  >
+                    <FileCheck2 size={16} className={formData.certidao_matricula === true ? 'text-emerald-500' : 'text-slate-300'} />
+                    Possui certidão
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, certidao_matricula: false })}
+                    className={`flex items-center gap-2.5 p-3.5 rounded-2xl border-2 font-bold text-sm transition-all ${
+                      formData.certidao_matricula === false
+                        ? 'bg-orange-50 border-orange-400 text-orange-700'
+                        : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-slate-200'
+                    }`}
+                  >
+                    <AlertTriangle size={16} className={formData.certidao_matricula === false ? 'text-orange-400' : 'text-slate-300'} />
+                    Sem certidão
+                  </button>
+                </div>
+                {formData.certidao_matricula === false && (
+                  <div>
+                    <label className="block text-[10px] font-bold text-orange-500 uppercase mb-2">Nº SEI — Obtenção da Certidão (se houver)</label>
+                    <input
+                      placeholder="Ex: 057.00000/2025-00"
+                      className="w-full p-3 bg-orange-50 border-2 border-orange-100 rounded-2xl font-mono text-orange-700 transition-all focus:border-orange-400 focus:bg-white outline-none"
+                      value={formData.sei_certidao || ''}
+                      onChange={e => setFormData({ ...formData, sei_certidao: e.target.value })}
                     />
                   </div>
                 )}
