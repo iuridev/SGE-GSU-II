@@ -9,7 +9,7 @@ import {
   History, ArrowRight, FileDown,
   BarChart3, PieChart as PieIcon,
   CheckSquare, UserPlus, ShieldCheck,
-  ChevronRight, Filter, MessageSquare
+  ChevronRight, Filter, MessageSquare, MapPin, AlertTriangle
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -53,6 +53,8 @@ interface Zeladoria {
   salario_10_porcento: number | null;
   school_id: string | null;
   admin_notes?: string;
+  terreno_fazenda_estado: boolean | null;
+  sei_regularizacao?: string;
   status_updated_at?: string;
   created_at?: string;
 }
@@ -170,7 +172,8 @@ export function Zeladoria() {
       z.zelador?.toUpperCase().includes('DISPONÍVEL') ||
       !z.zelador || z.zelador.trim() === ""
     ).length;
-    return { totalValidas: activeData.length, concluidos, vagas };
+    const terrenosPendentes = activeData.filter(z => z.terreno_fazenda_estado === false).length;
+    return { totalValidas: activeData.length, concluidos, vagas, terrenosPendentes };
   }, [activeData]);
 
   const statusChartData = useMemo(() => {
@@ -187,6 +190,17 @@ export function Zeladoria() {
       { name: 'Isentas', value: isentos, color: '#10b981' },
       { name: 'Não Isentas', value: pagantes, color: '#3b82f6' }
     ];
+  }, [activeData]);
+
+  const terrenoChartData = useMemo(() => {
+    const regularizado = activeData.filter(z => z.terreno_fazenda_estado === true).length;
+    const pendente = activeData.filter(z => z.terreno_fazenda_estado === false).length;
+    const naoInformado = activeData.filter(z => z.terreno_fazenda_estado === null || z.terreno_fazenda_estado === undefined).length;
+    return [
+      { name: 'Fazenda do Estado', value: regularizado, color: '#10b981' },
+      { name: 'Pendente Regularização', value: pendente, color: '#ef4444' },
+      { name: 'Não Informado', value: naoInformado, color: '#cbd5e1' },
+    ].filter(d => d.value > 0);
   }, [activeData]);
 
   const handleExportPDF = async () => {
@@ -524,7 +538,7 @@ export function Zeladoria() {
       </div>
 
       {/* CARDS DE INDICADORES */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-xl shadow-slate-200/50 flex items-center gap-4 transition-all hover:scale-[1.02]">
           <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl"><Building2 size={24} /></div>
           <div>
@@ -546,10 +560,18 @@ export function Zeladoria() {
             <h3 className="text-2xl font-black text-slate-800">{stats.vagas} <span className="text-xs text-slate-400 font-bold uppercase">Abertas</span></h3>
           </div>
         </div>
+        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-xl shadow-slate-200/50 flex items-center gap-4 transition-all hover:scale-[1.02]">
+          <div className="p-4 bg-red-50 text-red-500 rounded-2xl"><MapPin size={24} /></div>
+          <div>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Regularização de Terreno</p>
+            <h3 className="text-2xl font-black text-slate-800">{stats.terrenosPendentes} <span className="text-xs text-slate-400 font-bold uppercase">Pendentes</span></h3>
+          </div>
+        </div>
       </div>
 
       {/* GRÁFICOS ANALÍTICOS */}
       {userRole === 'regional_admin' && (
+        <div className="space-y-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl shadow-slate-200/40">
             <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight mb-8 flex items-center gap-2">
@@ -590,6 +612,56 @@ export function Zeladoria() {
               </ResponsiveContainer>
             </div>
           </div>
+        </div>
+
+        {/* Gráfico — Situação dos Terrenos */}
+        <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl shadow-slate-200/40">
+          <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight mb-6 flex items-center gap-2">
+            <MapPin size={18} className="text-red-500" /> Situação da Matrícula dos Terrenos
+          </h3>
+          <div className="flex flex-col md:flex-row items-center gap-8">
+            {/* Donut */}
+            <div className="h-[220px] w-full md:w-[240px] flex-shrink-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={terrenoChartData} innerRadius={65} outerRadius={90} paddingAngle={4} dataKey="value" startAngle={90} endAngle={-270}>
+                    {terrenoChartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <RechartsTooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px rgba(0,0,0,0.1)', fontSize: '12px', fontWeight: 700 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            {/* Legenda detalhada */}
+            <div className="flex flex-col gap-4 flex-1 w-full">
+              {terrenoChartData.map(item => {
+                const total = terrenoChartData.reduce((acc, d) => acc + d.value, 0);
+                const pct = total > 0 ? Math.round((item.value / total) * 100) : 0;
+                return (
+                  <div key={item.name}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: item.color }} />
+                        <span className="text-xs font-black text-slate-700 uppercase tracking-tight">{item.name}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black" style={{ color: item.color }}>{item.value}</span>
+                        <span className="text-[10px] font-bold text-slate-400">{pct}%</span>
+                      </div>
+                    </div>
+                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: item.color }} />
+                    </div>
+                  </div>
+                );
+              })}
+              {terrenoChartData.length === 0 && (
+                <p className="text-xs text-slate-400 font-bold text-center py-8">Nenhum dado de terreno registrado ainda.</p>
+              )}
+            </div>
+          </div>
+        </div>
         </div>
       )}
 
@@ -749,6 +821,24 @@ export function Zeladoria() {
                   </div>
                 </div>
 
+                {/* Situação do terreno */}
+                {item.terreno_fazenda_estado === false ? (
+                  <div className="bg-red-50 border border-red-100 rounded-xl p-3 flex items-start gap-2">
+                    <AlertTriangle size={12} className="text-red-400 mt-0.5 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-[9px] font-black text-red-500 uppercase tracking-wide">Terreno pendente de regularização</p>
+                      {item.sei_regularizacao && (
+                        <p className="text-[10px] font-mono text-red-700 mt-0.5 truncate">SEI: {item.sei_regularizacao}</p>
+                      )}
+                    </div>
+                  </div>
+                ) : item.terreno_fazenda_estado === true ? (
+                  <div className="flex items-center gap-1.5">
+                    <MapPin size={11} className="text-emerald-500 flex-shrink-0" />
+                    <span className="text-[9px] font-bold text-emerald-600 uppercase tracking-wide">Terreno em nome da Fazenda do Estado</span>
+                  </div>
+                ) : null}
+
                 {/* Nota interna (somente regional_admin) */}
                 {userRole === 'regional_admin' && item.admin_notes && (
                   <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 flex items-start gap-2">
@@ -905,6 +995,51 @@ export function Zeladoria() {
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Validade</label>
                   <input type="date" className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold transition-all focus:border-blue-500 focus:bg-white outline-none" value={formData.ate || ''} onChange={e => setFormData({...formData, ate: e.target.value})} />
                 </div>
+              </div>
+
+              {/* Situação do Terreno */}
+              <div className="space-y-3">
+                <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <div className="w-1 h-3 bg-red-400 rounded-full" />
+                  Terreno da Escola
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, terreno_fazenda_estado: true, sei_regularizacao: '' })}
+                    className={`flex items-center gap-2.5 p-3.5 rounded-2xl border-2 font-bold text-sm transition-all ${
+                      formData.terreno_fazenda_estado === true
+                        ? 'bg-emerald-50 border-emerald-400 text-emerald-700'
+                        : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-slate-200'
+                    }`}
+                  >
+                    <MapPin size={16} className={formData.terreno_fazenda_estado === true ? 'text-emerald-500' : 'text-slate-300'} />
+                    Em nome da Fazenda
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, terreno_fazenda_estado: false })}
+                    className={`flex items-center gap-2.5 p-3.5 rounded-2xl border-2 font-bold text-sm transition-all ${
+                      formData.terreno_fazenda_estado === false
+                        ? 'bg-red-50 border-red-400 text-red-700'
+                        : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-slate-200'
+                    }`}
+                  >
+                    <AlertTriangle size={16} className={formData.terreno_fazenda_estado === false ? 'text-red-400' : 'text-slate-300'} />
+                    Pendente regularização
+                  </button>
+                </div>
+                {formData.terreno_fazenda_estado === false && (
+                  <div>
+                    <label className="block text-[10px] font-bold text-red-500 uppercase mb-2">Nº SEI — Regularização do Terreno</label>
+                    <input
+                      placeholder="Ex: 057.00000/2025-00"
+                      className="w-full p-3 bg-red-50 border-2 border-red-100 rounded-2xl font-mono text-red-700 transition-all focus:border-red-400 focus:bg-white outline-none"
+                      value={formData.sei_regularizacao || ''}
+                      onChange={e => setFormData({ ...formData, sei_regularizacao: e.target.value })}
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Nota interna - exclusiva para regional_admin */}
