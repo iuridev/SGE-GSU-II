@@ -10,7 +10,7 @@ import {
   Star, ArrowUpCircle, HardHat, TreeDeciduous, Ticket,
   School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown,
   Bell, MessageSquare, CheckCircle, ClipboardList, ClipboardCheck,
-  Wrench, Search, CalendarCheck, BarChart2
+  Wrench, Search, CalendarCheck, BarChart2, Megaphone
 } from 'lucide-react';
 
 import { Dashboard } from './pages/Dashboard';
@@ -59,6 +59,7 @@ import Almoxarifado from './pages/Almoxarifado';
 import PrevisaoObrasFDE from './pages/PrevisaoObrasFDE';
 import { PainelGerencial } from './pages/PainelGerencial';
 import EstacionamentoCarros from './pages/EstacionamentoCarros';
+import Comunicados from './pages/Comunicados';
 
 
 
@@ -90,6 +91,7 @@ const MENU_GROUPS: MenuGroup[] = [
     items: [
       { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
       { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
+      { id: 'comunicados', label: 'Comunicados', icon: <Megaphone size={20} className="text-amber-500" />, roles: ['regional_admin'] },
       { id: 'minhas-tarefas', label: 'Agenda Funcional', icon: <CalendarCheck size={20} />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
       { id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <ClipboardList size={20} className="text-slate-400" />, roles: ['regional_admin', 'dirigente'] },
     ]
@@ -518,6 +520,7 @@ export default function App() {
       case 'minhas-tarefas': return <MinhasTarefas/>;
       case 'previsao-obras-fde': return <PrevisaoObrasFDE />;
       case 'painel-gerencial': return <PainelGerencial />;
+      case 'comunicados': return <Comunicados />;
       default: return <Dashboard />;
     }
   };

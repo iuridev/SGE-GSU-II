@@ -4,7 +4,8 @@ import {
   Building2, Droplets, Zap, ShieldCheck, AlertTriangle, ArrowRight,
   Calendar, CheckCircle2, Waves, ZapOff, History, ChevronRight,
   ArrowRightLeft, Map as MapIcon, Loader2, Info, X,
-  HardHat, Bell, ClipboardList, Truck, Clock
+  HardHat, Bell, ClipboardList, Truck, Clock,
+  Megaphone, User as UserIcon, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { WaterTruckModal } from '../components/WaterTruckModal';
 import { PowerOutageModal } from '../components/PowerOutageModal';
@@ -55,6 +56,40 @@ const EVENT_TYPE_STYLES: Record<string, { bar: string; bg: string; text: string;
   AVISO_AGUA:       { bar: 'bg-blue-500',    bg: 'bg-blue-50',    text: 'text-blue-600',    label: 'Falta Água' },
 };
 
+interface Comunicado {
+  id: string;
+  titulo: string;
+  conteudo: string;
+  tipo: 'URGENTE' | 'INFORMATIVO' | 'EVENTO' | 'AVISO';
+  autor: string;
+  dataCriacao: string;
+  dataExpiracao: string;
+  ativo: boolean;
+  prioridade: 'ALTA' | 'MEDIA' | 'BAIXA';
+}
+
+const COMUNICADO_STYLES: Record<string, { bar: string; bg: string; text: string; label: string }> = {
+  URGENTE:     { bar: 'bg-red-500',    bg: 'bg-red-50',    text: 'text-red-600',    label: 'Urgente' },
+  INFORMATIVO: { bar: 'bg-blue-500',   bg: 'bg-blue-50',   text: 'text-blue-600',   label: 'Informativo' },
+  EVENTO:      { bar: 'bg-purple-500', bg: 'bg-purple-50', text: 'text-purple-600', label: 'Evento' },
+  AVISO:       { bar: 'bg-amber-500',  bg: 'bg-amber-50',  text: 'text-amber-600',  label: 'Aviso' },
+};
+
+function comunicadoRelativeTime(isoDate: string): string {
+  if (!isoDate) return '';
+  try {
+    const diffMs = new Date().getTime() - new Date(isoDate).getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 60) return diffMin < 1 ? 'agora' : `há ${diffMin}min`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `há ${diffH}h`;
+    const diffD = Math.floor(diffH / 24);
+    if (diffD === 1) return 'ontem';
+    if (diffD < 7) return `há ${diffD} dias`;
+    return new Date(isoDate).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+  } catch { return ''; }
+}
+
 interface DashboardProps {
   onNavigate?: (page: string) => void;
 }
@@ -87,10 +122,41 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   const [selectedPeriods, setSelectedPeriods] = useState<string[]>(PERIOD_OPTIONS);
   const [filterOnlyElevator, setFilterOnlyElevator] = useState(false);
 
+  const [comunicados, setComunicados] = useState<Comunicado[]>([]);
+  const [loadingComunicados, setLoadingComunicados] = useState(true);
+  const [expandedComunicados, setExpandedComunicados] = useState<Set<string>>(new Set());
+  const [selectedComunicado, setSelectedComunicado] = useState<Comunicado | null>(null);
+
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const markersLayerRef = useRef<any>(null);
   const [leafletLoaded, setLeafletLoaded] = useState(false);
+
+  useEffect(() => {
+    fetchComunicados();
+  }, []);
+
+  async function fetchComunicados() {
+    setLoadingComunicados(true);
+    try {
+      const { data } = await supabase.functions.invoke('ler-comunicados');
+      if (data?.comunicados) {
+        const hoje = new Date().toISOString().split('T')[0];
+        const ativos = (data.comunicados as Comunicado[]).filter(c => {
+          if (!c.ativo) return false;
+          if (c.dataExpiracao) {
+            try {
+              const datePart = c.dataExpiracao.split('T')[0];
+              if (datePart < hoje) return false;
+            } catch { /* noop */ }
+          }
+          return true;
+        });
+        setComunicados(ativos);
+      }
+    } catch { /* silencioso no dashboard */ }
+    finally { setLoadingComunicados(false); }
+  }
 
   useEffect(() => {
     loadLeaflet();
@@ -549,6 +615,135 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         </div>
       )}
 
+      {/* ── COMUNICADOS ── */}
+      {(loadingComunicados || comunicados.length > 0 || userRole === 'regional_admin') && (
+        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-amber-50 rounded-xl text-amber-600">
+                <Megaphone size={18} />
+              </div>
+              <div>
+                <h2 className="text-base font-extrabold text-slate-800 leading-none">Comunicados</h2>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                  Da Diretoria Regional
+                  {!loadingComunicados && comunicados.length > 0 && (
+                    <> · <span className="text-amber-500">{comunicados.length} ativo{comunicados.length !== 1 ? 's' : ''}</span></>
+                  )}
+                </p>
+              </div>
+            </div>
+            {userRole === 'regional_admin' && (
+              <button
+                onClick={() => onNavigate?.('comunicados')}
+                className="flex items-center gap-1.5 text-xs font-bold text-amber-600 hover:text-white bg-amber-50 hover:bg-amber-600 px-4 py-2.5 rounded-xl transition-all"
+              >
+                Gerenciar <ChevronRight size={14} />
+              </button>
+            )}
+          </div>
+
+          {loadingComunicados ? (
+            <div className="flex gap-4 overflow-x-auto px-6 py-5 pb-6">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="flex-shrink-0 w-72 rounded-2xl border border-slate-100 overflow-hidden animate-pulse">
+                  <div className="h-1.5 bg-slate-100" />
+                  <div className="p-4 space-y-3">
+                    <div className="h-4 bg-slate-100 rounded-lg w-20" />
+                    <div className="h-5 bg-slate-100 rounded-lg w-3/4" />
+                    <div className="h-4 bg-slate-50 rounded-lg w-full" />
+                    <div className="h-4 bg-slate-50 rounded-lg w-5/6" />
+                    <div className="h-3 bg-slate-50 rounded-lg w-1/3 mt-2" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : comunicados.length === 0 ? (
+            <div className="py-10 flex flex-col items-center justify-center gap-3">
+              <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center">
+                <Megaphone size={22} className="text-amber-200" />
+              </div>
+              <p className="text-sm font-bold text-slate-400">Nenhum comunicado ativo</p>
+              {userRole === 'regional_admin' && (
+                <button
+                  onClick={() => onNavigate?.('comunicados')}
+                  className="text-xs font-bold text-amber-600 hover:text-amber-700 underline"
+                >
+                  Publicar o primeiro comunicado
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="flex gap-4 overflow-x-auto px-6 py-5 pb-6 scrollbar-thin">
+              {comunicados.map(c => {
+                const style = COMUNICADO_STYLES[c.tipo] ?? COMUNICADO_STYLES['INFORMATIVO'];
+                const expanded = expandedComunicados.has(c.id);
+                const isNew = (() => {
+                  try { return (new Date().getTime() - new Date(c.dataCriacao).getTime()) / 3600000 < 24; } catch { return false; }
+                })();
+                return (
+                  <div
+                    key={c.id}
+                    onClick={() => setSelectedComunicado(c)}
+                    className="flex-shrink-0 w-72 rounded-2xl border border-slate-100 hover:border-amber-200 overflow-hidden transition-all hover:shadow-lg group cursor-pointer"
+                  >
+                    <div className={`h-1.5 ${style.bar}`} />
+                    <div className="p-4 space-y-3">
+                      {/* Badges */}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg ${style.bg} ${style.text}`}>
+                          {style.label}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {isNew && (
+                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-500 text-white">NOVO</span>
+                          )}
+                          {c.tipo === 'URGENTE' && (
+                            <span className="flex h-2.5 w-2.5 relative">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Título */}
+                      <p className="text-[13px] font-extrabold text-slate-800 leading-tight line-clamp-2 group-hover:text-amber-700 transition-colors">
+                        {c.titulo}
+                      </p>
+
+                      {/* Conteúdo */}
+                      <p className={`text-xs text-slate-500 font-medium leading-relaxed ${expanded ? '' : 'line-clamp-3'}`}>
+                        {c.conteudo}
+                      </p>
+                      {c.conteudo.length > 100 && (
+                        <button
+                          onClick={() => setExpandedComunicados(prev => {
+                            const next = new Set(prev);
+                            next.has(c.id) ? next.delete(c.id) : next.add(c.id);
+                            return next;
+                          })}
+                          className={`flex items-center gap-1 text-[10px] font-black uppercase tracking-widest transition-colors ${style.text}`}
+                        >
+                          {expanded ? <><ChevronUp size={11} /> Mostrar menos</> : <><ChevronDown size={11} /> Ler mais</>}
+                        </button>
+                      )}
+
+                      {/* Autor + data */}
+                      <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-semibold border-t border-slate-100 pt-3">
+                        <UserIcon size={10} />
+                        <span className="truncate">{c.autor}</span>
+                        <span className="ml-auto shrink-0">{comunicadoRelativeTime(c.dataCriacao)}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── PRÓXIMOS EVENTOS ── */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
@@ -820,6 +1015,85 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           edpCode={edpCode}
         />
       )}
+
+      {/* ── MODAL COMUNICADO COMPLETO ── */}
+      {selectedComunicado && (() => {
+        const c = selectedComunicado;
+        const style = COMUNICADO_STYLES[c.tipo] ?? COMUNICADO_STYLES['INFORMATIVO'];
+        const priDot: Record<string, string> = { ALTA: 'bg-red-500', MEDIA: 'bg-amber-400', BAIXA: 'bg-slate-300' };
+        const priLabel: Record<string, string> = { ALTA: 'Alta', MEDIA: 'Média', BAIXA: 'Baixa' };
+        return (
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+            onClick={() => setSelectedComunicado(null)}
+          >
+            <div
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Stripe de cor */}
+              <div className={`h-1.5 ${style.bar} flex-shrink-0`} />
+
+              {/* Header */}
+              <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-4 flex-shrink-0">
+                <div className="flex flex-col gap-2.5 flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg ${style.bg} ${style.text}`}>
+                      {style.label}
+                    </span>
+                    <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500">
+                      <span className={`w-2 h-2 rounded-full ${priDot[c.prioridade] ?? 'bg-slate-300'}`} />
+                      Prioridade {priLabel[c.prioridade] ?? c.prioridade}
+                    </span>
+                    {c.tipo === 'URGENTE' && (
+                      <span className="flex h-2.5 w-2.5 relative">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+                      </span>
+                    )}
+                  </div>
+                  <h2 className="text-lg font-extrabold text-slate-800 leading-snug">{c.titulo}</h2>
+                </div>
+                <button
+                  onClick={() => setSelectedComunicado(null)}
+                  className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors shrink-0 mt-1"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Conteúdo com scroll */}
+              <div className="overflow-y-auto px-6 pb-2 flex-1">
+                <p className="text-sm text-slate-600 font-medium leading-relaxed whitespace-pre-wrap break-words">{c.conteudo}</p>
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between gap-4 flex-shrink-0 bg-slate-50/60">
+                <div className="flex items-center gap-2 text-xs text-slate-500 font-semibold min-w-0">
+                  <div className="w-7 h-7 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-black text-sm shrink-0">
+                    {c.autor?.charAt(0)?.toUpperCase() ?? '?'}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-bold text-slate-700 truncate">{c.autor}</p>
+                    <p className="text-[11px] text-slate-400">{comunicadoRelativeTime(c.dataCriacao)}</p>
+                  </div>
+                </div>
+                {c.dataExpiracao && (
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-semibold shrink-0">
+                    <Clock size={12} />
+                    Expira em {(() => {
+                      try {
+                        const [y, m, d] = c.dataExpiracao.split('T')[0].split('-');
+                        return `${d}/${m}/${y}`;
+                      } catch { return c.dataExpiracao; }
+                    })()}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
