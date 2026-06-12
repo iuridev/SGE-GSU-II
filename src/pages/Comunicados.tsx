@@ -3,8 +3,8 @@ import { supabase } from '../lib/supabase';
 import {
   Megaphone, Plus, X, Edit3, Eye, EyeOff, Loader2,
   AlertTriangle, Info, CalendarDays, Bell, ChevronDown,
-  ChevronUp, Search, Filter, CheckCircle2, Clock, User,
-  Trash2, Save, RefreshCw
+  ChevronUp, Search, CheckCircle2, Clock, User,
+  Save, RefreshCw
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
