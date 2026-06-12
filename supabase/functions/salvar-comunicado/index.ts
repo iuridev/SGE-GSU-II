@@ -5,7 +5,7 @@ import { GoogleSpreadsheet } from "npm:google-spreadsheet@4.1.1"
 import { JWT } from "npm:google-auth-library@9.6.3"
 import { getCorsHeaders } from '../_shared/cors.ts'
 
-const SHEET_ID = '1vxpjkfR5MsNLfvAZM2tdzKpxEakl4DTTHR2tlOBuGMk'
+const SHEET_ID = Deno.env.get('COMUNICADOS_SHEET_ID') ?? ''
 
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req.headers.get('origin'))
