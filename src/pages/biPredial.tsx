@@ -211,11 +211,21 @@ export default function VistoriasPrediaisDashboard() {
         });
 
         if (payloadToInsert.length > 0) {
-          const { error: upsertErr } = await supabase.from('building_inspections').upsert(payloadToInsert, { onConflict: 'school_id, inspection_date, element_evaluated', ignoreDuplicates: true });
+          // Atualiza dados existentes (ignoreDuplicates: false corrige registros com valores errados)
+          const { error: upsertErr } = await supabase.from('building_inspections').upsert(payloadToInsert, { onConflict: 'school_id, inspection_date, element_evaluated', ignoreDuplicates: false });
           if (upsertErr) throw upsertErr;
 
+          // Remove registros com mais de 1 ano para economizar espaço no banco
+          const cutoffDate = new Date();
+          cutoffDate.setFullYear(cutoffDate.getFullYear() - 1);
+          const { error: deleteErr } = await supabase
+            .from('building_inspections')
+            .delete()
+            .lt('inspection_date', cutoffDate.toISOString().split('T')[0]);
+          if (deleteErr) console.error('Erro ao aparar dados antigos:', deleteErr.message);
+
           await supabase.from('system_metadata').upsert({ key: 'last_predial_inspection_update', updated_at: new Date().toISOString() });
-          setUploadSuccess(`${payloadToInsert.length} registros salvos com sucesso.`);
+          setUploadSuccess(`${payloadToInsert.length} registros salvos com sucesso. Dados com mais de 1 ano foram removidos automaticamente.`);
           fetchMetrics(selectedSchool, currentUser);
         } else {
           setUploadError('Nenhum dado válido encontrado no arquivo.');
