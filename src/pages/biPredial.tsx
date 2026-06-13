@@ -211,21 +211,35 @@ export default function VistoriasPrediaisDashboard() {
         });
 
         if (payloadToInsert.length > 0) {
-          // Atualiza dados existentes (ignoreDuplicates: false corrige registros com valores errados)
-          const { error: upsertErr } = await supabase.from('building_inspections').upsert(payloadToInsert, { onConflict: 'school_id, inspection_date, element_evaluated', ignoreDuplicates: false });
-          if (upsertErr) throw upsertErr;
+          // Identifica o intervalo de datas e escolas do arquivo para substituição limpa
+          const schoolIdsInFile = [...new Set(payloadToInsert.map(r => r.school_id))];
+          const datesInFile = payloadToInsert.map(r => r.inspection_date).sort();
+          const minDate = datesInFile[0];
+          const maxDate = datesInFile[datesInFile.length - 1];
+
+          // Deleta registros antigos (inclusive incorretos) dessas escolas nesse intervalo de datas
+          const { error: cleanErr } = await supabase
+            .from('building_inspections')
+            .delete()
+            .in('school_id', schoolIdsInFile)
+            .gte('inspection_date', minDate)
+            .lte('inspection_date', maxDate);
+          if (cleanErr) throw cleanErr;
+
+          // Insere os dados corretos do arquivo
+          const { error: insertErr } = await supabase.from('building_inspections').insert(payloadToInsert);
+          if (insertErr) throw insertErr;
 
           // Remove registros com mais de 1 ano para economizar espaço no banco
           const cutoffDate = new Date();
           cutoffDate.setFullYear(cutoffDate.getFullYear() - 1);
-          const { error: deleteErr } = await supabase
+          await supabase
             .from('building_inspections')
             .delete()
             .lt('inspection_date', cutoffDate.toISOString().split('T')[0]);
-          if (deleteErr) console.error('Erro ao aparar dados antigos:', deleteErr.message);
 
           await supabase.from('system_metadata').upsert({ key: 'last_predial_inspection_update', updated_at: new Date().toISOString() });
-          setUploadSuccess(`${payloadToInsert.length} registros salvos com sucesso. Dados com mais de 1 ano foram removidos automaticamente.`);
+          setUploadSuccess(`${payloadToInsert.length} registros salvos. Dados incorretos do período substituídos automaticamente.`);
           fetchMetrics(selectedSchool, currentUser);
         } else {
           setUploadError('Nenhum dado válido encontrado no arquivo.');
