@@ -82,18 +82,32 @@ export default function VistoriasPrediaisDashboard() {
   };
 
   const fetchMetrics = async (schoolIdFilter: string, loggedUser: User) => {
-    let query = supabase.from('building_inspections').select('inspection_date, element_evaluated, score');
-    if (loggedUser.role === 'school_manager') {
-      if (!loggedUser.schoolId) { setMetrics([]); return; }
-      query = query.eq('school_id', loggedUser.schoolId);
-    } 
-    else if (schoolIdFilter !== 'all') query = query.eq('school_id', schoolIdFilter);
+    const PAGE_SIZE = 1000;
+    let allData: any[] = [];
+    let from = 0;
 
-    const { data, error } = await query;
-    if (error) {
-      console.error("Erro métricas:", error.message);
-      return;
+    while (true) {
+      let query = supabase
+        .from('building_inspections')
+        .select('inspection_date, element_evaluated, score')
+        .range(from, from + PAGE_SIZE - 1);
+
+      if (loggedUser.role === 'school_manager') {
+        if (!loggedUser.schoolId) { setMetrics([]); return; }
+        query = query.eq('school_id', loggedUser.schoolId);
+      } else if (schoolIdFilter !== 'all') {
+        query = query.eq('school_id', schoolIdFilter);
+      }
+
+      const { data, error } = await query;
+      if (error) { console.error("Erro métricas:", error.message); return; }
+      if (!data || data.length === 0) break;
+      allData = allData.concat(data);
+      if (data.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
     }
+
+    const data = allData;
     if (!data) return;
 
     const MONTH_NAMES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
