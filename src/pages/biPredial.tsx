@@ -96,10 +96,11 @@ export default function VistoriasPrediaisDashboard() {
     }
     if (!data) return;
 
+    const MONTH_NAMES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
     const groupedData: Record<string, any> = {};
     data.forEach(item => {
       const dateObj = new Date(item.inspection_date);
-      const monthYear = `${String(dateObj.getUTCMonth() + 1).padStart(2, '0')}/${dateObj.getUTCFullYear()}`;
+      const monthYear = `${MONTH_NAMES[dateObj.getUTCMonth()]}/${dateObj.getUTCFullYear()}`;
       if (!groupedData[monthYear]) groupedData[monthYear] = { date: monthYear, sortKey: new Date(dateObj.getUTCFullYear(), dateObj.getUTCMonth(), 1).getTime(), count: {} };
       const el = item.element_evaluated;
       if (!groupedData[monthYear][el]) { groupedData[monthYear][el] = 0; groupedData[monthYear].count[el] = 0; }
@@ -372,7 +373,7 @@ export default function VistoriasPrediaisDashboard() {
         <h2 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-blue-500" /> Evolução Histórica Anual</h2>
         {metrics.length > 0 ? (
           <div className="h-[450px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" debounce={50}>
               <LineChart data={metrics}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
                 <XAxis dataKey="date" tick={{fontSize: 12, fill: '#6b7280'}} axisLine={false} tickLine={false} />
@@ -396,14 +397,15 @@ export default function VistoriasPrediaisDashboard() {
                 />
                 <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} />
                 {chartElements.map((el, i) => (
-                  <Line 
-                    key={el} 
-                    type="monotone" 
-                    dataKey={el} 
-                    stroke={['#2563eb', '#16a34a', '#dc2626', '#ca8a04', '#9333ea', '#0891b2', '#ea580c', '#4f46e5', '#db2777'][i % 9]} 
-                    strokeWidth={3} 
-                    dot={{r: 4, strokeWidth: 2, fill: '#fff'}} 
+                  <Line
+                    key={el}
+                    type="monotone"
+                    dataKey={el}
+                    stroke={['#2563eb', '#16a34a', '#dc2626', '#ca8a04', '#9333ea', '#0891b2', '#ea580c', '#4f46e5', '#db2777'][i % 9]}
+                    strokeWidth={3}
+                    dot={{r: 4, strokeWidth: 2, fill: '#fff'}}
                     activeDot={{r: 6, strokeWidth: 0}}
+                    isAnimationActive={false}
                   />
                 ))}
               </LineChart>
