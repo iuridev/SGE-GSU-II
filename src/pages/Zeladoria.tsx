@@ -91,6 +91,8 @@ export function Zeladoria() {
   const [exporting, setExporting] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('TODOS');
   const [advancingId, setAdvancingId] = useState<string | number | null>(null);
+  const [terrenoFilter, setTerrenoFilter] = useState<'true' | 'false' | 'null' | null>(null);
+  const [certidaoFilter, setCertidaoFilter] = useState<'true' | 'false' | 'null' | null>(null);
 
   // Modais
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -198,27 +200,59 @@ export function Zeladoria() {
     ];
   }, [activeData]);
 
+  const allSchoolsTerrenoData = useMemo(() => {
+    return schools.map(school => {
+      const ze = data.find(item => item.school_id === school.id);
+      return { id: school.id, name: school.name, terreno: ze ? ze.terreno_fazenda_estado ?? null : null };
+    });
+  }, [schools, data]);
+
+  const allSchoolsCertidaoData = useMemo(() => {
+    return schools.map(school => {
+      const ze = data.find(item => item.school_id === school.id);
+      return { id: school.id, name: school.name, certidao: ze ? ze.certidao_matricula ?? null : null };
+    });
+  }, [schools, data]);
+
   const terrenoChartData = useMemo(() => {
-    const regularizado = activeData.filter(z => z.terreno_fazenda_estado === true).length;
-    const pendente = activeData.filter(z => z.terreno_fazenda_estado === false).length;
-    const naoInformado = activeData.filter(z => z.terreno_fazenda_estado === null || z.terreno_fazenda_estado === undefined).length;
+    const regularizado = allSchoolsTerrenoData.filter(s => s.terreno === true).length;
+    const pendente = allSchoolsTerrenoData.filter(s => s.terreno === false).length;
+    const naoInformado = allSchoolsTerrenoData.filter(s => s.terreno === null || s.terreno === undefined).length;
     return [
-      { name: 'Fazenda do Estado', value: regularizado, color: '#10b981' },
-      { name: 'Pendente Regularização', value: pendente, color: '#ef4444' },
-      { name: 'Não Informado', value: naoInformado, color: '#cbd5e1' },
+      { name: 'Fazenda do Estado', value: regularizado, color: '#10b981', filterKey: 'true' as const },
+      { name: 'Pendente Regularização', value: pendente, color: '#ef4444', filterKey: 'false' as const },
+      { name: 'Não Informado', value: naoInformado, color: '#cbd5e1', filterKey: 'null' as const },
     ].filter(d => d.value > 0);
-  }, [activeData]);
+  }, [allSchoolsTerrenoData]);
 
   const certidaoChartData = useMemo(() => {
-    const comCertidao = activeData.filter(z => z.certidao_matricula === true).length;
-    const semCertidao = activeData.filter(z => z.certidao_matricula === false).length;
-    const naoInformado = activeData.filter(z => z.certidao_matricula === null || z.certidao_matricula === undefined).length;
+    const comCertidao = allSchoolsCertidaoData.filter(s => s.certidao === true).length;
+    const semCertidao = allSchoolsCertidaoData.filter(s => s.certidao === false).length;
+    const naoInformado = allSchoolsCertidaoData.filter(s => s.certidao === null || s.certidao === undefined).length;
     return [
-      { name: 'Com Certidão', value: comCertidao, color: '#10b981' },
-      { name: 'Sem Certidão', value: semCertidao, color: '#f97316' },
-      { name: 'Não Informado', value: naoInformado, color: '#cbd5e1' },
+      { name: 'Com Certidão', value: comCertidao, color: '#10b981', filterKey: 'true' as const },
+      { name: 'Sem Certidão', value: semCertidao, color: '#f97316', filterKey: 'false' as const },
+      { name: 'Não Informado', value: naoInformado, color: '#cbd5e1', filterKey: 'null' as const },
     ].filter(d => d.value > 0);
-  }, [activeData]);
+  }, [allSchoolsCertidaoData]);
+
+  const terrenoFilteredSchools = useMemo(() => {
+    if (!terrenoFilter) return [];
+    return allSchoolsTerrenoData.filter(s => {
+      if (terrenoFilter === 'true') return s.terreno === true;
+      if (terrenoFilter === 'false') return s.terreno === false;
+      return s.terreno === null || s.terreno === undefined;
+    });
+  }, [allSchoolsTerrenoData, terrenoFilter]);
+
+  const certidaoFilteredSchools = useMemo(() => {
+    if (!certidaoFilter) return [];
+    return allSchoolsCertidaoData.filter(s => {
+      if (certidaoFilter === 'true') return s.certidao === true;
+      if (certidaoFilter === 'false') return s.certidao === false;
+      return s.certidao === null || s.certidao === undefined;
+    });
+  }, [allSchoolsCertidaoData, certidaoFilter]);
 
   const handleExportPDF = async () => {
     setExporting(true);
@@ -659,28 +693,51 @@ export function Zeladoria() {
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-              <div className="flex flex-col gap-4 flex-1 w-full">
+              <div className="flex flex-col gap-3 flex-1 w-full">
                 {terrenoChartData.map(item => {
                   const total = terrenoChartData.reduce((acc, d) => acc + d.value, 0);
                   const pct = total > 0 ? Math.round((item.value / total) * 100) : 0;
+                  const isActive = terrenoFilter === item.filterKey;
                   return (
                     <div key={item.name}>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: item.color }} />
-                          <span className="text-[11px] font-black text-slate-700 uppercase tracking-tight">{item.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setTerrenoFilter(isActive ? null : item.filterKey)}
+                        className={`w-full text-left rounded-xl px-2 py-1.5 transition-all hover:bg-slate-50 ${isActive ? 'bg-slate-50 ring-1 ring-slate-200' : ''}`}
+                      >
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: item.color }} />
+                            <span className="text-[11px] font-black text-slate-700 uppercase tracking-tight">{item.name}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black" style={{ color: item.color }}>{item.value}</span>
+                            <span className="text-[10px] font-bold text-slate-400">{pct}%</span>
+                            <ChevronRight size={11} className={`text-slate-300 transition-transform flex-shrink-0 ${isActive ? 'rotate-90' : ''}`} />
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-black" style={{ color: item.color }}>{item.value}</span>
-                          <span className="text-[10px] font-bold text-slate-400">{pct}%</span>
+                        <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: item.color }} />
                         </div>
-                      </div>
-                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: item.color }} />
-                      </div>
+                      </button>
                     </div>
                   );
                 })}
+                {terrenoFilter && terrenoFilteredSchools.length > 0 && (
+                  <div className="border-t border-slate-100 pt-3 mt-1">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-2">
+                      {terrenoFilteredSchools.length} escola(s) neste status
+                    </p>
+                    <div className="flex flex-col gap-1 max-h-[160px] overflow-y-auto custom-scrollbar px-1">
+                      {terrenoFilteredSchools.map(s => (
+                        <div key={s.id} className="flex items-center gap-2 py-1.5 px-2.5 bg-slate-50 rounded-lg">
+                          <Building2 size={10} className="text-slate-400 flex-shrink-0" />
+                          <span className="text-[10px] font-bold text-slate-600 truncate">{s.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {terrenoChartData.length === 0 && (
                   <p className="text-xs text-slate-400 font-bold text-center py-8">Nenhum dado registrado ainda.</p>
                 )}
@@ -706,28 +763,51 @@ export function Zeladoria() {
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-              <div className="flex flex-col gap-4 flex-1 w-full">
+              <div className="flex flex-col gap-3 flex-1 w-full">
                 {certidaoChartData.map(item => {
                   const total = certidaoChartData.reduce((acc, d) => acc + d.value, 0);
                   const pct = total > 0 ? Math.round((item.value / total) * 100) : 0;
+                  const isActive = certidaoFilter === item.filterKey;
                   return (
                     <div key={item.name}>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: item.color }} />
-                          <span className="text-[11px] font-black text-slate-700 uppercase tracking-tight">{item.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setCertidaoFilter(isActive ? null : item.filterKey)}
+                        className={`w-full text-left rounded-xl px-2 py-1.5 transition-all hover:bg-slate-50 ${isActive ? 'bg-slate-50 ring-1 ring-slate-200' : ''}`}
+                      >
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: item.color }} />
+                            <span className="text-[11px] font-black text-slate-700 uppercase tracking-tight">{item.name}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black" style={{ color: item.color }}>{item.value}</span>
+                            <span className="text-[10px] font-bold text-slate-400">{pct}%</span>
+                            <ChevronRight size={11} className={`text-slate-300 transition-transform flex-shrink-0 ${isActive ? 'rotate-90' : ''}`} />
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-black" style={{ color: item.color }}>{item.value}</span>
-                          <span className="text-[10px] font-bold text-slate-400">{pct}%</span>
+                        <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: item.color }} />
                         </div>
-                      </div>
-                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: item.color }} />
-                      </div>
+                      </button>
                     </div>
                   );
                 })}
+                {certidaoFilter && certidaoFilteredSchools.length > 0 && (
+                  <div className="border-t border-slate-100 pt-3 mt-1">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-2">
+                      {certidaoFilteredSchools.length} escola(s) neste status
+                    </p>
+                    <div className="flex flex-col gap-1 max-h-[160px] overflow-y-auto custom-scrollbar px-1">
+                      {certidaoFilteredSchools.map(s => (
+                        <div key={s.id} className="flex items-center gap-2 py-1.5 px-2.5 bg-slate-50 rounded-lg">
+                          <Building2 size={10} className="text-slate-400 flex-shrink-0" />
+                          <span className="text-[10px] font-bold text-slate-600 truncate">{s.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {certidaoChartData.length === 0 && (
                   <p className="text-xs text-slate-400 font-bold text-center py-8">Nenhum dado registrado ainda.</p>
                 )}
