@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import {
   ShoppingCart, Package, Settings, Plus, Trash2,
   Check, Edit2, FileText, X, Save, History, ClipboardList,
-  Clock, CheckCircle, XCircle, Layers, CalendarDays, AlertTriangle, Bell
+  Clock, CheckCircle, XCircle, Layers, CalendarDays, AlertTriangle, Bell, FileDown
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -280,6 +280,63 @@ export default function Almoxarifado() {
     });
     addTimbradoAllPages(doc);
     doc.save(`estoque_${new Date().toISOString().split('T')[0]}.pdf`);
+  };
+
+  const gerarPedidoPDF = (sol: SolicitacaoDetalhe) => {
+    const doc = new jsPDF();
+    const lx = 14;
+
+    doc.setFontSize(15);
+    doc.setFont('helvetica', 'bold');
+    doc.text('ALMOXARIFADO — COMPROVANTE DE SOLICITAÇÃO', 105, 40, { align: 'center' });
+
+    doc.setFontSize(10);
+    const rows: [string, string][] = [
+      ['Solicitante:', sol.nome_solicitante],
+      ['Evento / Motivo:', sol.nome_evento],
+      ['Participantes:', String(sol.quantidade_pessoas)],
+      ['Data do Pedido:', fmtData(sol.created_at)],
+      ...(sol.data_entrega ? [['Data de Entrega:', fmtDataEntrega(sol.data_entrega)] as [string, string]] : []),
+    ];
+    rows.forEach(([label, value], i) => {
+      const y = 52 + i * 8;
+      doc.setFont('helvetica', 'bold');
+      doc.text(label, lx, y);
+      doc.setFont('helvetica', 'normal');
+      doc.text(value, 58, y);
+    });
+
+    const statusY = 52 + rows.length * 8;
+    doc.setFont('helvetica', 'bold');
+    doc.text('Status:', lx, statusY);
+    doc.setTextColor(sol.status === 'aprovada' ? 16 : 239, sol.status === 'aprovada' ? 185 : 68, sol.status === 'aprovada' ? 129 : 68);
+    doc.text(sol.status.toUpperCase(), 58, statusY);
+    doc.setTextColor(0, 0, 0);
+
+    autoTable(doc, {
+      startY: statusY + 12,
+      head: [['Material', 'Solicitado', 'Aprovado', 'Unidade']],
+      body: sol.itens.map(it => [
+        it.item_nome,
+        String(it.quantidade_solicitada),
+        sol.status === 'aprovada' ? String(it.quantidade_aprovada) : '—',
+        it.item_unidade || 'Unidade',
+      ]),
+      headStyles: { fillColor: [37, 99, 235] },
+      columnStyles: { 1: { halign: 'center' }, 2: { halign: 'center' }, 3: { halign: 'center' } },
+    });
+
+    if (sol.observacao) {
+      const finalY = (doc as any).lastAutoTable.finalY + 10;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.text('Observações:', lx, finalY);
+      doc.setFont('helvetica', 'normal');
+      doc.text(sol.observacao, lx, finalY + 7, { maxWidth: 180 });
+    }
+
+    addTimbradoAllPages(doc);
+    doc.save(`pedido_${sol.nome_evento.replace(/\s+/g, '_').slice(0, 30)}_${sol.created_at.split('T')[0]}.pdf`);
   };
 
   const carregarUsuariosEResponsaveis = async () => {
@@ -776,6 +833,15 @@ export default function Almoxarifado() {
                           <span className="font-semibold not-italic text-yellow-600">Obs:</span> {sol.observacao}
                         </div>
                       )}
+
+                      <div className="pt-3 mt-1 border-t border-gray-50 flex justify-end">
+                        <button
+                          onClick={() => gerarPedidoPDF(sol)}
+                          className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 hover:text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors"
+                        >
+                          <FileDown size={13} /> Gerar PDF
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
