@@ -5,7 +5,7 @@ import {
   Calendar, CheckCircle2, Waves, ZapOff, History, ChevronRight,
   ArrowRightLeft, Map as MapIcon, Loader2, Info, X,
   HardHat, Bell, ClipboardList, Truck, Clock,
-  Megaphone, User as UserIcon, ChevronDown, ChevronUp
+  Megaphone, User as UserIcon, ChevronDown, ChevronUp, ChevronLeft
 } from 'lucide-react';
 import { WaterTruckModal } from '../components/WaterTruckModal';
 import { PowerOutageModal } from '../components/PowerOutageModal';
@@ -126,6 +126,9 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   const [loadingComunicados, setLoadingComunicados] = useState(true);
   const [expandedComunicados, setExpandedComunicados] = useState<Set<string>>(new Set());
   const [selectedComunicado, setSelectedComunicado] = useState<Comunicado | null>(null);
+  const comunicadosScrollRef = useRef<HTMLDivElement>(null);
+  const comunicadosRafRef = useRef<number>(0);
+  const comunicadosPausedRef = useRef(false);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
@@ -135,6 +138,37 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   useEffect(() => {
     fetchComunicados();
   }, []);
+
+  useEffect(() => {
+    if (comunicados.length === 0) return;
+    const el = comunicadosScrollRef.current;
+    if (!el) return;
+    const node = el;
+    const SPEED = 60;
+    let last = 0;
+    function tick(ts: number) {
+      if (!comunicadosPausedRef.current) {
+        const dt = last ? (ts - last) / 1000 : 0;
+        node.scrollLeft += SPEED * dt;
+        if (node.scrollLeft >= node.scrollWidth / 2) node.scrollLeft -= node.scrollWidth / 2;
+      }
+      last = ts;
+      comunicadosRafRef.current = requestAnimationFrame(tick);
+    }
+    comunicadosRafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(comunicadosRafRef.current);
+  }, [comunicados]);
+
+  function scrollByCard(dir: 1 | -1) {
+    const el = comunicadosScrollRef.current;
+    if (!el) return;
+    const CARD_SLOT = 304;
+    const half = el.scrollWidth / 2;
+    let next = el.scrollLeft + dir * CARD_SLOT;
+    if (next < 0) next += half;
+    if (next >= half) next -= half;
+    el.scrollLeft = next;
+  }
 
   async function fetchComunicados() {
     setLoadingComunicados(true);
@@ -151,6 +185,12 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             } catch { /* noop */ }
           }
           return true;
+        });
+        ativos.sort((a, b) => {
+          const aUrgente = a.tipo === 'URGENTE' ? 0 : 1;
+          const bUrgente = b.tipo === 'URGENTE' ? 0 : 1;
+          if (aUrgente !== bUrgente) return aUrgente - bUrgente;
+          return new Date(b.dataCriacao).getTime() - new Date(a.dataCriacao).getTime();
         });
         setComunicados(ativos);
       }
@@ -674,18 +714,32 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               )}
             </div>
           ) : (
-            <div className="flex gap-4 overflow-x-auto px-6 py-5 pb-6 scrollbar-thin">
-              {comunicados.map(c => {
+            <div
+              className="relative"
+              onMouseEnter={() => { comunicadosPausedRef.current = true; }}
+              onMouseLeave={() => { comunicadosPausedRef.current = false; }}
+            >
+              <button
+                onClick={() => scrollByCard(-1)}
+                className="absolute left-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 flex items-center justify-center bg-white border border-slate-200 rounded-full shadow-md hover:bg-amber-50 hover:border-amber-300 transition-all text-slate-500 hover:text-amber-600"
+              >
+                <ChevronLeft size={15} />
+              </button>
+              <div
+                ref={comunicadosScrollRef}
+                className="overflow-x-hidden flex pl-12 pr-12 py-5 pb-6"
+              >
+              {[...comunicados, ...comunicados].map((c, idx) => {
                 const style = COMUNICADO_STYLES[c.tipo] ?? COMUNICADO_STYLES['INFORMATIVO'];
                 const expanded = expandedComunicados.has(c.id);
                 const isNew = (() => {
                   try { return (new Date().getTime() - new Date(c.dataCriacao).getTime()) / 3600000 < 24; } catch { return false; }
                 })();
                 return (
+                  <div key={`${c.id}-${idx}`} className="flex-shrink-0 pr-4">
                   <div
-                    key={c.id}
                     onClick={() => setSelectedComunicado(c)}
-                    className="flex-shrink-0 w-72 rounded-2xl border border-slate-100 hover:border-amber-200 overflow-hidden transition-all hover:shadow-lg group cursor-pointer"
+                    className="w-72 rounded-2xl border border-slate-100 hover:border-amber-200 overflow-hidden transition-all hover:shadow-lg group cursor-pointer"
                   >
                     <div className={`h-1.5 ${style.bar}`} />
                     <div className="p-4 space-y-3">
@@ -737,8 +791,16 @@ export function Dashboard({ onNavigate }: DashboardProps) {
                       </div>
                     </div>
                   </div>
+                  </div>
                 );
               })}
+              </div>
+              <button
+                onClick={() => scrollByCard(1)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 flex items-center justify-center bg-white border border-slate-200 rounded-full shadow-md hover:bg-amber-50 hover:border-amber-300 transition-all text-slate-500 hover:text-amber-600"
+              >
+                <ChevronRight size={15} />
+              </button>
             </div>
           )}
         </div>
