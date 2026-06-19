@@ -28,7 +28,7 @@ serve(async (req) => {
     const sheet = doc.sheetsByIndex[0]
 
     const totalLinhas = sheet.rowCount
-    await sheet.loadCells(`A1:I${totalLinhas}`)
+    await sheet.loadCells(`A1:J${totalLinhas}`)
 
     const comunicados = []
     for (let i = 1; i < totalLinhas; i++) {
@@ -48,6 +48,7 @@ serve(async (req) => {
         dataExpiracao: sheet.getCell(i, 6).value?.toString() || '',
         ativo: sheet.getCell(i, 7).value?.toString() === 'TRUE',
         prioridade: sheet.getCell(i, 8).value?.toString() || 'MEDIA',
+        imagemUrl: sheet.getCell(i, 9).value?.toString() || '',
       })
     }
 

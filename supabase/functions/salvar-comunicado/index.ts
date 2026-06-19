@@ -12,7 +12,7 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
   try {
-    const { titulo, conteudo, tipo, autor, dataExpiracao, prioridade } = await req.json()
+    const { titulo, conteudo, tipo, autor, dataExpiracao, prioridade, imagemUrl } = await req.json()
 
     const email = Deno.env.get('GOOGLE_SERVICE_ACCOUNT_EMAIL')
     const key = Deno.env.get('GOOGLE_PRIVATE_KEY')
@@ -30,7 +30,7 @@ serve(async (req) => {
     const sheet = doc.sheetsByIndex[0]
 
     const limiteLinhas = sheet.rowCount
-    await sheet.loadCells(`A1:I${limiteLinhas}`)
+    await sheet.loadCells(`A1:J${limiteLinhas}`)
 
     let ultimaLinhaOcupada = 0
     let maiorCom = 0
@@ -59,6 +59,7 @@ serve(async (req) => {
     sheet.getCell(proximaLinha, 6).value = dataExpiracao || ''
     sheet.getCell(proximaLinha, 7).value = 'TRUE'
     sheet.getCell(proximaLinha, 8).value = prioridade || 'MEDIA'
+    sheet.getCell(proximaLinha, 9).value = imagemUrl || ''
 
     await sheet.saveUpdatedCells()
 

@@ -4,7 +4,7 @@ import {
   Megaphone, Plus, X, Edit3, Eye, EyeOff, Loader2,
   AlertTriangle, Info, CalendarDays, Bell, ChevronDown,
   ChevronUp, Search, CheckCircle2, Clock, User,
-  Save, RefreshCw
+  Save, RefreshCw, ImageIcon
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -18,6 +18,7 @@ interface Comunicado {
   dataExpiracao: string;
   ativo: boolean;
   prioridade: 'ALTA' | 'MEDIA' | 'BAIXA';
+  imagemUrl?: string;
 }
 
 type TipoComunicado = 'URGENTE' | 'INFORMATIVO' | 'EVENTO' | 'AVISO';
@@ -94,6 +95,7 @@ const emptyForm = {
   tipo: 'INFORMATIVO' as TipoComunicado,
   dataExpiracao: '',
   prioridade: 'MEDIA' as PrioridadeComunicado,
+  imagemUrl: '',
 };
 
 export default function Comunicados() {
@@ -109,6 +111,8 @@ export default function Comunicados() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editando, setEditando] = useState<Comunicado | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   useEffect(() => {
     loadUserAndData();
@@ -137,6 +141,24 @@ export default function Comunicados() {
     }
   }
 
+  async function uploadImagem(file: File): Promise<string> {
+    if (file.size > 4 * 1024 * 1024) throw new Error('Imagem muito grande. Use até 4 MB.');
+    const ext = file.name.split('.').pop();
+    const fileName = `images/${Date.now()}-${Math.random().toString(36).substring(2)}.${ext}`;
+    const { error } = await supabase.storage
+      .from('comunicados')
+      .upload(fileName, file, { contentType: file.type, upsert: true });
+    if (error) throw new Error('Erro ao fazer upload: ' + error.message);
+    const { data: { publicUrl } } = supabase.storage.from('comunicados').getPublicUrl(fileName);
+    return publicUrl;
+  }
+
+  async function deletarImagem(imagemUrl: string) {
+    const path = imagemUrl.split('/object/public/comunicados/')[1];
+    if (!path) return;
+    await supabase.storage.from('comunicados').remove([path]);
+  }
+
   async function handleSalvar() {
     if (!form.titulo.trim() || !form.conteudo.trim()) {
       toast.error('Preencha título e conteúdo.');
@@ -144,15 +166,27 @@ export default function Comunicados() {
     }
     setSaving(true);
     try {
+      let imagemUrl = form.imagemUrl;
+
+      if (editando?.imagemUrl) {
+        const substituindo = imageFile !== null;
+        const removendo = !imageFile && !form.imagemUrl;
+        if (substituindo || removendo) await deletarImagem(editando.imagemUrl);
+      }
+
+      if (imageFile) {
+        imagemUrl = await uploadImagem(imageFile);
+      }
+
       if (editando) {
         const { data, error } = await supabase.functions.invoke('atualizar-comunicado', {
-          body: { id: editando.id, ...form },
+          body: { id: editando.id, ...form, imagemUrl },
         });
         if (error || data?.erroReal) throw new Error(data?.erroReal || 'Erro ao atualizar');
         toast.success('Comunicado atualizado!');
       } else {
         const { data, error } = await supabase.functions.invoke('salvar-comunicado', {
-          body: { ...form, autor: userName },
+          body: { ...form, imagemUrl, autor: userName },
         });
         if (error || data?.erroReal) throw new Error(data?.erroReal || 'Erro ao salvar');
         toast.success('Comunicado publicado!');
@@ -169,11 +203,17 @@ export default function Comunicados() {
   async function handleToggleAtivo(c: Comunicado) {
     setToggling(c.id);
     try {
-      const { data, error } = await supabase.functions.invoke('atualizar-comunicado', {
-        body: { id: c.id, ativo: !c.ativo },
-      });
+      const desativando = c.ativo;
+      const body: Record<string, unknown> = { id: c.id, ativo: !c.ativo };
+
+      if (desativando && c.imagemUrl) {
+        await deletarImagem(c.imagemUrl);
+        body.imagemUrl = '';
+      }
+
+      const { data, error } = await supabase.functions.invoke('atualizar-comunicado', { body });
       if (error || data?.erroReal) throw new Error(data?.erroReal || 'Erro ao atualizar');
-      toast.success(c.ativo ? 'Comunicado desativado' : 'Comunicado ativado');
+      toast.success(desativando ? 'Comunicado desativado' : 'Comunicado ativado');
       await fetchComunicados();
     } catch (err: any) {
       toast.error(err.message || 'Erro ao atualizar');
@@ -190,7 +230,10 @@ export default function Comunicados() {
       tipo: c.tipo,
       dataExpiracao: c.dataExpiracao ? c.dataExpiracao.split('T')[0] : '',
       prioridade: c.prioridade,
+      imagemUrl: c.imagemUrl || '',
     });
+    setImageFile(null);
+    setImagePreview(c.imagemUrl || null);
     setIsModalOpen(true);
   }
 
@@ -198,6 +241,8 @@ export default function Comunicados() {
     setIsModalOpen(false);
     setEditando(null);
     setForm(emptyForm);
+    setImageFile(null);
+    setImagePreview(null);
   }
 
   function toggleExpand(id: string) {
@@ -356,6 +401,15 @@ export default function Comunicados() {
               >
                 {/* Stripe de cor no topo */}
                 <div className={`h-1.5 ${c.ativo ? style.bar : 'bg-slate-200'}`} />
+
+                {/* Imagem do comunicado */}
+                {c.imagemUrl && (
+                  <img
+                    src={c.imagemUrl}
+                    alt={c.titulo}
+                    className="w-full h-36 object-cover"
+                  />
+                )}
 
                 <div className="p-5 flex flex-col gap-3">
                   {/* Badges */}
@@ -563,6 +617,43 @@ export default function Comunicados() {
                 <p className="text-[11px] text-slate-400 font-medium mt-1.5">
                   Após essa data o comunicado será marcado como expirado automaticamente.
                 </p>
+              </div>
+
+              {/* Imagem */}
+              <div>
+                <label className="block text-xs font-black text-slate-600 uppercase tracking-wider mb-2">
+                  Imagem <span className="font-medium text-slate-400 normal-case">(opcional)</span>
+                </label>
+                {imagePreview ? (
+                  <div className="relative">
+                    <img src={imagePreview} alt="Preview" className="w-full h-40 object-cover rounded-xl" />
+                    <button
+                      type="button"
+                      onClick={() => { setImageFile(null); setImagePreview(null); setForm(f => ({ ...f, imagemUrl: '' })); }}
+                      className="absolute top-2 right-2 bg-white rounded-full p-1 shadow-md hover:bg-red-50 text-slate-600 hover:text-red-500 transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center h-28 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer hover:border-amber-400 hover:bg-amber-50/30 transition-all">
+                    <ImageIcon size={24} className="text-slate-300 mb-2" />
+                    <span className="text-xs font-semibold text-slate-400">Clique para adicionar imagem</span>
+                    <span className="text-[10px] text-slate-300 mt-0.5">PNG, JPG, WEBP</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setImageFile(file);
+                          setImagePreview(URL.createObjectURL(file));
+                        }
+                      }}
+                    />
+                  </label>
+                )}
               </div>
             </div>
 

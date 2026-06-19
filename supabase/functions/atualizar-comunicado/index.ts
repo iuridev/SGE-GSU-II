@@ -13,7 +13,7 @@ serve(async (req) => {
 
   try {
     const body = await req.json()
-    const { id, titulo, conteudo, tipo, dataExpiracao, prioridade, ativo } = body
+    const { id, titulo, conteudo, tipo, dataExpiracao, prioridade, ativo, imagemUrl } = body
 
     if (!id) throw new Error("ID do comunicado é obrigatório.")
 
@@ -33,7 +33,7 @@ serve(async (req) => {
     const sheet = doc.sheetsByIndex[0]
 
     const limiteLinhas = sheet.rowCount
-    await sheet.loadCells(`A1:I${limiteLinhas}`)
+    await sheet.loadCells(`A1:J${limiteLinhas}`)
 
     let linhaEncontrada = -1
     for (let i = 0; i < limiteLinhas; i++) {
@@ -52,6 +52,7 @@ serve(async (req) => {
     if (dataExpiracao !== undefined) sheet.getCell(linhaEncontrada, 6).value = dataExpiracao
     if (prioridade !== undefined) sheet.getCell(linhaEncontrada, 8).value = prioridade
     if (ativo !== undefined) sheet.getCell(linhaEncontrada, 7).value = ativo ? 'TRUE' : 'FALSE'
+    if (imagemUrl !== undefined) sheet.getCell(linhaEncontrada, 9).value = imagemUrl
 
     await sheet.saveUpdatedCells()
 

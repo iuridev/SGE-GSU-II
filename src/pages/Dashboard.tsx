@@ -66,6 +66,7 @@ interface Comunicado {
   dataExpiracao: string;
   ativo: boolean;
   prioridade: 'ALTA' | 'MEDIA' | 'BAIXA';
+  imagemUrl?: string;
 }
 
 const COMUNICADO_STYLES: Record<string, { bar: string; bg: string; text: string; label: string }> = {
@@ -742,6 +743,9 @@ export function Dashboard({ onNavigate }: DashboardProps) {
                     className="w-72 rounded-2xl border border-slate-100 hover:border-amber-200 overflow-hidden transition-all hover:shadow-lg group cursor-pointer"
                   >
                     <div className={`h-1.5 ${style.bar}`} />
+                    {c.imagemUrl && (
+                      <img src={c.imagemUrl} alt={c.titulo} className="w-full h-28 object-cover" />
+                    )}
                     <div className="p-4 space-y-3">
                       {/* Badges */}
                       <div className="flex items-center justify-between gap-2">
@@ -1123,6 +1127,11 @@ export function Dashboard({ onNavigate }: DashboardProps) {
                   <X size={18} />
                 </button>
               </div>
+
+              {/* Imagem */}
+              {c.imagemUrl && (
+                <img src={c.imagemUrl} alt={c.titulo} className="w-full max-h-52 object-cover flex-shrink-0" />
+              )}
 
               {/* Conteúdo com scroll */}
               <div className="overflow-y-auto px-6 pb-2 flex-1">
