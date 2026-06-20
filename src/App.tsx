@@ -60,6 +60,7 @@ import PrevisaoObrasFDE from './pages/PrevisaoObrasFDE';
 import { PainelGerencial } from './pages/PainelGerencial';
 import EstacionamentoCarros from './pages/EstacionamentoCarros';
 import Comunicados from './pages/Comunicados';
+import { AgendaPublica } from './pages/AgendaPublica';
 import { Toaster } from 'react-hot-toast';
 
 
@@ -525,6 +526,9 @@ export default function App() {
       default: return <Dashboard />;
     }
   };
+
+  const publicAgendaId = new URLSearchParams(window.location.search).get('agenda');
+  if (publicAgendaId) return <AgendaPublica ambienteId={publicAgendaId} />;
 
   if (loading) {
     return (

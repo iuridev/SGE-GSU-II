@@ -9,8 +9,9 @@ import {
   Building2, Calendar, Clock, MapPin, Users, Plus,
   Settings, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight,
   Trash2, FileDown, Loader2, X, RefreshCw, Check, XCircle, Edit3, History,
-  CalendarCheck, Info, BarChart3, TrendingUp, Award, ListPlus, SendHorizontal, Timer, Lock
+  CalendarCheck, Info, BarChart3, TrendingUp, Award, ListPlus, SendHorizontal, Timer, Lock, QrCode, Printer, Copy, CheckCheck
 } from 'lucide-react';
+import { QRCodeCanvas } from 'qrcode.react';
 
 
 // Define a "fôrma" (tipagem) dos dados de um Ambiente para o TypeScript não reclamar
@@ -62,7 +63,7 @@ const getFormDefaults = () => {
 export function AgendamentoNovo() {
   // === ESTADOS DE CONTROLE DE INTERFACE ===
   // Controla qual aba está visível: 'calendario', 'agendar' ou 'gerenciar'
-  const [activeTab, setActiveTab] = useState<'calendario' | 'agendar' | 'meus' | 'gerenciar' | 'metricas'>('calendario');
+  const [activeTab, setActiveTab] = useState<'calendario' | 'agendar' | 'meus' | 'gerenciar' | 'metricas' | 'qrcodes'>('calendario');
   // Controla se o calendário mostra o "dia" em detalhes ou a grade do "mes"
   const [viewMode, setViewMode] = useState<'dia' | 'mes'>('dia');
   
@@ -1453,6 +1454,9 @@ export function AgendamentoNovo() {
             {userRole === 'regional_admin' && (
               <TabButton active={activeTab === 'gerenciar'} onClick={() => setActiveTab('gerenciar')} icon={<Settings size={15}/>} label="Gerenciar" />
             )}
+            {userRole === 'regional_admin' && (
+              <TabButton active={activeTab === 'qrcodes'} onClick={() => setActiveTab('qrcodes')} icon={<QrCode size={15}/>} label="QR Codes" />
+            )}
           </div>
         </div>
       </div>
@@ -2200,6 +2204,142 @@ export function AgendamentoNovo() {
         </div>
       )}
 
+      {/* CONTEÚDO DA ABA: QR CODES (SÓ PARA ADMIN) */}
+      {activeTab === 'qrcodes' && userRole === 'regional_admin' && (
+        <QRCodesTab ambientes={ambientes} />
+      )}
+
+    </div>
+  );
+}
+
+function QRCodesTab({ ambientes }: { ambientes: Ambiente[] }) {
+  const [copiedId, setCopiedId] = React.useState<string | null>(null);
+  const [baseUrl, setBaseUrl] = React.useState(() => window.location.origin);
+  const canvasRefs = React.useRef<Record<string, HTMLCanvasElement | null>>({});
+
+  function getAgendaUrl(id: string) {
+    return `${baseUrl}?agenda=${id}`;
+  }
+
+  function copyUrl(id: string) {
+    navigator.clipboard.writeText(getAgendaUrl(id));
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  }
+
+  function printQR(ambiente: Ambiente) {
+    const canvas = canvasRefs.current[ambiente.id];
+    if (!canvas) return;
+    const qrDataUrl = canvas.toDataURL('image/png');
+    const url = getAgendaUrl(ambiente.id);
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <title>QR Code — ${ambiente.nome}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #fff; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .page { width: 794px; min-height: 1123px; padding: 60px 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 32px; border: 2px solid #e2e8f0; }
+    .badge { background: #4f46e5; color: white; font-size: 11px; font-weight: 900; letter-spacing: 0.15em; text-transform: uppercase; padding: 6px 18px; border-radius: 999px; }
+    h1 { font-size: 42px; font-weight: 900; color: #0f172a; text-transform: uppercase; letter-spacing: -0.02em; text-align: center; line-height: 1.1; }
+    .capacity { font-size: 16px; color: #64748b; font-weight: 700; }
+    .qr-wrap { padding: 24px; border: 2px solid #e2e8f0; border-radius: 24px; background: #fff; box-shadow: 0 8px 32px rgba(0,0,0,0.08); }
+    .qr-wrap img { display: block; width: 280px; height: 280px; }
+    .instructions { text-align: center; }
+    .instructions p { font-size: 18px; font-weight: 700; color: #334155; line-height: 1.5; }
+    .instructions small { font-size: 13px; color: #94a3b8; font-weight: 600; display: block; margin-top: 4px; word-break: break-all; }
+    .footer { font-size: 11px; color: #cbd5e1; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; margin-top: 16px; }
+    @media print { .page { border: none; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <span class="badge">SGE-GSU · Reservas de Ambiente</span>
+    <h1>${ambiente.nome}</h1>
+    <p class="capacity">Capacidade: ${ambiente.capacidade} pessoas</p>
+    <div class="qr-wrap">
+      <img src="${qrDataUrl}" alt="QR Code"/>
+    </div>
+    <div class="instructions">
+      <p>Escaneie o QR Code para consultar<br/>a agenda de reservas deste ambiente</p>
+      <small>${url}</small>
+    </div>
+    <p class="footer">SGE-GSU Intelligence II</p>
+  </div>
+  <script>window.onload = () => { window.print(); }<\/script>
+</body>
+</html>`;
+    const blob = new Blob([html], { type: 'text/html' });
+    const blobUrl = URL.createObjectURL(blob);
+    const win = window.open(blobUrl, '_blank', 'width=794,height=1123');
+    if (win) win.addEventListener('unload', () => URL.revokeObjectURL(blobUrl));
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-slate-100">
+        <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-1">QR Codes dos Ambientes</h2>
+        <p className="text-sm text-slate-500 font-semibold mb-5">
+          Imprima e afixe na porta de cada ambiente para consulta pública da agenda.
+        </p>
+        <div className="mb-4">
+          <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1.5">URL Base do Sistema</label>
+          <input
+            type="url"
+            value={baseUrl}
+            onChange={e => setBaseUrl(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 font-mono text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+            placeholder="https://seu-sistema.com"
+          />
+          <p className="text-xs text-slate-400 font-semibold mt-1">Ajuste para a URL de produção se necessário.</p>
+        </div>
+      </div>
+
+      {ambientes.length === 0 ? (
+        <div className="text-center py-12 text-slate-400 font-bold">Nenhum ambiente cadastrado.</div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {ambientes.map(a => (
+            <div key={a.id} className="bg-white rounded-[2rem] border border-slate-100 shadow-xl p-6 flex flex-col items-center gap-4">
+              <div className="text-center">
+                <p className="font-black text-slate-800 uppercase tracking-tight text-base leading-tight">{a.nome}</p>
+                <p className="text-xs text-slate-400 font-bold mt-0.5">{a.capacidade} pessoas</p>
+              </div>
+
+              <div className="p-3 bg-white border border-slate-100 rounded-2xl shadow-sm">
+                <QRCodeCanvas
+                  ref={(el: HTMLCanvasElement | null) => { canvasRefs.current[a.id] = el; }}
+                  value={getAgendaUrl(a.id)}
+                  size={160}
+                  level="M"
+                  marginSize={0}
+                />
+              </div>
+
+              <p className="text-[10px] text-slate-400 font-mono text-center break-all leading-snug">
+                {getAgendaUrl(a.id)}
+              </p>
+
+              <div className="flex gap-2 w-full">
+                <button
+                  onClick={() => copyUrl(a.id)}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-black uppercase tracking-widest transition-all"
+                >
+                  {copiedId === a.id ? <><CheckCheck size={14} className="text-green-600"/> Copiado</> : <><Copy size={14}/> Copiar URL</>}
+                </button>
+                <button
+                  onClick={() => printQR(a)}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all"
+                >
+                  <Printer size={14}/> Imprimir
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
