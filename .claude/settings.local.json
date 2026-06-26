@@ -11,7 +11,10 @@
       "Bash(sed \"s/.*\\\\.from\\('\\\\\\([^']*\\\\\\)'.*/\\\\1/\")",
       "Bash(findstr /i \"url site domain vercel netlify\")",
       "Bash(Get-Content \"c:\\\\Users\\\\Iuri Barreto\\\\Documents\\\\PROJETOS\\\\SGE-GSU-II\\\\supabase\\\\functions\\\\sugerir-resposta-ia\\\\index.ts\")",
-      "Bash(supabase --version)"
+      "Bash(supabase --version)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'fix: remove unused React import in AgendaPublica *)",
+      "Bash(git push *)"
     ]
   }
 }
