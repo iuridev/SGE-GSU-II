@@ -9,7 +9,7 @@ import {
   AlertTriangle, Scan, ShoppingBag, Trophy, Package,
   Star, ArrowUpCircle, HardHat, TreeDeciduous, Ticket,
   School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown,
-  Bell, MessageSquare, CheckCircle, ClipboardList, ClipboardCheck,
+  Bell, MessageSquare, CheckCircle, ClipboardList,
   Wrench, Search, CalendarCheck, BarChart2, Megaphone
 } from 'lucide-react';
 
