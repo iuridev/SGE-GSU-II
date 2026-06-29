@@ -159,7 +159,7 @@ const MENU_GROUPS: MenuGroup[] = [
     items: [
       { id: 'painel-gerencial', label: 'Painel Gerencial (Impressão)', icon: <BarChart2 size={20} className="text-orange-500" />, roles: ['regional_admin', 'dirigente'] },
       { id: 'raiox', label: 'Raio-X / Vistoria', icon: <Scan size={20} className="text-indigo-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
-      { id: 'relatorio-fiscalizacao', label: 'Relatórios de Fiscalização', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
+      //{ id: 'relatorio-fiscalizacao', label: 'Relatórios de Fiscalização', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
       //{ id: 'relatorio-acesso', label: 'Relatórios de Acesso', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
       { id: 'relatorio-utilidade', label: 'Relatórios de Consumo', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
     ]
