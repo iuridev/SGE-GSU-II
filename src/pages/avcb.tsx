@@ -11,8 +11,13 @@ import {
   PieChart as PieIcon,
   Flame,
   ShieldCheck,
-  RefreshCw
+  RefreshCw,
+  ExternalLink,
+  Table2
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 import {
   BarChart,
   Bar,
@@ -203,6 +208,54 @@ export default function Avcb() {
     );
   });
 
+  function openSpreadsheet() {
+    const match = SHEET_CSV_URL?.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    const id = match?.[1];
+    if (id) window.open(`https://docs.google.com/spreadsheets/d/${id}/edit`, '_blank');
+  }
+
+  function exportPDF() {
+    const doc = new jsPDF({ orientation: 'landscape' });
+    doc.setFontSize(14);
+    doc.text('Mapeamento AVCB — Controle de Regularização', 14, 16);
+    doc.setFontSize(9);
+    doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}  |  ${filteredData.length} registro(s)`, 14, 23);
+    autoTable(doc, {
+      startY: 28,
+      head: [['Código FDE', 'Escola', 'Área Construída', 'Validade AVCB', 'Status Contratual', 'Fase']],
+      body: filteredData.map((item) => [
+        item.codigoFde,
+        item.nomePredio,
+        item.areaConstruida,
+        item.validade,
+        item.statusContr,
+        item.fase,
+      ]),
+      styles: { fontSize: 7 },
+      headStyles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+    });
+    doc.save('avcb-mapeamento.pdf');
+  }
+
+  function exportExcel() {
+    const rows = filteredData.map((item) => ({
+      'Código FDE': item.codigoFde,
+      'Escola': item.nomePredio,
+      'Área Construída': item.areaConstruida,
+      'Pavimentos': item.pavimentos,
+      'Emissão': item.emissao,
+      'Validade AVCB': item.validade,
+      'Status Contratual': item.statusContr,
+      'Fase': item.fase,
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 14 }, { wch: 45 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 20 }, { wch: 25 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'AVCB');
+    XLSX.writeFile(wb, 'avcb-mapeamento.xlsx');
+  }
+
   return (
     <div className="space-y-6 pb-20 relative">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -221,18 +274,21 @@ export default function Avcb() {
           </div>
         </div>
 
-        <button
-          onClick={fetchAvcbData}
-          disabled={loading}
-          className="bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50"
-        >
-          {loading ? (
-            <Loader2 className="animate-spin" size={18} />
-          ) : (
-            <RefreshCw size={18} />
-          )}
-          {loading ? 'SINCRONIZANDO...' : 'ATUALIZAR DADOS'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={openSpreadsheet} title="Abrir planilha de origem" className="flex items-center gap-2 px-4 py-2.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-black uppercase hover:bg-emerald-100 transition-all active:scale-95">
+            <ExternalLink size={15} /> Planilha
+          </button>
+          <button onClick={exportPDF} disabled={loading || data.length === 0} title="Exportar como PDF" className="flex items-center gap-2 px-4 py-2.5 bg-red-50 text-red-700 border border-red-200 rounded-xl text-xs font-black uppercase hover:bg-red-100 transition-all active:scale-95 disabled:opacity-40">
+            <FileText size={15} /> PDF
+          </button>
+          <button onClick={exportExcel} disabled={loading || data.length === 0} title="Exportar como Excel" className="flex items-center gap-2 px-4 py-2.5 bg-green-50 text-green-700 border border-green-200 rounded-xl text-xs font-black uppercase hover:bg-green-100 transition-all active:scale-95 disabled:opacity-40">
+            <Table2 size={15} /> Excel
+          </button>
+          <button onClick={fetchAvcbData} disabled={loading} className="bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
+            {loading ? <Loader2 className="animate-spin" size={18} /> : <RefreshCw size={18} />}
+            {loading ? 'SINCRONIZANDO...' : 'ATUALIZAR DADOS'}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
