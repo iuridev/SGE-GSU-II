@@ -61,6 +61,7 @@ import { PainelGerencial } from './pages/PainelGerencial';
 import EstacionamentoCarros from './pages/EstacionamentoCarros';
 import Comunicados from './pages/Comunicados';
 import { AgendaPublica } from './pages/AgendaPublica';
+import VisitasEscolares from './pages/VisitasEscolares';
 import { Toaster } from 'react-hot-toast';
 
 
@@ -141,6 +142,7 @@ const MENU_GROUPS: MenuGroup[] = [
       //{ id: 'fiscalizacao', label: 'Contratos Gov', icon: <ClipboardCheck size={20} />, roles: ['regional_admin', 'school_manager', 'ure_servico'] },
       //{ id: 'fiscalizacaoURE', label: 'Limpeza URE', icon: <ClipboardCheck size={20} className="text-teal-500" />, roles: ['regional_admin'] },
       { id: 'zeladoria', label: 'Zeladoria', icon: <ShieldCheck size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+      { id: 'visitas-escolares', label: 'Visitas às Escolas', icon: <School size={20} className="text-teal-500" />, roles: ['regional_admin'] },
     ]
   },
   {
@@ -528,6 +530,7 @@ export default function App() {
       case 'previsao-obras-fde': return <PrevisaoObrasFDE />;
       case 'painel-gerencial': return <PainelGerencial />;
       case 'comunicados': return <Comunicados />;
+      case 'visitas-escolares': return <VisitasEscolares />;
       default: return <Dashboard />;
     }
   };
