@@ -777,6 +777,16 @@ export default function App() {
           </div>
         </div>
       </main>
+
+      <a
+        href="https://ureguarulhossul.com/biguarulhossulacessopublico"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Acesso Público - URE Guarulhos Sul"
+        className="fixed bottom-6 right-6 z-50 w-16 h-16 rounded-full shadow-xl hover:shadow-2xl transition-all duration-200 hover:scale-110 overflow-hidden print:hidden"
+      >
+        <img src="/ure-logo.png" alt="URE Guarulhos Sul" className="w-full h-full object-cover" />
+      </a>
     </div>
   );
 }
