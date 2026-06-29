@@ -1,8 +1,12 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { 
-  Search, Loader2, ShieldAlert, RefreshCw, ArrowUpRight, Lock, AlertCircle, CheckCircle2
+import {
+  Search, Loader2, ShieldAlert, RefreshCw, ArrowUpRight, Lock, AlertCircle, CheckCircle2,
+  ExternalLink, FileText, Table2
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 // --- Interfaces ---
 interface SchoolScore {
@@ -157,6 +161,40 @@ export function EscolasPrioritarias() {
     setRefreshing(false);
   }
 
+  function openSpreadsheet() {
+    window.open(`https://docs.google.com/spreadsheets/d/${config.spreadsheet_id}/edit`, '_blank');
+  }
+
+  function exportPDF() {
+    const doc = new jsPDF();
+    doc.setFontSize(14);
+    doc.text('Ranking de Prioridade — Escolas Prioritárias', 14, 16);
+    doc.setFontSize(9);
+    doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`, 14, 23);
+    autoTable(doc, {
+      startY: 28,
+      head: [['#', 'Escola', 'Pontuação Final']],
+      body: rankedSchools.map((school, idx) => [`${idx + 1}º`, school.name, school.score.toFixed(2)]),
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [245, 158, 11], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+    });
+    doc.save('ranking-escolas-prioritarias.pdf');
+  }
+
+  function exportExcel() {
+    const data = rankedSchools.map((school, idx) => ({
+      'Posição': idx + 1,
+      'Escola': school.name,
+      'Pontuação Final': school.score,
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws['!cols'] = [{ wch: 8 }, { wch: 50 }, { wch: 16 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Ranking');
+    XLSX.writeFile(wb, 'ranking-escolas-prioritarias.xlsx');
+  }
+
   if (loading) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-amber-500" size={48} /></div>;
   if (userRole !== 'regional_admin') return <div className="min-h-[70vh] flex flex-col items-center justify-center p-8 text-center"><div className="w-24 h-24 bg-red-50 text-red-600 rounded-3xl flex items-center justify-center mb-6"><Lock size={48} /></div><h2 className="text-2xl font-black uppercase text-slate-800">Acesso Restrito</h2></div>;
 
@@ -203,9 +241,20 @@ export function EscolasPrioritarias() {
           <div className="bg-white rounded-[3rem] p-6 sm:p-10 border shadow-sm">
             <div className="flex flex-col sm:flex-row justify-between items-center mb-10 gap-4">
               <h3 className="text-xl font-black uppercase text-slate-800">Fila de Fiscalização</h3>
-              <div className="bg-slate-50 border rounded-2xl px-4 py-2 flex items-center gap-3 w-full sm:w-72">
-                <Search size={16} className="text-slate-400" />
-                <input type="text" placeholder="BUSCAR ESCOLA..." className="bg-transparent border-none outline-none text-[10px] font-bold uppercase w-full" onChange={(e) => setSearchTerm(e.target.value)} />
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                <button onClick={openSpreadsheet} title="Abrir planilha de origem" className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-2xl text-[10px] font-black uppercase hover:bg-emerald-100 transition-all">
+                  <ExternalLink size={14} /> Planilha
+                </button>
+                <button onClick={exportPDF} title="Exportar como PDF" className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-700 border border-red-200 rounded-2xl text-[10px] font-black uppercase hover:bg-red-100 transition-all">
+                  <FileText size={14} /> PDF
+                </button>
+                <button onClick={exportExcel} title="Exportar como Excel" className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-700 border border-green-200 rounded-2xl text-[10px] font-black uppercase hover:bg-green-100 transition-all">
+                  <Table2 size={14} /> Excel
+                </button>
+                <div className="bg-slate-50 border rounded-2xl px-4 py-2 flex items-center gap-3 w-full sm:w-72">
+                  <Search size={16} className="text-slate-400" />
+                  <input type="text" placeholder="BUSCAR ESCOLA..." className="bg-transparent border-none outline-none text-[10px] font-bold uppercase w-full" onChange={(e) => setSearchTerm(e.target.value)} />
+                </div>
               </div>
             </div>
 
