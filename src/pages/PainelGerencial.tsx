@@ -31,6 +31,16 @@ function parseCSVLine(line: string): string[] {
   return result;
 }
 
+function getLast13Months(): string[] {
+  const now = new Date();
+  const months: string[] = [];
+  for (let i = 12; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push(`${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`);
+  }
+  return months;
+}
+
 function obrasStatusNorm(s: string): 'andamento' | 'concluido' | 'paralisado' {
   const u = (s || '').toUpperCase().trim();
   if (u.includes('CONCLU')) return 'concluido';
@@ -102,7 +112,7 @@ export function PainelGerencial() {
     const [escRes, demRes, conRes, zelRes, patriRes, manejoRes, carrosRes, reservasRes] = await Promise.all([
       (supabase as any).from('schools').select('id', { count: 'exact', head: true }),
       (supabase as any).from('demands').select('status, priority'),
-      (supabase as any).from('consumo_agua_luz').select('mes_ano, agua_qtde_m3'),
+      (supabase as any).from('consumo_agua_luz').select('mes_ano, agua_qtde_m3').in('mes_ano', getLast13Months()),
       (supabase as any).from('zeladorias').select('ocupada'),
       (supabase as any).from('asset_processes').select('status'),
       (supabase as any).from('schools').select('id, manejo_arboreo(validade_autorizacao, nao_se_aplica)'),
