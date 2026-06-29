@@ -187,7 +187,7 @@ export default function App() {
   //const navigate = useNavigate();
   const [session, setSession] = useState<any>(null);
   const [userRole, setUserRole] = useState<string>('');
-  const [currentPage, setCurrentPage] = useState('dashboard');
+  const [currentPage, setCurrentPage] = useState(() => localStorage.getItem('sge_page') || 'dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -205,6 +205,10 @@ export default function App() {
     currentPageRef.current = currentPage;
     showDropdownRef.current = showDropdown;
   }, [currentPage, showDropdown]);
+
+  useEffect(() => {
+    localStorage.setItem('sge_page', currentPage);
+  }, [currentPage]);
 
   // ==========================================
   // CAPACITOR: CONTROLE DO BOTÃO VOLTAR (ANDROID)
