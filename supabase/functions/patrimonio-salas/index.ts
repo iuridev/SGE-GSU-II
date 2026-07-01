@@ -19,7 +19,7 @@ const SALAS_COLUMNS = ['id', 'nome', 'descricao', 'ativa', 'criado_por', 'criado
 const ALOCACOES_COLUMNS = ['chapa', 'descricao_item', 'sala_id', 'sala_nome', 'alocado_por_id', 'alocado_por_nome', 'alocado_em']
 const HISTORICO_COLUMNS = ['id', 'chapa', 'descricao_item', 'tipo_evento', 'sala_id', 'sala_nome', 'usuario_id', 'usuario_nome', 'data_evento', 'observacao']
 
-type Profile = { role: string; sala_trabalho: string | null; full_name: string | null }
+type Profile = { role: string; salas_trabalho: string[] | null; full_name: string | null }
 
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req.headers.get('origin'))
@@ -41,7 +41,7 @@ serve(async (req) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) throw new Error('Token inválido ou expirado.')
 
-    const { data: profile } = await supabase.from('profiles').select('role, sala_trabalho, full_name').eq('id', user.id).single()
+    const { data: profile } = await supabase.from('profiles').select('role, salas_trabalho, full_name').eq('id', user.id).single()
     if (!profile) throw new Error('Perfil de usuário não encontrado.')
     const usuarioNome = (profile as Profile).full_name || user.email || 'Usuário'
 
@@ -194,10 +194,15 @@ serve(async (req) => {
 
         let salaId: string
         if ((profile as Profile).role === 'ure_servico') {
-          if (!(profile as Profile).sala_trabalho) {
-            throw new Error('Você ainda não possui uma sala de trabalho vinculada. Solicite ao administrador regional.')
+          const minhasSalas = (profile as Profile).salas_trabalho || []
+          if (minhasSalas.length === 0) {
+            throw new Error('Você ainda não possui nenhuma sala de trabalho vinculada. Solicite ao administrador regional.')
           }
-          salaId = (profile as Profile).sala_trabalho!
+          if (!body.sala_id) throw new Error('Selecione a sala de destino.')
+          if (!minhasSalas.includes(String(body.sala_id))) {
+            throw new Error('Você só pode alocar itens em uma das suas salas vinculadas.')
+          }
+          salaId = String(body.sala_id)
         } else {
           if (!body.sala_id) throw new Error('Selecione a sala de destino.')
           salaId = String(body.sala_id)
@@ -256,8 +261,8 @@ serve(async (req) => {
         const row = alocRows.find((r: any) => String(r.get('chapa') ?? '').trim() === chapa)
         if (!row) throw new Error('Item não está alocado em nenhuma sala.')
 
-        if ((profile as Profile).role === 'ure_servico' && row.get('sala_id') !== (profile as Profile).sala_trabalho) {
-          throw new Error('Você só pode devolver itens da sua própria sala.')
+        if ((profile as Profile).role === 'ure_servico' && !((profile as Profile).salas_trabalho || []).includes(row.get('sala_id'))) {
+          throw new Error('Você só pode devolver itens de uma das suas salas.')
         }
 
         const salaIdAnterior = row.get('sala_id')
@@ -296,7 +301,11 @@ serve(async (req) => {
         }))
 
         if ((profile as Profile).role === 'ure_servico') {
-          historico = historico.filter((h) => h.salaId === (profile as Profile).sala_trabalho)
+          const minhasSalas = new Set((profile as Profile).salas_trabalho || [])
+          historico = historico.filter((h) => minhasSalas.has(h.salaId))
+          if (body.sala_id && minhasSalas.has(String(body.sala_id))) {
+            historico = historico.filter((h) => h.salaId === body.sala_id)
+          }
         } else if (body.sala_id) {
           historico = historico.filter((h) => h.salaId === body.sala_id)
         }

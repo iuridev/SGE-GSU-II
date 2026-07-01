@@ -44,7 +44,7 @@ type TabId = 'minha-sala' | 'disponiveis' | 'salas' | 'historico';
 
 export default function PatrimonioSalas() {
   const [userRole, setUserRole] = useState('');
-  const [userSalaTrabalho, setUserSalaTrabalho] = useState<string | null>(null);
+  const [userSalasTrabalho, setUserSalasTrabalho] = useState<string[]>([]);
 
   const [itens, setItens] = useState<ItemPatrimonio[]>([]);
   const [salas, setSalas] = useState<Sala[]>([]);
@@ -78,11 +78,11 @@ export default function PatrimonioSalas() {
       if (user) {
         const { data: profile } = await (supabase as any)
           .from('profiles')
-          .select('role, sala_trabalho')
+          .select('role, salas_trabalho')
           .eq('id', user.id)
           .single();
         setUserRole(profile?.role || '');
-        setUserSalaTrabalho(profile?.sala_trabalho || null);
+        setUserSalasTrabalho(profile?.salas_trabalho || []);
       }
       await Promise.all([fetchItens(), fetchSalas()]);
     } catch (e) {
@@ -136,17 +136,22 @@ export default function PatrimonioSalas() {
     }
   }
 
+  const salasAtivas = useMemo(() => salas.filter(s => s.ativa), [salas]);
+  const allowedSalas = useMemo(
+    () => isAdmin ? salasAtivas : salasAtivas.filter(s => userSalasTrabalho.includes(s.id)),
+    [isAdmin, salasAtivas, userSalasTrabalho]
+  );
+  // Se o usuário só tem acesso a uma sala, ela é usada automaticamente (sem precisar escolher).
+  const salaEfetiva = salaFiltro || (allowedSalas.length === 1 ? allowedSalas[0].id : '');
+
   useEffect(() => {
-    if (activeTab === 'historico') fetchHistorico(isAdmin ? salaFiltro : undefined);
+    if (activeTab === 'historico') fetchHistorico(salaEfetiva || undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
-  const salasAtivas = useMemo(() => salas.filter(s => s.ativa), [salas]);
-  const salaAtualId = isAdmin ? salaFiltro : (userSalaTrabalho || '');
-
   const itensDaSala = useMemo(
-    () => itens.filter(i => i.alocado && i.salaId === salaAtualId),
-    [itens, salaAtualId]
+    () => itens.filter(i => i.alocado && i.salaId === salaEfetiva),
+    [itens, salaEfetiva]
   );
 
   const itensDisponiveis = useMemo(() => {
@@ -157,13 +162,15 @@ export default function PatrimonioSalas() {
   }, [itens, searchTerm]);
 
   async function handleAlocar(chapa: string) {
-    const salaId = isAdmin ? salaDestinoPorChapa[chapa] : userSalaTrabalho;
-    if (isAdmin && !salaId) {
-      alert('Selecione a sala de destino antes de alocar.');
+    if (allowedSalas.length === 0) {
+      alert(isAdmin
+        ? 'Cadastre uma sala antes de alocar itens.'
+        : 'Você ainda não possui nenhuma sala de trabalho vinculada. Solicite ao administrador regional.');
       return;
     }
-    if (!isAdmin && !userSalaTrabalho) {
-      alert('Você ainda não possui uma sala de trabalho vinculada. Solicite ao administrador regional.');
+    const salaId = allowedSalas.length === 1 ? allowedSalas[0].id : salaDestinoPorChapa[chapa];
+    if (!salaId) {
+      alert('Selecione a sala de destino antes de alocar.');
       return;
     }
     setActionLoading(chapa);
@@ -222,7 +229,7 @@ export default function PatrimonioSalas() {
   };
 
   const tabs: { id: TabId; label: string; icon: ReactNode }[] = [
-    { id: 'minha-sala', label: isAdmin ? 'Sala Selecionada' : 'Minha Sala', icon: <DoorOpen size={15} /> },
+    { id: 'minha-sala', label: isAdmin ? 'Sala Selecionada' : (allowedSalas.length > 1 ? 'Minhas Salas' : 'Minha Sala'), icon: <DoorOpen size={15} /> },
     { id: 'disponiveis', label: 'Itens Disponíveis', icon: <Package size={15} /> },
     ...(isAdmin ? [{ id: 'salas' as TabId, label: 'Salas', icon: <Building2 size={15} /> }] : []),
     { id: 'historico', label: 'Histórico', icon: <History size={15} /> },
@@ -279,13 +286,13 @@ export default function PatrimonioSalas() {
         </div>
       )}
 
-      {!isAdmin && !userSalaTrabalho && (
+      {!isAdmin && userSalasTrabalho.length === 0 && (
         <div className="bg-amber-50 border-2 border-amber-100 p-5 rounded-2xl flex items-start gap-4">
           <AlertCircle className="text-amber-500 shrink-0 mt-0.5" size={22} />
           <div>
-            <h2 className="text-sm font-bold text-amber-800">Sala de trabalho não definida</h2>
+            <h2 className="text-sm font-bold text-amber-800">Nenhuma sala de trabalho vinculada</h2>
             <p className="text-xs text-amber-700 mt-1">
-              Seu usuário ainda não possui uma sala de trabalho vinculada. Solicite ao administrador
+              Seu usuário ainda não possui nenhuma sala de trabalho vinculada. Solicite ao administrador
               regional que configure isso na tela de Gestão de Usuários.
             </p>
           </div>
@@ -306,7 +313,7 @@ export default function PatrimonioSalas() {
         ))}
       </div>
 
-      {isAdmin && (activeTab === 'minha-sala' || activeTab === 'historico') && (
+      {allowedSalas.length > 1 && (activeTab === 'minha-sala' || activeTab === 'historico') && (
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3">
           <DoorOpen size={18} className="text-slate-400 shrink-0" />
           <select
@@ -317,14 +324,21 @@ export default function PatrimonioSalas() {
               if (activeTab === 'historico') fetchHistorico(e.target.value || undefined);
             }}
           >
-            <option value="">Selecione uma sala...</option>
-            {salasAtivas.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            <option value="">{activeTab === 'historico' ? 'Todas as minhas salas' : 'Selecione uma sala...'}</option>
+            {allowedSalas.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
           </select>
         </div>
       )}
 
       {activeTab === 'minha-sala' && (
-        (!isAdmin && !userSalaTrabalho) ? null : (isAdmin && !salaFiltro) ? (
+        allowedSalas.length === 0 ? (
+          isAdmin ? (
+            <div className="text-center py-16 text-slate-400">
+              <Building2 size={40} className="mx-auto mb-3 opacity-30" />
+              <p className="text-sm">Nenhuma sala cadastrada ainda. Crie uma na aba "Salas".</p>
+            </div>
+          ) : null
+        ) : !salaEfetiva ? (
           <div className="text-center py-16 text-slate-400">
             <DoorOpen size={40} className="mx-auto mb-3 opacity-30" />
             <p className="text-sm">Selecione uma sala acima para ver os itens alocados.</p>
@@ -405,19 +419,19 @@ export default function PatrimonioSalas() {
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    {isAdmin && (
+                    {allowedSalas.length > 1 && (
                       <select
                         className="p-2 border border-slate-200 rounded-lg text-xs font-medium bg-white outline-none focus:ring-2 focus:ring-blue-500"
                         value={salaDestinoPorChapa[item.chapa] || ''}
                         onChange={e => setSalaDestinoPorChapa(prev => ({ ...prev, [item.chapa]: e.target.value }))}
                       >
                         <option value="">Sala destino...</option>
-                        {salasAtivas.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                        {allowedSalas.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
                       </select>
                     )}
                     <button
                       onClick={() => handleAlocar(item.chapa)}
-                      disabled={actionLoading === item.chapa || (!isAdmin && !userSalaTrabalho)}
+                      disabled={actionLoading === item.chapa || allowedSalas.length === 0}
                       className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-[11px] uppercase transition-colors disabled:opacity-50"
                     >
                       {actionLoading === item.chapa ? <Loader2 size={14} className="animate-spin" /> : <ArrowRightLeft size={14} />}

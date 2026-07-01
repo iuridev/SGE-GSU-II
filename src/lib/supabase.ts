@@ -11,7 +11,7 @@ export type Database = {
           role: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc';
           school_id: string | null;
           supervisor_schools: string[] | null;
-          sala_trabalho: string | null;
+          salas_trabalho: string[] | null;
           created_at: string;
         };
         Insert: {
@@ -20,14 +20,14 @@ export type Database = {
           role?: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc';
           school_id?: string | null;
           supervisor_schools: string[] | null;
-          sala_trabalho?: string | null;
+          salas_trabalho?: string[] | null;
         };
         Update: {
           full_name?: string | null;
           role?: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc';
           school_id?: string | null;
           supervisor_schools: string[] | null;
-          sala_trabalho?: string | null;
+          salas_trabalho?: string[] | null;
         };
       };
       // ESTA É A PARTE QUE ESTAVA FALTANDO OU ERRADA:

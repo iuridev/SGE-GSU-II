@@ -14,7 +14,7 @@ interface Profile {
   role: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc'; // ATUALIZADO
   school_id: string | null;
   supervisor_schools?: string[] | null;
-  sala_trabalho?: string | null;
+  salas_trabalho?: string[] | null;
   created_at: string;
 }
 
@@ -47,7 +47,7 @@ export function Usuario() {
     role: 'school_manager' as 'regional_admin' | 'school_manager' | 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc', // ATUALIZADO
     school_id: '',
     supervisor_schools: [] as string[],
-    sala_trabalho: ''
+    salas_trabalho: [] as string[]
   });
 
   const [errors, setErrors] = useState<string[]>([]);
@@ -116,8 +116,8 @@ export function Usuario() {
       newErrors.push("Gestores devem ser vinculados a uma unidade escolar.");
     }
 
-    if (formData.role === 'ure_servico' && !formData.sala_trabalho) {
-      newErrors.push("Usuários de Serviços da URE devem ser vinculados a uma sala de trabalho.");
+    if (formData.role === 'ure_servico' && formData.salas_trabalho.length === 0) {
+      newErrors.push("Usuários de Serviços da URE devem ser vinculados a pelo menos uma sala de trabalho.");
     }
 
     setErrors(newErrors);
@@ -135,7 +135,7 @@ export function Usuario() {
         role: user.role,
         school_id: user.school_id || '',
         supervisor_schools: user.supervisor_schools || [],
-        sala_trabalho: user.sala_trabalho || ''
+        salas_trabalho: user.salas_trabalho || []
       });
     } else {
       setEditingUser(null);
@@ -146,7 +146,7 @@ export function Usuario() {
         role: 'school_manager',
         school_id: '',
         supervisor_schools: [],
-        sala_trabalho: ''
+        salas_trabalho: []
       });
     }
     setIsModalOpen(true);
@@ -166,7 +166,7 @@ export function Usuario() {
             role: formData.role,
             school_id: formData.role === 'school_manager' ? formData.school_id : null,
             supervisor_schools: formData.role === 'supervisor' ? formData.supervisor_schools : null,
-            sala_trabalho: formData.role === 'ure_servico' ? formData.sala_trabalho : null
+            salas_trabalho: formData.role === 'ure_servico' ? formData.salas_trabalho : null
         };
 
         if (formData.email) {
@@ -222,7 +222,7 @@ export function Usuario() {
               role: formData.role,
               school_id: formData.role === 'school_manager' ? formData.school_id : null,
               supervisor_schools: formData.role === 'supervisor' ? formData.supervisor_schools : null,
-              sala_trabalho: formData.role === 'ure_servico' ? formData.sala_trabalho : null,
+              salas_trabalho: formData.role === 'ure_servico' ? formData.salas_trabalho : null,
               created_at: new Date().toISOString()
             });
           
@@ -383,7 +383,9 @@ export function Usuario() {
                       <div className="flex items-center gap-2 text-slate-600">
                         <DoorOpen size={14} className="text-slate-400" />
                         <span className="text-xs truncate max-w-[150px] font-medium text-amber-600">
-                          {salas.find(s => s.id === user.sala_trabalho)?.nome || 'Sala não definida'}
+                          {user.salas_trabalho?.length
+                            ? user.salas_trabalho.map(id => salas.find(s => s.id === id)?.nome || '?').join(', ')
+                            : 'Nenhuma sala definida'}
                         </span>
                       </div>
                     ) : (
@@ -567,25 +569,35 @@ export function Usuario() {
 
                 {formData.role === 'ure_servico' && (
                   <div className="animate-in slide-in-from-top-2 duration-200">
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1 tracking-wider">Sala de Trabalho</label>
-                    <div className="relative">
-                      <DoorOpen className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                      <select
-                        required
-                        className="w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-white font-bold text-slate-700 shadow-sm"
-                        value={formData.sala_trabalho}
-                        onChange={e => setFormData({...formData, sala_trabalho: e.target.value})}
-                      >
-                        <option value="">Selecione a sala...</option>
-                        {salas.map(sala => (
-                          <option key={sala.id} value={sala.id}>{sala.nome}</option>
-                        ))}
-                      </select>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5">
+                      <DoorOpen size={14} className="text-slate-400" /> Salas de Trabalho
+                    </label>
+                    <div className="border border-slate-300 rounded-xl max-h-48 overflow-y-auto p-2 bg-white space-y-1 custom-scrollbar">
+                      {salas.map(sala => (
+                        <label key={sala.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors">
+                          <input
+                            type="checkbox"
+                            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                            checked={formData.salas_trabalho.includes(sala.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setFormData({...formData, salas_trabalho: [...formData.salas_trabalho, sala.id]});
+                              } else {
+                                setFormData({...formData, salas_trabalho: formData.salas_trabalho.filter(id => id !== sala.id)});
+                              }
+                            }}
+                          />
+                          <span className="text-sm font-medium text-slate-700">{sala.nome}</span>
+                        </label>
+                      ))}
+                      {salas.length === 0 && (
+                        <p className="text-xs text-slate-400 italic p-2">Nenhuma sala cadastrada ainda.</p>
+                      )}
                     </div>
                     <p className="text-[10px] text-slate-400 mt-1">
                       {salas.length === 0
-                        ? 'Nenhuma sala cadastrada ainda — crie salas na tela "Salas de Trabalho" (Patrimônio).'
-                        : 'O usuário só poderá alocar/devolver itens patrimoniais nesta sala.'}
+                        ? 'Crie salas na tela "Salas de Trabalho" (Patrimônio) antes de vincular.'
+                        : 'Marque todas as salas em que este usuário poderá alocar/devolver itens patrimoniais.'}
                     </p>
                   </div>
                 )}
