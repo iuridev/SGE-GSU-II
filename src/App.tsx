@@ -10,7 +10,7 @@ import {
   Star, ArrowUpCircle, HardHat, TreeDeciduous, Ticket,
   School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown,
   Bell, MessageSquare, CheckCircle, ClipboardList,
-  Wrench, Search, CalendarCheck, BarChart2, Megaphone
+  Wrench, Search, CalendarCheck, BarChart2, Megaphone, DoorOpen
 } from 'lucide-react';
 
 import { Dashboard } from './pages/Dashboard';
@@ -62,6 +62,7 @@ import EstacionamentoCarros from './pages/EstacionamentoCarros';
 import Comunicados from './pages/Comunicados';
 import { AgendaPublica } from './pages/AgendaPublica';
 import VisitasEscolares from './pages/VisitasEscolares';
+import PatrimonioSalas from './pages/PatrimonioSalas';
 import { Toaster } from 'react-hot-toast';
 
 
@@ -153,6 +154,7 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'aquisicao', label: 'Aquisição de Itens', icon: <ShoppingBag size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'remanejamento', label: 'Remanejamento', icon: <ArrowRightLeft size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'furtos', label: 'Cadastro de Furtos', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
+      { id: 'patrimonio-salas', label: 'Salas de Trabalho', icon: <DoorOpen size={20} className="text-teal-500" />, roles: ['regional_admin', 'ure_servico'] },
       //{ id: 'listchapa', label: 'Listar Patrimônio', icon: <Package size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
     ]
   },
@@ -531,6 +533,7 @@ export default function App() {
       case 'painel-gerencial': return <PainelGerencial />;
       case 'comunicados': return <Comunicados />;
       case 'visitas-escolares': return <VisitasEscolares />;
+      case 'patrimonio-salas': return <PatrimonioSalas />;
       default: return <Dashboard />;
     }
   };

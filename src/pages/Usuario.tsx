@@ -1,19 +1,20 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { 
-  Users, Mail, 
-  Search, UserPlus, X, 
+import {
+  Users, Mail,
+  Search, UserPlus, X,
   Trash2, Edit, Save, Building2, Lock,
   ShieldCheck, UserCheck, Loader2,
-  AlertCircle, } from 'lucide-react';
+  AlertCircle, DoorOpen, } from 'lucide-react';
 
 interface Profile {
   id: string;
   full_name: string;
-  email?: string; 
+  email?: string;
   role: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc'; // ATUALIZADO
   school_id: string | null;
   supervisor_schools?: string[] | null;
+  sala_trabalho?: string | null;
   created_at: string;
 }
 
@@ -22,23 +23,31 @@ interface School {
   name: string;
 }
 
+interface Sala {
+  id: string;
+  nome: string;
+  ativa: boolean;
+}
+
 export function Usuario() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [schools, setSchools] = useState<School[]>([]);
+  const [salas, setSalas] = useState<Sala[]>([]);
   const [loading, setLoading] = useState(true);
   const [saveLoading, setSaveLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<Profile | null>(null);
-  
+
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
     password: '',
     role: 'school_manager' as 'regional_admin' | 'school_manager' | 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc', // ATUALIZADO
     school_id: '',
-    supervisor_schools: [] as string[]
+    supervisor_schools: [] as string[],
+    sala_trabalho: ''
   });
 
   const [errors, setErrors] = useState<string[]>([]);
@@ -66,6 +75,11 @@ export function Usuario() {
 
       setUsers(profilesData || []);
       setSchools(schoolsData || []);
+
+      const { data: salasData } = await supabase.functions.invoke('patrimonio-salas', {
+        body: { action: 'listar_salas' },
+      });
+      if (salasData?.salas) setSalas(salasData.salas.filter((s: Sala) => s.ativa));
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
     } finally {
@@ -102,6 +116,10 @@ export function Usuario() {
       newErrors.push("Gestores devem ser vinculados a uma unidade escolar.");
     }
 
+    if (formData.role === 'ure_servico' && !formData.sala_trabalho) {
+      newErrors.push("Usuários de Serviços da URE devem ser vinculados a uma sala de trabalho.");
+    }
+
     setErrors(newErrors);
     return newErrors.length === 0;
   }
@@ -116,7 +134,8 @@ export function Usuario() {
         password: '', 
         role: user.role,
         school_id: user.school_id || '',
-        supervisor_schools: user.supervisor_schools || []
+        supervisor_schools: user.supervisor_schools || [],
+        sala_trabalho: user.sala_trabalho || ''
       });
     } else {
       setEditingUser(null);
@@ -126,7 +145,8 @@ export function Usuario() {
         password: '',
         role: 'school_manager',
         school_id: '',
-        supervisor_schools: []
+        supervisor_schools: [],
+        sala_trabalho: ''
       });
     }
     setIsModalOpen(true);
@@ -145,7 +165,8 @@ export function Usuario() {
             full_name: formData.full_name,
             role: formData.role,
             school_id: formData.role === 'school_manager' ? formData.school_id : null,
-            supervisor_schools: formData.role === 'supervisor' ? formData.supervisor_schools : null
+            supervisor_schools: formData.role === 'supervisor' ? formData.supervisor_schools : null,
+            sala_trabalho: formData.role === 'ure_servico' ? formData.sala_trabalho : null
         };
 
         if (formData.email) {
@@ -200,7 +221,8 @@ export function Usuario() {
               email: formData.email, 
               role: formData.role,
               school_id: formData.role === 'school_manager' ? formData.school_id : null,
-              supervisor_schools: formData.role === 'supervisor' ? formData.supervisor_schools : null, 
+              supervisor_schools: formData.role === 'supervisor' ? formData.supervisor_schools : null,
+              sala_trabalho: formData.role === 'ure_servico' ? formData.sala_trabalho : null,
               created_at: new Date().toISOString()
             });
           
@@ -352,9 +374,16 @@ export function Usuario() {
                       <div className="flex items-center gap-2 text-slate-600">
                         <Building2 size={14} className="text-slate-400" />
                         <span className="text-xs truncate max-w-[150px] font-medium text-orange-600">
-                          {user.supervisor_schools?.length 
-                            ? `${user.supervisor_schools.length} escola(s) vinculada(s)` 
+                          {user.supervisor_schools?.length
+                            ? `${user.supervisor_schools.length} escola(s) vinculada(s)`
                             : 'Nenhuma escola'}
+                        </span>
+                      </div>
+                    ) : user.role === 'ure_servico' ? (
+                      <div className="flex items-center gap-2 text-slate-600">
+                        <DoorOpen size={14} className="text-slate-400" />
+                        <span className="text-xs truncate max-w-[150px] font-medium text-amber-600">
+                          {salas.find(s => s.id === user.sala_trabalho)?.nome || 'Sala não definida'}
                         </span>
                       </div>
                     ) : (
@@ -535,7 +564,31 @@ export function Usuario() {
                     <p className="text-[10px] text-slate-400 mt-1">Marque todas as escolas que este supervisor irá gerenciar.</p>
                   </div>
                 )}
-               
+
+                {formData.role === 'ure_servico' && (
+                  <div className="animate-in slide-in-from-top-2 duration-200">
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1 tracking-wider">Sala de Trabalho</label>
+                    <div className="relative">
+                      <DoorOpen className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                      <select
+                        required
+                        className="w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-white font-bold text-slate-700 shadow-sm"
+                        value={formData.sala_trabalho}
+                        onChange={e => setFormData({...formData, sala_trabalho: e.target.value})}
+                      >
+                        <option value="">Selecione a sala...</option>
+                        {salas.map(sala => (
+                          <option key={sala.id} value={sala.id}>{sala.nome}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      {salas.length === 0
+                        ? 'Nenhuma sala cadastrada ainda — crie salas na tela "Salas de Trabalho" (Patrimônio).'
+                        : 'O usuário só poderá alocar/devolver itens patrimoniais nesta sala.'}
+                    </p>
+                  </div>
+                )}
 
               </div>
 
