@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import {
   Package, Search, DoorOpen, ArrowRightLeft, History, Plus, X,
   Loader2, RefreshCw, ExternalLink, CheckCircle2, Undo2, AlertCircle,
-  Building2, Trash2,
+  Building2, Trash2, HelpCircle, Info,
 } from 'lucide-react';
 
 const SHEET_URL = import.meta.env.VITE_VISITAS_SHEET_URL as string;
@@ -63,6 +63,7 @@ export default function PatrimonioSalas() {
   const [salaForm, setSalaForm] = useState({ nome: '', descricao: '' });
   const [savingSala, setSavingSala] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [showTutorialModal, setShowTutorialModal] = useState(false);
 
   const isAdmin = userRole === 'regional_admin';
 
@@ -257,6 +258,12 @@ export default function PatrimonioSalas() {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => setShowTutorialModal(true)}
+            className="flex items-center gap-2 px-3 py-2 text-blue-700 border border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors text-sm font-medium"
+          >
+            <HelpCircle size={16} /> Como Usar
+          </button>
           <button
             onClick={init}
             className="flex items-center gap-2 px-3 py-2 text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-sm"
@@ -575,6 +582,96 @@ export default function PatrimonioSalas() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showTutorialModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100 shrink-0">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <HelpCircle size={20} className="text-blue-600" /> Como Usar — Salas de Trabalho
+              </h2>
+              <button onClick={() => setShowTutorialModal(false)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+                <X size={18} className="text-slate-500" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6 overflow-y-auto text-sm text-slate-700 leading-relaxed">
+              <p>
+                Aqui você indica quais itens do patrimônio (móveis, computadores, equipamentos etc.)
+                estão fisicamente na sua sala de trabalho.
+              </p>
+
+              {!isAdmin && (
+                <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 flex items-start gap-3">
+                  <Info size={16} className="text-amber-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-700">
+                    Se aparecer o aviso <strong>"Nenhuma sala de trabalho vinculada"</strong>, o
+                    administrador regional ainda não associou nenhuma sala ao seu usuário. Peça para
+                    ele configurar isso em <strong>Gestão de Usuários</strong>.
+                  </p>
+                </div>
+              )}
+
+              <div>
+                <h3 className="font-bold text-slate-800 mb-1.5">Conhecendo as abas</h3>
+                <ul className="list-disc pl-5 space-y-1 text-slate-600">
+                  <li><strong>Minha Sala</strong> (ou "Minhas Salas", se você tiver mais de uma) — itens já alocados na sua sala.</li>
+                  <li><strong>Itens Disponíveis</strong> — itens do inventário que ainda não estão em nenhuma sala.</li>
+                  <li><strong>Histórico</strong> — todas as alocações e devoluções feitas na sua sala.</li>
+                </ul>
+                <p className="text-xs text-slate-400 mt-2">
+                  Se você tem mais de uma sala vinculada, um seletor aparece no topo para escolher qual
+                  está visualizando. Com apenas uma sala, ela já vem selecionada automaticamente.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-slate-800 mb-1.5">Como alocar um item na sua sala</h3>
+                <ol className="list-decimal pl-5 space-y-1 text-slate-600">
+                  <li>Abra a aba <strong>"Itens Disponíveis"</strong>.</li>
+                  <li>Busque pelo número da chapa patrimonial ou parte da descrição do item.</li>
+                  <li>Se tiver mais de uma sala, escolha a sala destino ao lado do item.</li>
+                  <li>Clique em <strong>"Alocar"</strong>.</li>
+                </ol>
+                <p className="text-xs text-slate-400 mt-2">
+                  O item some da lista de disponíveis e passa a aparecer em "Minha Sala". Um item só
+                  pode estar em uma sala por vez — se já estiver alocado em outra, o sistema recusa.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-slate-800 mb-1.5">Como devolver um item</h3>
+                <ol className="list-decimal pl-5 space-y-1 text-slate-600">
+                  <li>Abra a aba <strong>"Minha Sala"</strong>.</li>
+                  <li>Encontre o item e clique em <strong>"Devolver"</strong>.</li>
+                  <li>Confirme a ação.</li>
+                </ol>
+                <p className="text-xs text-slate-400 mt-2">
+                  O item volta para "Itens Disponíveis", liberado para ser alocado em qualquer sala.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-slate-800 mb-1.5">Dicas rápidas</h3>
+                <ul className="list-disc pl-5 space-y-1 text-slate-600">
+                  <li>O botão <strong>"Atualizar"</strong> recarrega os dados mais recentes da planilha.</li>
+                  <li>Um item marcado como <strong>"Não encontrado no inventário"</strong> foi removido do inventário oficial, mas ainda consta como alocado — avise o administrador regional.</li>
+                  <li>Dúvidas sobre qual sala você está vinculado? Pergunte ao administrador regional.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 flex justify-end shrink-0">
+              <button
+                onClick={() => setShowTutorialModal(false)}
+                className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+              >
+                Entendi
+              </button>
+            </div>
           </div>
         </div>
       )}
