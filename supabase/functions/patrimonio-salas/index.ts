@@ -1,4 +1,3 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 // @ts-ignore
 import { GoogleSpreadsheet } from "npm:google-spreadsheet@4.1.1"
@@ -21,7 +20,9 @@ const HISTORICO_COLUMNS = ['id', 'chapa', 'descricao_item', 'tipo_evento', 'sala
 
 type Profile = { role: string; salas_trabalho: string[] | null; full_name: string | null }
 
-serve(async (req) => {
+// Deno.serve é nativo do runtime de Edge Functions — evita depender do fetch externo
+// a deno.land/std, que pode falhar/timeoutar durante o bundle do deploy.
+Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req.headers.get('origin'))
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
