@@ -3,8 +3,11 @@ import { supabase } from '../lib/supabase';
 import {
   Package, Search, DoorOpen, ArrowRightLeft, History, Plus, X,
   Loader2, RefreshCw, ExternalLink, CheckCircle2, Undo2, AlertCircle,
-  Building2, Trash2, HelpCircle, Info,
+  Building2, Trash2, HelpCircle, Info, FileDown,
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 
 const SHEET_URL = import.meta.env.VITE_VISITAS_SHEET_URL as string;
 
@@ -64,6 +67,7 @@ export default function PatrimonioSalas() {
   const [savingSala, setSavingSala] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showTutorialModal, setShowTutorialModal] = useState(false);
+  const [gerandoPdf, setGerandoPdf] = useState(false);
 
   const isAdmin = userRole === 'regional_admin';
 
@@ -229,6 +233,55 @@ export default function PatrimonioSalas() {
     try { return new Date(d).toLocaleString('pt-BR'); } catch { return d; }
   };
 
+  async function handleGerarPdf() {
+    const salaNome = salas.find(s => s.id === salaEfetiva)?.nome || 'Sala';
+    setGerandoPdf(true);
+    try {
+      const doc = new jsPDF('portrait');
+      const margin = 14;
+      let currentY = 36;
+
+      doc.setFontSize(14);
+      doc.setTextColor(37, 99, 235);
+      doc.text('Relatório de Itens Patrimoniais por Sala — SGE-GSU-II', margin, currentY);
+
+      currentY += 8;
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text(`Sala: ${salaNome}`, margin, currentY);
+      currentY += 6;
+      doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`, margin, currentY);
+      currentY += 6;
+      doc.text(`Total de itens: ${itensDaSala.length}`, margin, currentY);
+      currentY += 10;
+
+      const tableData = itensDaSala.map(item => [
+        item.chapa,
+        item.descricao,
+        item.alocadoPorNome || '-',
+        formatDate(item.alocadoEm),
+      ]);
+
+      autoTable(doc, {
+        startY: currentY,
+        head: [['Chapa', 'Descrição do Item', 'Alocado por', 'Data de Alocação']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' },
+        styles: { fontSize: 9, cellPadding: 3 },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+      });
+
+      addTimbradoAllPages(doc);
+      doc.save(`Patrimonio_${salaNome.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`);
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao gerar o PDF.');
+    } finally {
+      setGerandoPdf(false);
+    }
+  }
+
   const tabs: { id: TabId; label: string; icon: ReactNode }[] = [
     { id: 'minha-sala', label: isAdmin ? 'Sala Selecionada' : (allowedSalas.length > 1 ? 'Minhas Salas' : 'Minha Sala'), icon: <DoorOpen size={15} /> },
     { id: 'disponiveis', label: 'Itens Disponíveis', icon: <Package size={15} /> },
@@ -352,8 +405,16 @@ export default function PatrimonioSalas() {
           </div>
         ) : (
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between gap-3">
               <span className="text-sm font-bold text-slate-700">{itensDaSala.length} item(ns) nesta sala</span>
+              <button
+                onClick={handleGerarPdf}
+                disabled={gerandoPdf || itensDaSala.length === 0}
+                className="flex items-center gap-2 px-3 py-2 bg-slate-900 hover:bg-black text-white rounded-lg font-bold text-[11px] uppercase transition-colors disabled:opacity-40 shrink-0"
+              >
+                {gerandoPdf ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />}
+                Gerar PDF
+              </button>
             </div>
             {itensDaSala.length === 0 ? (
               <div className="text-center py-16 text-slate-400">
