@@ -257,16 +257,16 @@ export default function PatrimonioSalas() {
             Controle de itens patrimoniais alocados em cada sala da URE
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap w-full sm:w-auto">
           <button
             onClick={() => setShowTutorialModal(true)}
-            className="flex items-center gap-2 px-3 py-2 text-blue-700 border border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors text-sm font-medium"
+            className="flex items-center justify-center gap-2 px-3 py-2.5 flex-1 sm:flex-none text-blue-700 border border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors text-sm font-medium"
           >
             <HelpCircle size={16} /> Como Usar
           </button>
           <button
             onClick={init}
-            className="flex items-center gap-2 px-3 py-2 text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-sm"
+            className="flex items-center justify-center gap-2 px-3 py-2.5 flex-1 sm:flex-none text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-sm"
           >
             <RefreshCw size={16} /> Atualizar
           </button>
@@ -275,7 +275,7 @@ export default function PatrimonioSalas() {
               href={SHEET_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-2 px-3 py-2 text-emerald-700 border border-emerald-200 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors text-sm font-medium"
+              className="flex items-center justify-center gap-2 px-3 py-2.5 flex-1 sm:flex-none text-emerald-700 border border-emerald-200 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors text-sm font-medium"
             >
               <ExternalLink size={16} /> Abrir Planilha
             </a>
@@ -363,9 +363,9 @@ export default function PatrimonioSalas() {
             ) : (
               <div className="divide-y divide-slate-50">
                 {itensDaSala.map(item => (
-                  <div key={item.chapa} className="p-4 flex items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors">
+                  <div key={item.chapa} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono font-bold text-xs text-slate-500">Chapa {item.chapa}</span>
                         {item.naoEncontrado && (
                           <span className="text-[9px] font-bold uppercase bg-red-50 text-red-600 px-2 py-0.5 rounded-full">
@@ -373,7 +373,7 @@ export default function PatrimonioSalas() {
                           </span>
                         )}
                       </div>
-                      <p className="font-medium text-slate-800 truncate">{item.descricao}</p>
+                      <p className="font-medium text-slate-800 break-words">{item.descricao}</p>
                       <p className="text-[11px] text-slate-400 mt-0.5">
                         Alocado por {item.alocadoPorNome} em {formatDate(item.alocadoEm)}
                       </p>
@@ -381,7 +381,7 @@ export default function PatrimonioSalas() {
                     <button
                       onClick={() => handleDevolver(item.chapa)}
                       disabled={actionLoading === item.chapa}
-                      className="flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-600 rounded-xl font-bold text-[11px] uppercase transition-colors shrink-0"
+                      className="flex items-center justify-center gap-2 px-4 py-3 sm:py-2.5 w-full sm:w-auto bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-600 rounded-xl font-bold text-[11px] uppercase transition-colors shrink-0"
                     >
                       {actionLoading === item.chapa ? <Loader2 size={14} className="animate-spin" /> : <Undo2 size={14} />}
                       Devolver
@@ -417,18 +417,18 @@ export default function PatrimonioSalas() {
           ) : (
             <div className="divide-y divide-slate-50 max-h-[600px] overflow-y-auto">
               {itensDisponiveis.map(item => (
-                <div key={item.chapa} className="p-4 flex items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors">
+                <div key={item.chapa} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors">
                   <div className="min-w-0">
                     <span className="font-mono font-bold text-xs text-slate-500">Chapa {item.chapa}</span>
-                    <p className="font-medium text-slate-800 truncate">{item.descricao}</p>
+                    <p className="font-medium text-slate-800 break-words">{item.descricao}</p>
                     {item.estadoConservacao && (
                       <span className="text-[10px] font-bold uppercase text-emerald-600">{item.estadoConservacao}</span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto shrink-0">
                     {allowedSalas.length > 1 && (
                       <select
-                        className="p-2 border border-slate-200 rounded-lg text-xs font-medium bg-white outline-none focus:ring-2 focus:ring-blue-500"
+                        className="p-2.5 sm:p-2 border border-slate-200 rounded-lg text-xs font-medium bg-white outline-none focus:ring-2 focus:ring-blue-500 w-full sm:w-auto"
                         value={salaDestinoPorChapa[item.chapa] || ''}
                         onChange={e => setSalaDestinoPorChapa(prev => ({ ...prev, [item.chapa]: e.target.value }))}
                       >
@@ -439,7 +439,7 @@ export default function PatrimonioSalas() {
                     <button
                       onClick={() => handleAlocar(item.chapa)}
                       disabled={actionLoading === item.chapa || allowedSalas.length === 0}
-                      className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-[11px] uppercase transition-colors disabled:opacity-50"
+                      className="flex items-center justify-center gap-2 px-4 py-3 sm:py-2.5 w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-[11px] uppercase transition-colors disabled:opacity-50"
                     >
                       {actionLoading === item.chapa ? <Loader2 size={14} className="animate-spin" /> : <ArrowRightLeft size={14} />}
                       Alocar
@@ -466,18 +466,18 @@ export default function PatrimonioSalas() {
           <div className="divide-y divide-slate-50">
             {salas.map(sala => (
               <div key={sala.id} className="p-4 flex items-center justify-between gap-3">
-                <div>
-                  <p className="font-bold text-slate-800">{sala.nome}</p>
-                  {sala.descricao && <p className="text-xs text-slate-400">{sala.descricao}</p>}
+                <div className="min-w-0">
+                  <p className="font-bold text-slate-800 truncate">{sala.nome}</p>
+                  {sala.descricao && <p className="text-xs text-slate-400 truncate">{sala.descricao}</p>}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   <span className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-full ${sala.ativa ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
                     {sala.ativa ? 'Ativa' : 'Inativa'}
                   </span>
                   {sala.ativa && (
                     <button
                       onClick={() => handleDesativarSala(sala)}
-                      className="p-2 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-lg transition-colors"
+                      className="p-2.5 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-lg transition-colors"
                       title="Desativar sala"
                     >
                       <Trash2 size={16} />
@@ -508,36 +508,61 @@ export default function PatrimonioSalas() {
               <p className="text-sm">Nenhuma movimentação registrada ainda.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-50">
-                    {['Data', 'Chapa', 'Item', 'Evento', 'Sala', 'Usuário'].map(h => (
-                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {historico.map(h => (
-                    <tr key={h.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{formatDate(h.dataEvento)}</td>
-                      <td className="px-4 py-3 font-mono text-slate-600">{h.chapa}</td>
-                      <td className="px-4 py-3 text-slate-700 max-w-xs truncate">{h.descricaoItem}</td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          h.tipoEvento === 'ALOCACAO' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
-                        }`}>
-                          {h.tipoEvento === 'ALOCACAO' ? <ArrowRightLeft size={11} /> : <Undo2 size={11} />}
-                          {h.tipoEvento === 'ALOCACAO' ? 'Alocação' : 'Devolução'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">{h.salaNome}</td>
-                      <td className="px-4 py-3 text-slate-600">{h.usuarioNome}</td>
+            <>
+              {/* Cartões — telas pequenas (evita scroll horizontal de tabela) */}
+              <div className="sm:hidden divide-y divide-slate-50">
+                {historico.map(h => (
+                  <div key={h.id} className="p-4 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium shrink-0 ${
+                        h.tipoEvento === 'ALOCACAO' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {h.tipoEvento === 'ALOCACAO' ? <ArrowRightLeft size={11} /> : <Undo2 size={11} />}
+                        {h.tipoEvento === 'ALOCACAO' ? 'Alocação' : 'Devolução'}
+                      </span>
+                      <span className="text-xs text-slate-400 whitespace-nowrap">{formatDate(h.dataEvento)}</span>
+                    </div>
+                    <p className="font-medium text-slate-800 break-words">{h.descricaoItem}</p>
+                    <p className="text-xs text-slate-500">
+                      <span className="font-mono">{h.chapa}</span> · {h.salaNome}
+                    </p>
+                    <p className="text-xs text-slate-400">Por {h.usuarioNome}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Tabela — telas médias/grandes */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50">
+                      {['Data', 'Chapa', 'Item', 'Evento', 'Sala', 'Usuário'].map(h => (
+                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {historico.map(h => (
+                      <tr key={h.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{formatDate(h.dataEvento)}</td>
+                        <td className="px-4 py-3 font-mono text-slate-600">{h.chapa}</td>
+                        <td className="px-4 py-3 text-slate-700 max-w-xs truncate">{h.descricaoItem}</td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            h.tipoEvento === 'ALOCACAO' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+                          }`}>
+                            {h.tipoEvento === 'ALOCACAO' ? <ArrowRightLeft size={11} /> : <Undo2 size={11} />}
+                            {h.tipoEvento === 'ALOCACAO' ? 'Alocação' : 'Devolução'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">{h.salaNome}</td>
+                        <td className="px-4 py-3 text-slate-600">{h.usuarioNome}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       )}
