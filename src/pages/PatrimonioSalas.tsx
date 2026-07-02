@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { addTimbradoAllPages } from '../lib/pdfTimbrado';
+import { addTimbradoAllPages, TIMBRADO_HEADER_H, TIMBRADO_FOOTER_H } from '../lib/pdfTimbrado';
 
 const SHEET_URL = import.meta.env.VITE_VISITAS_SHEET_URL as string;
 
@@ -270,6 +270,9 @@ export default function PatrimonioSalas() {
         headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' },
         styles: { fontSize: 9, cellPadding: 3 },
         alternateRowStyles: { fillColor: [248, 250, 252] },
+        // Reserva espaço em toda página de continuação para o timbrado não cobrir
+        // as primeiras/últimas linhas quando a tabela quebra para a página seguinte.
+        margin: { top: TIMBRADO_HEADER_H + 6, bottom: TIMBRADO_FOOTER_H + 6 },
       });
 
       addTimbradoAllPages(doc);
