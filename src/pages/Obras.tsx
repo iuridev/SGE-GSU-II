@@ -9,7 +9,7 @@ import {
   CheckCircle2,
   Hammer, LayoutDashboard, List,
   FileDown, PauseCircle, ShieldAlert, ExternalLink, RefreshCw,
-  HardHat, CalendarDays, User, Tag
+  HardHat, CalendarDays, User, Tag, FileText, X, Printer, FileWarning
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import { addTimbradoAllPages } from '../lib/pdfTimbrado';
@@ -34,6 +34,7 @@ interface SheetWork {
   fiscal?: string;
   status: string;
   dataInicio?: string;
+  detalhamento?: string;
   matchedSchoolId?: string;
   matchedSchoolName?: string;
 }
@@ -88,6 +89,12 @@ function normalizeStatus(status: string): 'EM ANDAMENTO' | 'CONCLUÍDO' | 'PARAL
   return 'EM ANDAMENTO';
 }
 
+function getDriveEmbedUrl(url: string): string {
+  const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (match) return `https://drive.google.com/file/d/${match[1]}/preview`;
+  return url;
+}
+
 function getStatusInfo(status: string) {
   const n = normalizeStatus(status);
   if (n === 'CONCLUÍDO')  return { label: 'Concluída',   dot: 'bg-emerald-400', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200',  bar: 'bg-emerald-400', rawStatus: 'concluido' };
@@ -109,7 +116,15 @@ export function Obras() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('TODOS');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
+  const [detalheModal, setDetalheModal] = useState<{ url: string; title: string } | null>(null);
   const chartsRef = useRef<HTMLDivElement>(null);
+
+  function openDetalhamento(work: SheetWork) {
+    setDetalheModal({
+      url: work.detalhamento ? work.detalhamento.trim() : '',
+      title: work.matchedSchoolName || work.escola,
+    });
+  }
 
   useEffect(() => { fetchInitialData(); }, []);
 
@@ -157,6 +172,7 @@ export function Obras() {
         fiscal:     headers.findIndex(h => h.includes('fiscal')),
         status:     headers.findIndex(h => h.includes('status')),
         dataInicio: headers.findIndex(h => h.includes('inicio') || (h.includes('data') && h.includes('in'))),
+        detalhamento: headers.findIndex(h => h.includes('detalhamento')),
       };
       if (idx.dataInicio < 0) idx.dataInicio = headers.findIndex(h => h.startsWith('data'));
 
@@ -177,6 +193,7 @@ export function Obras() {
           fiscal:     idx.fiscal >= 0     ? v[idx.fiscal]     || '' : '',
           status:     idx.status >= 0     ? v[idx.status]     || '' : '',
           dataInicio: idx.dataInicio >= 0 ? v[idx.dataInicio] || '' : '',
+          detalhamento: idx.detalhamento >= 0 ? v[idx.detalhamento] || '' : '',
           matchedSchoolId:   matched?.id,
           matchedSchoolName: matched?.name || escola,
         });
@@ -544,6 +561,7 @@ export function Obras() {
                     <th className="px-4 py-3.5 border-b border-stone-100">Fiscal</th>
                     <th className="px-4 py-3.5 border-b border-stone-100">Início</th>
                     <th className="px-4 py-3.5 border-b border-stone-100">Status</th>
+                    <th className="px-4 py-3.5 border-b border-stone-100">Detalhamento</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -590,11 +608,18 @@ export function Obras() {
                             </div>
                           ) : <span className="text-zinc-300">—</span>}
                         </td>
-                        <td className="px-4 py-4 pr-6">
+                        <td className="px-4 py-4">
                           <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold border ${si.badge}`}>
                             <div className={`w-1.5 h-1.5 rounded-full ${si.dot} ${si.rawStatus === 'andamento' ? 'animate-pulse' : ''}`} />
                             {si.label}
                           </div>
+                        </td>
+                        <td className="px-4 py-4 pr-6">
+                          <button onClick={() => openDetalhamento(work)}
+                            className="flex items-center gap-1.5 bg-stone-50 hover:bg-orange-50 text-zinc-600 hover:text-orange-700 border border-stone-200 hover:border-orange-200 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors">
+                            <FileText size={12} />
+                            Detalhamento
+                          </button>
                         </td>
                       </tr>
                     );
@@ -659,6 +684,12 @@ export function Obras() {
                           </div>
                         )}
                       </div>
+
+                      <button onClick={() => openDetalhamento(work)}
+                        className="flex items-center justify-center gap-1.5 w-full mt-3.5 pt-3.5 border-t border-stone-100 text-zinc-500 hover:text-orange-700 text-xs font-bold transition-colors">
+                        <FileText size={13} />
+                        Detalhamento
+                      </button>
                     </div>
                   </div>
                 );
@@ -667,6 +698,49 @@ export function Obras() {
           )}
         </div>
       </div>
+
+      {/* ── DETALHAMENTO MODAL ── */}
+      {detalheModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          onClick={() => setDetalheModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-stone-100 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText size={16} className="text-orange-500 shrink-0" />
+                <h3 className="font-bold text-zinc-800 text-sm truncate">{detalheModal.title}</h3>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {detalheModal.url && (
+                  <a href={detalheModal.url} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors">
+                    <Printer size={13} />
+                    Imprimir
+                  </a>
+                )}
+                <button onClick={() => setDetalheModal(null)}
+                  className="p-1.5 hover:bg-stone-100 text-zinc-400 hover:text-zinc-700 rounded-lg transition-colors">
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 bg-stone-50 overflow-hidden">
+              {detalheModal.url ? (
+                <iframe src={getDriveEmbedUrl(detalheModal.url)} className="w-full h-full border-0" title="Detalhamento da obra" />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full gap-3 px-8 text-center">
+                  <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center">
+                    <FileWarning className="text-amber-500" size={26} />
+                  </div>
+                  <p className="text-sm font-semibold text-zinc-600 max-w-sm">
+                    Nenhum arquivo indexado, procure o SEOM desta unidade Regional de Ensino.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
