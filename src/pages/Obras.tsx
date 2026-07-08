@@ -41,24 +41,43 @@ interface SheetWork {
 
 // --- Utilities ---
 
-function parseCSVLine(line: string): string[] {
-  const result: string[] = [];
-  let cur = '';
+// Parses the whole CSV text at once (not pre-split by "\n") so that quoted
+// fields containing embedded newlines (e.g. Alt+Enter cells in Sheets)
+// don't break a single logical row into two.
+function parseCSV(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
   let inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (c === '"') {
-      if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
-      else inQ = !inQ;
-    } else if (c === ',' && !inQ) {
-      result.push(cur.trim());
-      cur = '';
+  const src = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (inQ) {
+      if (c === '"') {
+        if (src[i + 1] === '"') { field += '"'; i++; }
+        else inQ = false;
+      } else {
+        field += c;
+      }
+    } else if (c === '"') {
+      inQ = true;
+    } else if (c === ',') {
+      row.push(field.trim());
+      field = '';
+    } else if (c === '\n') {
+      row.push(field.trim());
+      rows.push(row);
+      row = [];
+      field = '';
     } else {
-      cur += c;
+      field += c;
     }
   }
-  result.push(cur.trim());
-  return result;
+  if (field.length > 0 || row.length > 0) {
+    row.push(field.trim());
+    rows.push(row);
+  }
+  return rows;
 }
 
 function normalizeForMatch(s: string): string {
@@ -154,10 +173,10 @@ export function Obras() {
       const res = await fetch(SHEET_CSV_URL, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const text = await res.text();
-      const lines = text.replace(/\r/g, '').split('\n');
-      if (lines.length < 2) return;
+      const csvRows = parseCSV(text);
+      if (csvRows.length < 2) return;
 
-      const rawHeaders = parseCSVLine(lines[0]);
+      const rawHeaders = csvRows[0];
       const headers = rawHeaders.map(h =>
         h.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/"/g, '').trim()
       );
@@ -177,9 +196,9 @@ export function Obras() {
       if (idx.dataInicio < 0) idx.dataInicio = headers.findIndex(h => h.startsWith('data'));
 
       const rows: SheetWork[] = [];
-      for (let i = 1; i < lines.length; i++) {
-        if (!lines[i].trim()) continue;
-        const v = parseCSVLine(lines[i]);
+      for (let i = 1; i < csvRows.length; i++) {
+        const v = csvRows[i];
+        if (!v.some(cell => cell.trim())) continue;
         const escola = idx.escola >= 0 ? (v[idx.escola] || '') : '';
         if (!escola) continue;
         const matched = matchSchool(escola, schools);
