@@ -556,11 +556,11 @@ export function Obras() {
                           <div className={`w-1 h-10 rounded-full ${si.bar}`} />
                         </td>
                         <td className="px-4 py-4 max-w-xs">
-                          <p className="font-bold text-zinc-800 text-sm leading-snug">{work.obra}</p>
-                          <p className="text-xs text-zinc-400 flex items-center gap-1 mt-1">
-                            <Building2 size={10} className="shrink-0" />
+                          <p className="font-bold text-zinc-800 text-sm leading-snug flex items-center gap-1.5">
+                            <Building2 size={12} className="shrink-0 text-zinc-400" />
                             <span className="truncate">{work.matchedSchoolName || work.escola}</span>
                           </p>
+                          <p className="text-xs text-zinc-400 mt-1 leading-snug">{work.obra}</p>
                           {(work.sei || work.integra || work.pi) && (
                             <div className="flex flex-wrap gap-1 mt-1.5">
                               {work.sei     && <span className="inline-flex items-center gap-1 text-[9px] bg-zinc-100 text-zinc-500 px-1.5 py-0.5 rounded font-mono"><Tag size={7} />SEI: {work.sei}</span>}
@@ -621,11 +621,11 @@ export function Obras() {
                       {/* header row */}
                       <div className="flex items-start justify-between gap-3 mb-4">
                         <div className="flex-1 min-w-0">
-                          <h4 className="font-bold text-zinc-800 text-sm leading-snug line-clamp-2">{work.obra}</h4>
-                          <p className="text-xs text-zinc-400 flex items-center gap-1 mt-1.5">
-                            <Building2 size={10} className="shrink-0" />
+                          <h4 className="font-bold text-zinc-800 text-sm leading-snug line-clamp-2 flex items-center gap-1.5">
+                            <Building2 size={12} className="shrink-0 text-zinc-400" />
                             <span className="truncate">{work.matchedSchoolName || work.escola}</span>
-                          </p>
+                          </h4>
+                          <p className="text-xs text-zinc-400 mt-1.5 leading-snug line-clamp-2">{work.obra}</p>
                         </div>
                         <div className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${si.badge}`}>
                           <div className={`w-1.5 h-1.5 rounded-full ${si.dot} ${si.rawStatus === 'andamento' ? 'animate-pulse' : ''}`} />
