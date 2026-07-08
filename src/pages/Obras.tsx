@@ -282,6 +282,9 @@ export function Obras() {
         statusFilter === 'ANDAMENTO'  ? normSt === 'EM ANDAMENTO' :
         statusFilter === 'PARALISADO' ? normSt === 'PARALISADO' : true;
       return matchesSearch && matchesFilter;
+    }).sort((a, b) => {
+      const rank = (w: SheetWork) => normalizeStatus(w.status) === 'EM ANDAMENTO' ? 0 : 1;
+      return rank(a) - rank(b);
     });
   }, [sheetWorks, searchTerm, statusFilter]);
 
