@@ -14,7 +14,10 @@
       "Bash(supabase --version)",
       "Bash(git add *)",
       "Bash(git commit -m 'fix: remove unused React import in AgendaPublica *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "PowerShell(Test-Path \"$env:APPDATA\\\\supabase\"; Get-ChildItem \"$env:APPDATA\\\\supabase\" -ErrorAction SilentlyContinue)",
+      "PowerShell(Test-Path \"$env:LOCALAPPDATA\\\\supabase\"; Test-Path \"$env:USERPROFILE\\\\.config\\\\supabase\")",
+      "PowerShell(supabase functions list 2>&1)"
     ]
   }
 }

@@ -104,24 +104,6 @@ const MENU_GROUPS: MenuGroup[] = [
     ]
   },
   {
-    title: 'ATENDIMENTO',
-    items: [
-      { id: 'chat', label: 'Chat', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager', 'dirigente'] },
-      { id: 'chamados', label: 'Central de Chamados', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
-      { id: 'demandas', label: 'Demandas / E-mails', icon: <AlertTriangle size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager', 'dirigente'] },
-    ]
-  },
-  {
-    title: 'GESTÃO DA URE',
-    items: [
-      { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
-      //{ id: 'ambientes', label: 'Reservas Antigo', icon: <Building size={20} />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
-      { id: 'carros', label: 'Carros Oficiais', icon: <Car size={20} />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
-      { id: 'estacionamento', label: 'Controle de Estacionamento', icon: <Car size={20} className="text-indigo-400" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
-      { id: 'reunioes', label: 'Calendário', icon: <Calendar size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
-    ]
-  },
-  {
     title: 'INFRAESTRUTURA',
     items: [
       //{ id: 'vistorias-prediais-dashboard', label: 'BI Predial', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec', 'school_manager'] },
@@ -157,6 +139,24 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'furtos', label: 'Cadastro de Furtos', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
       { id: 'patrimonio-salas', label: 'Salas de Trabalho', icon: <DoorOpen size={20} className="text-teal-500" />, roles: ['regional_admin', 'ure_servico'] },
       //{ id: 'listchapa', label: 'Listar Patrimônio', icon: <Package size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+    ]
+  },
+  {
+    title: 'ATENDIMENTO',
+    items: [
+      { id: 'chat', label: 'Chat', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager', 'dirigente'] },
+      { id: 'chamados', label: 'Central de Chamados', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+      { id: 'demandas', label: 'Demandas / E-mails', icon: <AlertTriangle size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager', 'dirigente'] },
+    ]
+  },
+  {
+    title: 'GESTÃO DA URE',
+    items: [
+      { id: 'ambientes-novo', label: 'Reservas Ambiente NOVO', icon: <Building size={20} className="text-emerald-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
+      //{ id: 'ambientes', label: 'Reservas Antigo', icon: <Building size={20} />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
+      { id: 'carros', label: 'Carros Oficiais', icon: <Car size={20} />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
+      { id: 'estacionamento', label: 'Controle de Estacionamento', icon: <Car size={20} className="text-indigo-400" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
+      { id: 'reunioes', label: 'Calendário', icon: <Calendar size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
     ]
   },
   {
