@@ -205,7 +205,7 @@ export function Login() {
 
         const role = profileData.role;
 
-        if (role === 'regional_admin' || role === 'school_manager' || role === 'supervisor' || role === 'dirigente'|| role === 'ure_servico'|| role === 'ure_ecc') {
+        if (role === 'regional_admin' || role === 'school_manager' || role === 'supervisor' || role === 'dirigente'|| role === 'ure_servico'|| role === 'ure_ecc' || role === 'chefe_departamento') {
           window.location.href = '/painel-regional';
         } else {
           await supabase.auth.signOut();
