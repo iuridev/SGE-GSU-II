@@ -47,6 +47,31 @@ interface UpcomingEvent {
   schools?: { name: string };
 }
 
+const MONTHS_SHORT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+// Registros de consumo de água só passam a ser cobrados a partir deste mês.
+const WATER_REPORTING_HARD_START = new Date(2026, 4, 1); // Maio/2026
+
+interface PendingWaterSchoolMonth {
+  year: number;
+  month: number;
+  missingDays: number;
+}
+
+interface PendingWaterSchool {
+  id: string;
+  name: string;
+  months: PendingWaterSchoolMonth[];
+  totalMissingDays: number;
+}
+
+function formatDateToYMD(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 const EVENT_TYPE_STYLES: Record<string, { bar: string; bg: string; text: string; label: string }> = {
   REUNIAO:          { bar: 'bg-indigo-500',  bg: 'bg-indigo-50',  text: 'text-indigo-600',  label: 'Reunião' },
   VISITA_TECNICA:   { bar: 'bg-emerald-500', bg: 'bg-emerald-50', text: 'text-emerald-600', label: 'Visita Técnica' },
@@ -131,6 +156,12 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   const comunicadosRafRef = useRef<number>(0);
   const comunicadosPausedRef = useRef(false);
 
+  const [pendingWaterSchools, setPendingWaterSchools] = useState<PendingWaterSchool[]>([]);
+  const [loadingPendingWater, setLoadingPendingWater] = useState(true);
+  const pendingWaterScrollRef = useRef<HTMLDivElement>(null);
+  const pendingWaterRafRef = useRef<number>(0);
+  const pendingWaterPausedRef = useRef(false);
+
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const markersLayerRef = useRef<any>(null);
@@ -169,6 +200,55 @@ export function Dashboard({ onNavigate }: DashboardProps) {
     if (next < 0) next += half;
     if (next >= half) next -= half;
     el.scrollLeft = next;
+  }
+
+  useEffect(() => {
+    if (pendingWaterSchools.length === 0) return;
+    const el = pendingWaterScrollRef.current;
+    if (!el) return;
+    const node = el;
+    const SPEED = 40;
+    let last = 0;
+    function tick(ts: number) {
+      if (!pendingWaterPausedRef.current) {
+        const dt = last ? (ts - last) / 1000 : 0;
+        node.scrollLeft += SPEED * dt;
+        if (node.scrollLeft >= node.scrollWidth / 2) node.scrollLeft -= node.scrollWidth / 2;
+      }
+      last = ts;
+      pendingWaterRafRef.current = requestAnimationFrame(tick);
+    }
+    pendingWaterRafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(pendingWaterRafRef.current);
+  }, [pendingWaterSchools]);
+
+  async function fetchPendingWaterSchools() {
+    setLoadingPendingWater(true);
+    try {
+      const today = new Date();
+      const sixMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 5, 1);
+      const windowStart = sixMonthsAgo > WATER_REPORTING_HARD_START ? sixMonthsAgo : WATER_REPORTING_HARD_START;
+
+      const { data, error } = await (supabase as any).rpc('get_pending_water_schools', {
+        p_window_start: formatDateToYMD(windowStart),
+        p_today: formatDateToYMD(today)
+      });
+      if (error) throw error;
+
+      const map: Record<string, PendingWaterSchool> = {};
+      (data || []).forEach((row: any) => {
+        if (!map[row.school_id]) {
+          map[row.school_id] = { id: row.school_id, name: row.school_name, months: [], totalMissingDays: 0 };
+        }
+        map[row.school_id].months.push({ year: row.year, month: row.month, missingDays: row.missing_days });
+        map[row.school_id].totalMissingDays += row.missing_days;
+      });
+      setPendingWaterSchools(Object.values(map).sort((a, b) => b.totalMissingDays - a.totalMissingDays));
+    } catch (error) {
+      console.error('Erro ao buscar escolas pendentes de consumo de água:', error);
+    } finally {
+      setLoadingPendingWater(false);
+    }
   }
 
   async function fetchComunicados() {
@@ -309,6 +389,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         }
 
         await fetchUpcomingEvents();
+        await fetchPendingWaterSchools();
       }
     } catch (error) { console.error(error); } finally { setLoading(false); }
   }
@@ -582,6 +663,67 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           </div>
         </button>
       </div>
+
+      {/* ── PENDÊNCIAS DE CONSUMO DE ÁGUA ── */}
+      {(loadingPendingWater || pendingWaterSchools.length > 0) && (
+        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2 bg-red-50 rounded-xl text-red-600 shrink-0">
+                <Droplets size={18} />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-base font-extrabold text-slate-800 leading-none">Pendências no Registro de Água</h2>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                  Desde Maio/2026 · últimos 6 meses
+                  {!loadingPendingWater && pendingWaterSchools.length > 0 && (
+                    <> · <span className="text-red-500">{pendingWaterSchools.length} escola{pendingWaterSchools.length !== 1 ? 's' : ''}</span></>
+                  )}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => onNavigate?.('consumo')}
+              className="flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-white bg-blue-50 hover:bg-blue-600 px-4 py-2.5 rounded-xl transition-all shrink-0"
+            >
+              Registrar <ChevronRight size={14} />
+            </button>
+          </div>
+
+          {loadingPendingWater ? (
+            <div className="flex gap-3 overflow-x-auto px-6 py-4">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="flex-shrink-0 w-64 h-16 rounded-2xl bg-slate-100 animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            <div
+              className="relative"
+              onMouseEnter={() => { pendingWaterPausedRef.current = true; }}
+              onMouseLeave={() => { pendingWaterPausedRef.current = false; }}
+            >
+              <div ref={pendingWaterScrollRef} className="overflow-x-hidden flex px-6 py-4">
+                {[...pendingWaterSchools, ...pendingWaterSchools].map((s, idx) => (
+                  <div
+                    key={`${s.id}-${idx}`}
+                    className="flex-shrink-0 flex items-center gap-3 bg-red-50/70 border border-red-100 rounded-2xl px-4 py-3 mr-3 min-w-[270px]"
+                  >
+                    <div className="p-2 bg-red-100 rounded-lg text-red-600 shrink-0">
+                      <AlertTriangle size={16} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-slate-800 truncate">{s.name}</p>
+                      <p className="text-[11px] text-red-600 font-semibold mt-0.5 truncate">
+                        {s.months.map(m => MONTHS_SHORT[m.month - 1]).join(', ')} · {s.totalMissingDays} dia{s.totalMissingDays !== 1 ? 's' : ''} sem registro
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── CARD ESCOLA (school_manager) ── */}
       {isSchoolManager && schoolName && (
