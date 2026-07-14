@@ -829,8 +829,11 @@ export function ConsumoAgua() {
     // 2. Se não encontrar, tenta com meter_id = NULL (dados legados migrados)
     // 3. Ignora registros de suspensão (reading_m3 = 0 quando suspension)
     //    usando .gt('reading_m3', 0) — suspensões sempre têm reading_m3 copiado
-    //    da leitura anterior, mas consumption_diff = 0. Para garantir que não é
-    //    uma suspensão, também ignoramos registros com student_count = 0 AND staff_count = 0.
+    //    da leitura anterior, mas consumption_diff = 0. Para identificar suspensão,
+    //    usamos o prefixo da justification (não student_count/staff_count === 0:
+    //    isso também acontece em registros reais de recesso/férias feitos por
+    //    admin/dirigente, e excluí-los aqui fazia a leitura anterior "voltar"
+    //    para uma data mais antiga, inflando o consumo calculado no dia seguinte).
     // A query usa range para não depender do limite padrão do Supabase (1000 linhas).
     const fetchPrevReading = async (): Promise<number> => {
       const baseQuery = () =>
@@ -840,7 +843,7 @@ export function ConsumoAgua() {
           .eq('school_id', selectedSchoolId)
           .lt('date', dateStr)
           .gt('reading_m3', 0)
-          .or('student_count.gt.0,staff_count.gt.0') // exclui suspensões puras
+          .or('justification.is.null,justification.not.like.Suspensão de Expediente:%')
           .order('date', { ascending: false })
           .range(0, 0); // equivale a LIMIT 1, mas explícito e sem depender do default
 
@@ -976,7 +979,7 @@ export function ConsumoAgua() {
         let cascadeReading = finalReading;
 
         for (const futureLog of futureLogs) {
-          const isFutureSuspension = futureLog.student_count === 0 && futureLog.staff_count === 0;
+          const isFutureSuspension = futureLog.justification?.startsWith('Suspensão de Expediente:') ?? false;
 
           if (isFutureSuspension) {
             logsToUpdate.push({ id: futureLog.id, reading_m3: cascadeReading, consumption_diff: 0, limit_exceeded: false });
