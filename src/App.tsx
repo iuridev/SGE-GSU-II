@@ -2,6 +2,7 @@ import { App as CapApp } from '@capacitor/app';
 import React, { useState, useEffect, useRef } from 'react';
 //import { useNavigate } from 'react-router-dom';
 import { supabase } from './lib/supabase';
+import { resolveViewRole, isReadOnlyRole } from './lib/roles';
 import {
   LayoutDashboard, Waves, ShieldCheck, ArrowRightLeft,
   Building2, UserCog, LogOut, Menu,
@@ -191,6 +192,7 @@ export default function App() {
   //const navigate = useNavigate();
   const [session, setSession] = useState<any>(null);
   const [userRole, setUserRole] = useState<string>('');
+  const [isReadOnlyUser, setIsReadOnlyUser] = useState(false);
   const [currentPage, setCurrentPage] = useState(() => localStorage.getItem('sge_page') || 'dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -464,11 +466,14 @@ export default function App() {
     try {
       const { data } = await (supabase as any).from('profiles').select('role').eq('id', userId).single();
       if (data && data.role) {
-        setUserRole(data.role);
+        setIsReadOnlyUser(isReadOnlyRole(data.role));
+        setUserRole(resolveViewRole(data.role));
       } else {
+        setIsReadOnlyUser(false);
         setUserRole('escola');
       }
     } catch (error) {
+      setIsReadOnlyUser(false);
       setUserRole('escola');
     } finally {
       setLoading(false);
@@ -765,10 +770,16 @@ export default function App() {
                    {session.user.email?.split('@')[0]}
                  </p>
                  <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mt-0.5">
-                   {userRole === 'regional_admin' ? 'Administrador' :
+                   {isReadOnlyUser ? 'Chefe de Departamento' :
+                    userRole === 'regional_admin' ? 'Administrador' :
                     userRole === 'supervisor' ? 'Supervisor' :
                     userRole === 'dirigente' ? 'Dirigente' : 'Gestor Unidade'}
                  </p>
+                 {isReadOnlyUser && (
+                   <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest mt-0.5">
+                     Somente Leitura
+                   </p>
+                 )}
                </div>
                <div className="w-10 h-10 bg-slate-100 rounded-full border-2 border-white shadow-sm flex items-center justify-center font-black text-blue-600">
                  {session.user.email?.charAt(0).toUpperCase()}

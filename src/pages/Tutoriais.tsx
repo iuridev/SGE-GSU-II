@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 import {
   BookOpen, Plus, Search, FileText, ExternalLink,
   Trash2, Edit, X, Save, Loader2,
@@ -111,7 +112,7 @@ export function Tutoriais() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { data: profile } = await (supabase as any).from('profiles').select('role').eq('id', user.id).single();
-        setUserRole(profile?.role || '');
+        setUserRole(resolveViewRole(profile?.role || ''));
       }
       const { data } = await (supabase as any).from('manuals').select('*').order('title');
       setManuals(data || []);

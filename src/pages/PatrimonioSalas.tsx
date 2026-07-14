@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 import {
   Package, Search, DoorOpen, ArrowRightLeft, History, Plus, X,
   Loader2, RefreshCw, ExternalLink, CheckCircle2, Undo2, AlertCircle,
@@ -86,7 +87,7 @@ export default function PatrimonioSalas() {
           .select('role, salas_trabalho')
           .eq('id', user.id)
           .single();
-        setUserRole(profile?.role || '');
+        setUserRole(resolveViewRole(profile?.role || ''));
         setUserSalasTrabalho(profile?.salas_trabalho || []);
       }
       await Promise.all([fetchItens(), fetchSalas()]);

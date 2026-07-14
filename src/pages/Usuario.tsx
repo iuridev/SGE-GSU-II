@@ -11,7 +11,7 @@ interface Profile {
   id: string;
   full_name: string;
   email?: string;
-  role: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc'; // ATUALIZADO
+  role: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc' | 'chefe_departamento'; // ATUALIZADO
   school_id: string | null;
   supervisor_schools?: string[] | null;
   salas_trabalho?: string[] | null;
@@ -44,7 +44,7 @@ export function Usuario() {
     full_name: '',
     email: '',
     password: '',
-    role: 'school_manager' as 'regional_admin' | 'school_manager' | 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc', // ATUALIZADO
+    role: 'school_manager' as 'regional_admin' | 'school_manager' | 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc' | 'chefe_departamento', // ATUALIZADO
     school_id: '',
     supervisor_schools: [] as string[],
     salas_trabalho: [] as string[]
@@ -345,7 +345,8 @@ export function Usuario() {
                   <td className="px-6 py-4">
                     {/* VISUALIZAÇÃO DOS NOVOS TIPOS DE USUÁRIO */}
                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border ${
-                      user.role === 'regional_admin' ? 'bg-blue-50 text-blue-700 border-blue-100' : 
+                      user.role === 'chefe_departamento' ? 'bg-slate-100 text-slate-600 border-slate-200' :
+                      user.role === 'regional_admin' ? 'bg-blue-50 text-blue-700 border-blue-100' :
                       user.role === 'dirigente' ? 'bg-purple-50 text-purple-700 border-purple-100' :
                       user.role === 'supervisor' ? 'bg-orange-50 text-orange-700 border-orange-100' :
                       user.role === 'ure_servico' ? 'bg-amber-50 text-amber-700 border-amber-100' :
@@ -353,10 +354,11 @@ export function Usuario() {
                       'bg-emerald-50 text-emerald-700 border-emerald-100'
                     }`}>
                       {user.role === 'regional_admin' ? <ShieldCheck size={12}/> : <UserCheck size={12}/>}
-                      
-                      {user.role === 'regional_admin' ? 'Regional' : 
+
+                      {user.role === 'chefe_departamento' ? 'Chefe Depto.' :
+                       user.role === 'regional_admin' ? 'Regional' :
                        user.role === 'dirigente' ? 'Dirigente' :
-                       user.role === 'supervisor' ? 'Supervisor' : 
+                       user.role === 'supervisor' ? 'Supervisor' :
                        user.role === 'ure_servico' ? 'Serviços URE' :
                        user.role === 'ure_ecc' ? 'Especialista' :
                        'Gestor'}
@@ -518,7 +520,13 @@ export function Usuario() {
                     {/* AS DUAS NOVAS OPÇÕES AQUI */}
                     <option value="ure_servico">Serviços da URE</option>
                     <option value="ure_ecc">Professores Especialistas</option>
+                    <option value="chefe_departamento">Chefe de Departamento (Somente Leitura)</option>
                   </select>
+                  {formData.role === 'chefe_departamento' && (
+                    <p className="text-[11px] text-slate-500 font-medium mt-1.5">
+                      Este perfil enxerga o sistema inteiro como um Admin Regional, mas não consegue criar, editar ou excluir nada — a escrita é bloqueada no banco de dados.
+                    </p>
+                  )}
                 </div>
 
                 {formData.role === 'school_manager' && (

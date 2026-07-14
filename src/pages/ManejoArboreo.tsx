@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 import {
   TreePine,
   TreeDeciduous,
@@ -246,7 +247,7 @@ export default function ManejoArboreo() {
           .eq('id', session.user.id)
           .single();
         if (profile) {
-          setUserRole((profile as any).role);
+          setUserRole(resolveViewRole((profile as any).role));
           setUserSchoolId((profile as any).school_id);
         }
       }

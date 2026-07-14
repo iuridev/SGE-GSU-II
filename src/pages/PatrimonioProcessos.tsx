@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 import {
   Package, Plus, Search, FileText,
   Trash2, Edit, X, Save, Loader2,
@@ -123,7 +124,7 @@ export function PatrimonioProcessos() {
 
       if (user) {
         const { data: profile } = await (supabase as any).from('profiles').select('role, school_id').eq('id', user.id).single();
-        role = profile?.role || '';
+        role = resolveViewRole(profile?.role || '');
         schoolId = profile?.school_id || null;
         setUserRole(role);
         setUserSchoolId(schoolId);

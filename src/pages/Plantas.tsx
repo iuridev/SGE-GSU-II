@@ -4,6 +4,7 @@ import {
   Loader2, X, Trash2, Edit2, Search, AlertCircle
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 
 interface School {
   id: string;
@@ -66,7 +67,7 @@ export default function Plantas() {
           .single();
           
         if (profile) {
-          role = profile.role;
+          role = resolveViewRole(profile.role);
           schoolId = profile.school_id;
           setUserRole(role);
           setUserSchoolId(schoolId);

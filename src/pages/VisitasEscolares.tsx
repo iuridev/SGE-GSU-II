@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 import {
   Plus, Search, X, Loader2, School, CalendarDays, Target,
   MapPin, BarChart3, TrendingUp, Users, RefreshCw, ExternalLink,
@@ -82,7 +83,7 @@ export default function VisitasEscolares() {
           .eq('id', user.id)
           .single();
         setVisitante(profile?.full_name || user.email || 'Usuário');
-        setUserRole(profile?.role || '');
+        setUserRole(resolveViewRole(profile?.role || ''));
       }
     } catch (e) {
       console.error(e);

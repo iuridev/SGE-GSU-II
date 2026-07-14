@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 import { TimbradoHeader, TimbradoFooter } from '../components/TimbradoPDF';
 import { 
   ShieldAlert, Leaf, Plus, FileText, 
@@ -156,9 +157,10 @@ export default function EducacaoPatrimonial() {
           
           if (profileData && !error) {
             const profile = profileData as UserProfile;
-            setUserRole(profile.role);
+            const effectiveRole = resolveViewRole(profile.role);
+            setUserRole(effectiveRole);
             setUserSchoolId(profile.school_id);
-            await loadAllData(profile.role, profile.school_id);
+            await loadAllData(effectiveRole, profile.school_id);
           }
         }
       } catch (error) {

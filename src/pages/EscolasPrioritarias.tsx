@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 import {
   Search, Loader2, ShieldAlert, RefreshCw, ArrowUpRight, Lock, AlertCircle, CheckCircle2,
   ExternalLink, FileText, Table2
@@ -51,9 +52,10 @@ export function EscolasPrioritarias() {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-      setUserRole(profile?.role || '');
-      
-      if (profile?.role === 'regional_admin') {
+      const effectiveRole = resolveViewRole(profile?.role || '');
+      setUserRole(effectiveRole);
+
+      if (effectiveRole === 'regional_admin') {
         const { data: dbParams } = await supabase.from('ranking_parameters').select('*').limit(1).single();
         if (dbParams) {
           const newConfig = {

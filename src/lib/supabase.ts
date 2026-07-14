@@ -8,7 +8,7 @@ export type Database = {
         Row: {
           id: string;
           full_name: string | null;
-          role: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc';
+          role: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc' | 'chefe_departamento';
           school_id: string | null;
           supervisor_schools: string[] | null;
           salas_trabalho: string[] | null;
@@ -17,14 +17,14 @@ export type Database = {
         Insert: {
           id: string;
           full_name?: string | null;
-          role?: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc';
+          role?: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc' | 'chefe_departamento';
           school_id?: string | null;
           supervisor_schools: string[] | null;
           salas_trabalho?: string[] | null;
         };
         Update: {
           full_name?: string | null;
-          role?: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc';
+          role?: 'regional_admin' | 'school_manager'| 'supervisor' | 'dirigente' | 'ure_servico' | 'ure_ecc' | 'chefe_departamento';
           school_id?: string | null;
           supervisor_schools: string[] | null;
           salas_trabalho?: string[] | null;

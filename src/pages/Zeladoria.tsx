@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 import {
   Plus, Search, Edit, Trash2, FileText,
@@ -123,7 +124,7 @@ export function Zeladoria() {
       if (user) {
         setUserId(user.id);
         const { data: profile } = await (supabase as any).from('profiles').select('role, school_id').eq('id', user.id).single();
-        currentRole = profile?.role || '';
+        currentRole = resolveViewRole(profile?.role || '');
         currentSchoolId = profile?.school_id || null;
         setUserRole(currentRole);
         setUserSchoolId(currentSchoolId);

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 import {
   Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend,
   BarChart, Bar, XAxis, YAxis, CartesianGrid
@@ -155,7 +156,7 @@ export function Obras() {
       if (user) {
         const { data: profile } = await (supabase as any)
           .from('profiles').select('role, school_id, supervisor_schools').eq('id', user.id).single();
-        role = profile?.role || '';
+        role = resolveViewRole(profile?.role || '');
         sId = profile?.school_id || null;
         supSchools = profile?.supervisor_schools || [];
         setUserRole(role); setUserSchoolId(sId); setSupervisorSchoolIds(supSchools);

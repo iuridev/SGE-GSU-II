@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 import { addTimbradoAllPages, TIMBRADO_HEADER_H } from '../lib/pdfTimbrado';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -232,7 +233,7 @@ export function ConsumoAgua() {
       if (user) {
         const { data: profileData } = await (supabase as any).from('profiles').select('role, school_id, supervisor_schools').eq('id', user.id).single();
         profile = profileData;
-        currentRole = profile?.role || '';
+        currentRole = resolveViewRole(profile?.role || '');
         currentSupSchools = profile?.supervisor_schools || [];
       }
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 
 import { 
   Ticket, Plus, X, Clock,  
@@ -146,9 +147,10 @@ export function Chamados() {
       setUserId(user.id);
 
       const { data: profile } = await (supabase as any).from('profiles').select('full_name, role, school_id').eq('id', user.id).single();
-      setUserRole(profile?.role || ''); setUserSchoolId(profile?.school_id || null); setUserName(profile?.full_name || '');
+      const effectiveRole = resolveViewRole(profile?.role || '');
+      setUserRole(effectiveRole); setUserSchoolId(profile?.school_id || null); setUserName(profile?.full_name || '');
 
-      if (profile?.role === 'regional_admin' || profile?.role === 'dirigente') {
+      if (effectiveRole === 'regional_admin' || effectiveRole === 'dirigente') {
         const { data: schools } = await (supabase as any).from('schools').select('id, name').order('name');
         setSchoolsList(schools || []);
       }
@@ -158,7 +160,7 @@ export function Chamados() {
         .select(`*, schools(name), assignee:profiles!internal_tickets_assigned_to_fkey(full_name)`)
         .order('created_at', { ascending: false });
 
-      if (profile?.role === 'school_manager') query = query.eq('school_id', profile.school_id);
+      if (effectiveRole === 'school_manager') query = query.eq('school_id', profile.school_id);
 
       const { data, error } = await query;
       if (error) throw error;

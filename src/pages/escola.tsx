@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 import { 
   MapPin, Phone, 
   Search, Plus, GraduationCap, 
@@ -97,9 +98,10 @@ export function Escola() {
         if (error) throw error;
 
         const profile = data as any;
-        setUserRole(profile?.role || '');
+        const effectiveRole = resolveViewRole(profile?.role || '');
+        setUserRole(effectiveRole);
         setUserSchoolId(profile?.school_id || null);
-        return profile;
+        return { ...profile, role: effectiveRole };
       }
     } catch (error) {
       console.error('Erro ao carregar perfil:', error);

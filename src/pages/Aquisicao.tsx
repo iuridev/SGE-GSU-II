@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 import { 
   ShoppingBag, Calendar, Clock, 
   Search, 
@@ -92,10 +93,11 @@ export function Aquisicao() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { data: profile } = await (supabase as any).from('profiles').select('role, school_id').eq('id', user.id).single();
-        setUserRole(profile?.role || '');
+        const effectiveRole = resolveViewRole(profile?.role || '');
+        setUserRole(effectiveRole);
         setUserSchoolId(profile?.school_id || null);
-        
-        if (profile?.role === 'regional_admin') {
+
+        if (effectiveRole === 'regional_admin') {
           setActiveTab('consolidado');
         }
       }

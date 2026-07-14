@@ -6,6 +6,7 @@ import {
   DollarSign, XCircle, PlayCircle, ExternalLink
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 
 const SHEETS_CSV_URL = import.meta.env.VITE_SHEETS_CSV_URL as string;
 const SHEETS_VIEW_URL = import.meta.env.VITE_SHEETS_VIEW_URL as string;
@@ -89,7 +90,7 @@ export default function Servicos() {
           .single();
 
         const allowedRoles = ['manage_admin', 'admin', 'regional_admin'];
-        const role = (profile as any)?.role ?? '';
+        const role = resolveViewRole((profile as any)?.role ?? '');
         const userIsAdmin = allowedRoles.includes(role);
         setIsAdmin(userIsAdmin);
         setUserRole(role);

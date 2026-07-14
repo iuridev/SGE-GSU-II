@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 import { TimbradoHeader, TimbradoFooter } from '../components/TimbradoPDF';
 import {
   Plus, Search, Package, Image as ImageIcon, 
@@ -114,7 +115,7 @@ export function Remanejamento() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { data: profile } = await (supabase as any).from('profiles').select('role, school_id').eq('id', user.id).single();
-        setUserRole(profile?.role || '');
+        setUserRole(resolveViewRole(profile?.role || ''));
         setUserSchoolId(profile?.school_id || null);
       }
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 import { 
   AlertCircle, CheckCircle2, Clock, Plus, 
   Search, Trash2, Edit, X, Save, Loader2,
@@ -62,13 +63,13 @@ export function Demanda() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { data: profile } = await (supabase as any).from('profiles').select('role, school_id').eq('id', user.id).single();
-        setUserRole(profile?.role || '');
+        setUserRole(resolveViewRole(profile?.role || ''));
         setUserSchoolId(profile?.school_id || null);
       }
 
       const { data: schoolsData } = await (supabase as any).from('schools').select('id, name').order('name');
       setSchools(schoolsData || []);
-      
+
       await fetchDemands();
     } catch (error) {
       console.error(error);

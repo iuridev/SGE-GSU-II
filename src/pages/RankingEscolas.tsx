@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 // Importa o cliente do Supabase para comunicação direta com o banco de dados
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 // Importa todos os ícones visuais usados no painel (incluindo o Database para o selo roxo)
 import { 
   Trophy, Medal, Target,  
@@ -144,7 +145,7 @@ export function RankingEscolas() {
           .eq('id', user.id) 
           .single(); 
         
-        role = profile?.role || ''; 
+        role = resolveViewRole(profile?.role || '');
         setUserRole(role); // Memoriza cargo
         setUserSchoolId(profile?.school_id || null); // Memoriza escola
       }

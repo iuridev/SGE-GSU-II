@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 import { 
   Calendar as CalendarIcon, Clock, MapPin, Video, 
   Plus, ChevronLeft, ChevronRight, X, Save, 
@@ -84,7 +85,7 @@ export function Reunioes() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { data: profile } = await (supabase as any).from('profiles').select('role').eq('id', user.id).single();
-        setUserRole(profile?.role || '');
+        setUserRole(resolveViewRole(profile?.role || ''));
       }
 
       const { data: schoolsData } = await (supabase as any).from('schools').select('id, name').order('name');

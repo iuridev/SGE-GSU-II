@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
 // Importa o cliente configurado do Supabase para conectar com o banco de dados
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
 import { TimbradoHeader, TimbradoFooter } from '../components/TimbradoPDF';
 // Importa a biblioteca de ícones para deixar a interface bonita
 import {
@@ -301,7 +302,7 @@ export function AgendamentoNovo() {
       // Puxa a tabela 'profiles' conectando pelo ID para saber a permissão dela
       const { data: profile } = await (supabase as any).from('profiles').select('role').eq('id', session.user.id).single();
       // Se achou, guarda a patente (ex: regional_admin)
-      if (profile) setUserRole(profile.role);
+      if (profile) setUserRole(resolveViewRole(profile.role));
     }
     // Dispara a busca simultânea de salas e de reservas
     fetchAmbientes();

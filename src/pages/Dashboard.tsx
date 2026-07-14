@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { WaterTruckModal } from '../components/WaterTruckModal';
 import { PowerOutageModal } from '../components/PowerOutageModal';
+import { resolveViewRole, isReadOnlyRole } from '../lib/roles';
 
 const LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
@@ -130,6 +131,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   const [mapSchools, setMapSchools] = useState<MapSchool[]>([]);
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string>('');
+  const [isReadOnlyUser, setIsReadOnlyUser] = useState(false);
   const [userName, setUserName] = useState('');
   const [schoolName, setSchoolName] = useState('');
   const [sabespCode, setSabespCode] = useState('');
@@ -356,11 +358,13 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         .single();
 
       if (profile) {
-        setUserRole(profile.role);
+        const effectiveRole = resolveViewRole(profile.role);
+        setIsReadOnlyUser(isReadOnlyRole(profile.role));
+        setUserRole(effectiveRole);
         setUserName(profile.full_name || 'Gestor');
         setSchoolId(profile.school_id);
 
-        if (profile.role === 'supervisor') {
+        if (effectiveRole === 'supervisor') {
           const supSchools = profile.supervisor_schools || [];
           setSupervisorSchoolIds(supSchools);
           if (supSchools.length > 0) {
@@ -381,10 +385,10 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             setSabespCode(school.sabesp_supply_id || 'N/A');
             setEdpCode(school.edp_installation_id || 'N/A');
           }
-          await fetchStats(profile.role, profile.school_id);
+          await fetchStats(effectiveRole, profile.school_id);
           await fetchMapData(profile.school_id);
         } else {
-          await fetchStats(profile.role, null);
+          await fetchStats(effectiveRole, null);
           await fetchMapData();
         }
 
@@ -605,7 +609,9 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           <div>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-0.5">Acesso</p>
             <p className="text-sm font-extrabold text-slate-700 truncate max-w-[210px] uppercase">
-              {isGlobal
+              {isReadOnlyUser
+                ? 'Chefe de Departamento'
+                : isGlobal
                 ? (userRole === 'dirigente' ? 'Dirigente Regional' : 'Administrativo')
                 : userRole === 'supervisor' ? 'Supervisão Escolar'
                 : schoolName || 'Gestão de Unidade'}
