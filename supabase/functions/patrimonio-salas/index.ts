@@ -20,6 +20,38 @@ const HISTORICO_COLUMNS = ['id', 'chapa', 'descricao_item', 'tipo_evento', 'sala
 
 type Profile = { role: string; salas_trabalho: string[] | null; full_name: string | null }
 
+// Cache em memória do módulo, reaproveitado entre invocações enquanto a instância
+// da Edge Function permanecer "quente". Sem isso, toda ação (listar, alocar, devolver...)
+// disparava doc.loadInfo() + loadHeaderRow() de 3 abas — só isso já são 4 chamadas de
+// leitura à Sheets API por clique, o que estoura a cota "Read requests per minute per user"
+// (erro 429) quando o usuário navega/clica rápido.
+let cachedAuth: any = null
+let cachedDoc: any = null
+let docLoadedAt = 0
+const DOC_CACHE_TTL_MS = 5 * 60 * 1000
+
+async function getDoc() {
+  const now = Date.now()
+  if (cachedDoc && (now - docLoadedAt) < DOC_CACHE_TTL_MS) return cachedDoc
+
+  if (!cachedAuth) {
+    const email = Deno.env.get('GOOGLE_SERVICE_ACCOUNT_EMAIL')
+    const key = Deno.env.get('GOOGLE_PRIVATE_KEY')
+    if (!email || !key) throw new Error('Credenciais Google não configuradas nos secrets.')
+    cachedAuth = new JWT({
+      email,
+      key: key.replace(/\\n/g, '\n'),
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    })
+  }
+
+  const doc = new GoogleSpreadsheet(SHEET_ID, cachedAuth)
+  await doc.loadInfo()
+  cachedDoc = doc
+  docLoadedAt = now
+  return doc
+}
+
 // Deno.serve é nativo do runtime de Edge Functions — evita depender do fetch externo
 // a deno.land/std, que pode falhar/timeoutar durante o bundle do deploy.
 Deno.serve(async (req) => {
@@ -54,19 +86,8 @@ Deno.serve(async (req) => {
     const action = body.action as string
     if (!action) throw new Error('Ação não informada.')
 
-    // ── Conecta na planilha ──────────────────────────────────────────────
-    const email = Deno.env.get('GOOGLE_SERVICE_ACCOUNT_EMAIL')
-    const key = Deno.env.get('GOOGLE_PRIVATE_KEY')
-    if (!email || !key) throw new Error('Credenciais Google não configuradas nos secrets.')
-
-    const auth = new JWT({
-      email,
-      key: key.replace(/\\n/g, '\n'),
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    })
-
-    const doc = new GoogleSpreadsheet(SHEET_ID, auth)
-    await doc.loadInfo()
+    // ── Conecta na planilha (doc cacheado entre invocações — ver getDoc) ──
+    const doc = await getDoc()
 
     const salasSheet = await getOrCreateSheet(doc, SALAS_SHEET, SALAS_COLUMNS)
     const alocacoesSheet = await getOrCreateSheet(doc, ALOCACOES_SHEET, ALOCACOES_COLUMNS)
@@ -322,8 +343,16 @@ Deno.serve(async (req) => {
         throw new Error(`Ação "${action}" desconhecida.`)
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Erro desconhecido'
+    let message = error instanceof Error ? error.message : 'Erro desconhecido'
     console.error('[patrimonio-salas]', message)
+
+    if (message.includes('[429]') || message.toLowerCase().includes('quota exceeded')) {
+      // Cota da Sheets API pode ter sido excedida com base num doc/estado antigo;
+      // força reconexão limpa na próxima chamada em vez de manter o cache preso.
+      cachedDoc = null
+      message = 'Muitas ações em pouco tempo. Aguarde alguns segundos e tente novamente.'
+    }
+
     return new Response(JSON.stringify({ error: message }), {
       headers: { ...getCorsHeaders(req.headers.get('origin')), 'Content-Type': 'application/json' },
       status: 400,
@@ -341,10 +370,18 @@ async function getOrCreateSheet(doc: any, title: string, columns: string[]) {
   let sheet = doc.sheetsByTitle[title]
   if (!sheet) {
     sheet = await doc.addSheet({ title, headerValues: columns })
-  } else {
-    const headers = await sheet.loadHeaderRow().then(() => sheet.headerValues).catch(() => [])
-    if (!headers || headers.length === 0) await sheet.setHeaderRow(columns)
+    return sheet
   }
+
+  // Se o cabeçalho já foi carregado numa invocação anterior desta mesma instância
+  // (doc cacheado — ver getDoc), o objeto sheet já mantém headerValues em memória:
+  // evita repetir a chamada de leitura à Sheets API a cada ação.
+  try {
+    if (sheet.headerValues && sheet.headerValues.length > 0) return sheet
+  } catch { /* ainda não carregado */ }
+
+  const headers = await sheet.loadHeaderRow().then(() => sheet.headerValues).catch(() => [])
+  if (!headers || headers.length === 0) await sheet.setHeaderRow(columns)
   return sheet
 }
 
