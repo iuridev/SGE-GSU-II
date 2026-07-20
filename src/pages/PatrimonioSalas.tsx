@@ -181,8 +181,14 @@ export default function PatrimonioSalas() {
     }
     setActionLoading(chapa);
     try {
-      await invoke('alocar_item', { chapa, sala_id: salaId });
-      await fetchItens();
+      // A resposta já traz o item atualizado — evita reconsultar "listar_itens"
+      // na planilha inteira e economiza chamadas de leitura na cota do Google.
+      const data = await invoke('alocar_item', { chapa, sala_id: salaId });
+      if (data?.item) {
+        setItens(prev => prev.map(i => (i.chapa === chapa ? { ...i, ...data.item } : i)));
+      } else {
+        await fetchItens();
+      }
     } catch (e: any) {
       alert(e.message || 'Erro ao alocar item.');
     } finally {
@@ -195,7 +201,9 @@ export default function PatrimonioSalas() {
     setActionLoading(chapa);
     try {
       await invoke('devolver_item', { chapa });
-      await fetchItens();
+      setItens(prev => prev.map(i => (i.chapa === chapa
+        ? { ...i, alocado: false, salaId: null, salaNome: null, alocadoPorNome: null, alocadoEm: null }
+        : i)));
     } catch (e: any) {
       alert(e.message || 'Erro ao devolver item.');
     } finally {

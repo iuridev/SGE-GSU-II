@@ -49,7 +49,35 @@ async function getDoc() {
   await doc.loadInfo()
   cachedDoc = doc
   docLoadedAt = now
+  // Doc novo/recarregado invalida os caches de linhas abaixo.
+  itensRowsCache = null
+  salasRowsCache = null
   return doc
+}
+
+// Cache leve das linhas de "Itens" (inventário oficial, só leitura — praticamente nunca
+// muda) e "Salas" (muda raramente). Evita repetir getRows() a cada item alocado numa
+// sequência de cliques, que é o que mais rápido consome a cota de leitura por minuto.
+// "Alocacoes" e "Historico" NÃO são cacheados: precisam estar sempre atualizados para
+// não permitir alocar o mesmo item duas vezes.
+let itensRowsCache: { rows: any[]; loadedAt: number } | null = null
+let salasRowsCache: { rows: any[]; loadedAt: number } | null = null
+const ROWS_CACHE_TTL_MS = 20_000
+
+async function getItensRows(itensSheet: any) {
+  const now = Date.now()
+  if (itensRowsCache && (now - itensRowsCache.loadedAt) < ROWS_CACHE_TTL_MS) return itensRowsCache.rows
+  const rows = await itensSheet.getRows()
+  itensRowsCache = { rows, loadedAt: now }
+  return rows
+}
+
+async function getSalasRows(salasSheet: any) {
+  const now = Date.now()
+  if (salasRowsCache && (now - salasRowsCache.loadedAt) < ROWS_CACHE_TTL_MS) return salasRowsCache.rows
+  const rows = await salasSheet.getRows()
+  salasRowsCache = { rows, loadedAt: now }
+  return rows
 }
 
 // Deno.serve é nativo do runtime de Edge Functions — evita depender do fetch externo
@@ -101,7 +129,7 @@ Deno.serve(async (req) => {
           throw new Error(`Aba "${ITENS_SHEET}" não encontrada na planilha (ID ${SHEET_ID}). Abas encontradas: ${abasDisponiveis}.`)
         }
 
-        const [itemRows, alocRows] = await Promise.all([itensSheet.getRows(), alocacoesSheet.getRows()])
+        const [itemRows, alocRows] = await Promise.all([getItensRows(itensSheet), alocacoesSheet.getRows()])
         const alocMap = new Map(alocRows.map((r: any) => [String(r.get('chapa') ?? '').trim(), r]))
 
         const itens = itemRows
@@ -145,7 +173,7 @@ Deno.serve(async (req) => {
       }
 
       case 'listar_salas': {
-        const rows = await salasSheet.getRows()
+        const rows = await getSalasRows(salasSheet)
         const salas = rows.map((r: any) => ({
           id: r.get('id'),
           nome: r.get('nome'),
@@ -160,7 +188,7 @@ Deno.serve(async (req) => {
         const nome = String(body.nome || '').trim()
         if (!nome) throw new Error('Informe o nome da sala.')
 
-        const rows = await salasSheet.getRows()
+        const rows = await getSalasRows(salasSheet)
         const duplicada = rows.some((r: any) => r.get('ativa') === 'TRUE' && String(r.get('nome') || '').trim().toLowerCase() === nome.toLowerCase())
         if (duplicada) throw new Error('Já existe uma sala ativa com esse nome.')
 
@@ -173,6 +201,7 @@ Deno.serve(async (req) => {
           criado_por: usuarioNome,
           criado_em: new Date().toISOString(),
         })
+        salasRowsCache = null
         return ok(corsHeaders, { success: true, sala: { id, nome } })
       }
 
@@ -181,7 +210,7 @@ Deno.serve(async (req) => {
         const { id, nome, descricao, ativa } = body
         if (!id) throw new Error('Sala não informada.')
 
-        const rows = await salasSheet.getRows()
+        const rows = await getSalasRows(salasSheet)
         const row = rows.find((r: any) => r.get('id') === id)
         if (!row) throw new Error('Sala não encontrada.')
 
@@ -189,6 +218,7 @@ Deno.serve(async (req) => {
         if (descricao !== undefined) row.set('descricao', String(descricao))
         if (ativa !== undefined) row.set('ativa', ativa ? 'TRUE' : 'FALSE')
         await row.save()
+        salasRowsCache = null
         return ok(corsHeaders, { success: true })
       }
 
@@ -201,12 +231,13 @@ Deno.serve(async (req) => {
         const emUso = alocRows.filter((r: any) => r.get('sala_id') === id).length
         if (emUso > 0) throw new Error(`Não é possível remover: há ${emUso} item(ns) alocado(s) nesta sala. Devolva-os antes.`)
 
-        const rows = await salasSheet.getRows()
+        const rows = await getSalasRows(salasSheet)
         const row = rows.find((r: any) => r.get('id') === id)
         if (!row) throw new Error('Sala não encontrada.')
 
         row.set('ativa', 'FALSE')
         await row.save()
+        salasRowsCache = null
         return ok(corsHeaders, { success: true })
       }
 
@@ -230,7 +261,7 @@ Deno.serve(async (req) => {
           salaId = String(body.sala_id)
         }
 
-        const salasRows = await salasSheet.getRows()
+        const salasRows = await getSalasRows(salasSheet)
         const salaRow = salasRows.find((r: any) => r.get('id') === salaId && r.get('ativa') === 'TRUE')
         if (!salaRow) throw new Error('Sala inválida ou inativa.')
 
@@ -239,7 +270,7 @@ Deno.serve(async (req) => {
           const abasDisponiveis = Object.keys(doc.sheetsByTitle).join(', ') || '(nenhuma)'
           throw new Error(`Aba "${ITENS_SHEET}" não encontrada na planilha (ID ${SHEET_ID}). Abas encontradas: ${abasDisponiveis}.`)
         }
-        const itemRows = await itensSheet.getRows()
+        const itemRows = await getItensRows(itensSheet)
         const itemRow = itemRows.find((r: any) => String(r.get('Chapa') ?? '').trim() === chapa)
         if (!itemRow) throw new Error('Item não encontrado no inventário.')
 
@@ -272,7 +303,20 @@ Deno.serve(async (req) => {
           observacao: '',
         })
 
-        return ok(corsHeaders, { success: true })
+        // Devolve o item já atualizado para o frontend aplicar no estado local
+        // em vez de precisar chamar "listar_itens" de novo (economiza leituras na cota).
+        return ok(corsHeaders, {
+          success: true,
+          item: {
+            chapa,
+            descricao: descricaoItem,
+            alocado: true,
+            salaId,
+            salaNome: salaRow.get('nome'),
+            alocadoPorNome: usuarioNome,
+            alocadoEm: agora,
+          },
+        })
       }
 
       case 'devolver_item': {
