@@ -4,7 +4,7 @@ import { resolveViewRole } from '../lib/roles';
 import {
   Plus, Search, X, Loader2, CalendarDays, Video,
   MapPin, BarChart3, TrendingUp, RefreshCw, ExternalLink,
-  ClipboardList, ArrowRightLeft, MessageSquare, Package, Check, Mail,
+  ClipboardList, ArrowRightLeft, Package, Check, Mail, History,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -276,11 +276,18 @@ export default function AtendimentoPatrimonio() {
     if (pickerContext === 'atendimento') {
       setProcessoVinculado(p);
     } else if (pickerContext === 'observacao') {
-      setSelectedProcesso(p);
-      setObsText('');
-      setShowObsForm(true);
+      openDetail(p);
     }
     setPickerContext(null);
+  };
+
+  // Abre o modal de detalhe (linha do tempo de ações + formulário de nova ação para
+  // admin) de um processo/atendimento específico. Usado tanto pelo seletor "Atualizar
+  // Ação" quanto pelos botões "Ver linha do tempo" das tabelas de Atendimentos e Ações.
+  const openDetail = (item: ProcessoOption) => {
+    setSelectedProcesso(item);
+    setObsText('');
+    setShowObsForm(true);
   };
 
   const handleEscolaChange = (escolaId: string) => {
@@ -451,6 +458,25 @@ export default function AtendimentoPatrimonio() {
       a.pauta?.toLowerCase().includes(q));
   }, [atendimentos, pickerSearch]);
 
+  // Linha do tempo (mais recente primeiro) de todas as ações/observações já
+  // registradas para o processo/atendimento aberto no modal de detalhe.
+  const timelineDoSelecionado = useMemo(() => {
+    if (!selectedProcesso) return [];
+    return observacoes
+      .filter(o => o.processo_origem === selectedProcesso.origem && o.processo_id === selectedProcesso.id)
+      .sort((a, b) => (a.data_registro < b.data_registro ? 1 : -1));
+  }, [observacoes, selectedProcesso]);
+
+  const observacaoToProcessoOption = (o: Observacao): ProcessoOption => ({
+    origem: (o.processo_origem || 'asset_process') as ProcessoOption['origem'],
+    id: o.processo_id,
+    identificador: o.processo_identificador,
+    tipoLabel: o.tipo_processo,
+    escolaId: o.escola_id,
+    escolaNome: o.escola_nome,
+    situacaoLabel: o.etapa_atual,
+  });
+
   const formatDate = (d: string) => {
     if (!d) return '-';
     const p = d.split('-');
@@ -616,7 +642,7 @@ export default function AtendimentoPatrimonio() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50">
-                      {['Data', 'Canal', 'Escola', 'Pauta', 'Atendente', 'Duração', 'Processo', 'Observações', 'Registrado em'].map(h => (
+                      {['Data', 'Canal', 'Escola', 'Pauta', 'Atendente', 'Duração', 'Processo', 'Observações', 'Registrado em', ''].map(h => (
                         <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -639,6 +665,15 @@ export default function AtendimentoPatrimonio() {
                         <td className="px-4 py-3 text-slate-500">{a.processo_identificador || '-'}</td>
                         <td className="px-4 py-3 text-slate-500 max-w-xs truncate">{a.observacoes || '-'}</td>
                         <td className="px-4 py-3 text-slate-400 whitespace-nowrap text-xs">{formatDateTime(a.data_registro)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <button
+                            onClick={() => openDetail(atendimentoToProcessoOption(a))}
+                            title="Ver linha do tempo de ações"
+                            className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                          >
+                            <History size={16} />
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -701,7 +736,7 @@ export default function AtendimentoPatrimonio() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50">
-                      {['Data', 'Escola', 'Processo', 'Etapa', 'Observação', 'Autor'].map(h => (
+                      {['Data', 'Escola', 'Processo', 'Etapa', 'Observação', 'Autor', ''].map(h => (
                         <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -717,6 +752,15 @@ export default function AtendimentoPatrimonio() {
                         <td className="px-4 py-3 text-slate-500">{o.etapa_atual || '-'}</td>
                         <td className="px-4 py-3 text-slate-600 max-w-sm">{o.observacao}</td>
                         <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{o.autor_nome}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <button
+                            onClick={() => openDetail(observacaoToProcessoOption(o))}
+                            title="Ver linha do tempo de ações"
+                            className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                          >
+                            <History size={16} />
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1053,34 +1097,65 @@ export default function AtendimentoPatrimonio() {
         </div>
       )}
 
-      {/* Modal: Registrar Observação (após escolher processo) */}
+      {/* Modal: Detalhe do Processo/Atendimento — linha do tempo de ações + nova ação (admin) */}
       {showObsForm && selectedProcesso && (
         <div className="fixed inset-0 z-[130] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-            <div className="flex items-center justify-between p-5 border-b border-slate-100">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><MessageSquare size={20} className="text-teal-600" /> Nova Observação</h2>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100 shrink-0">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><History size={20} className="text-teal-600" /> Linha do Tempo de Ações</h2>
               <button onClick={() => { setShowObsForm(false); setSelectedProcesso(null); }} className="p-2 hover:bg-slate-100 rounded-lg transition-colors"><X size={18} className="text-slate-500" /></button>
             </div>
-            <form onSubmit={handleSubmitObservacao} className="p-5 space-y-4">
+
+            <div className="p-5 space-y-5 overflow-y-auto flex-1">
               <div className="bg-slate-50 rounded-lg px-3 py-2.5 text-sm">
                 <p className="font-medium text-slate-800">{selectedProcesso.tipoLabel} • {selectedProcesso.identificador}</p>
                 <p className="text-xs text-slate-500 mt-0.5">{selectedProcesso.escolaNome} {selectedProcesso.situacaoLabel && `— ${selectedProcesso.situacaoLabel}`}</p>
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Observação <span className="text-red-500">*</span></label>
-                <textarea rows={4} required autoFocus value={obsText} onChange={e => setObsText(e.target.value)}
-                  placeholder="Descreva a ação/atualização realizada neste processo..."
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-4">
+                  Histórico ({timelineDoSelecionado.length})
+                </h3>
+                {timelineDoSelecionado.length === 0 ? (
+                  <p className="text-sm text-slate-400 italic">Nenhuma ação registrada ainda para este item.</p>
+                ) : (
+                  <div className="relative border-l-2 border-teal-100 pl-6 space-y-6">
+                    {timelineDoSelecionado.map(o => (
+                      <div key={o.id} className="relative">
+                        <span className="absolute -left-[27px] top-1 w-3 h-3 rounded-full bg-teal-600 ring-4 ring-white" />
+                        <p className="text-xs text-slate-400">{formatDateTime(o.data_registro)} • <span className="font-medium text-slate-500">{o.autor_nome}</span></p>
+                        {o.etapa_atual && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-teal-50 text-teal-700 mt-1">{o.etapa_atual}</span>
+                        )}
+                        <p className="text-sm text-slate-700 mt-1 whitespace-pre-wrap">{o.observacao}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {isAdmin ? (
+              <form onSubmit={handleSubmitObservacao} className="p-5 pt-4 border-t border-slate-100 space-y-3 shrink-0">
+                <label className="block text-sm font-medium text-slate-700">Adicionar nova ação <span className="text-red-500">*</span></label>
+                <textarea rows={3} required value={obsText} onChange={e => setObsText(e.target.value)}
+                  placeholder="Descreva a ação/atualização realizada neste processo/atendimento..."
                   className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none" />
-              </div>
-              <div className="flex gap-3 pt-2">
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => { setShowObsForm(false); setSelectedProcesso(null); }}
+                    className="flex-1 px-4 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">Fechar</button>
+                  <button type="submit" disabled={saving}
+                    className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2">
+                    {saving ? <><Loader2 size={16} className="animate-spin" /> Salvando...</> : <><Check size={16} /> Salvar Ação</>}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="p-5 pt-4 border-t border-slate-100 shrink-0">
                 <button type="button" onClick={() => { setShowObsForm(false); setSelectedProcesso(null); }}
-                  className="flex-1 px-4 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">Cancelar</button>
-                <button type="submit" disabled={saving}
-                  className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2">
-                  {saving ? <><Loader2 size={16} className="animate-spin" /> Salvando...</> : <><Check size={16} /> Salvar Observação</>}
-                </button>
+                  className="w-full px-4 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">Fechar</button>
               </div>
-            </form>
+            )}
           </div>
         </div>
       )}
