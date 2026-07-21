@@ -64,6 +64,7 @@ import Comunicados from './pages/Comunicados';
 import { AgendaPublica } from './pages/AgendaPublica';
 import VisitasEscolares from './pages/VisitasEscolares';
 import PatrimonioSalas from './pages/PatrimonioSalas';
+import AtendimentoPatrimonio from './pages/AtendimentoPatrimonio';
 import { Toaster } from 'react-hot-toast';
 
 
@@ -138,6 +139,7 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'remanejamento', label: 'Remanejamento', icon: <ArrowRightLeft size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'furtos', label: 'Cadastro de Furtos', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
       { id: 'patrimonio-salas', label: 'Salas de Trabalho', icon: <DoorOpen size={20} className="text-teal-500" />, roles: ['regional_admin', 'ure_servico'] },
+      { id: 'atendimento-patrimonio', label: 'Atendimento Patrimônio', icon: <MessageSquare size={20} className="text-teal-500" />, roles: ['regional_admin', 'school_manager'] },
       //{ id: 'listchapa', label: 'Listar Patrimônio', icon: <Package size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
     ]
   },
@@ -539,6 +541,7 @@ export default function App() {
       case 'comunicados': return <Comunicados />;
       case 'visitas-escolares': return <VisitasEscolares />;
       case 'patrimonio-salas': return <PatrimonioSalas />;
+      case 'atendimento-patrimonio': return <AtendimentoPatrimonio />;
       default: return <Dashboard />;
     }
   };

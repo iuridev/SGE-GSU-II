@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
-import { 
-  Calendar as CalendarIcon, Clock, MapPin, Video, 
-  Plus, ChevronLeft, ChevronRight, X, Save, 
+import toast from 'react-hot-toast';
+import {
+  Calendar as CalendarIcon, Clock, MapPin, Video,
+  Plus, ChevronLeft, ChevronRight, X, Save,
   Loader2, Trash2, Edit, ExternalLink,
   Users, CalendarDays, Building2, HardHat,
   ZapOff, Droplets, CheckCircle2, Info,
-  CalendarCheck
+  CalendarCheck, Package
 } from 'lucide-react';
 
 // Definição estrita das chaves de eventos
-type EventType = 'REUNIAO' | 'VISITA_TECNICA' | 'ABERTURA_OBRA' | 'FINALIZACAO_OBRA' | 'AVISO_ENERGIA' | 'AVISO_AGUA';
+type EventType = 'REUNIAO' | 'VISITA_TECNICA' | 'ABERTURA_OBRA' | 'FINALIZACAO_OBRA' | 'AVISO_ENERGIA' | 'AVISO_AGUA' | 'PATRIMONIO';
 
 // Tipagem estendida para suportar novos tipos de eventos
 interface Meeting {
@@ -42,6 +43,7 @@ const EVENT_CONFIG: Record<EventType, { label: string; color: string; light: str
   'FINALIZACAO_OBRA': { label: 'Finalização Obra', color: 'bg-green-600', light: 'bg-green-50', text: 'text-green-600', icon: <CheckCircle2 size={18}/> },
   'AVISO_ENERGIA': { label: 'Falta de Energia', color: 'bg-amber-600', light: 'bg-amber-50', text: 'text-amber-600', icon: <ZapOff size={18}/> },
   'AVISO_AGUA': { label: 'Falta de Água', color: 'bg-blue-600', light: 'bg-blue-50', text: 'text-blue-600', icon: <Droplets size={18}/> },
+  'PATRIMONIO': { label: 'Atendimento Patrimônio', color: 'bg-teal-600', light: 'bg-teal-50', text: 'text-teal-600', icon: <Package size={18}/> },
 };
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -154,11 +156,36 @@ export function Reunioes() {
     setViewDate(newDate);
   };
 
+  // Eventos classificados como "Atendimento Patrimônio" também alimentam a lista de
+  // Atendimentos da página "Atendimento Patrimônio" (mesma planilha), sem exigir que
+  // quem já registra reuniões por aqui precise aprender uma tela nova — só escolher
+  // essa categoria. Sincroniza só na criação, para não duplicar linha a cada edição.
+  async function syncAtendimentoPatrimonio() {
+    try {
+      const escola = schools.find(s => s.id === formData.school_id);
+      const { data, error } = await supabase.functions.invoke('patrimonio-atendimento', {
+        body: {
+          action: 'registrar_atendimento',
+          escola_id: formData.school_id || '',
+          escola_nome: escola?.name || '',
+          data_atendimento: formData.date,
+          pauta: formData.title,
+          observacoes: formData.description,
+        },
+      });
+      if (error || data?.error) throw new Error(data?.error || error?.message);
+      toast.success('Evento também registrado em "Atendimento Patrimônio".');
+    } catch (e) {
+      console.error('Erro ao sincronizar com Atendimento Patrimônio:', e);
+      toast.error('Evento salvo, mas não foi possível sincronizar com "Atendimento Patrimônio".');
+    }
+  }
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!isAdmin) return;
     setSaveLoading(true);
-    
+
     const payload = {
       ...formData,
       school_id: formData.school_id || null,
@@ -173,6 +200,7 @@ export function Reunioes() {
       } else {
         const { error } = await (supabase as any).from('meetings').insert([payload]);
         if (error) throw error;
+        if (formData.event_type === 'PATRIMONIO') await syncAtendimentoPatrimonio();
       }
       setIsModalOpen(false);
       fetchMeetings();
@@ -559,6 +587,11 @@ export function Reunioes() {
                     </button>
                   ))}
                 </div>
+                {formData.event_type === 'PATRIMONIO' && !editingMeeting && (
+                  <p className="text-[10px] font-bold text-teal-600 uppercase tracking-wide ml-2">
+                    Este evento também será registrado automaticamente na página "Atendimento Patrimônio".
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
