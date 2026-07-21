@@ -142,7 +142,7 @@ Deno.serve(async (req) => {
           throw new Error('Data e pauta são obrigatórios.')
         }
         await sheet.addRow({
-          id: crypto.randomUUID(),
+          id: String(body.id || crypto.randomUUID()),
           data_atendimento: String(body.data_atendimento),
           escola_id: String(body.escola_id),
           escola_nome: String(body.escola_nome || ''),

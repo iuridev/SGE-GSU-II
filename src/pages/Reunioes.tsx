@@ -27,6 +27,7 @@ interface Meeting {
   location_link: string | null;
   location_address: string | null;
   created_at: string;
+  patrimonio_atendimento_id?: string | null;
   schools?: { name: string };
 }
 
@@ -159,13 +160,16 @@ export function Reunioes() {
   // Eventos classificados como "Atendimento Patrimônio" também alimentam a lista de
   // Atendimentos da página "Atendimento Patrimônio" (mesma planilha), sem exigir que
   // quem já registra reuniões por aqui precise aprender uma tela nova — só escolher
-  // essa categoria. Sincroniza só na criação, para não duplicar linha a cada edição.
-  async function syncAtendimentoPatrimonio() {
+  // essa categoria. Sincroniza na criação e também numa edição que reclassifique o
+  // evento como Patrimônio pela primeira vez; usa um id gerado no client (guardado em
+  // meetings.patrimonio_atendimento_id) para nunca duplicar a linha em edições seguintes.
+  async function syncAtendimentoPatrimonio(atendimentoId: string) {
     try {
       const escola = schools.find(s => s.id === formData.school_id);
       const { data, error } = await supabase.functions.invoke('patrimonio-atendimento', {
         body: {
           action: 'registrar_atendimento',
+          id: atendimentoId,
           escola_id: formData.school_id || '',
           escola_nome: escola?.name || '',
           data_atendimento: formData.date,
@@ -175,9 +179,11 @@ export function Reunioes() {
       });
       if (error || data?.error) throw new Error(data?.error || error?.message);
       toast.success('Evento também registrado em "Atendimento Patrimônio".');
+      return true;
     } catch (e) {
       console.error('Erro ao sincronizar com Atendimento Patrimônio:', e);
       toast.error('Evento salvo, mas não foi possível sincronizar com "Atendimento Patrimônio".');
+      return false;
     }
   }
 
@@ -186,11 +192,17 @@ export function Reunioes() {
     if (!isAdmin) return;
     setSaveLoading(true);
 
+    // Só sincroniza se ainda não houver vínculo salvo para este evento.
+    const jaSincronizado = !!editingMeeting?.patrimonio_atendimento_id;
+    const precisaSincronizar = formData.event_type === 'PATRIMONIO' && !jaSincronizado;
+    const novoAtendimentoId = precisaSincronizar ? crypto.randomUUID() : null;
+
     const payload = {
       ...formData,
       school_id: formData.school_id || null,
       location_link: formData.modality === 'Online' ? formData.location_link : null,
-      location_address: formData.modality === 'Presencial' ? formData.location_address : null
+      location_address: formData.modality === 'Presencial' ? formData.location_address : null,
+      ...(novoAtendimentoId ? { patrimonio_atendimento_id: novoAtendimentoId } : {}),
     };
 
     try {
@@ -200,8 +212,8 @@ export function Reunioes() {
       } else {
         const { error } = await (supabase as any).from('meetings').insert([payload]);
         if (error) throw error;
-        if (formData.event_type === 'PATRIMONIO') await syncAtendimentoPatrimonio();
       }
+      if (novoAtendimentoId) await syncAtendimentoPatrimonio(novoAtendimentoId);
       setIsModalOpen(false);
       fetchMeetings();
     } catch (error: any) {
@@ -587,9 +599,14 @@ export function Reunioes() {
                     </button>
                   ))}
                 </div>
-                {formData.event_type === 'PATRIMONIO' && !editingMeeting && (
+                {formData.event_type === 'PATRIMONIO' && !editingMeeting?.patrimonio_atendimento_id && (
                   <p className="text-[10px] font-bold text-teal-600 uppercase tracking-wide ml-2">
                     Este evento também será registrado automaticamente na página "Atendimento Patrimônio".
+                  </p>
+                )}
+                {formData.event_type === 'PATRIMONIO' && !!editingMeeting?.patrimonio_atendimento_id && (
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide ml-2">
+                    Já sincronizado com a página "Atendimento Patrimônio".
                   </p>
                 )}
               </div>
