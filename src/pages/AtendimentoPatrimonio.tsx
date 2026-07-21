@@ -72,6 +72,7 @@ interface Remanejamento {
   numero_patrimonial: string;
   descricao: string;
   numero_documento: string;
+  cadastrado_sam: string;
   autor_nome: string;
   data_registro: string;
 }
@@ -96,6 +97,7 @@ const REMANEJAMENTO_INITIAL = {
   escola_origem_id: '', escola_origem_nome: '',
   escola_destino_id: '', escola_destino_nome: '',
   numero_patrimonial: '', descricao: '', numero_documento: '',
+  cadastrado_sam: false,
 };
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
@@ -715,7 +717,7 @@ export default function AtendimentoPatrimonio() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50">
-                      {['Data', 'Escola Origem', 'Escola Destino', 'Nº Patrimonial', 'Descrição', 'Nº Documento', 'Autor'].map(h => (
+                      {['Data', 'Escola Origem', 'Escola Destino', 'Nº Patrimonial', 'Descrição', 'Nº Documento', 'Cadastrado no SAM?', 'Autor'].map(h => (
                         <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -729,6 +731,17 @@ export default function AtendimentoPatrimonio() {
                         <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{r.numero_patrimonial}</td>
                         <td className="px-4 py-3 text-slate-500 max-w-xs truncate">{r.descricao || '-'}</td>
                         <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{r.numero_documento}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {r.cadastrado_sam === 'TRUE' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
+                              <Check size={12} /> Sim
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-600">
+                              <X size={12} /> Não
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{r.autor_nome}</td>
                       </tr>
                     ))}
@@ -866,6 +879,12 @@ export default function AtendimentoPatrimonio() {
                   onChange={e => setRemanejamentoForm(prev => ({ ...prev, numero_documento: e.target.value }))}
                   className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
               </div>
+              <label className="flex items-center gap-2.5 bg-slate-50 rounded-lg px-3 py-2.5 cursor-pointer select-none">
+                <input type="checkbox" checked={remanejamentoForm.cadastrado_sam}
+                  onChange={e => setRemanejamentoForm(prev => ({ ...prev, cadastrado_sam: e.target.checked }))}
+                  className="w-4 h-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500" />
+                <span className="text-sm font-medium text-slate-700">Foi cadastrado no SAM?</span>
+              </label>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setShowRemanejamentoForm(false)}
                   className="flex-1 px-4 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">Cancelar</button>

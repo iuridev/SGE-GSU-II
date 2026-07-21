@@ -27,7 +27,7 @@ const OBSERVACOES_COLUMNS = [
 ]
 const REMANEJAMENTOS_COLUMNS = [
   'id', 'escola_origem_id', 'escola_origem_nome', 'escola_destino_id', 'escola_destino_nome',
-  'numero_patrimonial', 'descricao', 'numero_documento',
+  'numero_patrimonial', 'descricao', 'numero_documento', 'cadastrado_sam',
   'autor_id', 'autor_nome', 'data_registro',
 ]
 
@@ -70,12 +70,29 @@ async function getOrCreateSheet(doc: any, title: string, columns: string[]) {
     sheet = await doc.addSheet({ title, headerValues: columns })
     return sheet
   }
-  try {
-    if (sheet.headerValues && sheet.headerValues.length > 0) return sheet
-  } catch { /* ainda não carregado */ }
 
-  const headers = await sheet.loadHeaderRow().then(() => sheet.headerValues).catch(() => [])
-  if (!headers || headers.length === 0) await sheet.setHeaderRow(columns)
+  let headers: string[] = []
+  try {
+    headers = sheet.headerValues && sheet.headerValues.length > 0
+      ? sheet.headerValues
+      : await sheet.loadHeaderRow().then(() => sheet.headerValues).catch(() => [])
+  } catch {
+    headers = await sheet.loadHeaderRow().then(() => sheet.headerValues).catch(() => [])
+  }
+
+  if (!headers || headers.length === 0) {
+    await sheet.setHeaderRow(columns)
+    return sheet
+  }
+
+  // Evolução de schema: se a aba já existia com colunas antigas (ex.: campo novo
+  // adicionado depois em COLUMNS), estende o cabeçalho com as colunas que faltam no
+  // final, sem mexer nas colunas/dados já existentes — addRow() falha se mandarmos
+  // uma chave que não é um header da planilha.
+  const missing = columns.filter(c => !headers.includes(c))
+  if (missing.length > 0) {
+    await sheet.setHeaderRow([...headers, ...missing])
+  }
   return sheet
 }
 
@@ -223,6 +240,7 @@ Deno.serve(async (req) => {
           numero_patrimonial: String(body.numero_patrimonial),
           descricao: String(body.descricao || ''),
           numero_documento: String(body.numero_documento),
+          cadastrado_sam: body.cadastrado_sam ? 'TRUE' : 'FALSE',
           autor_id: user.id,
           autor_nome: autorNome,
           data_registro: new Date().toISOString(),
