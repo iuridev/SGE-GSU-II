@@ -78,7 +78,7 @@ interface Remanejamento {
 }
 
 interface ProcessoOption {
-  origem: 'asset_process' | 'processo_furto';
+  origem: 'asset_process' | 'processo_furto' | 'atendimento';
   id: string;
   identificador: string;
   tipoLabel: string;
@@ -131,6 +131,9 @@ export default function AtendimentoPatrimonio() {
   const [loadingProcessos, setLoadingProcessos] = useState(false);
   const [pickerContext, setPickerContext] = useState<null | 'atendimento' | 'observacao'>(null);
   const [pickerSearch, setPickerSearch] = useState('');
+  // Só usado quando pickerContext === 'observacao': permite escolher entre vincular a
+  // ação a um processo cadastrado OU a um atendimento (Teams) já registrado, pelo ID dele.
+  const [pickerTab, setPickerTab] = useState<'processos' | 'atendimentos'>('processos');
 
   const [selectedProcesso, setSelectedProcesso] = useState<ProcessoOption | null>(null);
   const [showObsForm, setShowObsForm] = useState(false);
@@ -248,9 +251,20 @@ export default function AtendimentoPatrimonio() {
 
   const openPicker = (ctx: 'atendimento' | 'observacao') => {
     setPickerSearch('');
+    setPickerTab('processos');
     setPickerContext(ctx);
     if (processos.length === 0) fetchProcessos();
   };
+
+  const atendimentoToProcessoOption = (a: Atendimento): ProcessoOption => ({
+    origem: 'atendimento',
+    id: a.id,
+    identificador: a.id,
+    tipoLabel: 'Atendimento Teams',
+    escolaId: a.escola_id,
+    escolaNome: a.escola_nome,
+    situacaoLabel: `${a.pauta}${a.data_atendimento ? ` • ${formatDate(a.data_atendimento)}` : ''}`,
+  });
 
   const handlePickerSelect = (p: ProcessoOption) => {
     if (pickerContext === 'atendimento') {
@@ -418,6 +432,15 @@ export default function AtendimentoPatrimonio() {
       p.escolaNome?.toLowerCase().includes(q) ||
       p.tipoLabel?.toLowerCase().includes(q));
   }, [processos, pickerSearch]);
+
+  const filteredAtendimentosPicker = useMemo(() => {
+    const q = pickerSearch.toLowerCase();
+    if (!q) return atendimentos;
+    return atendimentos.filter(a =>
+      a.id?.toLowerCase().includes(q) ||
+      a.escola_nome?.toLowerCase().includes(q) ||
+      a.pauta?.toLowerCase().includes(q));
+  }, [atendimentos, pickerSearch]);
 
   const formatDate = (d: string) => {
     if (!d) return '-';
@@ -898,26 +921,71 @@ export default function AtendimentoPatrimonio() {
         </div>
       )}
 
-      {/* Modal: Seletor de Processo (usado por "Vincular processo" e "Atualizar Ação") */}
+      {/* Modal: Seletor de Processo/Atendimento (usado por "Vincular processo" e "Atualizar Ação") */}
       {pickerContext && (
         <div className="fixed inset-0 z-[120] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between p-5 border-b border-slate-100">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Package size={20} className="text-teal-600" /> Selecionar Processo</h2>
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Package size={20} className="text-teal-600" /> {pickerTab === 'atendimentos' ? 'Selecionar Atendimento' : 'Selecionar Processo'}</h2>
               <button onClick={() => setPickerContext(null)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors"><X size={18} className="text-slate-500" /></button>
             </div>
+
+            {pickerContext === 'observacao' && (
+              <div className="flex gap-1 px-4 pt-3 border-b border-slate-100">
+                {([
+                  { id: 'processos' as const, label: 'Processos Cadastrados' },
+                  { id: 'atendimentos' as const, label: 'Atendimentos (Teams)' },
+                ]).map(t => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => { setPickerTab(t.id); setPickerSearch(''); }}
+                    className={`px-3 py-2 text-xs font-medium rounded-t-lg border-b-2 transition-colors ${
+                      pickerTab === t.id ? 'border-teal-600 text-teal-700' : 'border-transparent text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="p-4 border-b border-slate-100">
               <div className="relative">
                 <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
-                  type="text" autoFocus placeholder="Buscar por nº SEI/BO, escola ou tipo..."
+                  type="text" autoFocus
+                  placeholder={pickerTab === 'atendimentos' ? 'Buscar por ID, escola ou pauta...' : 'Buscar por nº SEI/BO, escola ou tipo...'}
                   value={pickerSearch} onChange={e => setPickerSearch(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
             </div>
+
             <div className="overflow-y-auto flex-1">
-              {loadingProcessos ? (
+              {pickerTab === 'atendimentos' ? (
+                filteredAtendimentosPicker.length === 0 ? (
+                  <div className="text-center py-16 text-slate-400 text-sm">Nenhum atendimento encontrado</div>
+                ) : (
+                  <ul className="divide-y divide-slate-50">
+                    {filteredAtendimentosPicker.map(a => (
+                      <li key={a.id}>
+                        <button
+                          onClick={() => handlePickerSelect(atendimentoToProcessoOption(a))}
+                          className="w-full text-left px-5 py-3 hover:bg-teal-50 transition-colors flex items-center justify-between gap-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-slate-800 truncate">{a.pauta} — {a.escola_nome}</p>
+                            <p className="text-xs text-slate-500">{formatDate(a.data_atendimento)} • {a.atendente_nome}</p>
+                            <p className="text-[10px] text-slate-400 font-mono truncate mt-0.5">ID: {a.id}</p>
+                          </div>
+                          <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full shrink-0 bg-teal-50 text-teal-700">Atendimento</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )
+              ) : loadingProcessos ? (
                 <div className="flex justify-center items-center py-16"><Loader2 size={32} className="animate-spin text-teal-500" /></div>
               ) : filteredProcessos.length === 0 ? (
                 <div className="text-center py-16 text-slate-400 text-sm">Nenhum processo encontrado</div>
