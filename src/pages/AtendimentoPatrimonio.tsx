@@ -4,7 +4,7 @@ import { resolveViewRole } from '../lib/roles';
 import {
   Plus, Search, X, Loader2, CalendarDays, Video,
   MapPin, BarChart3, TrendingUp, RefreshCw, ExternalLink,
-  ClipboardList, ArrowRightLeft, MessageSquare, Package, Check,
+  ClipboardList, ArrowRightLeft, MessageSquare, Package, Check, Mail,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -27,6 +27,9 @@ const PAUTAS = [
   'Outros',
 ];
 
+const CANAIS = ['Teams', 'E-mail'] as const;
+type Canal = typeof CANAIS[number];
+
 type Tab = 'atendimentos' | 'acoes' | 'remanejamentos';
 
 interface EscolaOption {
@@ -42,6 +45,7 @@ interface Atendimento {
   escola_nome: string;
   fde_code: string;
   atendente_nome: string;
+  canal: string;
   pauta: string;
   processo_identificador: string;
   duracao_minutos: string;
@@ -90,6 +94,7 @@ interface ProcessoOption {
 const ATENDIMENTO_INITIAL = {
   escola_id: '', escola_nome: '', fde_code: '',
   data_atendimento: new Date().toISOString().split('T')[0],
+  canal: 'Teams' as Canal,
   pauta: '', duracao_minutos: '', observacoes: '',
 };
 
@@ -101,7 +106,7 @@ const REMANEJAMENTO_INITIAL = {
 };
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-  { id: 'atendimentos', label: 'Atendimentos via Teams', icon: <Video size={16} /> },
+  { id: 'atendimentos', label: 'Atendimentos (Teams / E-mail)', icon: <Video size={16} /> },
   { id: 'acoes', label: 'Ações / Observações em Processos', icon: <ClipboardList size={16} /> },
   { id: 'remanejamentos', label: 'Remanejamentos', icon: <ArrowRightLeft size={16} /> },
 ];
@@ -119,6 +124,7 @@ export default function AtendimentoPatrimonio() {
   const [saving, setSaving] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterCanal, setFilterCanal] = useState('');
 
   const [showAtendimentoForm, setShowAtendimentoForm] = useState(false);
   const [atendimentoForm, setAtendimentoForm] = useState(ATENDIMENTO_INITIAL);
@@ -260,7 +266,7 @@ export default function AtendimentoPatrimonio() {
     origem: 'atendimento',
     id: a.id,
     identificador: a.id,
-    tipoLabel: 'Atendimento Teams',
+    tipoLabel: `Atendimento ${a.canal || 'Teams'}`,
     escolaId: a.escola_id,
     escolaNome: a.escola_nome,
     situacaoLabel: `${a.pauta}${a.data_atendimento ? ` • ${formatDate(a.data_atendimento)}` : ''}`,
@@ -398,12 +404,15 @@ export default function AtendimentoPatrimonio() {
 
   const filteredAtendimentos = useMemo(() => {
     const q = searchTerm.toLowerCase();
-    if (!q) return atendimentos;
-    return atendimentos.filter(a =>
-      a.escola_nome?.toLowerCase().includes(q) ||
-      a.pauta?.toLowerCase().includes(q) ||
-      a.atendente_nome?.toLowerCase().includes(q));
-  }, [atendimentos, searchTerm]);
+    return atendimentos.filter(a => {
+      const matchCanal = !filterCanal || a.canal === filterCanal;
+      const matchSearch = !q ||
+        a.escola_nome?.toLowerCase().includes(q) ||
+        a.pauta?.toLowerCase().includes(q) ||
+        a.atendente_nome?.toLowerCase().includes(q);
+      return matchCanal && matchSearch;
+    });
+  }, [atendimentos, searchTerm, filterCanal]);
 
   const filteredObservacoes = useMemo(() => {
     const q = searchTerm.toLowerCase();
@@ -462,7 +471,7 @@ export default function AtendimentoPatrimonio() {
             Atendimento Patrimônio
           </h1>
           <p className="text-slate-500 text-sm mt-1">
-            Atendimentos via Teams, observações em processos e remanejamentos de patrimônio
+            Atendimentos via Teams ou e-mail, observações em processos e remanejamentos de patrimônio
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -578,6 +587,13 @@ export default function AtendimentoPatrimonio() {
                   className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
+              <select
+                value={filterCanal} onChange={e => setFilterCanal(e.target.value)}
+                className="text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
+              >
+                <option value="">Todos os canais</option>
+                {CANAIS.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
               <span className="text-xs text-slate-400">{filteredAtendimentos.length} registro(s)</span>
               {isAdmin && (
                 <button
@@ -600,7 +616,7 @@ export default function AtendimentoPatrimonio() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50">
-                      {['Data', 'Escola', 'Pauta', 'Atendente', 'Duração', 'Processo', 'Observações', 'Registrado em'].map(h => (
+                      {['Data', 'Canal', 'Escola', 'Pauta', 'Atendente', 'Duração', 'Processo', 'Observações', 'Registrado em'].map(h => (
                         <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -609,9 +625,14 @@ export default function AtendimentoPatrimonio() {
                     {filteredAtendimentos.map((a, i) => (
                       <tr key={a.id || i} className="hover:bg-slate-50 transition-colors">
                         <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{formatDate(a.data_atendimento)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${a.canal === 'E-mail' ? 'bg-violet-50 text-violet-700' : 'bg-teal-50 text-teal-700'}`}>
+                            {a.canal === 'E-mail' ? <Mail size={12} /> : <Video size={12} />} {a.canal || 'Teams'}
+                          </span>
+                        </td>
                         <td className="px-4 py-3 font-medium text-slate-800">{a.escola_nome}</td>
                         <td className="px-4 py-3">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-50 text-teal-700">{a.pauta}</span>
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">{a.pauta}</span>
                         </td>
                         <td className="px-4 py-3 text-slate-600">{a.atendente_nome}</td>
                         <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{a.duracao_minutos ? `${a.duracao_minutos} min` : '-'}</td>
@@ -788,6 +809,24 @@ export default function AtendimentoPatrimonio() {
             </div>
             <form onSubmit={handleSubmitAtendimento} className="p-5 space-y-4">
               <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Canal <span className="text-red-500">*</span></label>
+                <div className="grid grid-cols-2 gap-2">
+                  {CANAIS.map(c => (
+                    <button
+                      key={c} type="button"
+                      onClick={() => setAtendimentoForm(prev => ({ ...prev, canal: c }))}
+                      className={`flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium rounded-lg border transition-colors ${
+                        atendimentoForm.canal === c
+                          ? 'bg-teal-600 border-teal-600 text-white'
+                          : 'bg-white border-slate-200 text-slate-600 hover:border-teal-300'
+                      }`}
+                    >
+                      {c === 'E-mail' ? <Mail size={16} /> : <Video size={16} />} {c}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">Unidade Escolar <span className="text-red-500">*</span></label>
                 <select required value={atendimentoForm.escola_id} onChange={e => handleEscolaChange(e.target.value)}
                   className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white">
@@ -934,7 +973,7 @@ export default function AtendimentoPatrimonio() {
               <div className="flex gap-1 px-4 pt-3 border-b border-slate-100">
                 {([
                   { id: 'processos' as const, label: 'Processos Cadastrados' },
-                  { id: 'atendimentos' as const, label: 'Atendimentos (Teams)' },
+                  { id: 'atendimentos' as const, label: 'Atendimentos (Teams / E-mail)' },
                 ]).map(t => (
                   <button
                     key={t.id}
@@ -979,7 +1018,7 @@ export default function AtendimentoPatrimonio() {
                             <p className="text-xs text-slate-500">{formatDate(a.data_atendimento)} • {a.atendente_nome}</p>
                             <p className="text-[10px] text-slate-400 font-mono truncate mt-0.5">ID: {a.id}</p>
                           </div>
-                          <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full shrink-0 bg-teal-50 text-teal-700">Atendimento</span>
+                          <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full shrink-0 ${a.canal === 'E-mail' ? 'bg-violet-50 text-violet-700' : 'bg-teal-50 text-teal-700'}`}>{a.canal || 'Teams'}</span>
                         </button>
                       </li>
                     ))}

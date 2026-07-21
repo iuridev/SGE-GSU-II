@@ -16,7 +16,7 @@ const REMANEJAMENTOS_SHEET = 'Remanejamentos_Patrimonio'
 
 const ATENDIMENTOS_COLUMNS = [
   'id', 'data_atendimento', 'escola_id', 'escola_nome', 'fde_code',
-  'atendente_id', 'atendente_nome', 'pauta',
+  'atendente_id', 'atendente_nome', 'canal', 'pauta',
   'processo_origem', 'processo_id', 'processo_identificador',
   'duracao_minutos', 'observacoes', 'data_registro',
 ]
@@ -166,6 +166,7 @@ Deno.serve(async (req) => {
           fde_code: String(body.fde_code || ''),
           atendente_id: user.id,
           atendente_nome: autorNome,
+          canal: String(body.canal || 'Teams'),
           pauta: String(body.pauta),
           processo_origem: String(body.processo_origem || ''),
           processo_id: String(body.processo_id || ''),
