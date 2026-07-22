@@ -21,6 +21,8 @@ const OBJETIVOS_VISITA = [
 ];
 
 const SHEET_URL = import.meta.env.VITE_VISITAS_SHEET_URL as string;
+const LEGADO_CSV_URL = import.meta.env.VITE_VISITAS_LEGADO_CSV_URL as string;
+const VISITANTE_LEGADO = 'Registro manual (planilha)';
 
 const CHART_COLORS = [
   '#3b82f6', '#10b981', '#f59e0b', '#ef4444',
@@ -102,16 +104,77 @@ export default function VisitasEscolares() {
     }
   };
 
+  // Planilha antiga (servidores que ainda registram manualmente, fora do sistema).
+  // Colunas: DATA, ESCOLA, MOTIVO — sem vínculo com escola_id nem visitante identificado.
+  const fetchVisitasLegado = async (): Promise<Visita[]> => {
+    if (!LEGADO_CSV_URL) {
+      console.warn('VITE_VISITAS_LEGADO_CSV_URL não configurada — planilha legada de visitas não será exibida.');
+      return [];
+    }
+    const response = await fetch(LEGADO_CSV_URL);
+    if (!response.ok) throw new Error('Falha ao buscar planilha legada de visitas');
+    const csvText = await response.text();
+
+    const parseLine = (line: string): string[] => {
+      const matches = line.match(/(".*?"|[^",\r\n]+)(?=\s*,|\s*$)/g);
+      return matches ? matches.map(m => m.replace(/^"|"$/g, '').trim()) : [];
+    };
+
+    return csvText
+      .split('\n')
+      .filter(l => l.trim())
+      .slice(1) // pula o cabeçalho (DATA, ESCOLA, MOTIVO, TOTAL DE VISITAS:, ...)
+      .map((line, i): Visita | null => {
+        const [dataRaw, escolaNome, motivo] = parseLine(line);
+        if (!dataRaw || !escolaNome) return null;
+
+        const [d, m, y] = dataRaw.split('/');
+        const dataVisita = d && m && y?.length === 4
+          ? `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
+          : dataRaw;
+
+        return {
+          id: `legado-${i}-${dataRaw}`,
+          data_visita: dataVisita,
+          escola_nome: escolaNome,
+          fde_code: '',
+          visitante: VISITANTE_LEGADO,
+          objetivo: motivo || '',
+          observacoes: '',
+          data_registro: '',
+        };
+      })
+      .filter((v): v is Visita => v !== null);
+  };
+
   const fetchVisitas = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('google-sheets-visitas', {
-        method: 'GET',
-      });
-      if (error) throw error;
-      if (Array.isArray(data)) setVisitas(data);
-    } catch (e) {
-      console.error('Erro ao buscar visitas:', e);
+      const [oficialResult, legadoResult] = await Promise.allSettled([
+        supabase.functions.invoke('google-sheets-visitas', { method: 'GET' }),
+        fetchVisitasLegado(),
+      ]);
+
+      let oficial: Visita[] = [];
+      if (oficialResult.status === 'fulfilled') {
+        const { data, error } = oficialResult.value;
+        if (error) console.error('Erro ao buscar visitas (sistema):', error);
+        else if (Array.isArray(data)) oficial = data;
+      } else {
+        console.error('Erro ao buscar visitas (sistema):', oficialResult.reason);
+      }
+
+      let legado: Visita[] = [];
+      if (legadoResult.status === 'fulfilled') {
+        legado = legadoResult.value;
+      } else {
+        console.error('Erro ao buscar visitas (planilha legada):', legadoResult.reason);
+      }
+
+      const merged = [...oficial, ...legado].sort((a, b) =>
+        (b.data_visita || '').localeCompare(a.data_visita || '')
+      );
+      setVisitas(merged);
     } finally {
       setLoading(false);
     }
@@ -169,20 +232,29 @@ export default function VisitasEscolares() {
     [visitas, currentMonthStr],
   );
 
+  const normalizeEscolaNome = (s: string) =>
+    s?.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim() || '';
+
   const uniqueEscolas = useMemo(
-    () => new Set(visitas.map(v => v.escola_nome).filter(Boolean)).size,
+    () => new Set(visitas.map(v => normalizeEscolaNome(v.escola_nome)).filter(Boolean)).size,
     [visitas],
   );
+
+  const OBJETIVOS_SET = useMemo(() => new Set(OBJETIVOS_VISITA), []);
+  const OUTROS_LABEL = 'Outros (registros manuais)';
 
   const chartByObjetivo = useMemo(() => {
     const map = new Map<string, number>();
     visitas.forEach(v => {
-      if (v.objetivo) map.set(v.objetivo, (map.get(v.objetivo) || 0) + 1);
+      if (!v.objetivo) return;
+      // Motivos livres da planilha legada são agrupados para o gráfico não ficar poluído
+      const key = OBJETIVOS_SET.has(v.objetivo) ? v.objetivo : OUTROS_LABEL;
+      map.set(key, (map.get(key) || 0) + 1);
     });
     return Array.from(map.entries())
       .map(([objetivo, total]) => ({ objetivo, total }))
       .sort((a, b) => b.total - a.total);
-  }, [visitas]);
+  }, [visitas, OBJETIVOS_SET]);
 
   const chartByMonth = useMemo(() => {
     const months = [];
