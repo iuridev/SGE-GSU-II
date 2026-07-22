@@ -10,6 +10,7 @@ import {
 import { WaterTruckModal } from '../components/WaterTruckModal';
 import { PowerOutageModal } from '../components/PowerOutageModal';
 import { resolveViewRole, isReadOnlyRole } from '../lib/roles';
+import { fetchObrasSheet, normalizeStatus } from '../lib/obrasSheet';
 
 const LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
@@ -454,23 +455,27 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       let activeWorksCount = 0;
       let openTicketsCount = 0;
       try {
+        const { data: allSchools } = await (supabase as any).from('schools').select('id, name');
+        const sheetRows = await fetchObrasSheet(allSchools || []);
+        let relevantRows = sheetRows;
+        if (role === 'supervisor' && supervisorIds.length > 0) {
+          relevantRows = sheetRows.filter(r => r.matchedSchoolId && supervisorIds.includes(r.matchedSchoolId));
+        } else if (!(role === 'regional_admin' || role === 'dirigente') && sId) {
+          relevantRows = sheetRows.filter(r => r.matchedSchoolId === sId);
+        }
+        activeWorksCount = relevantRows.filter(r => normalizeStatus(r.status) === 'EM ANDAMENTO').length;
+
         if (role === 'regional_admin' || role === 'dirigente') {
-          const { count: wc } = await (supabase as any).from('construction_works').select('*', { count: 'exact', head: true }).eq('status', 'EM ANDAMENTO');
-          activeWorksCount = wc || 0;
           const { data: tickets } = await (supabase as any).from('internal_tickets').select('status');
           openTicketsCount = (tickets || []).filter((t: any) => !['RESOLVIDO', 'FECHADO', 'CONCLUÍDO'].includes(t.status)).length;
         } else if (role === 'supervisor' && supervisorIds.length > 0) {
-          const { count: wc } = await (supabase as any).from('construction_works').select('*', { count: 'exact', head: true }).eq('status', 'EM ANDAMENTO').in('school_id', supervisorIds);
-          activeWorksCount = wc || 0;
           const { data: tickets } = await (supabase as any).from('internal_tickets').select('status').in('school_id', supervisorIds);
           openTicketsCount = (tickets || []).filter((t: any) => !['RESOLVIDO', 'FECHADO', 'CONCLUÍDO'].includes(t.status)).length;
         } else if (sId) {
-          const { count: wc } = await (supabase as any).from('construction_works').select('*', { count: 'exact', head: true }).eq('status', 'EM ANDAMENTO').eq('school_id', sId);
-          activeWorksCount = wc || 0;
           const { data: tickets } = await (supabase as any).from('internal_tickets').select('status').eq('school_id', sId);
           openTicketsCount = (tickets || []).filter((t: any) => !['RESOLVIDO', 'FECHADO', 'CONCLUÍDO'].includes(t.status)).length;
         }
-      } catch { /* tables may not exist yet */ }
+      } catch { /* sheet may be unreachable or tables may not exist yet */ }
 
       if (role === 'regional_admin' || role === 'dirigente') {
         const { count: sc } = await (supabase as any).from('schools').select('*', { count: 'exact', head: true });
