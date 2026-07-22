@@ -178,6 +178,29 @@ Deno.serve(async (req) => {
         return ok(corsHeaders, { success: true })
       }
 
+      case 'editar_atendimento': {
+        exigirRegionalAdmin(p)
+        const sheet = await getOrCreateSheet(doc, ATENDIMENTOS_SHEET, ATENDIMENTOS_COLUMNS)
+        if (!body.id) throw new Error('Atendimento não informado.')
+        if (!body.data_atendimento || !body.pauta) throw new Error('Data e pauta são obrigatórios.')
+        const rows = await sheet.getRows()
+        const row = rows.find((r: any) => r.get('id') === String(body.id))
+        if (!row) throw new Error('Atendimento não encontrado.')
+        row.set('data_atendimento', String(body.data_atendimento))
+        row.set('escola_id', String(body.escola_id || ''))
+        row.set('escola_nome', String(body.escola_nome || ''))
+        row.set('fde_code', String(body.fde_code || ''))
+        row.set('canal', String(body.canal || 'Teams'))
+        row.set('pauta', String(body.pauta))
+        row.set('processo_origem', String(body.processo_origem || ''))
+        row.set('processo_id', String(body.processo_id || ''))
+        row.set('processo_identificador', String(body.processo_identificador || ''))
+        row.set('duracao_minutos', String(body.duracao_minutos || ''))
+        row.set('observacoes', String(body.observacoes || ''))
+        await row.save()
+        return ok(corsHeaders, { success: true })
+      }
+
       case 'listar_observacoes': {
         const sheet = await getOrCreateSheet(doc, OBSERVACOES_SHEET, OBSERVACOES_COLUMNS)
         const rows = await sheet.getRows()
@@ -246,6 +269,31 @@ Deno.serve(async (req) => {
           autor_nome: autorNome,
           data_registro: new Date().toISOString(),
         })
+        return ok(corsHeaders, { success: true })
+      }
+
+      case 'editar_remanejamento': {
+        exigirRegionalAdmin(p)
+        const sheet = await getOrCreateSheet(doc, REMANEJAMENTOS_SHEET, REMANEJAMENTOS_COLUMNS)
+        if (!body.id) throw new Error('Remanejamento não informado.')
+        if (!body.escola_origem_id || !body.escola_destino_id || !body.numero_patrimonial || !body.numero_documento) {
+          throw new Error('Escola origem, escola destino, nº patrimonial e nº do documento são obrigatórios.')
+        }
+        if (String(body.escola_origem_id) === String(body.escola_destino_id)) {
+          throw new Error('A escola de destino deve ser diferente da escola de origem.')
+        }
+        const rows = await sheet.getRows()
+        const row = rows.find((r: any) => r.get('id') === String(body.id))
+        if (!row) throw new Error('Remanejamento não encontrado.')
+        row.set('escola_origem_id', String(body.escola_origem_id))
+        row.set('escola_origem_nome', String(body.escola_origem_nome || ''))
+        row.set('escola_destino_id', String(body.escola_destino_id))
+        row.set('escola_destino_nome', String(body.escola_destino_nome || ''))
+        row.set('numero_patrimonial', String(body.numero_patrimonial))
+        row.set('descricao', String(body.descricao || ''))
+        row.set('numero_documento', String(body.numero_documento))
+        row.set('cadastrado_sam', body.cadastrado_sam ? 'TRUE' : 'FALSE')
+        await row.save()
         return ok(corsHeaders, { success: true })
       }
 

@@ -4,7 +4,7 @@ import { resolveViewRole } from '../lib/roles';
 import {
   Plus, Search, X, Loader2, CalendarDays, Video,
   MapPin, BarChart3, TrendingUp, RefreshCw, ExternalLink,
-  ClipboardList, ArrowRightLeft, Package, Check, Mail, History,
+  ClipboardList, ArrowRightLeft, Package, Check, Mail, History, Pencil,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -82,7 +82,7 @@ interface Remanejamento {
 }
 
 interface ProcessoOption {
-  origem: 'asset_process' | 'processo_furto' | 'atendimento';
+  origem: 'asset_process' | 'processo_furto' | 'atendimento' | 'remanejamento';
   id: string;
   identificador: string;
   tipoLabel: string;
@@ -129,17 +129,20 @@ export default function AtendimentoPatrimonio() {
   const [showAtendimentoForm, setShowAtendimentoForm] = useState(false);
   const [atendimentoForm, setAtendimentoForm] = useState(ATENDIMENTO_INITIAL);
   const [processoVinculado, setProcessoVinculado] = useState<ProcessoOption | null>(null);
+  const [editingAtendimentoId, setEditingAtendimentoId] = useState<string | null>(null);
 
   const [showRemanejamentoForm, setShowRemanejamentoForm] = useState(false);
   const [remanejamentoForm, setRemanejamentoForm] = useState(REMANEJAMENTO_INITIAL);
+  const [editingRemanejamentoId, setEditingRemanejamentoId] = useState<string | null>(null);
 
   const [processos, setProcessos] = useState<ProcessoOption[]>([]);
   const [loadingProcessos, setLoadingProcessos] = useState(false);
   const [pickerContext, setPickerContext] = useState<null | 'atendimento' | 'observacao'>(null);
   const [pickerSearch, setPickerSearch] = useState('');
   // Só usado quando pickerContext === 'observacao': permite escolher entre vincular a
-  // ação a um processo cadastrado OU a um atendimento (Teams) já registrado, pelo ID dele.
-  const [pickerTab, setPickerTab] = useState<'processos' | 'atendimentos'>('processos');
+  // ação a um processo cadastrado, a um atendimento (Teams) ou a um remanejamento já
+  // registrado, pelo ID dele.
+  const [pickerTab, setPickerTab] = useState<'processos' | 'atendimentos' | 'remanejamentos'>('processos');
 
   const [selectedProcesso, setSelectedProcesso] = useState<ProcessoOption | null>(null);
   const [showObsForm, setShowObsForm] = useState(false);
@@ -272,6 +275,16 @@ export default function AtendimentoPatrimonio() {
     situacaoLabel: `${a.pauta}${a.data_atendimento ? ` • ${formatDate(a.data_atendimento)}` : ''}`,
   });
 
+  const remanejamentoToProcessoOption = (r: Remanejamento): ProcessoOption => ({
+    origem: 'remanejamento',
+    id: r.id,
+    identificador: r.numero_documento || r.numero_patrimonial,
+    tipoLabel: 'Remanejamento',
+    escolaId: r.escola_destino_id || r.escola_origem_id,
+    escolaNome: `${r.escola_origem_nome} → ${r.escola_destino_nome}`,
+    situacaoLabel: r.numero_patrimonial ? `Item: ${r.numero_patrimonial}` : '',
+  });
+
   const handlePickerSelect = (p: ProcessoOption) => {
     if (pickerContext === 'atendimento') {
       setProcessoVinculado(p);
@@ -305,15 +318,21 @@ export default function AtendimentoPatrimonio() {
     }
     setSaving(true);
     try {
-      await invoke('registrar_atendimento', {
+      const payload = {
         ...atendimentoForm,
         processo_origem: processoVinculado?.origem || '',
         processo_id: processoVinculado?.id || '',
         processo_identificador: processoVinculado?.identificador || '',
-      });
+      };
+      if (editingAtendimentoId) {
+        await invoke('editar_atendimento', { ...payload, id: editingAtendimentoId });
+      } else {
+        await invoke('registrar_atendimento', payload);
+      }
       setShowAtendimentoForm(false);
       setAtendimentoForm({ ...ATENDIMENTO_INITIAL, data_atendimento: new Date().toISOString().split('T')[0] });
       setProcessoVinculado(null);
+      setEditingAtendimentoId(null);
       setTimeout(fetchAll, 1500);
     } catch (e) {
       console.error(e);
@@ -321,6 +340,17 @@ export default function AtendimentoPatrimonio() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const openEditAtendimento = (a: Atendimento) => {
+    setEditingAtendimentoId(a.id);
+    setAtendimentoForm({
+      escola_id: a.escola_id, escola_nome: a.escola_nome, fde_code: a.fde_code,
+      data_atendimento: a.data_atendimento, canal: (a.canal as Canal) || 'Teams',
+      pauta: a.pauta, duracao_minutos: a.duracao_minutos, observacoes: a.observacoes,
+    });
+    setProcessoVinculado(null);
+    setShowAtendimentoForm(true);
   };
 
   const handleSubmitObservacao = async (e: React.FormEvent) => {
@@ -363,9 +393,14 @@ export default function AtendimentoPatrimonio() {
     }
     setSaving(true);
     try {
-      await invoke('registrar_remanejamento', f);
+      if (editingRemanejamentoId) {
+        await invoke('editar_remanejamento', { ...f, id: editingRemanejamentoId });
+      } else {
+        await invoke('registrar_remanejamento', f);
+      }
       setShowRemanejamentoForm(false);
       setRemanejamentoForm(REMANEJAMENTO_INITIAL);
+      setEditingRemanejamentoId(null);
       setTimeout(fetchAll, 1500);
     } catch (e) {
       console.error(e);
@@ -373,6 +408,17 @@ export default function AtendimentoPatrimonio() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const openEditRemanejamento = (r: Remanejamento) => {
+    setEditingRemanejamentoId(r.id);
+    setRemanejamentoForm({
+      escola_origem_id: r.escola_origem_id, escola_origem_nome: r.escola_origem_nome,
+      escola_destino_id: r.escola_destino_id, escola_destino_nome: r.escola_destino_nome,
+      numero_patrimonial: r.numero_patrimonial, descricao: r.descricao,
+      numero_documento: r.numero_documento, cadastrado_sam: r.cadastrado_sam === 'TRUE',
+    });
+    setShowRemanejamentoForm(true);
   };
 
   // ── Métricas / gráficos (aba Atendimentos) ────────────────────────────
@@ -457,6 +503,16 @@ export default function AtendimentoPatrimonio() {
       a.escola_nome?.toLowerCase().includes(q) ||
       a.pauta?.toLowerCase().includes(q));
   }, [atendimentos, pickerSearch]);
+
+  const filteredRemanejamentosPicker = useMemo(() => {
+    const q = pickerSearch.toLowerCase();
+    if (!q) return remanejamentos;
+    return remanejamentos.filter(r =>
+      r.numero_documento?.toLowerCase().includes(q) ||
+      r.numero_patrimonial?.toLowerCase().includes(q) ||
+      r.escola_origem_nome?.toLowerCase().includes(q) ||
+      r.escola_destino_nome?.toLowerCase().includes(q));
+  }, [remanejamentos, pickerSearch]);
 
   // Linha do tempo (mais recente primeiro) de todas as ações/observações já
   // registradas para o processo/atendimento aberto no modal de detalhe.
@@ -623,7 +679,7 @@ export default function AtendimentoPatrimonio() {
               <span className="text-xs text-slate-400">{filteredAtendimentos.length} registro(s)</span>
               {isAdmin && (
                 <button
-                  onClick={() => setShowAtendimentoForm(true)}
+                  onClick={() => { setEditingAtendimentoId(null); setAtendimentoForm({ ...ATENDIMENTO_INITIAL, data_atendimento: new Date().toISOString().split('T')[0] }); setProcessoVinculado(null); setShowAtendimentoForm(true); }}
                   className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium ml-auto"
                 >
                   <Plus size={18} /> Novo Atendimento
@@ -666,13 +722,24 @@ export default function AtendimentoPatrimonio() {
                         <td className="px-4 py-3 text-slate-500 max-w-xs truncate">{a.observacoes || '-'}</td>
                         <td className="px-4 py-3 text-slate-400 whitespace-nowrap text-xs">{formatDateTime(a.data_registro)}</td>
                         <td className="px-4 py-3 whitespace-nowrap">
-                          <button
-                            onClick={() => openDetail(atendimentoToProcessoOption(a))}
-                            title="Ver linha do tempo de ações"
-                            className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
-                          >
-                            <History size={16} />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => openDetail(atendimentoToProcessoOption(a))}
+                              title="Ver linha do tempo de ações"
+                              className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                            >
+                              <History size={16} />
+                            </button>
+                            {isAdmin && (
+                              <button
+                                onClick={() => openEditAtendimento(a)}
+                                title="Editar atendimento"
+                                className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                              >
+                                <Pencil size={16} />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -786,7 +853,7 @@ export default function AtendimentoPatrimonio() {
               <span className="text-xs text-slate-400">{filteredRemanejamentos.length} registro(s)</span>
               {isAdmin && (
                 <button
-                  onClick={() => setShowRemanejamentoForm(true)}
+                  onClick={() => { setEditingRemanejamentoId(null); setRemanejamentoForm(REMANEJAMENTO_INITIAL); setShowRemanejamentoForm(true); }}
                   className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium ml-auto"
                 >
                   <Plus size={18} /> Novo Remanejamento
@@ -805,7 +872,7 @@ export default function AtendimentoPatrimonio() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50">
-                      {['Data', 'Escola Origem', 'Escola Destino', 'Nº Patrimonial', 'Descrição', 'Nº Documento', 'Cadastrado no SAM?', 'Autor'].map(h => (
+                      {['Data', 'Escola Origem', 'Escola Destino', 'Nº Patrimonial', 'Descrição', 'Nº Documento', 'Cadastrado no SAM?', 'Autor', ''].map(h => (
                         <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -831,6 +898,26 @@ export default function AtendimentoPatrimonio() {
                           )}
                         </td>
                         <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{r.autor_nome}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => openDetail(remanejamentoToProcessoOption(r))}
+                              title="Ver linha do tempo de ações"
+                              className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                            >
+                              <History size={16} />
+                            </button>
+                            {isAdmin && (
+                              <button
+                                onClick={() => openEditRemanejamento(r)}
+                                title="Editar remanejamento"
+                                className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                              >
+                                <Pencil size={16} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -846,8 +933,11 @@ export default function AtendimentoPatrimonio() {
         <div className="fixed inset-0 z-[110] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-5 border-b border-slate-100 sticky top-0 bg-white z-10">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Video size={20} className="text-teal-600" /> Registrar Atendimento</h2>
-              <button onClick={() => { setShowAtendimentoForm(false); setProcessoVinculado(null); }} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                {editingAtendimentoId ? <Pencil size={20} className="text-teal-600" /> : <Video size={20} className="text-teal-600" />}
+                {editingAtendimentoId ? 'Editar Atendimento' : 'Registrar Atendimento'}
+              </h2>
+              <button onClick={() => { setShowAtendimentoForm(false); setProcessoVinculado(null); setEditingAtendimentoId(null); }} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
                 <X size={18} className="text-slate-500" />
               </button>
             </div>
@@ -921,11 +1011,11 @@ export default function AtendimentoPatrimonio() {
               </div>
               <div className="bg-slate-50 rounded-lg px-3 py-2.5 text-xs text-slate-500">Atendente: <span className="font-medium text-slate-700">{userName || '...'}</span></div>
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => { setShowAtendimentoForm(false); setProcessoVinculado(null); }}
+                <button type="button" onClick={() => { setShowAtendimentoForm(false); setProcessoVinculado(null); setEditingAtendimentoId(null); }}
                   className="flex-1 px-4 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">Cancelar</button>
                 <button type="submit" disabled={saving}
                   className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2">
-                  {saving ? <><Loader2 size={16} className="animate-spin" /> Salvando...</> : 'Registrar Atendimento'}
+                  {saving ? <><Loader2 size={16} className="animate-spin" /> Salvando...</> : editingAtendimentoId ? 'Salvar Alterações' : 'Registrar Atendimento'}
                 </button>
               </div>
             </form>
@@ -938,8 +1028,11 @@ export default function AtendimentoPatrimonio() {
         <div className="fixed inset-0 z-[110] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-5 border-b border-slate-100 sticky top-0 bg-white z-10">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><ArrowRightLeft size={20} className="text-teal-600" /> Registrar Remanejamento</h2>
-              <button onClick={() => setShowRemanejamentoForm(false)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors"><X size={18} className="text-slate-500" /></button>
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                {editingRemanejamentoId ? <Pencil size={20} className="text-teal-600" /> : <ArrowRightLeft size={20} className="text-teal-600" />}
+                {editingRemanejamentoId ? 'Editar Remanejamento' : 'Registrar Remanejamento'}
+              </h2>
+              <button onClick={() => { setShowRemanejamentoForm(false); setEditingRemanejamentoId(null); }} className="p-2 hover:bg-slate-100 rounded-lg transition-colors"><X size={18} className="text-slate-500" /></button>
             </div>
             <form onSubmit={handleSubmitRemanejamento} className="p-5 space-y-4">
               <div>
@@ -992,11 +1085,11 @@ export default function AtendimentoPatrimonio() {
                 <span className="text-sm font-medium text-slate-700">Foi cadastrado no SAM?</span>
               </label>
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowRemanejamentoForm(false)}
+                <button type="button" onClick={() => { setShowRemanejamentoForm(false); setEditingRemanejamentoId(null); }}
                   className="flex-1 px-4 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">Cancelar</button>
                 <button type="submit" disabled={saving}
                   className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2">
-                  {saving ? <><Loader2 size={16} className="animate-spin" /> Salvando...</> : 'Registrar Remanejamento'}
+                  {saving ? <><Loader2 size={16} className="animate-spin" /> Salvando...</> : editingRemanejamentoId ? 'Salvar Alterações' : 'Registrar Remanejamento'}
                 </button>
               </div>
             </form>
@@ -1009,7 +1102,7 @@ export default function AtendimentoPatrimonio() {
         <div className="fixed inset-0 z-[120] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between p-5 border-b border-slate-100">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Package size={20} className="text-teal-600" /> {pickerTab === 'atendimentos' ? 'Selecionar Atendimento' : 'Selecionar Processo'}</h2>
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Package size={20} className="text-teal-600" /> {pickerTab === 'atendimentos' ? 'Selecionar Atendimento' : pickerTab === 'remanejamentos' ? 'Selecionar Remanejamento' : 'Selecionar Processo'}</h2>
               <button onClick={() => setPickerContext(null)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors"><X size={18} className="text-slate-500" /></button>
             </div>
 
@@ -1018,6 +1111,7 @@ export default function AtendimentoPatrimonio() {
                 {([
                   { id: 'processos' as const, label: 'Processos Cadastrados' },
                   { id: 'atendimentos' as const, label: 'Atendimentos (Teams / E-mail)' },
+                  { id: 'remanejamentos' as const, label: 'Remanejamentos' },
                 ]).map(t => (
                   <button
                     key={t.id}
@@ -1038,7 +1132,11 @@ export default function AtendimentoPatrimonio() {
                 <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text" autoFocus
-                  placeholder={pickerTab === 'atendimentos' ? 'Buscar por ID, escola ou pauta...' : 'Buscar por nº SEI/BO, escola ou tipo...'}
+                  placeholder={
+                    pickerTab === 'atendimentos' ? 'Buscar por ID, escola ou pauta...'
+                      : pickerTab === 'remanejamentos' ? 'Buscar por nº documento, nº patrimonial ou escola...'
+                        : 'Buscar por nº SEI/BO, escola ou tipo...'
+                  }
                   value={pickerSearch} onChange={e => setPickerSearch(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
@@ -1063,6 +1161,27 @@ export default function AtendimentoPatrimonio() {
                             <p className="text-[10px] text-slate-400 font-mono truncate mt-0.5">ID: {a.id}</p>
                           </div>
                           <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full shrink-0 ${a.canal === 'E-mail' ? 'bg-violet-50 text-violet-700' : 'bg-teal-50 text-teal-700'}`}>{a.canal || 'Teams'}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )
+              ) : pickerTab === 'remanejamentos' ? (
+                filteredRemanejamentosPicker.length === 0 ? (
+                  <div className="text-center py-16 text-slate-400 text-sm">Nenhum remanejamento encontrado</div>
+                ) : (
+                  <ul className="divide-y divide-slate-50">
+                    {filteredRemanejamentosPicker.map(r => (
+                      <li key={r.id}>
+                        <button
+                          onClick={() => handlePickerSelect(remanejamentoToProcessoOption(r))}
+                          className="w-full text-left px-5 py-3 hover:bg-teal-50 transition-colors flex items-center justify-between gap-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-slate-800 truncate">{r.escola_origem_nome} → {r.escola_destino_nome}</p>
+                            <p className="text-xs text-slate-500">Item: {r.numero_patrimonial} • Doc: {r.numero_documento}</p>
+                          </div>
+                          <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full shrink-0 bg-amber-50 text-amber-700">Remanejamento</span>
                         </button>
                       </li>
                     ))}
