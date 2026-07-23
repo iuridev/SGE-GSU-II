@@ -447,12 +447,14 @@ export function PatrimonioProcessos() {
               {isExporting ? <Loader2 size={15} className="animate-spin" /> : <FileDown size={15} />}
               {isExporting ? 'Gerando PDF...' : 'Exportar PDF'}
             </button>
-            <button
-              onClick={() => openModal()}
-              className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-all shadow-md shadow-indigo-200 active:scale-[0.98]"
-            >
-              <Plus size={15} /> Novo Processo
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => openModal()}
+                className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-all shadow-md shadow-indigo-200 active:scale-[0.98]"
+              >
+                <Plus size={15} /> Novo Processo
+              </button>
+            )}
           </div>
         </div>
       </div>
