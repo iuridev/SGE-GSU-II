@@ -100,7 +100,7 @@ export function Chamados() {
       setNewTicket(prev => ({
         ...prev,
         title: `Dúvida sobre ${origem.tipo === 'atendimento' ? 'atendimento' : 'remanejamento'}: ${origem.label}`,
-        description: `Referente ao ${origem.tipo === 'atendimento' ? 'atendimento' : 'remanejamento'}: ${origem.label}\n\n`,
+        description: `Referente ao ${origem.tipo === 'atendimento' ? 'atendimento' : 'remanejamento'}: ${origem.label} (ID: ${origem.id})\n\n`,
         origem_tipo: origem.tipo, origem_id: origem.id, origem_label: origem.label,
       }));
       setIsCreateOpen(true);
@@ -591,6 +591,7 @@ export function Chamados() {
                           <p className="text-xs font-bold leading-snug">
                              Este chamado será vinculado ao {newTicket.origem_tipo === 'atendimento' ? 'atendimento' : 'remanejamento'}:
                              <br /><span className="font-black">{newTicket.origem_label}</span>
+                             <br /><span className="text-[10px] font-mono text-teal-600">ID: {newTicket.origem_id}</span>
                           </p>
                        </div>
                     )}
