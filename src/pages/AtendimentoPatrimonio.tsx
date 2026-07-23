@@ -757,9 +757,9 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                               <button
                                 onClick={() => abrirChamado('atendimento', a.id, `${a.pauta} — ${formatDate(a.data_atendimento)}`)}
                                 title="Abrir chamado sobre este atendimento"
-                                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 hover:border-indigo-300 transition-colors whitespace-nowrap"
                               >
-                                <Ticket size={16} />
+                                <Ticket size={14} /> Abrir Chamado
                               </button>
                             )}
                           </div>
@@ -943,9 +943,9 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                               <button
                                 onClick={() => abrirChamado('remanejamento', r.id, `${r.escola_origem_nome} → ${r.escola_destino_nome} (item ${r.numero_patrimonial})`)}
                                 title="Abrir chamado sobre este remanejamento"
-                                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 hover:border-indigo-300 transition-colors whitespace-nowrap"
                               >
-                                <Ticket size={16} />
+                                <Ticket size={14} /> Abrir Chamado
                               </button>
                             )}
                           </div>
