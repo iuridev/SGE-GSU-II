@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { 
-  Plus, Trash2, Save, FileText, AlertTriangle, ShieldAlert, Building2, 
+import {
+  Plus, Trash2, Save, FileText, AlertTriangle, ShieldAlert, Building2,
   Calculator, BarChart3, TrendingUp, Clock, CheckCircle, Search, Pencil, X, CalendarClock,
-  Package, Loader2
+  Package, Loader2, Download
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 
 const TIPOS_OCORRENCIA = ["FURTO", "ROUBO", "EXTRAVIO", "INCÊNCIO", "VANDALISMO"];
@@ -20,6 +21,7 @@ const STATUS_OPCOES = [
 interface Escola {
   id: string;
   name: string;
+  cie_code?: string;
 }
 
 interface UserProfile {
@@ -38,7 +40,8 @@ interface ProcessoHistorico {
   id: string;
   numero_sei: string;
   escola_id: string;
-  escolaNome: string; 
+  escolaNome: string;
+  escolaCie?: string;
   data_ocorrencia: string;
   tipo_ocorrencia: string;
   situacao: string;
@@ -81,6 +84,8 @@ export default function CadastroFurtos() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterEscola, setFilterEscola] = useState('');
   const [filterSituacao, setFilterSituacao] = useState('');
+  const [filterDataInicio, setFilterDataInicio] = useState('');
+  const [filterDataFim, setFilterDataFim] = useState('');
 
   // ================= ESTADO DO MODAL DE BAIXA PATRIMONIAL =================
   const [baixaModal, setBaixaModal] = useState({ isOpen: false, processoId: '', nlBaixa: '' });
@@ -103,7 +108,7 @@ export default function CadastroFurtos() {
         // 2. Buscar Escolas
         const { data: schoolsData, error: schoolsError } = await supabase
           .from('schools')
-          .select('id, name')
+          .select('id, name, cie_code')
           .order('name');
           
         if (schoolsError) throw schoolsError;
@@ -127,9 +132,9 @@ export default function CadastroFurtos() {
             valor_total,
             updated_at,
             created_at,
-            schools ( name )
+            schools ( name, cie_code )
           `)
-          .order('updated_at', { ascending: false }); 
+          .order('updated_at', { ascending: false });
 
         if (processosError) throw processosError;
 
@@ -139,6 +144,7 @@ export default function CadastroFurtos() {
             numero_sei: proc.numero_sei,
             escola_id: proc.escola_id,
             escolaNome: proc.schools?.name || 'Escola Desconhecida',
+            escolaCie: proc.schools?.cie_code || '',
             data_ocorrencia: proc.data_ocorrencia,
             tipo_ocorrencia: proc.tipo_ocorrencia,
             situacao: proc.situacao,
@@ -337,10 +343,52 @@ export default function CadastroFurtos() {
         
       const matchEscola = filterEscola === '' || proc.escola_id === filterEscola;
       const matchSituacao = filterSituacao === '' || proc.situacao === filterSituacao;
+      const matchDataInicio = filterDataInicio === '' || (proc.data_ocorrencia && proc.data_ocorrencia >= filterDataInicio);
+      const matchDataFim = filterDataFim === '' || (proc.data_ocorrencia && proc.data_ocorrencia <= filterDataFim);
 
-      return matchSearch && matchEscola && matchSituacao;
+      return matchSearch && matchEscola && matchSituacao && matchDataInicio && matchDataFim;
     });
-  }, [historico, searchTerm, filterEscola, filterSituacao]);
+  }, [historico, searchTerm, filterEscola, filterSituacao, filterDataInicio, filterDataFim]);
+
+  // Exportação para Excel no formato solicitado pelo TCE-SP (Tabela 2: ativos furtados/roubados/extraviados)
+  const exportarExcelTCE = () => {
+    const linhas: Record<string, string | number>[] = [];
+
+    historicoFiltrado.forEach((proc) => {
+      const itensDoProcesso = proc.itens && proc.itens.length > 0 ? proc.itens : [];
+
+      itensDoProcesso.forEach((item) => {
+        if (!item.descricao) return;
+        const valor = parseFloat(item.valorUnitario);
+        linhas.push({
+          'Ativo': item.patrimonio ? `${item.descricao} (SAM: ${item.patrimonio})` : item.descricao,
+          'Quantidade': 1,
+          'Evento': proc.tipo_ocorrencia,
+          'Valor contábil do equipamento R$': isNaN(valor) ? 0 : valor,
+          'Código da Escola': proc.escolaCie || '',
+          'Nome da Escola': proc.escolaNome,
+          'Nº SEI': proc.numero_sei,
+          'Data da Ocorrência': proc.data_ocorrencia ? new Date(proc.data_ocorrencia + 'T00:00:00').toLocaleDateString('pt-BR') : '',
+          'Situação': proc.situacao,
+        });
+      });
+    });
+
+    if (linhas.length === 0) {
+      alert('Não há itens para exportar com os filtros selecionados.');
+      return;
+    }
+
+    const ws = XLSX.utils.json_to_sheet(linhas);
+    ws['!cols'] = [
+      { wch: 35 }, { wch: 12 }, { wch: 12 }, { wch: 22 }, { wch: 16 }, { wch: 35 }, { wch: 20 }, { wch: 16 }, { wch: 16 }
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Ativos Furtados-Roubados');
+
+    const hoje = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `TCE_relacao_ativos_furtos_${hoje}.xlsx`);
+  };
 
   // Salvando/Atualizando dados no Supabase
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -397,7 +445,7 @@ export default function CadastroFurtos() {
           situacao,
           valor_total,
           updated_at,
-          schools ( name )
+          schools ( name, cie_code )
         `)
         .single();
 
@@ -409,6 +457,7 @@ export default function CadastroFurtos() {
           numero_sei: registroSalvo.numero_sei,
           escola_id: registroSalvo.escola_id,
           escolaNome: registroSalvo.schools?.name || 'Escola Desconhecida',
+          escolaCie: registroSalvo.schools?.cie_code || '',
           data_ocorrencia: registroSalvo.data_ocorrencia,
           tipo_ocorrencia: registroSalvo.tipo_ocorrencia,
           situacao: registroSalvo.situacao,
@@ -713,11 +762,11 @@ export default function CadastroFurtos() {
                 Processos Registados
               </h3>
             </div>
-            
+
             {/* SEÇÃO DE FILTROS */}
-            <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-              <select 
-                value={filterEscola} 
+            <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full sm:w-auto">
+              <select
+                value={filterEscola}
                 onChange={(e) => setFilterEscola(e.target.value)}
                 className="w-full sm:w-auto p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
               >
@@ -725,8 +774,8 @@ export default function CadastroFurtos() {
                 {escolas.map(esc => <option key={esc.id} value={esc.id}>{esc.name}</option>)}
               </select>
 
-              <select 
-                value={filterSituacao} 
+              <select
+                value={filterSituacao}
                 onChange={(e) => setFilterSituacao(e.target.value)}
                 className="w-full sm:w-auto p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
               >
@@ -734,16 +783,43 @@ export default function CadastroFurtos() {
                 {SITUACOES.map(sit => <option key={sit} value={sit}>{sit}</option>)}
               </select>
 
-              <div className="relative w-full sm:w-64">
-                <Search className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
-                <input 
-                  type="text" 
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Pesquisar Nº SEI ou Escola..." 
-                  className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="date"
+                  value={filterDataInicio}
+                  onChange={(e) => setFilterDataInicio(e.target.value)}
+                  title="Data de ocorrência - início"
+                  className="w-full sm:w-auto p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                />
+                <span className="text-gray-400 text-sm">até</span>
+                <input
+                  type="date"
+                  value={filterDataFim}
+                  onChange={(e) => setFilterDataFim(e.target.value)}
+                  title="Data de ocorrência - fim"
+                  className="w-full sm:w-auto p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
                 />
               </div>
+
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Pesquisar Nº SEI ou Escola..."
+                  className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={exportarExcelTCE}
+                title="Exportar relação de ativos furtados/roubados/extraviados no formato do TCE-SP"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"
+              >
+                <Download className="w-4 h-4" /> Exportar Excel (TCE)
+              </button>
             </div>
           </div>
 
