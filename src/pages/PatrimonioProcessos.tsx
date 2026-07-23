@@ -10,7 +10,7 @@ import {
   AlertCircle, History, Flag, ShieldAlert, Gift,
   ClipboardList, DollarSign, ListPlus, Calculator,
   LayoutGrid, CheckCircle, Download, BarChart2, TrendingUp,
-  FileDown
+  FileDown, ListOrdered
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
 import jsPDF from 'jspdf';
@@ -154,6 +154,28 @@ export function PatrimonioProcessos() {
 
   const isAdmin = userRole === 'regional_admin';
   const isReadOnly = !!editingProcess && !isAdmin;
+
+  // Fila de priorização: processos pendentes ordenados do mais antigo para o
+  // mais recente. Ao ser concluído, o processo some da fila automaticamente
+  // (não entra no filtro abaixo). Oculta para school_manager por decisão de
+  // produto — a fila é uma ferramenta de gestão regional, não da escola.
+  const showQueue = userRole !== '' && userRole !== 'school_manager';
+
+  const pendingQueue = useMemo(() => {
+    return processes
+      .filter(p => p.status !== 'CONCLUÍDO')
+      .slice()
+      .sort((a, b) => {
+        if (a.process_date !== b.process_date) return a.process_date.localeCompare(b.process_date);
+        return a.created_at.localeCompare(b.created_at);
+      });
+  }, [processes]);
+
+  const queuePositionMap = useMemo(() => {
+    const map = new Map<string, number>();
+    pendingQueue.forEach((p, idx) => map.set(p.id, idx + 1));
+    return map;
+  }, [pendingQueue]);
 
   const activeProcesses = useMemo(() => {
     if (isExporting && exportTargetSchool !== '') {
@@ -464,6 +486,55 @@ export function PatrimonioProcessos() {
 
         <DefesoEleitoralBanner />
 
+        {/* ── FILA DE PRIORIZAÇÃO ──────────────────────────────── */}
+        {showQueue && (
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+            <div className="flex items-center gap-2 mb-1">
+              <ListOrdered size={17} className="text-indigo-500" />
+              <h3 className="text-sm font-bold text-slate-800">Fila de Atendimento por Antiguidade</h3>
+            </div>
+            <p className="text-xs text-slate-400 mb-4">
+              Processos pendentes ordenados do mais antigo para o mais recente. Ao ser concluído, o processo sai da fila automaticamente.
+            </p>
+
+            {pendingQueue.length === 0 ? (
+              <p className="text-sm text-slate-400 py-4 text-center">Nenhum processo pendente. Fila vazia.</p>
+            ) : (
+              <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                {pendingQueue.map((p, idx) => {
+                  const typeInfo = PROCESS_TYPES.find(t => t.id === p.type);
+                  const daysWaiting = Math.max(0, Math.floor((Date.now() - new Date(p.process_date + 'T00:00:00').getTime()) / 86400000));
+                  const isNext = idx === 0;
+                  return (
+                    <div
+                      key={p.id}
+                      className={`flex items-center gap-3 p-3 rounded-xl border ${isNext ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-100'}`}
+                    >
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 font-bold text-xs ${isNext ? 'bg-indigo-600 text-white' : 'bg-white text-slate-500 border border-slate-200'}`}>
+                        {idx + 1}º
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-bold text-slate-700 truncate max-w-[10rem]">{p.schools?.name}</span>
+                          <span className="text-xs text-slate-400 font-mono">SEI {p.sei_number}</span>
+                          {isNext && (
+                            <span className="text-[10px] font-bold text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded-full uppercase tracking-wide">
+                              Próximo
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          {p.type === 'FURTOS' ? p.subtype : typeInfo?.label} · aguardando há {daysWaiting} dia{daysWaiting !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── DASHBOARD (capturado para PDF) ────────────────────── */}
         <div ref={dashboardRef} className="space-y-4 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm">
 
@@ -709,6 +780,14 @@ export function PatrimonioProcessos() {
 
                     {/* Status + Actions */}
                     <div className="flex items-center gap-3 sm:shrink-0">
+                      {showQueue && !isCompleted && queuePositionMap.has(p.id) && (
+                        <span
+                          className="px-2.5 py-1.5 rounded-lg font-bold text-xs bg-slate-900 text-white shrink-0"
+                          title="Posição na fila de atendimento por antiguidade"
+                        >
+                          {queuePositionMap.get(p.id)}º na fila
+                        </span>
+                      )}
                       <span className={`px-3 py-1.5 rounded-lg font-semibold text-xs border ${
                         isCompleted ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
                         p.status === 'CORREÇÃO' ? 'bg-red-50 text-red-700 border-red-200' :
