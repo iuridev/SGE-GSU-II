@@ -712,14 +712,15 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50">
-                      {['Data', 'Canal', 'Escola', 'Pauta', 'Atendente', 'Duração', 'Processo', 'Observações', 'Registrado em', ''].map(h => (
+                      {['Data', 'Canal', 'Escola', 'Pauta', 'Atendente', 'Duração', 'Processo', 'Observações', 'Registrado em'].map(h => (
                         <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
+                      <th className="sticky right-0 z-10 bg-slate-50 text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)]" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {filteredAtendimentos.map((a, i) => (
-                      <tr key={a.id || i} className="hover:bg-slate-50 transition-colors">
+                      <tr key={a.id || i} className="group hover:bg-slate-50 transition-colors">
                         <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{formatDate(a.data_atendimento)}</td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${a.canal === 'E-mail' ? 'bg-violet-50 text-violet-700' : 'bg-teal-50 text-teal-700'}`}>
@@ -735,7 +736,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                         <td className="px-4 py-3 text-slate-500">{a.processo_identificador || '-'}</td>
                         <td className="px-4 py-3 text-slate-500 max-w-xs truncate">{a.observacoes || '-'}</td>
                         <td className="px-4 py-3 text-slate-400 whitespace-nowrap text-xs">{formatDateTime(a.data_registro)}</td>
-                        <td className="px-4 py-3 whitespace-nowrap">
+                        <td className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 px-4 py-3 whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)] transition-colors">
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => openDetail(atendimentoToProcessoOption(a))}
@@ -895,14 +896,15 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50">
-                      {['Data', 'Escola Origem', 'Escola Destino', 'Nº Patrimonial', 'Descrição', 'Nº Documento', 'Cadastrado no SAM?', 'Autor', ''].map(h => (
+                      {['Data', 'Escola Origem', 'Escola Destino', 'Nº Patrimonial', 'Descrição', 'Nº Documento', 'Cadastrado no SAM?', 'Autor'].map(h => (
                         <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
+                      <th className="sticky right-0 z-10 bg-slate-50 text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)]" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {filteredRemanejamentos.map((r, i) => (
-                      <tr key={r.id || i} className="hover:bg-slate-50 transition-colors">
+                      <tr key={r.id || i} className="group hover:bg-slate-50 transition-colors">
                         <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{formatDateTime(r.data_registro)}</td>
                         <td className="px-4 py-3 font-medium text-slate-800">{r.escola_origem_nome}</td>
                         <td className="px-4 py-3 font-medium text-slate-800">{r.escola_destino_nome}</td>
@@ -921,7 +923,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                           )}
                         </td>
                         <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{r.autor_nome}</td>
-                        <td className="px-4 py-3 whitespace-nowrap">
+                        <td className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 px-4 py-3 whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)] transition-colors">
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => openDetail(remanejamentoToProcessoOption(r))}
