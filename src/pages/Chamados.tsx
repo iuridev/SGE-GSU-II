@@ -2,22 +2,31 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
 
-import { 
-  Ticket, Plus, X, Clock,  
-  Paperclip, Send, Building2, CheckCircle2, 
-  FileText, Activity, 
+import {
+  Ticket, Plus, X, Clock,
+  Paperclip, Send, Building2, CheckCircle2,
+  FileText, Activity,
   Flame, UserPlus, ShieldAlert,
   Search, LayoutDashboard, Settings, FolderTree, Tag, Loader2,
-  Trash2
+  Trash2, Link2
 } from 'lucide-react';
 
+// Chave usada para "passar" a referência de um atendimento/remanejamento de
+// patrimônio de AtendimentoPatrimonio.tsx para este componente antes de navegar
+// para a aba Chamados — o roteamento do app é por string de página (currentPage
+// em App.tsx), sem suporte a payload estruturado entre páginas.
+const ORIGEM_SESSION_KEY = 'sge_chamado_origem';
+
 interface TicketData {
-  id: string; protocol: string; school_id: string; title: string; 
+  id: string; protocol: string; school_id: string; title: string;
   category: string; sub_category?: string; department: 'SEOM' | 'SEFISC';
-  description: string; drive_link?: string; 
+  description: string; drive_link?: string;
   status: 'ABERTO' | 'EM_ANDAMENTO' | 'AGUARDANDO_ESCOLA' | 'CONCLUIDO';
   priority: 'URGENTE' | 'ALTA' | 'NORMAL' | 'BAIXA';
   assigned_to?: string; created_at: string; updated_at?: string;
+  origem_tipo?: 'atendimento' | 'remanejamento' | null;
+  origem_id?: string | null;
+  origem_label?: string | null;
   schools?: { name: string };
   assignee?: { full_name: string };
 }
@@ -56,9 +65,10 @@ export function Chamados() {
   
   // Formulário Novo Chamado
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [newTicket, setNewTicket] = useState({ 
-    school_id: '', title: '', category: '', sub_category: '', 
-    department: 'SEOM' as 'SEOM' | 'SEFISC', description: '', drive_link: '', isUrgent: false 
+  const [newTicket, setNewTicket] = useState({
+    school_id: '', title: '', category: '', sub_category: '',
+    department: 'SEOM' as 'SEOM' | 'SEFISC', description: '', drive_link: '', isUrgent: false,
+    origem_tipo: '' as '' | 'atendimento' | 'remanejamento', origem_id: '', origem_label: '',
   });
 
   // Configurações de Assuntos (Árvore)
@@ -77,7 +87,25 @@ export function Chamados() {
 
   const isAdminOrDirigente = userRole === 'regional_admin' || userRole === 'dirigente';
 
-  useEffect(() => { fetchUserAndTickets(true); fetchCategories(); }, []); 
+  useEffect(() => { fetchUserAndTickets(true); fetchCategories(); }, []);
+
+  // Se a escola veio da página de Atendimento Patrimônio clicando em "Abrir chamado"
+  // num atendimento/remanejamento específico, pré-preenche e já abre o formulário.
+  useEffect(() => {
+    const raw = sessionStorage.getItem(ORIGEM_SESSION_KEY);
+    if (!raw) return;
+    sessionStorage.removeItem(ORIGEM_SESSION_KEY);
+    try {
+      const origem = JSON.parse(raw) as { tipo: 'atendimento' | 'remanejamento'; id: string; label: string };
+      setNewTicket(prev => ({
+        ...prev,
+        title: `Dúvida sobre ${origem.tipo === 'atendimento' ? 'atendimento' : 'remanejamento'}: ${origem.label}`,
+        description: `Referente ao ${origem.tipo === 'atendimento' ? 'atendimento' : 'remanejamento'}: ${origem.label}\n\n`,
+        origem_tipo: origem.tipo, origem_id: origem.id, origem_label: origem.label,
+      }));
+      setIsCreateOpen(true);
+    } catch { /* payload inválido, ignora */ }
+  }, []);
 
   // Auto-scroll sempre que a lista de mensagens for atualizada
   useEffect(() => {
@@ -290,21 +318,24 @@ export function Chamados() {
       const { count } = await (supabase as any).from('internal_tickets').select('*', { count: 'exact', head: true });
       const protocol = `GSE-${new Date().getFullYear()}-${String((count || 0) + 1).padStart(7, '0')}`;
       
-      const payload = { 
-        protocol, school_id: targetSchoolId, created_by: userId, 
+      const payload = {
+        protocol, school_id: targetSchoolId, created_by: userId,
         title: newTicket.title, category: newTicket.category, sub_category: newTicket.sub_category,
-        department: newTicket.department, description: newTicket.description, drive_link: newTicket.drive_link, 
-        status: 'ABERTO', priority: newTicket.isUrgent ? 'URGENTE' : 'NORMAL'
+        department: newTicket.department, description: newTicket.description, drive_link: newTicket.drive_link,
+        status: 'ABERTO', priority: newTicket.isUrgent ? 'URGENTE' : 'NORMAL',
+        origem_tipo: newTicket.origem_tipo || null, origem_id: newTicket.origem_id || null,
+        origem_label: newTicket.origem_label || null,
       };
-      
+
       const { error } = await (supabase as any).from('internal_tickets').insert([payload]);
       if (error) throw error;
-      
+
       alert(`Chamado ${protocol} criado com sucesso!`);
-      setIsCreateOpen(false); 
-      setNewTicket({ 
-        school_id: '', title: '', category: '', sub_category: '', 
-        department: 'SEOM', description: '', drive_link: '', isUrgent: false 
+      setIsCreateOpen(false);
+      setNewTicket({
+        school_id: '', title: '', category: '', sub_category: '',
+        department: 'SEOM', description: '', drive_link: '', isUrgent: false,
+        origem_tipo: '', origem_id: '', origem_label: '',
       });
       fetchUserAndTickets(false); // Atualiza no background
     } catch (error: any) { alert('Erro: ' + error.message); }
@@ -379,9 +410,9 @@ export function Chamados() {
              </button>
           )}
           <button onClick={() => {
-              setNewTicket({ school_id: '', title: '', category: '', sub_category: '', department: 'SEOM', description: '', drive_link: '', isUrgent: false });
+              setNewTicket({ school_id: '', title: '', category: '', sub_category: '', department: 'SEOM', description: '', drive_link: '', isUrgent: false, origem_tipo: '', origem_id: '', origem_label: '' });
               setIsCreateOpen(true);
-            }} 
+            }}
             className="bg-indigo-600 text-white px-6 py-3.5 rounded-2xl font-black flex items-center gap-2 shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95 uppercase text-[10px] tracking-widest"
           >
               <Plus size={16} /> Novo Ticket
@@ -523,6 +554,11 @@ export function Chamados() {
                         </>
                       )}
                     </div>
+                    {ticket.origem_label && (
+                      <div className="mt-2 inline-flex items-center gap-1.5 bg-teal-50 text-teal-700 border border-teal-100 px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-wide">
+                        <Link2 size={10}/> {ticket.origem_tipo === 'atendimento' ? 'Atendimento' : 'Remanejamento'}: {ticket.origem_label}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-center w-10 h-10 rounded-full bg-slate-50 border-2 border-slate-100 text-slate-400 shrink-0" title={ticket.assignee?.full_name || 'Não atribuído'}>
@@ -548,7 +584,17 @@ export function Chamados() {
                 </div>
                 
                 <form onSubmit={handleCreateTicket} className="p-8 space-y-6 overflow-y-auto custom-scrollbar flex-1">
-                    
+
+                    {newTicket.origem_label && (
+                       <div className="flex items-center gap-3 bg-teal-50 border border-teal-100 text-teal-700 px-5 py-4 rounded-2xl">
+                          <Link2 size={18} className="shrink-0" />
+                          <p className="text-xs font-bold leading-snug">
+                             Este chamado será vinculado ao {newTicket.origem_tipo === 'atendimento' ? 'atendimento' : 'remanejamento'}:
+                             <br /><span className="font-black">{newTicket.origem_label}</span>
+                          </p>
+                       </div>
+                    )}
+
                     {isAdminOrDirigente && (
                        <div>
                           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Unidade Escolar Solicitante</label>
@@ -652,6 +698,18 @@ export function Chamados() {
                             <div><span className="text-[10px] font-bold text-slate-500 block">Assunto / Categoria</span><span className="text-xs font-black text-slate-800 uppercase block leading-tight mt-1">{selectedTicket.category} <br/><span className="text-slate-400">↳ {selectedTicket.sub_category || 'Geral'}</span></span></div>
                          </div>
                       </div>
+
+                      {/* Referência a Atendimento/Remanejamento de Patrimônio */}
+                      {selectedTicket.origem_label && (
+                         <div>
+                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 border-b pb-2">Referência (Atendimento Patrimônio)</p>
+                            <div className="bg-teal-50 border border-teal-100 rounded-xl p-4 space-y-2">
+                               <span className="text-[10px] font-black text-teal-700 uppercase flex items-center gap-1"><Link2 size={12}/> {selectedTicket.origem_tipo === 'atendimento' ? 'Atendimento' : 'Remanejamento'}</span>
+                               <p className="text-xs font-bold text-slate-700 leading-snug">{selectedTicket.origem_label}</p>
+                               {selectedTicket.origem_id && <p className="text-[9px] font-mono text-slate-400 truncate">ID: {selectedTicket.origem_id}</p>}
+                            </div>
+                         </div>
+                      )}
 
                       {/* Atribuição */}
                       <div>

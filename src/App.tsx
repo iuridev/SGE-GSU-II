@@ -541,7 +541,7 @@ export default function App() {
       case 'comunicados': return <Comunicados />;
       case 'visitas-escolares': return <VisitasEscolares />;
       case 'patrimonio-salas': return <PatrimonioSalas />;
-      case 'atendimento-patrimonio': return <AtendimentoPatrimonio />;
+      case 'atendimento-patrimonio': return <AtendimentoPatrimonio onNavigate={setCurrentPage} />;
       default: return <Dashboard />;
     }
   };

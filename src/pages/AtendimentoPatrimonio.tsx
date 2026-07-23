@@ -4,8 +4,12 @@ import { resolveViewRole } from '../lib/roles';
 import {
   Plus, Search, X, Loader2, CalendarDays, Video,
   MapPin, BarChart3, TrendingUp, RefreshCw, ExternalLink,
-  ClipboardList, ArrowRightLeft, Package, Check, Mail, History, Pencil,
+  ClipboardList, ArrowRightLeft, Package, Check, Mail, History, Pencil, Ticket,
 } from 'lucide-react';
+
+// Mesma chave usada por Chamados.tsx para ler a referência pré-preenchida ao
+// abrir o formulário de novo chamado a partir de um atendimento/remanejamento.
+const CHAMADO_ORIGEM_SESSION_KEY = 'sge_chamado_origem';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell,
@@ -111,7 +115,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'remanejamentos', label: 'Remanejamentos', icon: <ArrowRightLeft size={16} /> },
 ];
 
-export default function AtendimentoPatrimonio() {
+export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (page: string) => void }) {
   const [activeTab, setActiveTab] = useState<Tab>('atendimentos');
   const [userRole, setUserRole] = useState('');
   const [userName, setUserName] = useState('');
@@ -149,6 +153,16 @@ export default function AtendimentoPatrimonio() {
   const [obsText, setObsText] = useState('');
 
   const isAdmin = userRole === 'regional_admin';
+  const isSchoolManager = userRole === 'school_manager';
+
+  // Escola abrindo um chamado citando um atendimento/remanejamento específico:
+  // guarda a referência em sessionStorage (única forma de "passar dados" entre
+  // páginas nesse app, já que a navegação é por string simples) e navega para
+  // a aba Chamados, que lê essa chave ao montar e já abre o formulário.
+  const abrirChamado = (tipo: 'atendimento' | 'remanejamento', id: string, label: string) => {
+    sessionStorage.setItem(CHAMADO_ORIGEM_SESSION_KEY, JSON.stringify({ tipo, id, label }));
+    onNavigate?.('chamados');
+  };
 
   useEffect(() => {
     fetchUser();
@@ -739,6 +753,15 @@ export default function AtendimentoPatrimonio() {
                                 <Pencil size={16} />
                               </button>
                             )}
+                            {isSchoolManager && (
+                              <button
+                                onClick={() => abrirChamado('atendimento', a.id, `${a.pauta} — ${formatDate(a.data_atendimento)}`)}
+                                title="Abrir chamado sobre este atendimento"
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                              >
+                                <Ticket size={16} />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -914,6 +937,15 @@ export default function AtendimentoPatrimonio() {
                                 className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
                               >
                                 <Pencil size={16} />
+                              </button>
+                            )}
+                            {isSchoolManager && (
+                              <button
+                                onClick={() => abrirChamado('remanejamento', r.id, `${r.escola_origem_nome} → ${r.escola_destino_nome} (item ${r.numero_patrimonial})`)}
+                                title="Abrir chamado sobre este remanejamento"
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                              >
+                                <Ticket size={16} />
                               </button>
                             )}
                           </div>
