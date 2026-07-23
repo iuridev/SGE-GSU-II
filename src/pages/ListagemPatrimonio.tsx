@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Search, FileSpreadsheet, FileText, Building, Package, Hash, Loader2, AlertCircle, FilterX } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Papa from 'papaparse';
+import { DefesoEleitoralBanner } from '../components/DefesoEleitoralBanner';
 
 // Definimos o formato do item de patrimônio
 interface ItemPatrimonio {
@@ -132,7 +133,11 @@ export default function ListagemPatrimonio() {
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 max-w-6xl mx-auto mt-8 print:shadow-none print:border-none print:m-0 print:p-0">
-      
+
+      <div className="mb-6 print:hidden">
+        <DefesoEleitoralBanner />
+      </div>
+
       {/* CABEÇALHO */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 pb-4 border-b border-slate-100 print:hidden gap-4">
         <div>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
+import { DefesoEleitoralBanner } from '../components/DefesoEleitoralBanner';
 import {
   Package, Search, DoorOpen, ArrowRightLeft, History, Plus, X,
   Loader2, RefreshCw, ExternalLink, CheckCircle2, Undo2, AlertCircle,
@@ -312,6 +313,8 @@ export default function PatrimonioSalas() {
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-6xl mx-auto">
+      <DefesoEleitoralBanner />
+
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">

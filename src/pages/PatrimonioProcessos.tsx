@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
+import { DefesoEleitoralBanner } from '../components/DefesoEleitoralBanner';
 import {
   Package, Plus, Search, FileText,
   Trash2, Edit, X, Save, Loader2,
@@ -460,6 +461,8 @@ export function PatrimonioProcessos() {
       </div>
 
       <div className="px-4 sm:px-6 space-y-6">
+
+        <DefesoEleitoralBanner />
 
         {/* ── DASHBOARD (capturado para PDF) ────────────────────── */}
         <div ref={dashboardRef} className="space-y-4 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm">

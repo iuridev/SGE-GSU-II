@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
+import { DefesoEleitoralBanner } from '../components/DefesoEleitoralBanner';
 import {
   Plus, Search, X, Loader2, CalendarDays, Video,
   MapPin, BarChart3, TrendingUp, RefreshCw, ExternalLink,
@@ -559,6 +560,8 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
+      <DefesoEleitoralBanner />
+
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
