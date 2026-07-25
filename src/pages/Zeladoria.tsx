@@ -77,6 +77,7 @@ interface TimelineEntry {
 interface School {
   id: string;
   name: string;
+  address: string | null;
 }
 
 const shortStageName = (etapa: string) => etapa.replace(/^\d+\.?\d*\s*-\s*/, '');
@@ -131,7 +132,7 @@ export function Zeladoria() {
       }
 
       const { data: zeladorias } = await (supabase as any).from('zeladorias').select('*').order('nome');
-      const { data: schoolsData } = await (supabase as any).from('schools').select('id, name').order('name');
+      const { data: schoolsData } = await (supabase as any).from('schools').select('id, name, address').order('name');
 
       let filteredZeladorias = zeladorias || [];
       if (currentRole === 'school_manager' && currentSchoolId) {
@@ -146,6 +147,12 @@ export function Zeladoria() {
       setLoading(false);
     }
   }
+
+  const schoolAddressById = useMemo(() => {
+    const map = new Map<string, string | null>();
+    schools.forEach(s => map.set(s.id, s.address));
+    return map;
+  }, [schools]);
 
   const activeData = useMemo(() => {
     return data.filter(z =>
@@ -934,6 +941,12 @@ export function Zeladoria() {
                       <span className="text-[9px] font-black text-slate-400 uppercase">UE {item.ue}</span>
                     )}
                     <p className="font-black text-slate-900 text-xs uppercase leading-tight truncate mt-0.5">{item.nome}</p>
+                    {schoolAddressById.get(item.school_id || '') && (
+                      <p className="text-[10px] text-slate-400 font-medium leading-tight mt-0.5 flex items-center gap-1">
+                        <MapPin size={10} className="flex-shrink-0" />
+                        <span className="truncate">{schoolAddressById.get(item.school_id || '')}</span>
+                      </p>
+                    )}
                     <p className="font-mono text-[10px] text-slate-400 mt-1 flex items-center gap-1">
                       <FileText size={10} /> {item.sei_numero || 'SEI não informado'}
                     </p>
