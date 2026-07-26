@@ -1,15 +1,16 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
-import { 
-  MapPin, Phone, 
-  Search, Plus, GraduationCap, 
+import {
+  MapPin, Phone,
+  Search, Plus, GraduationCap,
   Trash2, Edit, X, Save, UserCog, ShieldCheck,
   Building2, Zap, Droplets, Hash,
   Calendar, Layers, Clock, DoorOpen, Compass, ArrowUpCircle,
   Loader2, User, Users, UsersRound, LayoutGrid,
-  Info
+  Info, Ticket, ClipboardCheck, HardHat
 } from 'lucide-react';
+import { fetchObrasSheet, normalizeStatus } from '../lib/obrasSheet';
 
 // Tipos atualizados
 interface School {
@@ -54,12 +55,20 @@ const PERIOD_OPTIONS = ['Manhã', 'Tarde', 'Noite', 'Integral 9h', 'Integral 7h'
 
 type TabType = 'identificacao' | 'localizacao' | 'infraestrutura' | 'ensino';
 
+interface SchoolIndicators {
+  openTickets: number;
+  pendingFisc: boolean;
+  waterAlert: boolean;
+  activeWork: boolean;
+}
+
 export function Escola() {
   const [escolas, setEscolas] = useState<School[]>([]);
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string>('');
-  const [userSchoolId, setUserSchoolId] = useState<string | null>(null); 
+  const [userSchoolId, setUserSchoolId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [indicators, setIndicators] = useState<Record<string, SchoolIndicators>>({});
   
   const [isSchoolModalOpen, setIsSchoolModalOpen] = useState(false);
   const [isFiscalModalOpen, setIsFiscalModalOpen] = useState(false);
@@ -77,7 +86,7 @@ export function Escola() {
       setLoading(true);
       const profile = await fetchProfile();
       if (profile) {
-        await fetchEscolas(profile.role, profile.school_id);
+        await fetchEscolas(profile.role, profile.school_id, profile.supervisor_schools);
       } else {
         setLoading(false);
       }
@@ -91,10 +100,10 @@ export function Escola() {
       if (user) {
         const { data, error } = await supabase
           .from('profiles')
-          .select('role, school_id')
+          .select('role, school_id, supervisor_schools')
           .eq('id', user.id)
           .single();
-        
+
         if (error) throw error;
 
         const profile = data as any;
@@ -109,16 +118,24 @@ export function Escola() {
     return null;
   }
 
-  async function fetchEscolas(role?: string, sId?: string | null) {
+  async function fetchEscolas(role?: string, sId?: string | null, supervisorSchools?: string[] | null) {
     const activeRole = role || userRole;
     const activeSchoolId = sId !== undefined ? sId : userSchoolId;
 
     try {
       let query = (supabase as any).from('schools').select('*');
-      
+
       if (activeRole === 'school_manager') {
         if (activeSchoolId) {
           query = query.eq('id', activeSchoolId);
+        } else {
+          setEscolas([]);
+          return;
+        }
+      } else if (activeRole === 'supervisor') {
+        const ids = supervisorSchools || [];
+        if (ids.length > 0) {
+          query = query.in('id', ids);
         } else {
           setEscolas([]);
           return;
@@ -127,11 +144,49 @@ export function Escola() {
 
       const { data, error } = await query.order('name');
       if (error) throw error;
-      setEscolas(data || []);
+      const list: School[] = data || [];
+      setEscolas(list);
+
+      if (activeRole === 'supervisor' && list.length > 0) {
+        fetchIndicators(list.map(s => s.id), list.map(s => ({ id: s.id, name: s.name })));
+      }
     } catch (error) {
       console.error('Erro ao buscar escolas:', error);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchIndicators(schoolIds: string[], schoolsForMatch: { id: string, name: string }[]) {
+    try {
+      const firstDayMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+
+      const [{ data: tickets }, { data: submissions }, { data: consumo }] = await Promise.all([
+        (supabase as any).from('internal_tickets').select('school_id, status').in('school_id', schoolIds),
+        (supabase as any).from('monitoring_submissions').select('school_id, is_completed').in('school_id', schoolIds),
+        (supabase as any).from('consumo_agua').select('school_id, limit_exceeded').in('school_id', schoolIds).gte('date', firstDayMonth),
+      ]);
+
+      let obrasBySchool: Record<string, boolean> = {};
+      try {
+        const sheetRows = await fetchObrasSheet(schoolsForMatch);
+        sheetRows.forEach(r => {
+          if (r.matchedSchoolId && normalizeStatus(r.status) === 'EM ANDAMENTO') {
+            obrasBySchool[r.matchedSchoolId] = true;
+          }
+        });
+      } catch { /* planilha pode estar indisponível */ }
+
+      const next: Record<string, SchoolIndicators> = {};
+      schoolIds.forEach(id => {
+        const openTickets = (tickets || []).filter((t: any) => t.school_id === id && !['RESOLVIDO', 'FECHADO', 'CONCLUÍDO'].includes(t.status)).length;
+        const pendingFisc = (submissions || []).some((s: any) => s.school_id === id && !s.is_completed);
+        const waterAlert = (consumo || []).some((c: any) => c.school_id === id && c.limit_exceeded);
+        next[id] = { openTickets, pendingFisc, waterAlert, activeWork: !!obrasBySchool[id] };
+      });
+      setIndicators(next);
+    } catch (error) {
+      console.error('Erro ao buscar indicadores das escolas:', error);
     }
   }
 
@@ -224,10 +279,14 @@ export function Escola() {
         <div>
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">Unidades Escolares</h1>
           <p className="text-slate-500 font-medium">
-            {userRole === 'school_manager' ? 'Informações detalhadas da sua unidade.' : 'Gestão e infraestrutura da rede regional.'}
+            {userRole === 'school_manager'
+              ? 'Informações detalhadas da sua unidade.'
+              : userRole === 'supervisor'
+              ? 'Escolas sob sua supervisão e principais indicadores.'
+              : 'Gestão e infraestrutura da rede regional.'}
           </p>
         </div>
-        
+
         {isAdmin && (
           <button 
             onClick={handleNewSchool}
@@ -341,6 +400,38 @@ export function Escola() {
                     <span className="truncate">{escola.sabesp_supply_id || '---'}</span>
                 </div>
               </div>
+
+              {userRole === 'supervisor' && (
+                <div className="pt-6 mt-6 border-t border-slate-50 grid grid-cols-2 gap-3 relative z-10">
+                  {(() => {
+                    const ind = indicators[escola.id];
+                    const hasTickets = (ind?.openTickets || 0) > 0;
+                    return (
+                      <IndicatorBadge
+                        icon={<Ticket size={14} />}
+                        label={hasTickets ? `${ind!.openTickets} chamado(s) aberto(s)` : 'Sem chamados abertos'}
+                        alert={hasTickets}
+                      />
+                    );
+                  })()}
+                  <IndicatorBadge
+                    icon={<ClipboardCheck size={14} />}
+                    label={indicators[escola.id]?.pendingFisc ? 'Fiscalização pendente' : 'Fiscalização em dia'}
+                    alert={!!indicators[escola.id]?.pendingFisc}
+                  />
+                  <IndicatorBadge
+                    icon={<Droplets size={14} />}
+                    label={indicators[escola.id]?.waterAlert ? 'Consumo de água excedido' : 'Consumo de água normal'}
+                    alert={!!indicators[escola.id]?.waterAlert}
+                  />
+                  <IndicatorBadge
+                    icon={<HardHat size={14} />}
+                    label={indicators[escola.id]?.activeWork ? 'Obra em andamento' : 'Sem obra ativa'}
+                    alert={false}
+                    highlight={!!indicators[escola.id]?.activeWork}
+                  />
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -588,6 +679,20 @@ export function Escola() {
         />
       )}
 
+    </div>
+  );
+}
+
+function IndicatorBadge({ icon, label, alert, highlight }: { icon: React.ReactNode, label: string, alert: boolean, highlight?: boolean }) {
+  const colorClass = alert
+    ? 'bg-red-50 text-red-600'
+    : highlight
+    ? 'bg-blue-50 text-blue-600'
+    : 'bg-emerald-50 text-emerald-600';
+  return (
+    <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400">
+      <div className={`p-1.5 rounded-lg ${colorClass}`}>{icon}</div>
+      <span className="truncate">{label}</span>
     </div>
   );
 }
