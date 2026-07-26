@@ -1,5 +1,7 @@
 const ALLOWED_ORIGINS = [
   'https://sge-gsu.vercel.app',
+  'https://gse.ia.br',
+  'https://www.gse.ia.br',
   'http://localhost:5173',
   'http://localhost:3000',
 ]
