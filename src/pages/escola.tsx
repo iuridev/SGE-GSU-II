@@ -8,7 +8,7 @@ import {
   Building2, Zap, Droplets, Hash,
   Calendar, Layers, Clock, DoorOpen, Compass, ArrowUpCircle,
   Loader2, User, Users, UsersRound, LayoutGrid,
-  Info, Ticket, ClipboardCheck, HardHat
+  Info, Ticket, HardHat
 } from 'lucide-react';
 import { fetchObrasSheet, normalizeStatus } from '../lib/obrasSheet';
 
@@ -57,7 +57,6 @@ type TabType = 'identificacao' | 'localizacao' | 'infraestrutura' | 'ensino';
 
 interface SchoolIndicators {
   openTickets: number;
-  pendingFisc: boolean;
   waterAlert: boolean;
   activeWork: boolean;
 }
@@ -161,9 +160,8 @@ export function Escola() {
     try {
       const firstDayMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
 
-      const [{ data: tickets }, { data: submissions }, { data: consumo }] = await Promise.all([
+      const [{ data: tickets }, { data: consumo }] = await Promise.all([
         (supabase as any).from('internal_tickets').select('school_id, status').in('school_id', schoolIds),
-        (supabase as any).from('monitoring_submissions').select('school_id, is_completed').in('school_id', schoolIds),
         (supabase as any).from('consumo_agua').select('school_id, limit_exceeded').in('school_id', schoolIds).gte('date', firstDayMonth),
       ]);
 
@@ -180,9 +178,8 @@ export function Escola() {
       const next: Record<string, SchoolIndicators> = {};
       schoolIds.forEach(id => {
         const openTickets = (tickets || []).filter((t: any) => t.school_id === id && !['RESOLVIDO', 'FECHADO', 'CONCLUÍDO'].includes(t.status)).length;
-        const pendingFisc = (submissions || []).some((s: any) => s.school_id === id && !s.is_completed);
         const waterAlert = (consumo || []).some((c: any) => c.school_id === id && c.limit_exceeded);
-        next[id] = { openTickets, pendingFisc, waterAlert, activeWork: !!obrasBySchool[id] };
+        next[id] = { openTickets, waterAlert, activeWork: !!obrasBySchool[id] };
       });
       setIndicators(next);
     } catch (error) {
@@ -402,7 +399,7 @@ export function Escola() {
               </div>
 
               {userRole === 'supervisor' && (
-                <div className="pt-6 mt-6 border-t border-slate-50 grid grid-cols-2 gap-3 relative z-10">
+                <div className="pt-6 mt-6 border-t border-slate-50 flex flex-col gap-2 relative z-10">
                   {(() => {
                     const ind = indicators[escola.id];
                     const hasTickets = (ind?.openTickets || 0) > 0;
@@ -414,11 +411,6 @@ export function Escola() {
                       />
                     );
                   })()}
-                  <IndicatorBadge
-                    icon={<ClipboardCheck size={14} />}
-                    label={indicators[escola.id]?.pendingFisc ? 'Fiscalização pendente' : 'Fiscalização em dia'}
-                    alert={!!indicators[escola.id]?.pendingFisc}
-                  />
                   <IndicatorBadge
                     icon={<Droplets size={14} />}
                     label={indicators[escola.id]?.waterAlert ? 'Consumo de água excedido' : 'Consumo de água normal'}
@@ -685,14 +677,14 @@ export function Escola() {
 
 function IndicatorBadge({ icon, label, alert, highlight }: { icon: React.ReactNode, label: string, alert: boolean, highlight?: boolean }) {
   const colorClass = alert
-    ? 'bg-red-50 text-red-600'
+    ? 'bg-red-50 text-red-600 border-red-100'
     : highlight
-    ? 'bg-blue-50 text-blue-600'
-    : 'bg-emerald-50 text-emerald-600';
+    ? 'bg-blue-50 text-blue-600 border-blue-100'
+    : 'bg-emerald-50 text-emerald-600 border-emerald-100';
   return (
-    <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400">
-      <div className={`p-1.5 rounded-lg ${colorClass}`}>{icon}</div>
-      <span className="truncate">{label}</span>
+    <div className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border ${colorClass}`}>
+      <div className="shrink-0">{icon}</div>
+      <span className="text-[10px] font-black uppercase leading-tight break-words">{label}</span>
     </div>
   );
 }
