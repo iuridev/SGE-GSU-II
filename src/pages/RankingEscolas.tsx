@@ -3,16 +3,45 @@ import React, { useState, useEffect, useMemo } from 'react';
 // Importa o cliente do Supabase para comunicação direta com o banco de dados
 import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
+// Leitor de planilhas CSV (usado para cruzar o mapeamento de AVCB, igual à página de Bombeiros)
+import Papa from 'papaparse';
 // Importa todos os ícones visuais usados no painel (incluindo o Database para o selo roxo)
-import { 
-  Trophy, Medal, Target,  
+import {
+  Trophy, Medal, Target,
   TrendingUp, TrendingDown, Settings2,
   ChevronRight, Search, Building2, Loader2,
   Droplets, AlertTriangle,
   X, Save, HelpCircle, Clock, BarChart3,
   CheckCircle2, TreePine, Home, ShieldAlert,
-  MinusCircle, Lightbulb, Database
+  MinusCircle, Lightbulb, Database, Flame
 } from 'lucide-react';
+
+// Link da planilha de mapeamento AVCB (mesma fonte usada na página "Mapeamento AVCB")
+const AVCB_SHEET_CSV_URL = import.meta.env.VITE_AVCB_SHEET_CSV_URL as string;
+
+// Limpa o cabeçalho do CSV (tira acento, espaço e underline) para bater com "codigofde" e "validade"
+const normalizeAvcbText = (value: any) =>
+  String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/_/g, '')
+    .replace(/\s+/g, '')
+    .trim();
+
+// Deixa só os dígitos do código FDE, pra "123.456" e "123456" baterem igual
+const normalizeAvcbCode = (value: any) => String(value || '').replace(/\D/g, '').trim();
+
+// Converte "DD/MM/AAAA" (formato da planilha) em Date. Retorna null se vier vazio/"-"/inválido
+const parseAvcbDate = (value: string): Date | null => {
+  if (!value) return null;
+  const parts = value.split(' ')[0].trim().split('/');
+  if (parts.length !== 3) return null;
+  const [d, m, y] = parts.map(Number);
+  if (!d || !m || !y) return null;
+  const date = new Date(y, m - 1, d);
+  return isNaN(date.getTime()) ? null : date;
+};
 
 // Define a estrutura de dados de uma escola processada para o Ranking
 interface SchoolRanking {
@@ -21,12 +50,14 @@ interface SchoolRanking {
   score: number; // Nota final calculada do GSU
   position: number; // Posição que ela ficou no ranking
   stats: { // Estatísticas individuais (0 a 100%) de cada critério
-    water_compliance: number; // Porcentagem de dias que preencheu a água
-    water_efficiency: number; // Porcentagem de dias que não estourou o teto
-    demand_compliance: number; // Porcentagem de demandas concluídas no prazo
+    water_compliance: number; // Porcentagem de dias que preencheu a água (últimos 12 meses, a partir de mai/2026)
+    water_efficiency: number; // Porcentagem de dias que não estourou o teto (últimos 3 meses)
+    demand_compliance: number; // Porcentagem de demandas em dia (só penaliza pendente E vencida)
     tree_management: number; // Regularidade do manejo arbóreo
     zeladoria_status: number; // Status da ocupação da zeladoria (Ajustado pela nova regra)
     patrimonial_penalty: number; // Total de pontos descontados por vandalismo
+    avcb_status: number; // 100 = válido, 50 = sem registro, 0 = vencido
+    avcb_label: string; // Texto amigável do status do AVCB
   };
 }
 
@@ -37,6 +68,7 @@ interface WeightConfig {
   demand_on_time: number; // Peso dos ofícios e demandas
   tree_management: number; // Peso das árvores
   zeladoria: number; // Peso do imóvel da zeladoria
+  avcb: number; // Peso do AVCB (Auto de Vistoria do Corpo de Bombeiros)
   penalty_per_occurrence: number; // O valor descontado por cada vandalismo
   penalty_max: number; // O limite máximo de desconto para não zerar a escola de vez
 }
@@ -45,6 +77,7 @@ interface WeightConfig {
 interface SchoolBase {
   id: string; // ID
   name: string; // Nome
+  fde_code: string | null; // Código FDE, usado para cruzar com a planilha de AVCB
 }
 
 // Função principal que desenha a tela inteira
@@ -72,11 +105,12 @@ export function RankingEscolas() {
   
   // Estado que segura os pesos da matemática (começa com valores de backup)
   const [weights, setWeights] = useState<WeightConfig>({
-    water_reg: 2.0, // Peso 2.0
-    water_limit: 2.0, // Peso 2.0
-    demand_on_time: 2.0, // Peso 2.0
-    tree_management: 2.0, // Peso 2.0
-    zeladoria: 2.0, // Peso 2.0
+    water_reg: 1.7, // Peso 1.7
+    water_limit: 1.7, // Peso 1.7
+    demand_on_time: 1.7, // Peso 1.7
+    tree_management: 1.6, // Peso 1.6
+    zeladoria: 1.6, // Peso 1.6
+    avcb: 1.7, // Peso 1.7
     penalty_per_occurrence: 0.5, // Perde meio ponto por vez
     penalty_max: 2.0 // Limite de 2 pontos
   });
@@ -87,7 +121,7 @@ export function RankingEscolas() {
   const CSV_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv`;
 
   // Calcula em tempo real a soma das barrinhas de peso na tela de configurações
-  const currentPositiveSum = (weights.water_reg + weights.water_limit + weights.demand_on_time + weights.tree_management + weights.zeladoria);
+  const currentPositiveSum = (weights.water_reg + weights.water_limit + weights.demand_on_time + weights.tree_management + weights.zeladoria + weights.avcb);
   // Checa se as barrinhas batem 10 exato (margem de 0.01 por segurança matemática do JavaScript)
   const isSumValid = Math.abs(currentPositiveSum - 10) < 0.01;
 
@@ -98,8 +132,8 @@ export function RankingEscolas() {
 
   // Inteligência que arruma os pesos caso o banco de dados devolva uma soma que não é 10
   const normalizeWeights = (w: WeightConfig) => {
-    // Array com o nome das 5 propriedades que devem somar 10
-    const keys = ['water_reg', 'water_limit', 'demand_on_time', 'tree_management', 'zeladoria'] as const;
+    // Array com o nome das 6 propriedades que devem somar 10
+    const keys = ['water_reg', 'water_limit', 'demand_on_time', 'tree_management', 'zeladoria', 'avcb'] as const;
     // Descobre quanto é a soma real do que veio do banco
     let sum = keys.reduce((acc, k) => acc + w[k], 0);
     
@@ -164,11 +198,12 @@ export function RankingEscolas() {
 
       // 4. Se encontrou no banco, usa. Se veio coluna vazia (??), usa os padrões
       let activeWeights = settings ? {
-        water_reg: Number(settings.water_reg ?? 2),
-        water_limit: Number(settings.water_limit ?? 2),
-        demand_on_time: Number(settings.demand_on_time ?? 2),
-        tree_management: Number(settings.tree_management ?? 2),
-        zeladoria: Number(settings.zeladoria ?? 2),
+        water_reg: Number(settings.water_reg ?? 1.7),
+        water_limit: Number(settings.water_limit ?? 1.7),
+        demand_on_time: Number(settings.demand_on_time ?? 1.7),
+        tree_management: Number(settings.tree_management ?? 1.6),
+        zeladoria: Number(settings.zeladoria ?? 1.6),
+        avcb: Number(settings.avcb ?? 1.7),
         penalty_per_occurrence: Number(settings.penalty_per_occurrence ?? 0.5),
         penalty_max: Number(settings.penalty_max ?? 2.0)
       } : weights;
@@ -186,6 +221,31 @@ export function RankingEscolas() {
     } finally {
       setLoading(false); // Desliga a tela de carregamento, mesmo se o banco explodir
     }
+  }
+
+  // Leitor da planilha do Corpo de Bombeiros (AVCB), monta um mapa código FDE -> data de validade
+  async function fetchAvcbMap(): Promise<Map<string, Date | null>> {
+    return new Promise((resolve) => {
+      if (!AVCB_SHEET_CSV_URL) { resolve(new Map()); return; }
+      Papa.parse(AVCB_SHEET_CSV_URL, {
+        download: true,
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: normalizeAvcbText,
+        complete: (results) => {
+          const map = new Map<string, Date | null>();
+          (results.data as any[]).forEach((row) => {
+            const codigoFde = normalizeAvcbCode(row.codigofde || row.codigo || row.fde || row.codigoescola || row.codigodaescola);
+            if (codigoFde) map.set(codigoFde, parseAvcbDate(row.validade));
+          });
+          resolve(map);
+        },
+        error: (error) => {
+          console.error("Erro ao carregar AVCB:", error);
+          resolve(new Map());
+        }
+      });
+    });
   }
 
   // Leitor da planilha Google (Prioritárias)
@@ -243,20 +303,32 @@ export function RankingEscolas() {
   // O Coração do Sistema: Escaneia o banco e dá as notas para as escolas
   async function fetchData(currentWeights: WeightConfig) {
     try {
-      // 1. Busca os dados cruciais (id e nome) de todas as unidades
-      const { data: schoolsData } = await (supabase as any).from('schools').select('id, name');
-      
+      // 1. Busca os dados cruciais (id, nome e código FDE p/ cruzar com o AVCB) de todas as unidades
+      const { data: schoolsData } = await (supabase as any).from('schools').select('id, name, fde_code');
+
       const now = new Date(); // Data de hoje
-      // Extrai o primeiro dia deste mês (YYYY-MM-01) para pegar só coisas recentes
-      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-      
-      // 2. Faz as 5 requisições ao Supabase ao mesmo tempo usando Promise.all (fica 5x mais rápido)
-      const [water, demands, manejo, ocorrencias, zeladorias] = await Promise.all([
-        (supabase as any).from('consumo_agua').select('*').gte('date', firstDay), // Água (do dia 1 até hoje)
+      const todayStr = now.toISOString().split('T')[0]; // Hoje em formato YYYY-MM-DD, usado para comparar prazos
+
+      // ---- JANELAS DE TEMPO DA ÁGUA ----
+      // Eficiência Hídrica (respeito ao teto de consumo): últimos 3 meses corridos
+      const effWindowStart = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+      // Registo de Água (frequência de lançamento): últimos 12 meses, mas nunca antes de maio/2026
+      // (mês/ano em que o lançamento diário passou a ser exigido de fato)
+      const REG_WATER_FLOOR = new Date(2026, 4, 1); // 1º de maio de 2026
+      const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, now.getDate());
+      const regWindowStart = twelveMonthsAgo > REG_WATER_FLOOR ? twelveMonthsAgo : REG_WATER_FLOOR;
+      // Busca no banco a partir da janela mais antiga entre as duas, e filtra cada critério em memória
+      const waterFetchStart = effWindowStart < regWindowStart ? effWindowStart : regWindowStart;
+      const toISODate = (d: Date) => d.toISOString().split('T')[0];
+
+      // 2. Faz as requisições ao Supabase (e a leitura do AVCB) ao mesmo tempo usando Promise.all
+      const [water, demands, manejo, ocorrencias, zeladorias, avcbMap] = await Promise.all([
+        (supabase as any).from('consumo_agua').select('*').gte('date', toISODate(waterFetchStart)), // Água (janela mais ampla)
         (supabase as any).from('demands').select('*'), // Demandas (todas)
         (supabase as any).from('manejo_arboreo').select('*'), // Árvores (todas)
-        (supabase as any).from('patrimonial_occurrences').select('*').gte('created_at', firstDay), // Vandalismo (este mês)
-        (supabase as any).from('zeladorias').select('*') // Zeladorias (todas)
+        (supabase as any).from('patrimonial_occurrences').select('*').gte('created_at', new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]), // Vandalismo (este mês)
+        (supabase as any).from('zeladorias').select('*'), // Zeladorias (todas)
+        fetchAvcbMap() // Mapa: código FDE -> data de validade do AVCB (planilha do Corpo de Bombeiros)
       ]);
 
       // Tratamento de segurança: se vier null, vira array vazio []
@@ -266,26 +338,31 @@ export function RankingEscolas() {
       const allManejo = manejo.data || [];
       const allOcorrencias = ocorrencias.data || [];
       const allZeladorias = zeladorias.data || [];
-      
-      // Descobre que dia é hoje (ex: dia 18) para base de divisão
-      const currentDay = now.getDate();
+
+      const regWindowStartStr = toISODate(regWindowStart);
+      const effWindowStartStr = toISODate(effWindowStart);
+      // Quantos dias existem dentro da janela de Registo de Água (base da divisão da frequência)
+      const daysInRegWindow = Math.max(1, Math.floor((now.getTime() - regWindowStart.getTime()) / 86400000) + 1);
 
       // 3. Roda uma repetição para avaliar escola por escola
       const ranking: SchoolRanking[] = allSchools.map((school: SchoolBase) => {
-        
-        // ---- CRITÉRIO 1: ÁGUA FREQUÊNCIA ----
-        const schoolWater = waterLogs.filter((w: any) => w.school_id === school.id); // Isola a água da escola
-        const waterRegPct = Math.min(1, schoolWater.length / currentDay); // Divisão: Entregues / Dias. Teto máximo é 1 (100%)
-        
-        // ---- CRITÉRIO 2: ÁGUA EFICIÊNCIA ----
-        const exceededCount = schoolWater.filter((w: any) => w.limit_exceeded).length; // Quantas vezes estourou?
-        const waterEffPct = schoolWater.length > 0 ? (1 - exceededCount / schoolWater.length) : 1; // 100% menos os estouros
-        
+
+        // ---- CRITÉRIO 1: ÁGUA FREQUÊNCIA (Registo de Água - últimos 12 meses, piso maio/2026) ----
+        const schoolWaterAll = waterLogs.filter((w: any) => w.school_id === school.id); // Isola a água da escola
+        const schoolWaterReg = schoolWaterAll.filter((w: any) => w.date >= regWindowStartStr);
+        const waterRegPct = Math.min(1, schoolWaterReg.length / daysInRegWindow); // Divisão: Entregues / Dias da janela. Teto máximo é 1 (100%)
+
+        // ---- CRITÉRIO 2: ÁGUA EFICIÊNCIA (Eficiência Hídrica - últimos 3 meses) ----
+        const schoolWaterEff = schoolWaterAll.filter((w: any) => w.date >= effWindowStartStr);
+        const exceededCount = schoolWaterEff.filter((w: any) => w.limit_exceeded).length; // Quantas vezes estourou?
+        const waterEffPct = schoolWaterEff.length > 0 ? (1 - exceededCount / schoolWaterEff.length) : 1; // 100% menos os estouros
+
         // ---- CRITÉRIO 3: DEMANDAS E OFÍCIOS ----
         const schoolDemands = allDemands.filter((d: any) => d.school_id === school.id); // Pega ofícios dela
-        // Conta quantos foram concluídos E se a data de conclusão é antes do prazo final
-        const onTimeDemands = schoolDemands.filter((d: any) => d.status === 'CONCLUÍDO' && d.completed_at <= d.deadline); 
-        const demandPct = schoolDemands.length > 0 ? (onTimeDemands.length / schoolDemands.length) : 1; // % no prazo
+        // Só penaliza a demanda que está PENDENTE (ainda não atendida) E cujo prazo já venceu.
+        // Assim que a escola atende (conclui) a demanda, ela deixa de contar contra a nota - a pontuação volta a subir.
+        const overdueOpenDemands = schoolDemands.filter((d: any) => d.status !== 'CONCLUÍDO' && d.deadline && d.deadline < todayStr);
+        const demandPct = schoolDemands.length > 0 ? Math.max(0, 1 - (overdueOpenDemands.length / schoolDemands.length)) : 1; // % em dia
 
         // ---- CRITÉRIO 4: MANEJO ARBÓREO ----
         const schoolManejo = allManejo.filter((m: any) => m.escola_id === school.id); 
@@ -313,12 +390,28 @@ export function RankingEscolas() {
            }
         }
 
-        // ---- CRITÉRIO 6: PENALIDADE PATRIMONIAL (VANDALISMO) ----
+        // ---- CRITÉRIO 6: AVCB (AUTO DE VISTORIA DO CORPO DE BOMBEIROS) ----
+        // Cruza o código FDE da escola com a planilha de mapeamento AVCB (mesma fonte da página "Mapeamento AVCB")
+        const schoolFde = normalizeAvcbCode(school.fde_code);
+        const avcbValidade = schoolFde ? avcbMap.get(schoolFde) : undefined;
+        let avcbPct = 0.5; // Sem registro de AVCB encontrado: não pontua (nem ganha, nem perde)
+        let avcbLabel = 'Sem AVCB';
+        if (avcbValidade) {
+          if (avcbValidade.getTime() >= now.getTime()) {
+            avcbPct = 1; // AVCB válido: ganha ponto extra no pilar
+            avcbLabel = 'AVCB Válido';
+          } else {
+            avcbPct = 0; // AVCB vencido: perde pontos no pilar
+            avcbLabel = 'AVCB Vencido';
+          }
+        }
+
+        // ---- CRITÉRIO 7: PENALIDADE PATRIMONIAL (VANDALISMO) ----
         const schoolOccurrences = allOcorrencias.filter((o: any) => o.school_id === school.id); // Conta os BOs
         // Cálculo do desconto: Quantidade de ocorrências X peso.
         // O Math.min trava para não passar do limite máximo configurado pelo admin
         const penalty = Math.min(
-          currentWeights.penalty_max, 
+          currentWeights.penalty_max,
           schoolOccurrences.length * currentWeights.penalty_per_occurrence
         );
 
@@ -329,7 +422,8 @@ export function RankingEscolas() {
           (waterEffPct * 10 * currentWeights.water_limit) +
           (demandPct * 10 * currentWeights.demand_on_time) +
           (treePct * 10 * currentWeights.tree_management) +
-          (zeladoriaPct * 10 * currentWeights.zeladoria)
+          (zeladoriaPct * 10 * currentWeights.zeladoria) +
+          (avcbPct * 10 * currentWeights.avcb)
         ) / 10;
 
         // Diminui a nota pelas ocorrências
@@ -347,6 +441,8 @@ export function RankingEscolas() {
             water_efficiency: waterEffPct * 100,
             demand_compliance: demandPct * 100,
             tree_management: treePct * 100,
+            avcb_status: avcbPct * 100,
+            avcb_label: avcbLabel,
             zeladoria_status: zeladoriaPct * 100,
             patrimonial_penalty: penalty
           }
@@ -411,7 +507,20 @@ export function RankingEscolas() {
         color: 'text-rose-600', bg: 'bg-rose-50'
       });
     }
-    
+    if (stats.avcb_status === 0) {
+      recs.push({
+        title: 'AVCB Vencido',
+        desc: 'O Auto de Vistoria do Corpo de Bombeiros está vencido. Regularize a documentação com urgência junto ao Corpo de Bombeiros, pois isso está penalizando diretamente a pontuação da unidade.',
+        color: 'text-red-600', bg: 'bg-red-50'
+      });
+    } else if (stats.avcb_status === 50) {
+      recs.push({
+        title: 'AVCB Não Localizado',
+        desc: 'Não foi encontrado registro de AVCB para esta unidade no mapeamento do Corpo de Bombeiros. Verifique o cadastro do Código FDE da escola ou regularize a documentação para começar a pontuar neste pilar.',
+        color: 'text-amber-600', bg: 'bg-amber-50'
+      });
+    }
+
     // Se passar em tudo e o array tiver vazio, solta a mensagem de parabéns
     if (recs.length === 0) {
       recs.push({
@@ -433,7 +542,7 @@ export function RankingEscolas() {
     
     setWeights(prev => {
       // Isola só as chaves dos pilares construtivos
-      const positiveKeys = ['water_reg', 'water_limit', 'demand_on_time', 'tree_management', 'zeladoria'] as const;
+      const positiveKeys = ['water_reg', 'water_limit', 'demand_on_time', 'tree_management', 'zeladoria', 'avcb'] as const;
       // Filtra as barrinhas que VOCÊ NÃO ARRASTOU (as outras)
       const otherKeys = positiveKeys.filter(k => k !== key); 
       
@@ -503,6 +612,7 @@ export function RankingEscolas() {
           demand_on_time: weights.demand_on_time,
           tree_management: weights.tree_management,
           zeladoria: weights.zeladoria,
+          avcb: weights.avcb,
           penalty_per_occurrence: weights.penalty_per_occurrence,
           penalty_max: weights.penalty_max,
           updated_at: new Date().toISOString()
@@ -647,11 +757,12 @@ export function RankingEscolas() {
                     </h3>
                     <div className="space-y-6">
                        {/* Escreve os textos explicativos usando o mini componente 'RuleInfo' */}
-                       <RuleInfo icon={<Droplets size={14}/>} title="Registos de Água" desc="Frequência diária de leitura no sistema." color="text-blue-500" />
-                       <RuleInfo icon={<TrendingDown size={14}/>} title="Eficiência Hídrica" desc="Manutenção do consumo dentro do teto." color="text-cyan-500" />
-                       <RuleInfo icon={<Clock size={14}/>} title="Prazos de Demandas" desc="Resposta a e-mails e ofícios regionais." color="text-red-500" />
+                       <RuleInfo icon={<Droplets size={14}/>} title="Registos de Água" desc="Frequência de leitura nos últimos 12 meses (a partir de mai/2026)." color="text-blue-500" />
+                       <RuleInfo icon={<TrendingDown size={14}/>} title="Eficiência Hídrica" desc="Manutenção do consumo dentro do teto nos últimos 3 meses." color="text-cyan-500" />
+                       <RuleInfo icon={<Clock size={14}/>} title="Prazos de Demandas" desc="Penaliza só enquanto pendente e vencida; ao atender, volta a pontuar." color="text-red-500" />
                        <RuleInfo icon={<TreePine size={14}/>} title="Manejo Arbóreo" desc="Autorização de manejo em dia ou não se aplica." color="text-green-500" />
                        <RuleInfo icon={<Home size={14}/>} title="Zeladoria" desc="Se não possui zeladoria (Max Pts) ou se o imóvel está ocupado." color="text-indigo-500" />
+                       <RuleInfo icon={<Flame size={14}/>} title="AVCB (Bombeiros)" desc="Válido ganha ponto extra, vencido perde pontos, sem registro não pontua." color="text-red-600" />
                        <RuleInfo icon={<ShieldAlert size={14}/>} title="Educação Patrimonial" desc={`Penalização (Até -${weights.penalty_max} pts) por ocorrências de danos.`} color="text-rose-500" />
                     </div>
                  </div>
@@ -730,6 +841,7 @@ export function RankingEscolas() {
                                 <SmallStat label="Água" val={school.stats.water_compliance} icon={<Droplets size={12}/>} />
                                 <SmallStat label="Demandas" val={school.stats.demand_compliance} icon={<Clock size={12}/>} />
                                 <SmallStat label="Zeladoria" val={school.stats.zeladoria_status} icon={<Home size={12}/>} />
+                                <SmallStat label="AVCB" val={school.stats.avcb_status} icon={<Flame size={12}/>} />
                                 {/* Se ela sofreu vandalismo, avisa na tela do card */}
                                 {school.stats.patrimonial_penalty > 0 && (
                                   <div className="flex items-center gap-1"><ShieldAlert size={12} className="text-rose-500"/><span className="text-[9px] font-black text-rose-500 uppercase tracking-tighter">Penalidade de Vandalismo</span></div>
@@ -811,7 +923,8 @@ export function RankingEscolas() {
                           <BreakdownItem label="Demandas no Prazo" value={selectedSchool.stats.demand_compliance} weight={weights.demand_on_time} icon={<Clock size={14} className="text-red-500"/>} />
                           <BreakdownItem label="Manejo Arbóreo" value={selectedSchool.stats.tree_management} weight={weights.tree_management} icon={<TreePine size={14} className="text-green-500"/>} />
                           <BreakdownItem label="Zeladoria" value={selectedSchool.stats.zeladoria_status} weight={weights.zeladoria} icon={<Home size={14} className="text-indigo-500"/>} />
-                          
+                          <BreakdownItem label={`AVCB (${selectedSchool.stats.avcb_label})`} value={selectedSchool.stats.avcb_status} weight={weights.avcb} icon={<Flame size={14} className="text-red-600"/>} />
+
                           {/* Renderiza o desconto de Patrimônio apenas se a escola estiver sofrendo ele */}
                           {selectedSchool.stats.patrimonial_penalty > 0 && (
                              <div className="bg-rose-50 p-5 rounded-2xl border border-rose-200 group transition-all">
@@ -904,6 +1017,7 @@ export function RankingEscolas() {
                     <WeightInput label="Demandas no Prazo" val={weights.demand_on_time} onChange={(v) => handleWeightChange('demand_on_time', v)} icon={<Clock size={14}/>}/>
                     <WeightInput label="Manejo Arbóreo" val={weights.tree_management} onChange={(v) => handleWeightChange('tree_management', v)} icon={<TreePine size={14}/>}/>
                     <WeightInput label="Zeladoria" val={weights.zeladoria} onChange={(v) => handleWeightChange('zeladoria', v)} icon={<Home size={14}/>}/>
+                    <WeightInput label="AVCB (Bombeiros)" val={weights.avcb} onChange={(v) => handleWeightChange('avcb', v)} icon={<Flame size={14}/>}/>
                  </div>
                </div>
 
