@@ -78,6 +78,7 @@ interface SchoolBase {
   id: string; // ID
   name: string; // Nome
   fde_code: string | null; // Código FDE, usado para cruzar com a planilha de AVCB
+  water_exempt: boolean | null; // Escola dispensada do registro diário de água (marcado em Consumo de Água)
 }
 
 // Função principal que desenha a tela inteira
@@ -303,8 +304,8 @@ export function RankingEscolas() {
   // O Coração do Sistema: Escaneia o banco e dá as notas para as escolas
   async function fetchData(currentWeights: WeightConfig) {
     try {
-      // 1. Busca os dados cruciais (id, nome e código FDE p/ cruzar com o AVCB) de todas as unidades
-      const { data: schoolsData } = await (supabase as any).from('schools').select('id, name, fde_code');
+      // 1. Busca os dados cruciais (id, nome, código FDE p/ cruzar com o AVCB e isenção de água) de todas as unidades
+      const { data: schoolsData } = await (supabase as any).from('schools').select('id, name, fde_code, water_exempt');
 
       const now = new Date(); // Data de hoje
       const todayStr = now.toISOString().split('T')[0]; // Hoje em formato YYYY-MM-DD, usado para comparar prazos
@@ -350,7 +351,11 @@ export function RankingEscolas() {
         // ---- CRITÉRIO 1: ÁGUA FREQUÊNCIA (Registo de Água - últimos 12 meses, piso maio/2026) ----
         const schoolWaterAll = waterLogs.filter((w: any) => w.school_id === school.id); // Isola a água da escola
         const schoolWaterReg = schoolWaterAll.filter((w: any) => w.date >= regWindowStartStr);
-        const waterRegPct = Math.min(1, schoolWaterReg.length / daysInRegWindow); // Divisão: Entregues / Dias da janela. Teto máximo é 1 (100%)
+        // Escola marcada como dispensada do registro de água (Consumo de Água) não é cobrada neste pilar:
+        // sem essa checagem ela nunca teria lançamentos e cairia pra perto de 0% injustamente.
+        const waterRegPct = school.water_exempt
+          ? 1
+          : Math.min(1, schoolWaterReg.length / daysInRegWindow); // Divisão: Entregues / Dias da janela. Teto máximo é 1 (100%)
 
         // ---- CRITÉRIO 2: ÁGUA EFICIÊNCIA (Eficiência Hídrica - últimos 3 meses) ----
         const schoolWaterEff = schoolWaterAll.filter((w: any) => w.date >= effWindowStartStr);
