@@ -213,20 +213,27 @@ export function Login() {
         }
       }
     } catch (error: any) {
-      // Registrar tentativa falha e aplicar bloqueio se necessário
-      const current = getStoredAttempts(email);
-      const newCount = current.count + 1;
-      const duration = getLockoutDuration(newCount);
-      const lockedUntil = duration > 0 ? Date.now() + duration * 1000 : 0;
-      setStoredAttempts(email, newCount, lockedUntil);
-      if (duration > 0) setLockoutSeconds(duration);
+      const isNetworkError = error instanceof TypeError && error.message === 'Failed to fetch';
 
-      if (error.message?.includes('schema') || error.status === 500) {
-        setErrorMsg("Erro interno no banco (500). Verifique se as permissões do esquema 'public' estão corretas no Supabase.");
-      } else if (error.message === 'Invalid login credentials') {
-        setErrorMsg("E-mail ou senha incorretos.");
+      if (isNetworkError) {
+        // Falha de rede/DNS não é culpa do usuário — não conta como tentativa incorreta
+        setErrorMsg("Não foi possível conectar ao servidor. Verifique sua conexão com a internet e tente novamente. Se o problema persistir, contate o suporte.");
       } else {
-        setErrorMsg(error.message || "Erro inesperado ao conectar.");
+        // Registrar tentativa falha e aplicar bloqueio se necessário
+        const current = getStoredAttempts(email);
+        const newCount = current.count + 1;
+        const duration = getLockoutDuration(newCount);
+        const lockedUntil = duration > 0 ? Date.now() + duration * 1000 : 0;
+        setStoredAttempts(email, newCount, lockedUntil);
+        if (duration > 0) setLockoutSeconds(duration);
+
+        if (error.message?.includes('schema') || error.status === 500) {
+          setErrorMsg("Erro interno no banco (500). Verifique se as permissões do esquema 'public' estão corretas no Supabase.");
+        } else if (error.message === 'Invalid login credentials') {
+          setErrorMsg("E-mail ou senha incorretos.");
+        } else {
+          setErrorMsg(error.message || "Erro inesperado ao conectar.");
+        }
       }
     } finally {
       setLoading(false);

@@ -99,7 +99,7 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'dashboard', label: 'Painel Geral', icon: <LayoutDashboard size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
       { id: 'comunicados', label: 'Comunicados', icon: <Megaphone size={20} className="text-amber-500" />, roles: ['regional_admin'] },
       { id: 'minhas-tarefas', label: 'Agenda Funcional', icon: <CalendarCheck size={20} />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
-      { id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <ClipboardList size={20} className="text-slate-400" />, roles: ['regional_admin', 'dirigente'] },
+      //{ id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <ClipboardList size={20} className="text-slate-400" />, roles: ['regional_admin', 'dirigente'] },
       { id: 'tutoriais', label: 'Manuais e Tutoriais', icon: <BookOpen size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
 
     ]
