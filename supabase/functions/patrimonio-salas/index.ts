@@ -106,7 +106,7 @@ Deno.serve(async (req) => {
     if (!profile) throw new Error('Perfil de usuário não encontrado.')
     const usuarioNome = (profile as Profile).full_name || user.email || 'Usuário'
 
-    if (!['regional_admin', 'ure_servico'].includes((profile as Profile).role)) {
+    if (!['regional_admin', 'ure_servico', 'chefe_departamento'].includes((profile as Profile).role)) {
       throw new Error('Seu perfil não tem acesso a este módulo.')
     }
 
