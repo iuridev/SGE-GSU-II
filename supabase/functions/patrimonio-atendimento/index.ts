@@ -131,7 +131,7 @@ Deno.serve(async (req) => {
     const p = profile as Profile
     const autorNome = p.full_name || user.email || 'Usuário'
 
-    if (!['regional_admin', 'school_manager'].includes(p.role)) {
+    if (!['regional_admin', 'school_manager', 'chefe_departamento'].includes(p.role)) {
       throw new Error('Seu perfil não tem acesso a este módulo.')
     }
 
