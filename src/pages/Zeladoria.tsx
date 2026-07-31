@@ -10,7 +10,8 @@ import {
   History, ArrowRight, FileDown,
   BarChart3, PieChart as PieIcon,
   CheckSquare, UserPlus, ShieldCheck,
-  ChevronRight, Filter, MessageSquare, MapPin, AlertTriangle, FileCheck2
+  ChevronRight, Filter, MessageSquare, MapPin, AlertTriangle, FileCheck2,
+  Eye, EyeOff
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -101,6 +102,7 @@ export function Zeladoria() {
   const [advancingId, setAdvancingId] = useState<string | number | null>(null);
   const [terrenoFilter, setTerrenoFilter] = useState<'true' | 'false' | 'null' | null>(null);
   const [certidaoFilter, setCertidaoFilter] = useState<'true' | 'false' | 'null' | null>(null);
+  const [showConcluidos, setShowConcluidos] = useState(false);
 
   // Modais
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -174,6 +176,7 @@ export function Zeladoria() {
   const sortedAndFilteredData = useMemo(() => {
     let result = data.filter(item =>
       (activeTab === 'TODOS' || item.ocupada === activeTab) &&
+      !(activeTab === 'TODOS' && item.ocupada === 'CONCLUÍDO' && !showConcluidos) &&
       (item.nome?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.zelador?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.sei_numero?.includes(searchTerm))
@@ -187,7 +190,11 @@ export function Zeladoria() {
       const timeB = new Date(b.status_updated_at || b.created_at || 0).getTime();
       return timeA - timeB;
     });
-  }, [data, searchTerm, activeTab]);
+  }, [data, searchTerm, activeTab, showConcluidos]);
+
+  const todosPillCount = useMemo(() => {
+    return showConcluidos ? activeData.length : activeData.filter(z => z.ocupada !== 'CONCLUÍDO').length;
+  }, [activeData, showConcluidos]);
 
   const stats = useMemo(() => {
     const concluidos = activeData.filter(z => z.ocupada === "CONCLUÍDO").length;
@@ -878,9 +885,22 @@ export function Zeladoria() {
       {/* PIPELINE STEPPER + BUSCA */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         <div className="px-4 pt-4 pb-0">
-          <div className="flex items-center gap-2 mb-3">
-            <Filter size={13} className="text-slate-400" />
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pipeline de Fases</span>
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2">
+              <Filter size={13} className="text-slate-400" />
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pipeline de Fases</span>
+            </div>
+            <button
+              onClick={() => setShowConcluidos(prev => !prev)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all ${
+                showConcluidos
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                  : 'bg-slate-50 text-slate-400 border border-slate-100 hover:bg-slate-100'
+              }`}
+            >
+              {showConcluidos ? <Eye size={12}/> : <EyeOff size={12}/>}
+              {showConcluidos ? 'Ocultar Concluídos' : 'Mostrar Concluídos'}
+            </button>
           </div>
           <div className="overflow-x-auto custom-scrollbar pb-3">
             <div className="flex items-center gap-1 min-w-max">
@@ -895,7 +915,7 @@ export function Zeladoria() {
                 }`}
               >
                 <span className={`text-[8px] font-black uppercase tracking-widest ${activeTab === 'TODOS' ? 'text-slate-300' : 'text-slate-400'}`}>Todos</span>
-                <span className={`text-2xl font-black leading-none ${activeTab === 'TODOS' ? 'text-white' : 'text-slate-700'}`}>{activeData.length}</span>
+                <span className={`text-2xl font-black leading-none ${activeTab === 'TODOS' ? 'text-white' : 'text-slate-700'}`}>{todosPillCount}</span>
                 <span className={`text-[7px] font-bold uppercase ${activeTab === 'TODOS' ? 'text-slate-400' : 'text-slate-300'}`}>processos</span>
               </button>
 
