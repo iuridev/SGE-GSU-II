@@ -102,7 +102,6 @@ export function Zeladoria() {
   const [advancingId, setAdvancingId] = useState<string | number | null>(null);
   const [terrenoFilter, setTerrenoFilter] = useState<'true' | 'false' | 'null' | null>(null);
   const [certidaoFilter, setCertidaoFilter] = useState<'true' | 'false' | 'null' | null>(null);
-  const [showConcluidos, setShowConcluidos] = useState(false);
 
   // Modais
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -176,7 +175,7 @@ export function Zeladoria() {
   const sortedAndFilteredData = useMemo(() => {
     let result = data.filter(item =>
       (activeTab === 'TODOS' || item.ocupada === activeTab) &&
-      !(activeTab === 'TODOS' && item.ocupada === 'CONCLUÍDO' && !showConcluidos) &&
+      !(activeTab === 'TODOS' && item.ocupada === 'CONCLUÍDO') &&
       (item.nome?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.zelador?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.sei_numero?.includes(searchTerm))
@@ -190,11 +189,11 @@ export function Zeladoria() {
       const timeB = new Date(b.status_updated_at || b.created_at || 0).getTime();
       return timeA - timeB;
     });
-  }, [data, searchTerm, activeTab, showConcluidos]);
+  }, [data, searchTerm, activeTab]);
 
   const todosPillCount = useMemo(() => {
-    return showConcluidos ? activeData.length : activeData.filter(z => z.ocupada !== 'CONCLUÍDO').length;
-  }, [activeData, showConcluidos]);
+    return activeData.filter(z => z.ocupada !== 'CONCLUÍDO').length;
+  }, [activeData]);
 
   const stats = useMemo(() => {
     const concluidos = activeData.filter(z => z.ocupada === "CONCLUÍDO").length;
@@ -891,15 +890,15 @@ export function Zeladoria() {
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pipeline de Fases</span>
             </div>
             <button
-              onClick={() => setShowConcluidos(prev => !prev)}
+              onClick={() => setActiveTab(activeTab === 'CONCLUÍDO' ? 'TODOS' : 'CONCLUÍDO')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all ${
-                showConcluidos
+                activeTab === 'CONCLUÍDO'
                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
                   : 'bg-slate-50 text-slate-400 border border-slate-100 hover:bg-slate-100'
               }`}
             >
-              {showConcluidos ? <Eye size={12}/> : <EyeOff size={12}/>}
-              {showConcluidos ? 'Ocultar Concluídos' : 'Mostrar Concluídos'}
+              {activeTab === 'CONCLUÍDO' ? <Eye size={12}/> : <EyeOff size={12}/>}
+              {activeTab === 'CONCLUÍDO' ? 'Ver Processos Ativos' : 'Mostrar Concluídos'}
             </button>
           </div>
           <div className="overflow-x-auto custom-scrollbar pb-3">
