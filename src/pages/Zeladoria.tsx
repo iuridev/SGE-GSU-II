@@ -11,7 +11,7 @@ import {
   BarChart3, PieChart as PieIcon,
   CheckSquare, UserPlus, ShieldCheck,
   ChevronRight, Filter, MessageSquare, MapPin, AlertTriangle, FileCheck2,
-  Eye, EyeOff
+  Eye, EyeOff, ArrowLeft
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -519,6 +519,18 @@ export function Zeladoria() {
     }
   }
 
+  async function handleRevertStage(item: Zeladoria) {
+    if (userRole !== 'regional_admin') return;
+    const currentIndex = ETAPAS_PROCESSO.indexOf(item.ocupada);
+    if (currentIndex <= 0) return;
+    let prevStage = ETAPAS_PROCESSO[currentIndex - 1];
+    if (prevStage === ETAPA_SEFREP && isIsento(item.dare)) {
+      prevStage = ETAPAS_PROCESSO[currentIndex - 2] || prevStage;
+    }
+    if (!confirm(`Voltar o processo de "${item.nome}" para a etapa: ${prevStage}?`)) return;
+    await advanceToStage(item, prevStage, `Processo retornado para a etapa: ${prevStage}`);
+  }
+
   async function handleAdvanceStage(item: Zeladoria) {
     if (userRole !== 'regional_admin') return;
     const currentIndex = ETAPAS_PROCESSO.indexOf(item.ocupada);
@@ -998,6 +1010,11 @@ export function Zeladoria() {
             if (nextStep === ETAPA_SEFREP && isIsento(item.dare)) {
               nextStep = ETAPAS_PROCESSO[currentIndex + 2] || nextStep;
             }
+            const hasPrevStep = currentIndex > 0;
+            let prevStep = hasPrevStep ? ETAPAS_PROCESSO[currentIndex - 1] : null;
+            if (prevStep === ETAPA_SEFREP && isIsento(item.dare)) {
+              prevStep = ETAPAS_PROCESSO[currentIndex - 2] || prevStep;
+            }
 
             return (
               <div
@@ -1164,6 +1181,20 @@ export function Zeladoria() {
                         >
                           <Trash2 size={14}/>
                         </button>
+                        {hasPrevStep && prevStep && (
+                          <button
+                            onClick={() => handleRevertStage(item)}
+                            disabled={advancingId === item.id}
+                            title={`Voltar para: ${prevStep}`}
+                            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-500 rounded-xl text-[10px] font-black uppercase transition-all active:scale-95"
+                          >
+                            {advancingId === item.id
+                              ? <Loader2 size={12} className="animate-spin" />
+                              : <ArrowLeft size={12}/>
+                            }
+                            Voltar
+                          </button>
+                        )}
                         {!isConcluido && nextStep && (
                           <button
                             onClick={() => handleAdvanceStage(item)}
