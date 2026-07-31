@@ -30,6 +30,7 @@ const ETAPAS_PROCESSO = [
   "8 - APROVAÇÃO DIRIGENTE",
   "9 - DPAT-SEDUC",
   "10 - CASA CIVIL",
+  "10.1 - RETORNO DPAT",
   "11 - SEFREP",
   "CONCLUÍDO"
 ];
