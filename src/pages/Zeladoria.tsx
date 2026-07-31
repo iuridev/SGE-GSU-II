@@ -29,8 +29,13 @@ const ETAPAS_PROCESSO = [
   "8 - APROVAÇÃO DIRIGENTE",
   "9 - DPAT-SEDUC",
   "10 - CASA CIVIL",
+  "11 - SEFREP",
   "CONCLUÍDO"
 ];
+
+const ETAPA_SEFREP = "11 - SEFREP";
+
+const isIsento = (dare?: string | null) => !!dare?.toLowerCase().includes('isento');
 
 interface Zeladoria {
   id: string | number;
@@ -52,6 +57,7 @@ interface Zeladoria {
   valor_imovel: number | null;
   imovel_1_porcento: number | null;
   salario_10_porcento: number | null;
+  valor_zeladoria: number | null;
   school_id: string | null;
   admin_notes?: string;
   terreno_fazenda_estado: boolean | null;
@@ -102,6 +108,9 @@ export function Zeladoria() {
   const [editingItem, setEditingItem] = useState<Zeladoria | null>(null);
   const [historyData, setHistoryData] = useState<TimelineEntry[]>([]);
   const [saveLoading, setSaveLoading] = useState(false);
+  const [sefrepModalOpen, setSefrepModalOpen] = useState(false);
+  const [sefrepTargetItem, setSefrepTargetItem] = useState<Zeladoria | null>(null);
+  const [sefrepValorInput, setSefrepValorInput] = useState('');
 
   // Formulário
   // testando nova função de zeladoria
@@ -479,17 +488,13 @@ export function Zeladoria() {
     }
   }
 
-  async function handleAdvanceStage(item: Zeladoria) {
-    if (userRole !== 'regional_admin') return;
-    const currentIndex = ETAPAS_PROCESSO.indexOf(item.ocupada);
-    if (currentIndex < 0 || currentIndex >= ETAPAS_PROCESSO.length - 1) return;
-    const nextStage = ETAPAS_PROCESSO[currentIndex + 1];
+  async function advanceToStage(item: Zeladoria, nextStage: string, customNote?: string, extraFields: Record<string, any> = {}) {
     const now = new Date().toISOString();
     setAdvancingId(item.id);
     try {
       const { error } = await (supabase as any)
         .from('zeladorias')
-        .update({ ocupada: nextStage, status_updated_at: now })
+        .update({ ocupada: nextStage, status_updated_at: now, ...extraFields })
         .eq('id', item.id);
       if (error) throw error;
       await (supabase as any).from('zeladoria_timeline').insert([{
@@ -497,7 +502,7 @@ export function Zeladoria() {
         previous_status: item.ocupada,
         new_status: nextStage,
         changed_by: userId,
-        notes: `Processo avançou para a etapa: ${nextStage}`,
+        notes: customNote || `Processo avançou para a etapa: ${nextStage}`,
         changed_at: now
       }]);
       fetchInitialData();
@@ -506,6 +511,49 @@ export function Zeladoria() {
     } finally {
       setAdvancingId(null);
     }
+  }
+
+  async function handleAdvanceStage(item: Zeladoria) {
+    if (userRole !== 'regional_admin') return;
+    const currentIndex = ETAPAS_PROCESSO.indexOf(item.ocupada);
+    if (currentIndex < 0 || currentIndex >= ETAPAS_PROCESSO.length - 1) return;
+    const nextStage = ETAPAS_PROCESSO[currentIndex + 1];
+
+    if (nextStage === ETAPA_SEFREP) {
+      if (isIsento(item.dare)) {
+        const stageAfterSefrep = ETAPAS_PROCESSO[currentIndex + 2] || nextStage;
+        await advanceToStage(item, stageAfterSefrep, 'Etapa SEFREP pulada automaticamente: servidor isento de desconto.');
+        return;
+      }
+      setSefrepTargetItem(item);
+      setSefrepValorInput(item.valor_zeladoria != null ? String(item.valor_zeladoria) : '');
+      setSefrepModalOpen(true);
+      return;
+    }
+
+    await advanceToStage(item, nextStage);
+  }
+
+  function closeSefrepModal() {
+    setSefrepModalOpen(false);
+    setSefrepTargetItem(null);
+    setSefrepValorInput('');
+  }
+
+  async function handleConfirmSefrepAdvance() {
+    if (!sefrepTargetItem) return;
+    const valor = parseFloat(sefrepValorInput.replace(',', '.'));
+    if (isNaN(valor) || valor <= 0) {
+      alert('Informe um valor válido para a Zeladoria.');
+      return;
+    }
+    await advanceToStage(
+      sefrepTargetItem,
+      ETAPA_SEFREP,
+      `Processo avançou para a etapa: ${ETAPA_SEFREP} · Valor da Zeladoria informado: ${valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`,
+      { valor_zeladoria: valor }
+    );
+    closeSefrepModal();
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -927,7 +975,10 @@ export function Zeladoria() {
             const diasNaFase = Math.floor((Date.now() - entryDate.getTime()) / (1000 * 60 * 60 * 24));
             const currentIndex = ETAPAS_PROCESSO.indexOf(item.ocupada);
             const hasNextStep = currentIndex >= 0 && currentIndex < ETAPAS_PROCESSO.length - 1;
-            const nextStep = hasNextStep ? ETAPAS_PROCESSO[currentIndex + 1] : null;
+            let nextStep = hasNextStep ? ETAPAS_PROCESSO[currentIndex + 1] : null;
+            if (nextStep === ETAPA_SEFREP && isIsento(item.dare)) {
+              nextStep = ETAPAS_PROCESSO[currentIndex + 2] || nextStep;
+            }
 
             return (
               <div
@@ -964,10 +1015,10 @@ export function Zeladoria() {
                 <div>
                   <div className="flex justify-between text-[9px] font-bold text-slate-400 mb-1.5">
                     <span>Progresso do fluxo</span>
-                    <span className={`font-black ${isConcluido ? 'text-emerald-600' : 'text-blue-600'}`}>{step}/12</span>
+                    <span className={`font-black ${isConcluido ? 'text-emerald-600' : 'text-blue-600'}`}>{step}/{ETAPAS_PROCESSO.length}</span>
                   </div>
                   <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden flex gap-px">
-                    {Array.from({length: 12}).map((_, i) => (
+                    {Array.from({length: ETAPAS_PROCESSO.length}).map((_, i) => (
                       <div
                         key={i}
                         className={`flex-1 h-full ${i < step ? (isConcluido ? 'bg-emerald-500' : 'bg-blue-500') : 'bg-slate-100'}`}
@@ -1030,6 +1081,21 @@ export function Zeladoria() {
                         <p className="text-[10px] font-mono text-emerald-700">Matrícula nº {item.numero_matricula}</p>
                       )}
                     </div>
+                  </div>
+                ) : null}
+
+                {/* Valor da Zeladoria / Isenção (SEFREP) */}
+                {isIsento(item.dare) ? (
+                  <div className="flex items-center gap-1.5">
+                    <ShieldCheck size={11} className="text-emerald-500 flex-shrink-0" />
+                    <span className="text-[9px] font-bold text-emerald-600 uppercase tracking-wide">Isento de desconto · etapa SEFREP não se aplica</span>
+                  </div>
+                ) : item.valor_zeladoria ? (
+                  <div className="flex items-center gap-1.5">
+                    <FileText size={11} className="text-blue-500 flex-shrink-0" />
+                    <span className="text-[9px] font-bold text-blue-600 uppercase tracking-wide">
+                      Valor Zeladoria: {item.valor_zeladoria.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </span>
                   </div>
                 ) : null}
 
@@ -1143,7 +1209,7 @@ export function Zeladoria() {
                 {/* Mini progress bar no modal */}
                 <div className="flex items-center gap-3">
                   <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden flex gap-px">
-                    {Array.from({length: 12}).map((_, i) => {
+                    {Array.from({length: ETAPAS_PROCESSO.length}).map((_, i) => {
                       const currentIdx = ETAPAS_PROCESSO.indexOf(formData.ocupada || '');
                       const concluido = formData.ocupada === 'CONCLUÍDO';
                       return (
@@ -1155,7 +1221,7 @@ export function Zeladoria() {
                     })}
                   </div>
                   <span className="text-[10px] font-bold text-slate-400 whitespace-nowrap">
-                    {Math.max(0, ETAPAS_PROCESSO.indexOf(formData.ocupada || '') + 1)}/12
+                    {Math.max(0, ETAPAS_PROCESSO.indexOf(formData.ocupada || '') + 1)}/{ETAPAS_PROCESSO.length}
                   </span>
                 </div>
               </div>
@@ -1188,6 +1254,17 @@ export function Zeladoria() {
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Validade</label>
                   <input type="date" className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold transition-all focus:border-blue-500 focus:bg-white outline-none" value={formData.ate || ''} onChange={e => setFormData({...formData, ate: e.target.value})} />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Valor da Zeladoria (Desconto SEFREP)</label>
+                  <input
+                    type="number" step="0.01" min="0"
+                    placeholder={isIsento(formData.dare) ? 'Não se aplica — isento' : 'Ex: 350.00'}
+                    disabled={isIsento(formData.dare)}
+                    className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold transition-all focus:border-blue-500 focus:bg-white outline-none disabled:opacity-50"
+                    value={formData.valor_zeladoria ?? ''}
+                    onChange={e => setFormData({...formData, valor_zeladoria: e.target.value ? parseFloat(e.target.value) : null})}
+                  />
                 </div>
               </div>
 
@@ -1336,6 +1413,58 @@ export function Zeladoria() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL ENVIO PARA SEFREP */}
+      {sefrepModalOpen && sefrepTargetItem && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md shadow-2xl border border-slate-100 overflow-hidden animate-in zoom-in-95 duration-300">
+            <div className="p-6 border-b border-slate-100 flex items-center gap-3">
+              <div className="w-11 h-11 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-200 flex-shrink-0">
+                <FileText size={20}/>
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-lg font-black text-slate-800 uppercase leading-none">Enviar para SEFREP</h2>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 truncate">{sefrepTargetItem.nome}</p>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-xs text-slate-500 font-medium leading-snug">
+                Informe o valor do desconto de Zeladoria para que o SEFREP cadastre na folha de pagamento do servidor.
+              </p>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Valor da Zeladoria (R$)</label>
+                <input
+                  type="number" step="0.01" min="0" autoFocus
+                  placeholder="Ex: 350.00"
+                  className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-700 focus:border-blue-500 focus:bg-white outline-none transition-all"
+                  value={sefrepValorInput}
+                  onChange={e => setSefrepValorInput(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="p-6 pt-0 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={closeSefrepModal}
+                className="px-6 py-3 text-slate-500 font-black hover:text-slate-800 transition-all uppercase tracking-widest text-[11px]"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSefrepAdvance}
+                disabled={advancingId === sefrepTargetItem.id}
+                className="px-8 py-3 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-200 hover:bg-blue-700 flex items-center gap-2 active:scale-95 disabled:opacity-50 transition-all uppercase tracking-widest text-[11px]"
+              >
+                {advancingId === sefrepTargetItem.id
+                  ? <Loader2 className="animate-spin" size={16}/>
+                  : <><ArrowRight size={16}/> Enviar</>
+                }
+              </button>
+            </div>
           </div>
         </div>
       )}
