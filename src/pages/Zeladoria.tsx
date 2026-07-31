@@ -195,6 +195,21 @@ export function Zeladoria() {
     return activeData.filter(z => z.ocupada !== 'CONCLUÍDO').length;
   }, [activeData]);
 
+  const expiringSoon = useMemo(() => {
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    return activeData
+      .filter(z => z.ate)
+      .map(z => {
+        const vencimento = new Date(z.ate);
+        vencimento.setHours(0, 0, 0, 0);
+        const diasRestantes = Math.ceil((vencimento.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24));
+        return { ...z, diasRestantes };
+      })
+      .filter(z => !isNaN(z.diasRestantes) && z.diasRestantes <= 90)
+      .sort((a, b) => a.diasRestantes - b.diasRestantes);
+  }, [activeData]);
+
   const stats = useMemo(() => {
     const concluidos = activeData.filter(z => z.ocupada === "CONCLUÍDO").length;
     const vagas = activeData.filter(z =>
@@ -661,6 +676,42 @@ export function Zeladoria() {
           )}
         </div>
       </div>
+
+      {/* ALERTA: PRAZOS DE ZELADORIA PRÓXIMOS DO VENCIMENTO */}
+      {expiringSoon.length > 0 && (
+        <div className="bg-red-50 border-2 border-red-200 rounded-[2rem] p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="p-2 bg-red-500 text-white rounded-xl flex-shrink-0"><AlertTriangle size={16} /></div>
+            <h3 className="text-xs font-black text-red-700 uppercase tracking-wide">
+              {expiringSoon.length} Zeladoria(s) com prazo a vencer em até 90 dias
+            </h3>
+          </div>
+          <div className="flex flex-col gap-2 max-h-[220px] overflow-y-auto custom-scrollbar">
+            {expiringSoon.map(item => (
+              <div key={item.id} className="flex items-center justify-between gap-3 bg-white rounded-xl px-4 py-2.5 border border-red-100">
+                <div className="min-w-0 flex items-center gap-2">
+                  {item.ue && <span className="text-[9px] font-black text-slate-400 uppercase flex-shrink-0">UE {item.ue}</span>}
+                  <span className="text-xs font-bold text-slate-800 uppercase truncate">{item.nome}</span>
+                  <span className="text-[10px] font-mono text-slate-400 flex-shrink-0">SEI: {item.sei_numero || 'não informado'}</span>
+                </div>
+                <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-full flex-shrink-0 ${
+                  item.diasRestantes < 0
+                    ? 'bg-red-600 text-white'
+                    : item.diasRestantes <= 30
+                      ? 'bg-red-100 text-red-700'
+                      : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {item.diasRestantes < 0
+                    ? `Vencido há ${Math.abs(item.diasRestantes)} dia(s)`
+                    : item.diasRestantes === 0
+                      ? 'Vence hoje'
+                      : `Vence em ${item.diasRestantes} dia(s)`}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* CARDS DE INDICADORES */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
