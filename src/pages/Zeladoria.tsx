@@ -990,8 +990,9 @@ export function Zeladoria() {
               {activeTab === 'CONCLUÍDO' ? 'Ver Processos Ativos' : 'Mostrar Concluídos'}
             </button>
           </div>
-          <div className="overflow-x-auto custom-scrollbar pb-3">
-            <div className="flex items-center gap-1 min-w-max">
+          <div className="relative">
+            <div className="overflow-x-auto custom-scrollbar pb-3">
+              <div className="flex items-center gap-1 min-w-max">
 
               {/* Botão TODOS */}
               <button
@@ -1036,6 +1037,10 @@ export function Zeladoria() {
                 );
               })}
             </div>
+          </div>
+          <div className="pointer-events-none absolute top-0 right-0 bottom-3 w-14 bg-gradient-to-l from-white via-white/90 to-transparent flex items-center justify-end">
+            <ChevronRight size={14} className="text-slate-300 mr-1" />
+          </div>
           </div>
         </div>
 
