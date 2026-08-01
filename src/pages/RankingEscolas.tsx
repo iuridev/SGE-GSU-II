@@ -58,6 +58,18 @@ interface SchoolRanking {
     patrimonial_penalty: number; // Total de pontos descontados por vandalismo
     avcb_status: number; // 100 = válido, 50 = sem registro, 0 = vencido
     avcb_label: string; // Texto amigável do status do AVCB
+    water_exempt: boolean; // Escola dispensada do registro diário de água
+    // Pesos EFETIVOS de cada pilar para esta escola (após redistribuir o peso do
+    // Registo de Água quando ela é dispensada). Somam 10, iguais aos pesos base
+    // para escolas não dispensadas.
+    weights: {
+      water_reg: number;
+      water_limit: number;
+      demand_on_time: number;
+      tree_management: number;
+      zeladoria: number;
+      avcb: number;
+    };
   };
 }
 
@@ -420,15 +432,36 @@ export function RankingEscolas() {
           schoolOccurrences.length * currentWeights.penalty_per_occurrence
         );
 
+        // ---- REDISTRIBUIÇÃO DE PESO PARA ESCOLAS DISPENSADAS DO REGISTRO DE ÁGUA ----
+        // Justiça do ranking: a escola dispensada não pode ganhar uma "nota grátis" no pilar de
+        // Registo de Água enquanto a escola obrigada a registrar carrega o risco de perder pontos
+        // ali todo dia. Em vez de dar 100% fixo com peso cheio (o que criava vantagem indevida),
+        // o pilar é removido do cálculo da escola dispensada e seu peso é redistribuído
+        // proporcionalmente entre os outros 5 pilares dela - ela ainda pode tirar nota 10, mas
+        // deixa de "furar a fila" de quem realmente faz o registro diário.
+        const positiveKeys = ['water_reg', 'water_limit', 'demand_on_time', 'tree_management', 'zeladoria', 'avcb'] as const;
+        const applicableKeys = school.water_exempt ? positiveKeys.filter(k => k !== 'water_reg') : positiveKeys;
+        const applicableWeightSum = applicableKeys.reduce((acc, k) => acc + currentWeights[k], 0);
+        const scaleFactor = applicableWeightSum > 0 ? 10 / applicableWeightSum : 0;
+        const effectiveWeights = {
+          water_reg: 0,
+          water_limit: 0,
+          demand_on_time: 0,
+          tree_management: 0,
+          zeladoria: 0,
+          avcb: 0
+        };
+        applicableKeys.forEach(k => { effectiveWeights[k] = currentWeights[k] * scaleFactor; });
+
         // ---- FECHAMENTO MATEMÁTICO DA NOTA FINAL (GSU) ----
-        // Cada porcentagem (0 a 1) é multiplicada por 10 e pelo peso estipulado, somadas, e divididas por 10.
+        // Cada porcentagem (0 a 1) é multiplicada por 10 e pelo peso EFETIVO (já redistribuído), somadas, e divididas por 10.
         let finalScore = (
-          (waterRegPct * 10 * currentWeights.water_reg) +
-          (waterEffPct * 10 * currentWeights.water_limit) +
-          (demandPct * 10 * currentWeights.demand_on_time) +
-          (treePct * 10 * currentWeights.tree_management) +
-          (zeladoriaPct * 10 * currentWeights.zeladoria) +
-          (avcbPct * 10 * currentWeights.avcb)
+          (waterRegPct * 10 * effectiveWeights.water_reg) +
+          (waterEffPct * 10 * effectiveWeights.water_limit) +
+          (demandPct * 10 * effectiveWeights.demand_on_time) +
+          (treePct * 10 * effectiveWeights.tree_management) +
+          (zeladoriaPct * 10 * effectiveWeights.zeladoria) +
+          (avcbPct * 10 * effectiveWeights.avcb)
         ) / 10;
 
         // Diminui a nota pelas ocorrências
@@ -449,7 +482,9 @@ export function RankingEscolas() {
             avcb_status: avcbPct * 100,
             avcb_label: avcbLabel,
             zeladoria_status: zeladoriaPct * 100,
-            patrimonial_penalty: penalty
+            patrimonial_penalty: penalty,
+            water_exempt: !!school.water_exempt,
+            weights: effectiveWeights
           }
         };
       });
@@ -762,7 +797,7 @@ export function RankingEscolas() {
                     </h3>
                     <div className="space-y-6">
                        {/* Escreve os textos explicativos usando o mini componente 'RuleInfo' */}
-                       <RuleInfo icon={<Droplets size={14}/>} title="Registos de Água" desc="Frequência de leitura nos últimos 12 meses (a partir de mai/2026)." color="text-blue-500" />
+                       <RuleInfo icon={<Droplets size={14}/>} title="Registos de Água" desc="Frequência de leitura nos últimos 12 meses (a partir de mai/2026). Escolas dispensadas não são avaliadas neste pilar - o peso é redistribuído entre os demais." color="text-blue-500" />
                        <RuleInfo icon={<TrendingDown size={14}/>} title="Eficiência Hídrica" desc="Manutenção do consumo dentro do teto nos últimos 3 meses." color="text-cyan-500" />
                        <RuleInfo icon={<Clock size={14}/>} title="Prazos de Demandas" desc="Penaliza só enquanto pendente e vencida; ao atender, volta a pontuar." color="text-red-500" />
                        <RuleInfo icon={<TreePine size={14}/>} title="Manejo Arbóreo" desc="Autorização de manejo em dia ou não se aplica." color="text-green-500" />
@@ -922,13 +957,21 @@ export function RankingEscolas() {
                           <BarChart3 size={14}/> Por que essa pontuação?
                        </h4>
                        <div className="grid gap-3">
-                          {/* Dispara o componente gráfico para cada status */}
-                          <BreakdownItem label="Registo de Água" value={selectedSchool.stats.water_compliance} weight={weights.water_reg} icon={<Droplets size={14} className="text-blue-500"/>} />
-                          <BreakdownItem label="Eficiência Hídrica" value={selectedSchool.stats.water_efficiency} weight={weights.water_limit} icon={<TrendingDown size={14} className="text-cyan-500"/>} />
-                          <BreakdownItem label="Demandas no Prazo" value={selectedSchool.stats.demand_compliance} weight={weights.demand_on_time} icon={<Clock size={14} className="text-red-500"/>} />
-                          <BreakdownItem label="Manejo Arbóreo" value={selectedSchool.stats.tree_management} weight={weights.tree_management} icon={<TreePine size={14} className="text-green-500"/>} />
-                          <BreakdownItem label="Zeladoria" value={selectedSchool.stats.zeladoria_status} weight={weights.zeladoria} icon={<Home size={14} className="text-indigo-500"/>} />
-                          <BreakdownItem label={`AVCB (${selectedSchool.stats.avcb_label})`} value={selectedSchool.stats.avcb_status} weight={weights.avcb} icon={<Flame size={14} className="text-red-600"/>} />
+                          {/* Dispara o componente gráfico para cada status. Os pesos aqui são os EFETIVOS
+                              (selectedSchool.stats.weights), já com a redistribuição aplicada para escolas
+                              dispensadas do registro de água - não o peso base configurado no painel. */}
+                          <BreakdownItem
+                            label={`Registo de Água${selectedSchool.stats.water_exempt ? ' (Dispensada)' : ''}`}
+                            value={selectedSchool.stats.water_compliance}
+                            weight={selectedSchool.stats.weights.water_reg}
+                            icon={<Droplets size={14} className="text-blue-500"/>}
+                            exempt={selectedSchool.stats.water_exempt}
+                          />
+                          <BreakdownItem label="Eficiência Hídrica" value={selectedSchool.stats.water_efficiency} weight={selectedSchool.stats.weights.water_limit} icon={<TrendingDown size={14} className="text-cyan-500"/>} />
+                          <BreakdownItem label="Demandas no Prazo" value={selectedSchool.stats.demand_compliance} weight={selectedSchool.stats.weights.demand_on_time} icon={<Clock size={14} className="text-red-500"/>} />
+                          <BreakdownItem label="Manejo Arbóreo" value={selectedSchool.stats.tree_management} weight={selectedSchool.stats.weights.tree_management} icon={<TreePine size={14} className="text-green-500"/>} />
+                          <BreakdownItem label="Zeladoria" value={selectedSchool.stats.zeladoria_status} weight={selectedSchool.stats.weights.zeladoria} icon={<Home size={14} className="text-indigo-500"/>} />
+                          <BreakdownItem label={`AVCB (${selectedSchool.stats.avcb_label})`} value={selectedSchool.stats.avcb_status} weight={selectedSchool.stats.weights.avcb} icon={<Flame size={14} className="text-red-600"/>} />
 
                           {/* Renderiza o desconto de Patrimônio apenas se a escola estiver sofrendo ele */}
                           {selectedSchool.stats.patrimonial_penalty > 0 && (
@@ -1104,10 +1147,10 @@ function RuleInfo({ icon, title, desc, color }: { icon: React.ReactNode, title: 
 }
 
 // O componente de transparência, exibe no modal a barrinha visual de quanto a escola conquistou
-function BreakdownItem({ label, value, weight, icon }: { label: string, value: number, weight: number, icon: React.ReactNode }) {
+function BreakdownItem({ label, value, weight, icon, exempt = false }: { label: string, value: number, weight: number, icon: React.ReactNode, exempt?: boolean }) {
   // A matemática desmascarada para os Gestores (mostra quantos pontos absolutos vieram)
   const scoreContribution = (value / 100) * weight;
-  
+
   return (
     <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm group transition-all hover:border-indigo-200">
        <div className="flex justify-between items-center mb-2">
@@ -1116,7 +1159,7 @@ function BreakdownItem({ label, value, weight, icon }: { label: string, value: n
              <span className="text-[11px] font-black text-slate-700 uppercase tracking-tight">{label}</span>
           </div>
           <div className="flex items-center gap-2">
-             <span className="text-[9px] font-bold text-slate-500 uppercase bg-slate-100 px-2 py-0.5 rounded border border-slate-200">Peso Base: {weight.toFixed(1)}</span>
+             <span className="text-[9px] font-bold text-slate-500 uppercase bg-slate-100 px-2 py-0.5 rounded border border-slate-200">Peso: {weight.toFixed(1)}</span>
              <span className="text-sm font-black text-slate-900">{value.toFixed(1)}%</span>
           </div>
        </div>
@@ -1125,10 +1168,17 @@ function BreakdownItem({ label, value, weight, icon }: { label: string, value: n
           {/* O preenchimento vai variar de 0 a 100% */}
           <div className={`h-full transition-all duration-1000 ${value >= 90 ? 'bg-emerald-500' : value >= 70 ? 'bg-amber-500' : value > 0 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${value}%` }} />
        </div>
-       <div className="flex items-center gap-1 mt-2 p-2 bg-slate-50 rounded-lg">
-           <HelpCircle size={10} className="text-slate-400"/>
-           <p className="text-[9px] font-black text-slate-500 uppercase">Cálculo: <span className="text-slate-400">{value.toFixed(0)}% de {weight.toFixed(1)} pts =</span> <span className="text-indigo-600 font-black text-[11px]">+{scoreContribution.toFixed(2)} Pontos Adquiridos</span></p>
-       </div>
+       {exempt ? (
+         <div className="flex items-center gap-1 mt-2 p-2 bg-indigo-50 rounded-lg">
+             <HelpCircle size={10} className="text-indigo-400"/>
+             <p className="text-[9px] font-black text-indigo-600 uppercase">Critério não contabilizado nesta escola. Peso redistribuído entre os demais pilares.</p>
+         </div>
+       ) : (
+         <div className="flex items-center gap-1 mt-2 p-2 bg-slate-50 rounded-lg">
+             <HelpCircle size={10} className="text-slate-400"/>
+             <p className="text-[9px] font-black text-slate-500 uppercase">Cálculo: <span className="text-slate-400">{value.toFixed(0)}% de {weight.toFixed(1)} pts =</span> <span className="text-indigo-600 font-black text-[11px]">+{scoreContribution.toFixed(2)} Pontos Adquiridos</span></p>
+         </div>
+       )}
     </div>
   );
 }
