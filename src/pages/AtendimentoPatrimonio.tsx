@@ -23,6 +23,12 @@ const CHART_COLORS = [
   '#8b5cf6', '#ec4899', '#06b6d4',
 ];
 
+function getDriveEmbedUrl(url: string): string {
+  const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (match) return `https://drive.google.com/file/d/${match[1]}/preview`;
+  return url;
+}
+
 const PAUTAS = [
   'Orientação Educação Patrimonial',
   'Dúvidas sobre Processo',
@@ -140,6 +146,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
   const [showRemanejamentoForm, setShowRemanejamentoForm] = useState(false);
   const [remanejamentoForm, setRemanejamentoForm] = useState(REMANEJAMENTO_INITIAL);
   const [editingRemanejamentoId, setEditingRemanejamentoId] = useState<string | null>(null);
+  const [grModal, setGrModal] = useState<{ url: string; title: string } | null>(null);
 
   const [processos, setProcessos] = useState<ProcessoOption[]>([]);
   const [loadingProcessos, setLoadingProcessos] = useState(false);
@@ -931,15 +938,13 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                         <td className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 px-4 py-3 whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)] transition-colors">
                           <div className="flex items-center gap-1">
                             {r.gr_link && (
-                              <a
-                                href={r.gr_link}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                              <button
+                                onClick={() => setGrModal({ url: r.gr_link, title: `GR — ${r.escola_origem_nome} → ${r.escola_destino_nome}` })}
                                 title="Visualizar Guia de Remanejamento"
                                 className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 hover:border-teal-300 transition-colors whitespace-nowrap"
                               >
                                 <ExternalLink size={12} /> GR
-                              </a>
+                              </button>
                             )}
                             <button
                               onClick={() => openDetail(remanejamentoToProcessoOption(r))}
@@ -1332,6 +1337,36 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                   className="w-full px-4 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">Fechar</button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Guia de Remanejamento (GR) */}
+      {grModal && (
+        <div className="fixed inset-0 bg-black/60 z-[140] flex items-center justify-center p-4"
+          onClick={() => setGrModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-slate-100 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <ExternalLink size={16} className="text-teal-600 shrink-0" />
+                <h3 className="font-bold text-slate-800 text-sm truncate">{grModal.title}</h3>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <a href={grModal.url} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 bg-teal-600 hover:bg-teal-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors">
+                  <ExternalLink size={13} />
+                  Abrir em Nova Aba
+                </a>
+                <button onClick={() => setGrModal(null)}
+                  className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-700 rounded-lg transition-colors">
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 bg-slate-50 overflow-hidden">
+              <iframe src={getDriveEmbedUrl(grModal.url)} className="w-full h-full border-0" title="Guia de Remanejamento" />
+            </div>
           </div>
         </div>
       )}
