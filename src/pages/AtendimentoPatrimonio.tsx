@@ -659,6 +659,22 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       doc.text(value || '-', 70, y, { maxWidth: 125 });
     });
 
+    const semGr = r.tipo_documento === 'DOC' || !r.gr_link;
+    if (semGr) {
+      const avisoY = 60 + rows.length * 8 + 10;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(180, 40, 40);
+      doc.text(
+        doc.splitTextToSize(
+          'ATENÇÃO: Unidade escolar está pendente o envio da Guia de Remanejamento (GR) com o número de chapa patrimonial de cada item remanejado.',
+          182,
+        ),
+        lx, avisoY,
+      );
+      doc.setTextColor(0, 0, 0);
+    }
+
     addTimbradoAllPages(doc);
     doc.save(`comprovante_remanejamento_${(r.numero_documento || r.id).replace(/[\\/]/g, '-')}.pdf`);
   };
