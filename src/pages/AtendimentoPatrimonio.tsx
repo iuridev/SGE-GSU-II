@@ -637,7 +637,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
 
     doc.setFontSize(15);
     doc.setFont('helvetica', 'bold');
-    doc.text('COMPROVANTE DE REMANEJAMENTO DE PATRIMÔNIO', 105, 40, { align: 'center' });
+    doc.text('COMPROVANTE DE CADASTRO DE SOLICITAÇÃO DE REMANEJAMENTO DE PATRIMÔNIO', 105, 40, { align: 'center', maxWidth: 180 });
 
     doc.setFontSize(10);
     const rows: [string, string][] = [
@@ -652,7 +652,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       ['Data do Registro:', formatDateTime(r.data_registro)],
     ];
     rows.forEach(([label, value], i) => {
-      const y = 55 + i * 8;
+      const y = 60 + i * 8;
       doc.setFont('helvetica', 'bold');
       doc.text(label, lx, y);
       doc.setFont('helvetica', 'normal');
