@@ -850,7 +850,7 @@ export default function App() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar bg-[#f8fafc] print:p-0 print:bg-white print:overflow-visible print:w-full">
+        <div className={`flex-1 overflow-y-auto p-4 md:p-8 ${currentPage === 'visitas-escolares' ? 'visible-scrollbar' : 'custom-scrollbar'} bg-[#f8fafc] print:p-0 print:bg-white print:overflow-visible print:w-full`}>
           <div className="max-w-7xl mx-auto print:max-w-none print:w-full">
             {renderContent()}
           </div>
