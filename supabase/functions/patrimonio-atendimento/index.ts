@@ -27,7 +27,7 @@ const OBSERVACOES_COLUMNS = [
 ]
 const REMANEJAMENTOS_COLUMNS = [
   'id', 'escola_origem_id', 'escola_origem_nome', 'escola_destino_id', 'escola_destino_nome',
-  'numero_patrimonial', 'descricao', 'numero_documento', 'cadastrado_sam',
+  'numero_patrimonial', 'descricao', 'numero_documento', 'gr_link', 'cadastrado_sam',
   'autor_id', 'autor_nome', 'data_registro',
 ]
 
@@ -264,6 +264,7 @@ Deno.serve(async (req) => {
           numero_patrimonial: String(body.numero_patrimonial),
           descricao: String(body.descricao || ''),
           numero_documento: String(body.numero_documento),
+          gr_link: String(body.gr_link || ''),
           cadastrado_sam: body.cadastrado_sam ? 'TRUE' : 'FALSE',
           autor_id: user.id,
           autor_nome: autorNome,
@@ -292,6 +293,7 @@ Deno.serve(async (req) => {
         row.set('numero_patrimonial', String(body.numero_patrimonial))
         row.set('descricao', String(body.descricao || ''))
         row.set('numero_documento', String(body.numero_documento))
+        row.set('gr_link', String(body.gr_link || ''))
         row.set('cadastrado_sam', body.cadastrado_sam ? 'TRUE' : 'FALSE')
         await row.save()
         return ok(corsHeaders, { success: true })

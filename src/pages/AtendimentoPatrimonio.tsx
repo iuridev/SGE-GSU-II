@@ -5,7 +5,7 @@ import { DefesoEleitoralBanner } from '../components/DefesoEleitoralBanner';
 import {
   Plus, Search, X, Loader2, CalendarDays, Video,
   MapPin, BarChart3, TrendingUp, RefreshCw, ExternalLink,
-  ClipboardList, ArrowRightLeft, Package, Check, Mail, History, Pencil, Ticket,
+  ClipboardList, ArrowRightLeft, Package, Check, Mail, History, Pencil, Ticket, Link2,
 } from 'lucide-react';
 
 // Mesma chave usada por Chamados.tsx para ler a referência pré-preenchida ao
@@ -81,6 +81,7 @@ interface Remanejamento {
   numero_patrimonial: string;
   descricao: string;
   numero_documento: string;
+  gr_link: string;
   cadastrado_sam: string;
   autor_nome: string;
   data_registro: string;
@@ -106,7 +107,7 @@ const ATENDIMENTO_INITIAL = {
 const REMANEJAMENTO_INITIAL = {
   escola_origem_id: '', escola_origem_nome: '',
   escola_destino_id: '', escola_destino_nome: '',
-  numero_patrimonial: '', descricao: '', numero_documento: '',
+  numero_patrimonial: '', descricao: '', numero_documento: '', gr_link: '',
   cadastrado_sam: false,
 };
 
@@ -431,7 +432,8 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       escola_origem_id: r.escola_origem_id, escola_origem_nome: r.escola_origem_nome,
       escola_destino_id: r.escola_destino_id, escola_destino_nome: r.escola_destino_nome,
       numero_patrimonial: r.numero_patrimonial, descricao: r.descricao,
-      numero_documento: r.numero_documento, cadastrado_sam: r.cadastrado_sam === 'TRUE',
+      numero_documento: r.numero_documento, gr_link: r.gr_link || '',
+      cadastrado_sam: r.cadastrado_sam === 'TRUE',
     });
     setShowRemanejamentoForm(true);
   };
@@ -899,7 +901,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50">
-                      {['Data', 'Escola Origem', 'Escola Destino', 'Nº Patrimonial', 'Descrição', 'Nº Documento', 'Cadastrado no SAM?', 'Autor'].map(h => (
+                      {['Data', 'Escola Origem', 'Escola Destino', 'Nº Patrimonial', 'Descrição', 'Nº Documento', 'GR', 'Cadastrado no SAM?', 'Autor'].map(h => (
                         <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                       <th className="sticky right-0 z-10 bg-slate-50 text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)]" />
@@ -914,6 +916,21 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                         <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{r.numero_patrimonial}</td>
                         <td className="px-4 py-3 text-slate-500 max-w-xs truncate">{r.descricao || '-'}</td>
                         <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{r.numero_documento}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {r.gr_link ? (
+                            <a
+                              href={r.gr_link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Visualizar Guia de Remanejamento"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 hover:border-teal-300 transition-colors"
+                            >
+                              <ExternalLink size={12} /> GR
+                            </a>
+                          ) : (
+                            <span className="text-slate-300">-</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           {r.cadastrado_sam === 'TRUE' ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
@@ -1113,6 +1130,13 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">Nº do Documento de Remanejamento <span className="text-red-500">*</span></label>
                 <input type="text" required value={remanejamentoForm.numero_documento}
                   onChange={e => setRemanejamentoForm(prev => ({ ...prev, numero_documento: e.target.value }))}
+                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              </div>
+              <div>
+                <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700 mb-1.5"><Link2 size={14} /> Link da Guia de Remanejamento (Google Drive)</label>
+                <input type="url" value={remanejamentoForm.gr_link}
+                  onChange={e => setRemanejamentoForm(prev => ({ ...prev, gr_link: e.target.value }))}
+                  placeholder="https://drive.google.com/..."
                   className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
               </div>
               <label className="flex items-center gap-2.5 bg-slate-50 rounded-lg px-3 py-2.5 cursor-pointer select-none">
