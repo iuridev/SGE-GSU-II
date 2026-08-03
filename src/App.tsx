@@ -219,23 +219,6 @@ export default function App() {
     localStorage.setItem('sge_page', currentPage);
   }, [currentPage]);
 
-  // Favoritos são isolados por usuário (chave por user.id), para não vazar entre contas no mesmo dispositivo
-  useEffect(() => {
-    const userId = session?.user?.id;
-    if (!userId) return;
-    try {
-      setFavorites(JSON.parse(localStorage.getItem(`sge_favorites_${userId}`) || '[]'));
-    } catch {
-      setFavorites([]);
-    }
-  }, [session?.user?.id]);
-
-  useEffect(() => {
-    const userId = session?.user?.id;
-    if (!userId) return;
-    localStorage.setItem(`sge_favorites_${userId}`, JSON.stringify(favorites));
-  }, [favorites, session?.user?.id]);
-
   // ==========================================
   // CAPACITOR: CONTROLE DO BOTÃO VOLTAR (ANDROID)
   // ==========================================
@@ -484,7 +467,7 @@ export default function App() {
 
   async function fetchUserRole(userId: string) {
     try {
-      const { data } = await (supabase as any).from('profiles').select('role').eq('id', userId).single();
+      const { data } = await (supabase as any).from('profiles').select('role, favorite_pages').eq('id', userId).single();
       if (data && data.role) {
         setIsReadOnlyUser(isReadOnlyRole(data.role));
         setUserRole(resolveViewRole(data.role));
@@ -492,6 +475,7 @@ export default function App() {
         setIsReadOnlyUser(false);
         setUserRole('escola');
       }
+      setFavorites(Array.isArray(data?.favorite_pages) ? data.favorite_pages : []);
     } catch (error) {
       setIsReadOnlyUser(false);
       setUserRole('escola');
@@ -509,9 +493,16 @@ export default function App() {
     setExpandedGroups(prev => prev.includes(title) ? prev.filter(g => g !== title) : [...prev, title]);
   };
 
-  const toggleFavorite = (id: string, e: React.MouseEvent) => {
+  const toggleFavorite = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setFavorites(prev => prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]);
+    const previous = favorites;
+    const updated = previous.includes(id) ? previous.filter(f => f !== id) : [...previous, id];
+    setFavorites(updated);
+    const { error } = await (supabase as any).rpc('set_my_favorite_pages', { pages: updated });
+    if (error) {
+      console.error('Erro ao salvar favorito:', error);
+      setFavorites(previous);
+    }
   };
 
   const renderContent = () => {
