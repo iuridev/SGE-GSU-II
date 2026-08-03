@@ -901,7 +901,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50">
-                      {['Data', 'Escola Origem', 'Escola Destino', 'Nº Patrimonial', 'Descrição', 'Nº Documento', 'GR', 'Cadastrado no SAM?', 'Autor'].map(h => (
+                      {['Data', 'Escola Origem', 'Escola Destino', 'Nº Patrimonial', 'Descrição', 'Nº Documento', 'Cadastrado no SAM?', 'Autor'].map(h => (
                         <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                       <th className="sticky right-0 z-10 bg-slate-50 text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)]" />
@@ -917,21 +917,6 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                         <td className="px-4 py-3 text-slate-500 max-w-xs truncate">{r.descricao || '-'}</td>
                         <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{r.numero_documento}</td>
                         <td className="px-4 py-3 whitespace-nowrap">
-                          {r.gr_link ? (
-                            <a
-                              href={r.gr_link}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              title="Visualizar Guia de Remanejamento"
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 hover:border-teal-300 transition-colors"
-                            >
-                              <ExternalLink size={12} /> GR
-                            </a>
-                          ) : (
-                            <span className="text-slate-300">-</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
                           {r.cadastrado_sam === 'TRUE' ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
                               <Check size={12} /> Sim
@@ -945,6 +930,17 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                         <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{r.autor_nome}</td>
                         <td className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 px-4 py-3 whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)] transition-colors">
                           <div className="flex items-center gap-1">
+                            {r.gr_link && (
+                              <a
+                                href={r.gr_link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Visualizar Guia de Remanejamento"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 hover:border-teal-300 transition-colors whitespace-nowrap"
+                              >
+                                <ExternalLink size={12} /> GR
+                              </a>
+                            )}
                             <button
                               onClick={() => openDetail(remanejamentoToProcessoOption(r))}
                               title="Ver linha do tempo de ações"
