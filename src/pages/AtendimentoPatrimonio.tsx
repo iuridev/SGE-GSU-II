@@ -204,6 +204,42 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     return data;
   }
 
+  // Notifica todos os perfis vinculados a uma escola via chat (mesmo mecanismo do
+  // sino de notificações em App.tsx, que escuta a tabela `messages`) — ver
+  // sendDemandNotification em src/pages/Demanda.tsx para o mesmo padrão.
+  async function notificarEscola(escolaId: string, messageContent: string) {
+    if (!escolaId) return;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: schoolUsers } = await (supabase as any)
+        .from('profiles')
+        .select('id')
+        .eq('school_id', escolaId);
+      if (!schoolUsers || schoolUsers.length === 0) return;
+
+      for (const schoolUser of schoolUsers) {
+        const { data: conversaInfo } = await (supabase as any).rpc('iniciar_conversa', {
+          p_participante1: user.id,
+          p_participante2: schoolUser.id,
+          p_setor: 'GERAL',
+        });
+        const conversaId = Array.isArray(conversaInfo) ? conversaInfo[0]?.id : conversaInfo?.id;
+        if (conversaId) {
+          await (supabase as any).from('messages').insert([{
+            conversa_id: conversaId,
+            sender_id: user.id,
+            content: messageContent,
+            is_read: false,
+          }]);
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao notificar escola:', err);
+    }
+  }
+
   const fetchUser = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -351,6 +387,10 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         await invoke('editar_atendimento', { ...payload, id: editingAtendimentoId });
       } else {
         await invoke('registrar_atendimento', payload);
+        await notificarEscola(
+          payload.escola_id,
+          `🔔 Novo atendimento registrado (${payload.pauta}) em ${formatDate(payload.data_atendimento)}.`
+        );
       }
       setShowAtendimentoForm(false);
       setAtendimentoForm({ ...ATENDIMENTO_INITIAL, data_atendimento: new Date().toISOString().split('T')[0] });
@@ -391,6 +431,10 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         etapa_atual: selectedProcesso.situacaoLabel,
         observacao: obsText.trim(),
       });
+      await notificarEscola(
+        selectedProcesso.escolaId,
+        `📝 Nova ação em ${selectedProcesso.tipoLabel} ${selectedProcesso.identificador}: "${obsText.trim()}"`
+      );
       setShowObsForm(false);
       setSelectedProcesso(null);
       setObsText('');
@@ -420,6 +464,9 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         await invoke('editar_remanejamento', { ...f, id: editingRemanejamentoId });
       } else {
         await invoke('registrar_remanejamento', f);
+        const msg = `🔄 Novo remanejamento registrado: item ${f.numero_patrimonial} (${f.escola_origem_nome} → ${f.escola_destino_nome}), documento ${f.numero_documento}.`;
+        await notificarEscola(f.escola_origem_id, msg);
+        await notificarEscola(f.escola_destino_id, msg);
       }
       setShowRemanejamentoForm(false);
       setRemanejamentoForm(REMANEJAMENTO_INITIAL);
@@ -478,6 +525,16 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     if (!active.length) return 0;
     return Math.round(active.reduce((s, m) => s + m.total, 0) / active.length);
   }, [chartByMonth]);
+
+  const remanejamentosThisMonth = useMemo(
+    () => remanejamentos.filter(r => r.data_registro?.startsWith(currentMonthStr)),
+    [remanejamentos, currentMonthStr],
+  );
+  const remanejamentosCadastradosSam = useMemo(
+    () => remanejamentos.filter(r => r.cadastrado_sam === 'TRUE').length,
+    [remanejamentos],
+  );
+  const remanejamentosPendentesSam = remanejamentos.length - remanejamentosCadastradosSam;
 
   const filteredAtendimentos = useMemo(() => {
     const q = searchTerm.toLowerCase();
@@ -648,6 +705,30 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 </div>
               </div>
             ))}
+          </div>
+
+          <div>
+            <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+              <ArrowRightLeft size={13} /> Remanejamentos
+            </h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[
+                { label: 'Total de Remanejamentos', value: remanejamentos.length, icon: <ArrowRightLeft size={20} className="text-teal-600" />, bg: 'bg-teal-50' },
+                { label: 'Remanejamentos no Mês', value: remanejamentosThisMonth.length, icon: <CalendarDays size={20} className="text-emerald-600" />, bg: 'bg-emerald-50' },
+                { label: 'Cadastrados no SAM', value: remanejamentosCadastradosSam, icon: <Check size={20} className="text-blue-600" />, bg: 'bg-blue-50' },
+                { label: 'Pendentes no SAM', value: remanejamentosPendentesSam, icon: <X size={20} className="text-red-600" />, bg: 'bg-red-50' },
+              ].map(card => (
+                <div key={card.label} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-lg ${card.bg} flex items-center justify-center shrink-0`}>{card.icon}</div>
+                    <div>
+                      <p className="text-xs text-slate-500 font-medium">{card.label}</p>
+                      <p className="text-2xl font-bold text-slate-800">{card.value}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
