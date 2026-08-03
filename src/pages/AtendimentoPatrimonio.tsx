@@ -88,6 +88,7 @@ interface Remanejamento {
   descricao: string;
   numero_documento: string;
   gr_link: string;
+  tipo_documento: string;
   cadastrado_sam: string;
   autor_nome: string;
   data_registro: string;
@@ -114,6 +115,7 @@ const REMANEJAMENTO_INITIAL = {
   escola_origem_id: '', escola_origem_nome: '',
   escola_destino_id: '', escola_destino_nome: '',
   numero_patrimonial: '', descricao: '', numero_documento: '', gr_link: '',
+  tipo_documento: 'GR' as 'GR' | 'DOC',
   cadastrado_sam: false,
 };
 
@@ -487,6 +489,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       escola_destino_id: r.escola_destino_id, escola_destino_nome: r.escola_destino_nome,
       numero_patrimonial: r.numero_patrimonial, descricao: r.descricao,
       numero_documento: r.numero_documento, gr_link: r.gr_link || '',
+      tipo_documento: r.tipo_documento === 'DOC' ? 'DOC' : 'GR',
       cadastrado_sam: r.cadastrado_sam === 'TRUE',
     });
     setShowRemanejamentoForm(true);
@@ -1020,11 +1023,14 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                           <div className="flex items-center gap-1">
                             {r.gr_link && (
                               <button
-                                onClick={() => setGrModal({ url: r.gr_link, title: `GR — ${r.escola_origem_nome} → ${r.escola_destino_nome}` })}
-                                title="Visualizar Guia de Remanejamento"
+                                onClick={() => setGrModal({
+                                  url: r.gr_link,
+                                  title: `${r.tipo_documento === 'DOC' ? 'DOC' : 'GR'} — ${r.escola_origem_nome} → ${r.escola_destino_nome}`,
+                                })}
+                                title={r.tipo_documento === 'DOC' ? 'Visualizar Documento/Comunicado' : 'Visualizar Guia de Remanejamento'}
                                 className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 hover:border-teal-300 transition-colors whitespace-nowrap"
                               >
-                                <ExternalLink size={12} /> GR
+                                <ExternalLink size={12} /> {r.tipo_documento === 'DOC' ? 'DOC' : 'GR'}
                               </button>
                             )}
                             <button
@@ -1215,7 +1221,38 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                   className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
               </div>
               <div>
-                <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700 mb-1.5"><Link2 size={14} /> Link da Guia de Remanejamento (Google Drive)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Tipo de Documento</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button"
+                    onClick={() => setRemanejamentoForm(prev => ({ ...prev, tipo_documento: 'GR' }))}
+                    className={`px-3 py-2.5 text-sm font-medium rounded-lg border transition-colors ${
+                      remanejamentoForm.tipo_documento === 'GR'
+                        ? 'bg-teal-600 text-white border-teal-600'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    GR — Guia de Remanejamento
+                  </button>
+                  <button type="button"
+                    onClick={() => setRemanejamentoForm(prev => ({ ...prev, tipo_documento: 'DOC' }))}
+                    className={`px-3 py-2.5 text-sm font-medium rounded-lg border transition-colors ${
+                      remanejamentoForm.tipo_documento === 'DOC'
+                        ? 'bg-teal-600 text-white border-teal-600'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    DOC — Comunicado enviado à escola
+                  </button>
+                </div>
+                <p className="text-xs text-slate-400 mt-1.5">
+                  Use DOC quando a escola ainda não enviou a GR e você registrar o comunicado enviado a ela no lugar.
+                </p>
+              </div>
+              <div>
+                <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700 mb-1.5">
+                  <Link2 size={14} />
+                  Link d{remanejamentoForm.tipo_documento === 'DOC' ? 'o Documento/Comunicado' : 'a Guia de Remanejamento'} (Google Drive)
+                </label>
                 <input type="url" value={remanejamentoForm.gr_link}
                   onChange={e => setRemanejamentoForm(prev => ({ ...prev, gr_link: e.target.value }))}
                   placeholder="https://drive.google.com/..."
