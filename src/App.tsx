@@ -201,6 +201,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['PRINCIPAL']);
   const [searchQuery, setSearchQuery] = useState('');
+  const [favorites, setFavorites] = useState<string[]>([]);
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -217,6 +218,23 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('sge_page', currentPage);
   }, [currentPage]);
+
+  // Favoritos são isolados por usuário (chave por user.id), para não vazar entre contas no mesmo dispositivo
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+    try {
+      setFavorites(JSON.parse(localStorage.getItem(`sge_favorites_${userId}`) || '[]'));
+    } catch {
+      setFavorites([]);
+    }
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+    localStorage.setItem(`sge_favorites_${userId}`, JSON.stringify(favorites));
+  }, [favorites, session?.user?.id]);
 
   // ==========================================
   // CAPACITOR: CONTROLE DO BOTÃO VOLTAR (ANDROID)
@@ -491,6 +509,11 @@ export default function App() {
     setExpandedGroups(prev => prev.includes(title) ? prev.filter(g => g !== title) : [...prev, title]);
   };
 
+  const toggleFavorite = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setFavorites(prev => prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]);
+  };
+
   const renderContent = () => {
     switch (currentPage) {
       case 'dashboard': return <Dashboard onNavigate={setCurrentPage} />;
@@ -565,6 +588,9 @@ export default function App() {
   const searchResults = searchQuery.trim()
     ? allVisibleItems.filter(item => item.label.toLowerCase().includes(searchQuery.toLowerCase()))
     : [];
+  const favoriteItems = favorites
+    .map(id => allVisibleItems.find(item => item.id === id))
+    .filter((item): item is MenuItem => !!item);
 
   return (
     <div className="h-screen overflow-hidden bg-[#f8fafc] flex font-sans text-slate-900 print:bg-white print:block print:h-auto print:overflow-visible">
@@ -613,39 +639,81 @@ export default function App() {
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group ${currentPage === item.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}
                 >
                   <div className={`${currentPage === item.id ? 'text-white' : 'text-slate-400 group-hover:text-blue-400'} transition-colors flex-shrink-0`}>{item.icon}</div>
-                  <span className="font-medium whitespace-nowrap text-sm text-left truncate">{item.label}</span>
+                  <span className="font-medium whitespace-nowrap text-sm text-left truncate flex-1">{item.label}</span>
+                  <Star
+                    size={14}
+                    onClick={(e) => toggleFavorite(item.id, e)}
+                    className={`flex-shrink-0 transition-all ${favorites.includes(item.id) ? 'fill-amber-400 text-amber-400' : 'text-slate-600 opacity-0 group-hover:opacity-100 hover:text-amber-400'}`}
+                  />
                 </button>
               )) : (
                 <p className="text-xs text-slate-500 text-center py-6">Nenhum resultado encontrado.</p>
               )}
             </div>
           ) : (
-            MENU_GROUPS.map((group, groupIndex) => {
-              const visibleItems = group.items.filter(item => item.roles.includes(userRole));
-              if (visibleItems.length === 0) return null;
-
-              const isOpen = expandedGroups.includes(group.title);
-
-              return (
-                <div key={groupIndex} className="mb-1">
+            <>
+              {favoriteItems.length > 0 && (
+                <div className="mb-1">
                   {!isCollapsed ? (
-                    <button onClick={() => toggleGroup(group.title)} className="w-full flex items-center justify-between px-3 py-2 mt-2 rounded-lg hover:bg-slate-800/30 transition-colors group">
-                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider group-hover:text-slate-300 transition-colors">{group.title}</p>
-                      <ChevronDown size={14} className={`text-slate-500 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
-                    </button>
+                    <div className="w-full flex items-center px-3 py-2 mt-2">
+                      <p className="text-[11px] font-bold text-amber-500 uppercase tracking-wider flex items-center gap-1.5">
+                        <Star size={12} className="fill-amber-500 text-amber-500" /> Favoritos
+                      </p>
+                    </div>
                   ) : <div className="h-px bg-slate-800 my-4 mx-2"></div>}
 
-                  <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ease-in-out ${!isCollapsed && !isOpen ? 'max-h-0 opacity-0' : 'max-h-[1000px] opacity-100 mt-1'}`}>
-                    {visibleItems.map((item) => (
-                      <button key={item.id} onClick={() => { setCurrentPage(item.id); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} title={isCollapsed ? item.label : undefined} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg transition-all duration-200 group ${currentPage === item.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}>
+                  <div className="flex flex-col gap-1 mt-1">
+                    {favoriteItems.map((item) => (
+                      <button key={`fav-${item.id}`} onClick={() => { setCurrentPage(item.id); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} title={isCollapsed ? item.label : undefined} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg transition-all duration-200 group ${currentPage === item.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}>
                         <div className={`${currentPage === item.id ? 'text-white' : 'text-slate-400 group-hover:text-blue-400'} transition-colors flex-shrink-0`}>{item.icon}</div>
-                        {!isCollapsed && <span className="font-medium whitespace-nowrap text-sm text-left truncate">{item.label}</span>}
+                        {!isCollapsed && <span className="font-medium whitespace-nowrap text-sm text-left truncate flex-1">{item.label}</span>}
+                        {!isCollapsed && (
+                          <Star
+                            size={14}
+                            onClick={(e) => toggleFavorite(item.id, e)}
+                            className="flex-shrink-0 fill-amber-400 text-amber-400 hover:scale-110 transition-transform"
+                          />
+                        )}
                       </button>
                     ))}
                   </div>
                 </div>
-              );
-            })
+              )}
+
+              {MENU_GROUPS.map((group, groupIndex) => {
+                const visibleItems = group.items.filter(item => item.roles.includes(userRole));
+                if (visibleItems.length === 0) return null;
+
+                const isOpen = expandedGroups.includes(group.title);
+
+                return (
+                  <div key={groupIndex} className="mb-1">
+                    {!isCollapsed ? (
+                      <button onClick={() => toggleGroup(group.title)} className="w-full flex items-center justify-between px-3 py-2 mt-2 rounded-lg hover:bg-slate-800/30 transition-colors group">
+                        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider group-hover:text-slate-300 transition-colors">{group.title}</p>
+                        <ChevronDown size={14} className={`text-slate-500 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                    ) : <div className="h-px bg-slate-800 my-4 mx-2"></div>}
+
+                    <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ease-in-out ${!isCollapsed && !isOpen ? 'max-h-0 opacity-0' : 'max-h-[1000px] opacity-100 mt-1'}`}>
+                      {visibleItems.map((item) => (
+                        <button key={item.id} onClick={() => { setCurrentPage(item.id); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} title={isCollapsed ? item.label : undefined} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg transition-all duration-200 group ${currentPage === item.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}>
+                          <div className={`${currentPage === item.id ? 'text-white' : 'text-slate-400 group-hover:text-blue-400'} transition-colors flex-shrink-0`}>{item.icon}</div>
+                          {!isCollapsed && <span className="font-medium whitespace-nowrap text-sm text-left truncate flex-1">{item.label}</span>}
+                          {!isCollapsed && (
+                            <Star
+                              size={14}
+                              onClick={(e) => toggleFavorite(item.id, e)}
+                              className={`flex-shrink-0 transition-all ${favorites.includes(item.id) ? 'fill-amber-400 text-amber-400' : 'text-slate-600 opacity-0 group-hover:opacity-100 hover:text-amber-400'}`}
+                            />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </>
           )}
         </nav>
 
