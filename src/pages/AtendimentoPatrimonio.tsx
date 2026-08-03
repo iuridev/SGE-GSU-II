@@ -2,10 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
 import { DefesoEleitoralBanner } from '../components/DefesoEleitoralBanner';
+import jsPDF from 'jspdf';
+import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 import {
   Plus, Search, X, Loader2, CalendarDays, Video,
   MapPin, BarChart3, TrendingUp, RefreshCw, ExternalLink,
-  ClipboardList, ArrowRightLeft, Package, Check, Mail, History, Pencil, Ticket, Link2,
+  ClipboardList, ArrowRightLeft, Package, Check, Mail, History, Pencil, Ticket, Link2, FileDown,
 } from 'lucide-react';
 
 // Mesma chave usada por Chamados.tsx para ler a referência pré-preenchida ao
@@ -627,6 +629,40 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     try { return new Date(d).toLocaleString('pt-BR'); } catch { return d; }
   };
 
+  // Comprovante em PDF de um remanejamento já cadastrado, para envio à escola
+  // (mesmo padrão de gerarPedidoPDF em src/pages/Almoxarifado.tsx).
+  const gerarComprovanteRemanejamento = (r: Remanejamento) => {
+    const doc = new jsPDF();
+    const lx = 14;
+
+    doc.setFontSize(15);
+    doc.setFont('helvetica', 'bold');
+    doc.text('COMPROVANTE DE REMANEJAMENTO DE PATRIMÔNIO', 105, 40, { align: 'center' });
+
+    doc.setFontSize(10);
+    const rows: [string, string][] = [
+      ['Escola de Origem:', r.escola_origem_nome],
+      ['Escola de Destino:', r.escola_destino_nome],
+      ['Nº Patrimonial do Item:', r.numero_patrimonial],
+      ['Descrição do Item:', r.descricao || '-'],
+      ['Nº do Documento:', r.numero_documento],
+      ['Tipo de Documento:', r.tipo_documento === 'DOC' ? 'DOC (Comunicado enviado à escola)' : 'GR (Guia de Remanejamento)'],
+      ['Cadastrado no SAM:', r.cadastrado_sam === 'TRUE' ? 'Sim' : 'Não'],
+      ['Registrado por:', r.autor_nome],
+      ['Data do Registro:', formatDateTime(r.data_registro)],
+    ];
+    rows.forEach(([label, value], i) => {
+      const y = 55 + i * 8;
+      doc.setFont('helvetica', 'bold');
+      doc.text(label, lx, y);
+      doc.setFont('helvetica', 'normal');
+      doc.text(value || '-', 70, y, { maxWidth: 125 });
+    });
+
+    addTimbradoAllPages(doc);
+    doc.save(`comprovante_remanejamento_${(r.numero_documento || r.id).replace(/[\\/]/g, '-')}.pdf`);
+  };
+
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
       <DefesoEleitoralBanner />
@@ -1039,6 +1075,13 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                               className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
                             >
                               <History size={16} />
+                            </button>
+                            <button
+                              onClick={() => gerarComprovanteRemanejamento(r)}
+                              title="Gerar comprovante em PDF para enviar à escola"
+                              className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                            >
+                              <FileDown size={16} />
                             </button>
                             {isAdmin && (
                               <button
