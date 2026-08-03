@@ -3,12 +3,12 @@ import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
 import { TimbradoHeader, TimbradoFooter } from '../components/TimbradoPDF';
 import {
-  Plus, Search, Package, Image as ImageIcon, 
-  Trash2, Upload, Loader2, 
-  CheckCircle2, X, Building2, Tag, 
+  Plus, Search, Package, Image as ImageIcon,
+  Trash2, Upload, Loader2,
+  CheckCircle2, X, Building2, Tag,
   ArrowRightLeft, Hash, ListOrdered,
   Hand, Check, Ban, AlertCircle, Info, FileDown,
-  Clock, History as Archive
+  Clock, History as Archive, Link2, FileText
 } from 'lucide-react';
 
 interface InventoryItem {
@@ -19,6 +19,7 @@ interface InventoryItem {
   asset_number: string;
   description: string;
   image_url: string;
+  gr_link: string | null;
   status: string;
   status_notes: string | null;
   interested_school_id: string | null;
@@ -34,6 +35,7 @@ interface InventoryBatch {
   item_name: string;
   description: string;
   image_url: string;
+  gr_link: string | null;
   status: string;
   status_notes: string | null;
   school_id: string;
@@ -71,6 +73,7 @@ export function Remanejamento() {
     item_name: '',
     description: '',
     image_url: '',
+    gr_link: '',
     status: 'DISPONÍVEL'
   });
 
@@ -150,6 +153,7 @@ export function Remanejamento() {
           item_name: item.item_name,
           description: item.description,
           image_url: item.image_url,
+          gr_link: item.gr_link,
           status: item.status,
           status_notes: item.status_notes,
           school_id: item.school_id,
@@ -387,7 +391,7 @@ export function Remanejamento() {
       const { error } = await (supabase as any).from('inventory_items').insert(itemsToInsert);
       if (error) throw error;
       setIsModalOpen(false);
-      setFormData({ item_name: '', description: '', image_url: '', status: 'DISPONÍVEL' });
+      setFormData({ item_name: '', description: '', image_url: '', gr_link: '', status: 'DISPONÍVEL' });
       setQuantity(1); setAssetNumbers(['']);
       fetchData();
     } catch (error: any) {
@@ -553,6 +557,18 @@ export function Remanejamento() {
                         </div>
 
                         <div className="space-y-2">
+                          {batch.gr_link && (
+                            <a
+                              href={batch.gr_link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Visualizar Guia de Remanejamento"
+                              className="w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2 transition-all active:scale-95"
+                            >
+                              <FileText size={14} /> GR
+                            </a>
+                          )}
+
                           {userRole === 'school_manager' && userSchoolId !== batch.school_id && batch.status === 'DISPONÍVEL' && (
                             <button 
                               onClick={() => handleInterest(batch)}
@@ -641,6 +657,11 @@ export function Remanejamento() {
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-2"><Hash size={14} /> Quantidade de Itens Iguais</label>
                     <input type="number" min="1" max="50" required className="w-full p-4 bg-white border-2 border-indigo-200 rounded-2xl font-black text-indigo-600 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all" value={quantity} onChange={e => handleQuantityChange(parseInt(e.target.value))} />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-2"><Link2 size={14} /> Link da Guia de Remanejamento (Google Drive)</label>
+                    <input type="url" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-800 focus:border-indigo-500 outline-none transition-all" placeholder="https://drive.google.com/..." value={formData.gr_link} onChange={e => setFormData({...formData, gr_link: e.target.value})} />
                   </div>
 
                   <div className="space-y-2">
