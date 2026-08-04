@@ -16,7 +16,7 @@ import {
 const CHAMADO_ORIGEM_SESSION_KEY = 'sge_chamado_origem';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell,
+  ResponsiveContainer, Cell, PieChart, Pie, Legend,
 } from 'recharts';
 
 const SHEET_URL = import.meta.env.VITE_VISITAS_SHEET_URL as string;
@@ -555,6 +555,21 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     () => remanejamentos.filter(r => r.pendente_incorporacao === 'TRUE').length,
     [remanejamentos],
   );
+  const chartByMonthRemanejamento = useMemo(() => {
+    const months = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+      const total = remanejamentos.filter(r => r.data_registro?.startsWith(key)).length;
+      months.push({ mes: label, total });
+    }
+    return months;
+  }, [remanejamentos]);
+  const remanejamentoStatusData = useMemo(() => [
+    { name: 'Cadastrado no SAM', value: remanejamentosCadastradosSam, color: '#3b82f6' },
+    { name: 'Pendente no SAM', value: remanejamentosPendentesSam, color: '#ef4444' },
+  ], [remanejamentosCadastradosSam, remanejamentosPendentesSam]);
 
   const filteredAtendimentos = useMemo(() => {
     const q = searchTerm.toLowerCase();
@@ -840,6 +855,61 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                   <Bar dataKey="total" fill="#0d9488" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+              <h2 className="text-sm font-semibold text-slate-700 mb-4">Remanejamentos nos Últimos 6 Meses</h2>
+              {loading || remanejamentos.length === 0 ? (
+                <div className="flex items-center justify-center h-[220px] text-slate-400 text-sm">
+                  {loading ? <Loader2 size={24} className="animate-spin" /> : 'Nenhum dado disponível'}
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={chartByMonthRemanejamento} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <Tooltip formatter={(v) => [v, 'Remanejamentos']} />
+                    <Bar dataKey="total" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+              <h2 className="text-sm font-semibold text-slate-700 mb-4">Status dos Remanejamentos no SAM</h2>
+              {loading || remanejamentos.length === 0 ? (
+                <div className="flex items-center justify-center h-[220px] text-slate-400 text-sm">
+                  {loading ? <Loader2 size={24} className="animate-spin" /> : 'Nenhum dado disponível'}
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart>
+                    <Pie
+                      data={remanejamentoStatusData}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={50}
+                      outerRadius={80}
+                      paddingAngle={3}
+                      stroke="#ffffff"
+                      strokeWidth={2}
+                    >
+                      {remanejamentoStatusData.map((entry) => (
+                        <Cell key={entry.name} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(v, n) => [v, n]} />
+                    <Legend
+                      verticalAlign="bottom"
+                      height={36}
+                      iconType="circle"
+                      formatter={(value: string) => <span className="text-[11px] font-medium text-slate-600">{value}</span>}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </div>
 
