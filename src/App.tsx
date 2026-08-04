@@ -192,13 +192,33 @@ const MENU_GROUPS: MenuGroup[] = [
   },
 ];
 
-// Métricas de Acesso (src/pages/MetricasAcesso.tsx): grava um evento de login
-// (disparado só no evento 'SIGNED_IN' do Supabase, nunca em 'INITIAL_SESSION'
-// — isso evita contar cada F5/reabertura do app como um novo login) ou de
-// navegação de página. Falha de rede/RLS aqui nunca deve travar o app, só loga.
-async function logAccess(userId: string, eventType: 'login' | 'page_view', page?: string) {
+// Métricas de Acesso (src/pages/MetricasAcesso.tsx): id de sessão de acesso,
+// gerado uma vez por aba/janela (sessionStorage — some ao fechar a aba, ao
+// contrário do localStorage) e gravado em todo evento dessa sessão para dar
+// para agrupá-los depois e calcular tempo de uso. Recriado sempre que não
+// existe (login novo, ou já não existia mais por causa de um logout).
+const ACCESS_SESSION_KEY = 'sge_access_session_id';
+function getAccessSessionId(): string {
+  let id = sessionStorage.getItem(ACCESS_SESSION_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    sessionStorage.setItem(ACCESS_SESSION_KEY, id);
+  }
+  return id;
+}
+function clearAccessSessionId() {
+  sessionStorage.removeItem(ACCESS_SESSION_KEY);
+}
+
+// Grava um evento de login (disparado só no evento 'SIGNED_IN' do Supabase,
+// nunca em 'INITIAL_SESSION' — isso evita contar cada F5/reabertura do app
+// como um novo login), navegação de página ou logout. Falha de rede/RLS aqui
+// nunca deve travar o app, só loga.
+async function logAccess(userId: string, eventType: 'login' | 'page_view' | 'logout', page?: string) {
   try {
-    await (supabase as any).from('access_logs').insert([{ user_id: userId, event_type: eventType, page: page || null }]);
+    await (supabase as any).from('access_logs').insert([{
+      user_id: userId, event_type: eventType, page: page || null, session_id: getAccessSessionId(),
+    }]);
   } catch (err) {
     console.error('Erro ao registrar métrica de acesso:', err);
   }
@@ -223,6 +243,10 @@ export default function App() {
   // Refs para o Capacitor acessar o estado atual sem precisar recriar o listener
   const currentPageRef = useRef(currentPage);
   const showDropdownRef = useRef(showDropdown);
+  // Guarda o id do usuário logado para poder gravar o evento de logout: quando
+  // a sessão vira null (clique em "Sair" ou expiração), session.user.id já não
+  // existe mais.
+  const lastUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     currentPageRef.current = currentPage;
@@ -238,6 +262,22 @@ export default function App() {
     logAccess(session.user.id, 'page_view', currentPage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, session?.user?.id]);
+
+  // "Ainda aqui": sem isso, o tempo de sessão calculado em Métricas de Acesso
+  // ficaria zerado sempre que o usuário ficasse parado numa única página em
+  // vez de navegar — o cronômetro só avança com eventos registrados. Ignora
+  // enquanto a aba está em segundo plano para não contar tempo com o app
+  // minimizado como "uso".
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    const userId = session.user.id;
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        logAccess(userId, 'page_view', currentPageRef.current);
+      }
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [session?.user?.id]);
 
   // ==========================================
   // CAPACITOR: CONTROLE DO BOTÃO VOLTAR (ANDROID)
@@ -271,9 +311,17 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
       if (session) {
+        lastUserIdRef.current = session.user.id;
         fetchUserRole(session.user.id);
         if (event === 'SIGNED_IN') logAccess(session.user.id, 'login');
       } else {
+        // Cobre tanto o clique em "Sair do Sistema" quanto uma sessão que
+        // expirou sozinha — os dois casos chegam aqui com session === null.
+        if (lastUserIdRef.current) {
+          logAccess(lastUserIdRef.current, 'logout');
+          lastUserIdRef.current = null;
+        }
+        clearAccessSessionId();
         setUserRole('');
         setLoading(false);
       }

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { pageLabel } from '../lib/pageLabels';
 import {
-  BarChart3, Loader2, LogIn, Users, Clock, Eye, RefreshCw, Info, History,
+  BarChart3, Loader2, LogIn, Users, Clock, Eye, RefreshCw, Info, History, Timer,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -11,9 +11,10 @@ import {
 
 interface AccessLog {
   user_id: string;
-  event_type: 'login' | 'page_view';
+  event_type: 'login' | 'page_view' | 'logout';
   page: string | null;
   created_at: string;
+  session_id: string | null;
 }
 
 interface ProfileLite {
@@ -63,7 +64,7 @@ export default function MetricasAcesso() {
     try {
       let logsQuery = (supabase as any)
         .from('access_logs')
-        .select('user_id, event_type, page, created_at')
+        .select('user_id, event_type, page, created_at, session_id')
         .order('created_at', { ascending: false });
       if (periodo !== 'all') {
         const since = new Date();
@@ -139,6 +140,61 @@ export default function MetricasAcesso() {
 
   const maxPaginaTotal = topPaginas[0]?.total || 1;
 
+  // Tempo de uso não vem de um cronômetro real: cada sessão (session_id, uma
+  // aba/janela) dura do primeiro ao último evento registrado dela — login,
+  // navegação de página ou o "ainda aqui" que o app manda a cada ~5 min. É uma
+  // estimativa por isso, com granularidade de ~5 min.
+  const sessoes = useMemo(() => {
+    const bySession = new Map<string, { userId: string; start: string; end: string }>();
+    logs.forEach(l => {
+      if (!l.session_id) return;
+      const existing = bySession.get(l.session_id);
+      if (!existing) {
+        bySession.set(l.session_id, { userId: l.user_id, start: l.created_at, end: l.created_at });
+      } else {
+        if (l.created_at < existing.start) existing.start = l.created_at;
+        if (l.created_at > existing.end) existing.end = l.created_at;
+      }
+    });
+    return Array.from(bySession.entries()).map(([sessionId, v]) => ({
+      sessionId,
+      userId: v.userId,
+      duracaoMin: Math.max(0, (new Date(v.end).getTime() - new Date(v.start).getTime()) / 60000),
+    }));
+  }, [logs]);
+
+  const tempoMedioSessaoMin = useMemo(() => {
+    if (sessoes.length === 0) return null;
+    return sessoes.reduce((s, x) => s + x.duracaoMin, 0) / sessoes.length;
+  }, [sessoes]);
+
+  const formatDuracao = (min: number | null) => {
+    if (min === null) return '-';
+    if (min < 1) return '< 1 min';
+    if (min < 60) return `${Math.round(min)} min`;
+    const h = Math.floor(min / 60);
+    const m = Math.round(min % 60);
+    return m > 0 ? `${h}h ${m}min` : `${h}h`;
+  };
+
+  const topTempoUsuarios = useMemo(() => {
+    const totals = new Map<string, number>();
+    sessoes.forEach(s => {
+      totals.set(s.userId, (totals.get(s.userId) || 0) + s.duracaoMin);
+    });
+    return Array.from(totals.entries())
+      .map(([userId, totalMin]) => ({
+        userId,
+        totalMin,
+        nome: profileMap.get(userId)?.full_name || 'Usuário removido',
+        role: profileMap.get(userId)?.role || '',
+      }))
+      .sort((a, b) => b.totalMin - a.totalMin)
+      .slice(0, 10);
+  }, [sessoes, profileMap]);
+
+  const maxTempoUsuarioTotal = topTempoUsuarios[0]?.totalMin || 1;
+
   const ultimoAcessoLista = useMemo(() => {
     return lastAccess
       .map(a => ({
@@ -190,15 +246,16 @@ export default function MetricasAcesso() {
 
       <div className="flex items-start gap-2 bg-blue-50 border border-blue-100 text-blue-700 text-xs rounded-lg px-3 py-2.5">
         <Info size={14} className="shrink-0 mt-0.5" />
-        Os dados abaixo contam apenas o acesso registrado a partir da ativação deste rastreamento — não há histórico anterior.
+        Os dados abaixo contam apenas o acesso registrado a partir da ativação deste rastreamento — não há histórico anterior. Tempo de sessão é uma estimativa (checagem a cada ~5 min), não um cronômetro exato.
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {[
           { label: 'Total de Logins', value: totalLogins, icon: <LogIn size={20} className="text-teal-600" />, bg: 'bg-teal-50' },
           { label: 'Usuários Únicos', value: uniqueUsers, icon: <Users size={20} className="text-blue-600" />, bg: 'bg-blue-50' },
           { label: 'Navegações entre Páginas', value: totalPageViews, icon: <Eye size={20} className="text-violet-600" />, bg: 'bg-violet-50' },
           { label: 'Horário de Pico', value: picoHorario ? picoHorario.hora : '-', icon: <Clock size={20} className="text-amber-600" />, bg: 'bg-amber-50' },
+          { label: 'Tempo Médio de Sessão', value: formatDuracao(tempoMedioSessaoMin), icon: <Timer size={20} className="text-pink-600" />, bg: 'bg-pink-50' },
         ].map(card => (
           <div key={card.label} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
             <div className="flex items-center gap-3">
@@ -231,7 +288,7 @@ export default function MetricasAcesso() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
           <h2 className="text-sm font-semibold text-slate-700 mb-4">Usuários que Mais Acessam</h2>
           {loading ? (
@@ -251,6 +308,35 @@ export default function MetricasAcesso() {
                     <div className="flex items-center gap-2 mt-1">
                       <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                         <div className="h-full bg-teal-500 rounded-full" style={{ width: `${(u.total / maxUsuarioTotal) * 100}%` }} />
+                      </div>
+                      {u.role && <span className="text-[10px] text-slate-400 shrink-0">{ROLE_LABELS[u.role] || u.role}</span>}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+          <h2 className="text-sm font-semibold text-slate-700 mb-4">Usuários com Mais Tempo de Uso</h2>
+          {loading ? (
+            <div className="flex items-center justify-center h-[200px] text-slate-400"><Loader2 size={24} className="animate-spin" /></div>
+          ) : topTempoUsuarios.length === 0 ? (
+            <div className="flex items-center justify-center h-[200px] text-slate-400 text-sm">Nenhuma sessão registrada no período</div>
+          ) : (
+            <ul className="space-y-3">
+              {topTempoUsuarios.map((u, i) => (
+                <li key={u.userId} className="flex items-center gap-3">
+                  <span className="w-5 text-xs font-bold text-slate-400 text-right shrink-0">{i + 1}º</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-slate-800 truncate">{u.nome}</p>
+                      <span className="text-xs font-semibold text-slate-500 shrink-0">{formatDuracao(u.totalMin)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-pink-500 rounded-full" style={{ width: `${(u.totalMin / maxTempoUsuarioTotal) * 100}%` }} />
                       </div>
                       {u.role && <span className="text-[10px] text-slate-400 shrink-0">{ROLE_LABELS[u.role] || u.role}</span>}
                     </div>
