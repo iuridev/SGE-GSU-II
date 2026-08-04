@@ -8,8 +8,13 @@ import {
   CheckCircle2, X, Building2, Tag,
   ArrowRightLeft, Hash, ListOrdered,
   Hand, Check, Ban, AlertCircle, Info, FileDown,
-  Clock, History as Archive, Link2, FileText
+  Clock, History as Archive, Link2, FileText,
+  BarChart3, TrendingUp, PieChart as PieChartIcon
 } from 'lucide-react';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell, Legend
+} from 'recharts';
 
 interface InventoryItem {
   id: string;
@@ -184,6 +189,67 @@ export function Remanejamento() {
         b.assets.some(a => a.asset_number.includes(searchTerm))
       );
   }, [items, searchTerm, activeTab]);
+
+  const metrics = useMemo(() => {
+    const batchesMap: Record<string, { status: string; school_name: string; created_at: string }> = {};
+    items.forEach(item => {
+      const bId = item.batch_id || item.id;
+      if (!batchesMap[bId]) {
+        batchesMap[bId] = {
+          status: item.status,
+          school_name: item.schools?.name || 'Unidade Desconhecida',
+          created_at: item.created_at
+        };
+      }
+    });
+    const batches = Object.values(batchesMap);
+
+    const statusCounts = { DISPONÍVEL: 0, INTERESSE_SOLICITADO: 0, REMANEJADO: 0 };
+    batches.forEach(b => {
+      if (b.status in statusCounts) statusCounts[b.status as keyof typeof statusCounts] += 1;
+    });
+
+    const statusData = [
+      { name: 'Disponível', value: statusCounts.DISPONÍVEL, color: '#10b981' },
+      { name: 'Interesse Solicitado', value: statusCounts.INTERESSE_SOLICITADO, color: '#f59e0b' },
+      { name: 'Remanejado', value: statusCounts.REMANEJADO, color: '#2563eb' }
+    ];
+
+    const now = new Date();
+    const monthBuckets: { key: string; label: string; total: number }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      monthBuckets.push({
+        key: `${d.getFullYear()}-${d.getMonth()}`,
+        label: d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''),
+        total: 0
+      });
+    }
+    batches.forEach(b => {
+      const d = new Date(b.created_at);
+      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      const bucket = monthBuckets.find(m => m.key === key);
+      if (bucket) bucket.total += 1;
+    });
+
+    const schoolCounts = new Map<string, number>();
+    batches.forEach(b => {
+      schoolCounts.set(b.school_name, (schoolCounts.get(b.school_name) || 0) + 1);
+    });
+    const topEscolas = Array.from(schoolCounts.entries())
+      .map(([school, total]) => ({ school, total }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 6);
+
+    return {
+      totalLotes: batches.length,
+      totalItens: items.length,
+      statusCounts,
+      statusData,
+      monthBuckets,
+      topEscolas
+    };
+  }, [items]);
 
   const formatApprovalId = (num: number | null, year: number | null) => {
     if (!num || !year) return "N/A";
@@ -445,6 +511,126 @@ export function Remanejamento() {
             <Plus size={20} /> DISPONIBILIZAR LOTES
           </button>
         )}
+      </div>
+
+      {/* Métricas e Gráficos */}
+      <div className="space-y-6">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-indigo-50 rounded-2xl text-indigo-600"><BarChart3 size={20} /></div>
+          <div>
+            <h2 className="text-sm font-black text-slate-700 uppercase tracking-wider">Métricas de Remanejamento</h2>
+            <p className="text-xs text-slate-400 font-medium">Panorama dos cadastros e status dos lotes</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { label: 'Total de Lotes', value: metrics.totalLotes, icon: <Package size={18} className="text-indigo-600" />, bg: 'bg-indigo-50' },
+            { label: 'Itens Cadastrados', value: metrics.totalItens, icon: <Tag size={18} className="text-slate-600" />, bg: 'bg-slate-100' },
+            { label: 'Disponíveis', value: metrics.statusCounts.DISPONÍVEL, icon: <Package size={18} className="text-emerald-600" />, bg: 'bg-emerald-50' },
+            { label: 'Remanejados', value: metrics.statusCounts.REMANEJADO, icon: <ArrowRightLeft size={18} className="text-blue-600" />, bg: 'bg-blue-50' }
+          ].map(card => (
+            <div key={card.label} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl ${card.bg} flex items-center justify-center shrink-0`}>{card.icon}</div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-black uppercase tracking-wide">{card.label}</p>
+                  <p className="text-xl font-black text-slate-800">{card.value}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <TrendingUp size={16} className="text-indigo-500" />
+              <h3 className="text-xs font-black text-slate-600 uppercase tracking-wider">Cadastros de Lotes por Mês</h3>
+            </div>
+            {loading ? (
+              <div className="flex items-center justify-center h-[220px] text-slate-300"><Loader2 className="animate-spin" size={28} /></div>
+            ) : metrics.totalLotes === 0 ? (
+              <div className="flex items-center justify-center h-[220px] text-slate-400 text-sm font-medium">Nenhum lote cadastrado ainda</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={metrics.monthBuckets} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fontWeight: 700 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11 }} allowDecimals={false} axisLine={false} tickLine={false} />
+                  <Tooltip formatter={(v: number) => [v, 'Lotes']} cursor={{ fill: '#eef2ff' }} />
+                  <Bar dataKey="total" fill="#4f46e5" radius={[6, 6, 0, 0]} maxBarSize={36} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <PieChartIcon size={16} className="text-indigo-500" />
+              <h3 className="text-xs font-black text-slate-600 uppercase tracking-wider">Status dos Lotes</h3>
+            </div>
+            {loading ? (
+              <div className="flex items-center justify-center h-[220px] text-slate-300"><Loader2 className="animate-spin" size={28} /></div>
+            ) : metrics.totalLotes === 0 ? (
+              <div className="flex items-center justify-center h-[220px] text-slate-400 text-sm font-medium">Sem dados</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie
+                    data={metrics.statusData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={50}
+                    outerRadius={80}
+                    paddingAngle={3}
+                    stroke="#ffffff"
+                    strokeWidth={2}
+                  >
+                    {metrics.statusData.map((entry) => (
+                      <Cell key={entry.name} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v: number, n: string) => [v, n]} />
+                  <Legend
+                    verticalAlign="bottom"
+                    height={36}
+                    iconType="circle"
+                    formatter={(value: string) => <span className="text-[10px] font-bold text-slate-500 uppercase">{value}</span>}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Building2 size={16} className="text-indigo-500" />
+            <h3 className="text-xs font-black text-slate-600 uppercase tracking-wider">Unidades que Mais Remanejam</h3>
+          </div>
+          {loading ? (
+            <div className="flex items-center justify-center h-[160px] text-slate-300"><Loader2 className="animate-spin" size={28} /></div>
+          ) : metrics.topEscolas.length === 0 ? (
+            <div className="flex items-center justify-center h-[160px] text-slate-400 text-sm font-medium">Sem dados</div>
+          ) : (
+            <ul className="space-y-3">
+              {metrics.topEscolas.map((e) => (
+                <li key={e.school} className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <p className="text-xs font-bold text-slate-700 truncate uppercase">{e.school}</p>
+                      <span className="text-[10px] font-black text-indigo-500 shrink-0">{e.total} lote{e.total !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${(e.total / (metrics.topEscolas[0]?.total || 1)) * 100}%` }} />
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
 
       {/* Navegação por Abas */}
