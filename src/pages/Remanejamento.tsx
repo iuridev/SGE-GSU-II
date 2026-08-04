@@ -558,7 +558,7 @@ export function Remanejamento() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                   <XAxis dataKey="label" tick={{ fontSize: 11, fontWeight: 700 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 11 }} allowDecimals={false} axisLine={false} tickLine={false} />
-                  <Tooltip formatter={(v: number) => [v, 'Lotes']} cursor={{ fill: '#eef2ff' }} />
+                  <Tooltip formatter={(v) => [v, 'Lotes']} cursor={{ fill: '#eef2ff' }} />
                   <Bar dataKey="total" fill="#4f46e5" radius={[6, 6, 0, 0]} maxBarSize={36} />
                 </BarChart>
               </ResponsiveContainer>
@@ -591,7 +591,7 @@ export function Remanejamento() {
                       <Cell key={entry.name} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(v: number, n: string) => [v, n]} />
+                  <Tooltip formatter={(v, n) => [v, n]} />
                   <Legend
                     verticalAlign="bottom"
                     height={36}
