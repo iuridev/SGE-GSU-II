@@ -28,6 +28,7 @@ const OBSERVACOES_COLUMNS = [
 const REMANEJAMENTOS_COLUMNS = [
   'id', 'escola_origem_id', 'escola_origem_nome', 'escola_destino_id', 'escola_destino_nome',
   'numero_patrimonial', 'descricao', 'numero_documento', 'gr_link', 'tipo_documento', 'cadastrado_sam',
+  'pendente_incorporacao', 'nota_fiscal_link',
   'autor_id', 'autor_nome', 'data_registro',
 ]
 
@@ -249,8 +250,11 @@ Deno.serve(async (req) => {
       case 'registrar_remanejamento': {
         exigirRegionalAdmin(p)
         const sheet = await getOrCreateSheet(doc, REMANEJAMENTOS_SHEET, REMANEJAMENTOS_COLUMNS)
-        if (!body.escola_origem_id || !body.escola_destino_id || !body.numero_patrimonial || !body.numero_documento) {
-          throw new Error('Escola origem, escola destino, nº patrimonial e nº do documento são obrigatórios.')
+        if (!body.escola_origem_id || !body.escola_destino_id || !body.numero_documento) {
+          throw new Error('Escola origem, escola destino e nº do documento são obrigatórios.')
+        }
+        if (!body.pendente_incorporacao && !body.numero_patrimonial) {
+          throw new Error('Nº patrimonial é obrigatório, a menos que o item esteja marcado como pendente de incorporação.')
         }
         if (String(body.escola_origem_id) === String(body.escola_destino_id)) {
           throw new Error('A escola de destino deve ser diferente da escola de origem.')
@@ -261,12 +265,14 @@ Deno.serve(async (req) => {
           escola_origem_nome: String(body.escola_origem_nome || ''),
           escola_destino_id: String(body.escola_destino_id),
           escola_destino_nome: String(body.escola_destino_nome || ''),
-          numero_patrimonial: String(body.numero_patrimonial),
+          numero_patrimonial: String(body.numero_patrimonial || ''),
           descricao: String(body.descricao || ''),
           numero_documento: String(body.numero_documento),
           gr_link: String(body.gr_link || ''),
           tipo_documento: body.tipo_documento === 'DOC' ? 'DOC' : 'GR',
           cadastrado_sam: body.cadastrado_sam ? 'TRUE' : 'FALSE',
+          pendente_incorporacao: body.pendente_incorporacao ? 'TRUE' : 'FALSE',
+          nota_fiscal_link: String(body.nota_fiscal_link || ''),
           autor_id: user.id,
           autor_nome: autorNome,
           data_registro: new Date().toISOString(),
@@ -278,8 +284,11 @@ Deno.serve(async (req) => {
         exigirRegionalAdmin(p)
         const sheet = await getOrCreateSheet(doc, REMANEJAMENTOS_SHEET, REMANEJAMENTOS_COLUMNS)
         if (!body.id) throw new Error('Remanejamento não informado.')
-        if (!body.escola_origem_id || !body.escola_destino_id || !body.numero_patrimonial || !body.numero_documento) {
-          throw new Error('Escola origem, escola destino, nº patrimonial e nº do documento são obrigatórios.')
+        if (!body.escola_origem_id || !body.escola_destino_id || !body.numero_documento) {
+          throw new Error('Escola origem, escola destino e nº do documento são obrigatórios.')
+        }
+        if (!body.pendente_incorporacao && !body.numero_patrimonial) {
+          throw new Error('Nº patrimonial é obrigatório, a menos que o item esteja marcado como pendente de incorporação.')
         }
         if (String(body.escola_origem_id) === String(body.escola_destino_id)) {
           throw new Error('A escola de destino deve ser diferente da escola de origem.')
@@ -291,12 +300,14 @@ Deno.serve(async (req) => {
         row.set('escola_origem_nome', String(body.escola_origem_nome || ''))
         row.set('escola_destino_id', String(body.escola_destino_id))
         row.set('escola_destino_nome', String(body.escola_destino_nome || ''))
-        row.set('numero_patrimonial', String(body.numero_patrimonial))
+        row.set('numero_patrimonial', String(body.numero_patrimonial || ''))
         row.set('descricao', String(body.descricao || ''))
         row.set('numero_documento', String(body.numero_documento))
         row.set('gr_link', String(body.gr_link || ''))
         row.set('tipo_documento', body.tipo_documento === 'DOC' ? 'DOC' : 'GR')
         row.set('cadastrado_sam', body.cadastrado_sam ? 'TRUE' : 'FALSE')
+        row.set('pendente_incorporacao', body.pendente_incorporacao ? 'TRUE' : 'FALSE')
+        row.set('nota_fiscal_link', String(body.nota_fiscal_link || ''))
         await row.save()
         return ok(corsHeaders, { success: true })
       }

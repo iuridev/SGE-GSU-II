@@ -8,6 +8,7 @@ import {
   Plus, Search, X, Loader2, CalendarDays, Video,
   MapPin, BarChart3, TrendingUp, RefreshCw, ExternalLink,
   ClipboardList, ArrowRightLeft, Package, Check, Mail, History, Pencil, Ticket, Link2, FileDown,
+  AlertTriangle,
 } from 'lucide-react';
 
 // Mesma chave usada por Chamados.tsx para ler a referência pré-preenchida ao
@@ -92,6 +93,8 @@ interface Remanejamento {
   gr_link: string;
   tipo_documento: string;
   cadastrado_sam: string;
+  pendente_incorporacao: string;
+  nota_fiscal_link: string;
   autor_nome: string;
   data_registro: string;
 }
@@ -119,6 +122,8 @@ const REMANEJAMENTO_INITIAL = {
   numero_patrimonial: '', descricao: '', numero_documento: '', gr_link: '',
   tipo_documento: 'GR' as 'GR' | 'DOC',
   cadastrado_sam: false,
+  pendente_incorporacao: false,
+  nota_fiscal_link: '',
 };
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
@@ -150,7 +155,8 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
   const [showRemanejamentoForm, setShowRemanejamentoForm] = useState(false);
   const [remanejamentoForm, setRemanejamentoForm] = useState(REMANEJAMENTO_INITIAL);
   const [editingRemanejamentoId, setEditingRemanejamentoId] = useState<string | null>(null);
-  const [grModal, setGrModal] = useState<{ url: string; title: string } | null>(null);
+  const [docModal, setDocModal] = useState<{ url: string; title: string } | null>(null);
+  const [filterPendenteIncorporacao, setFilterPendenteIncorporacao] = useState(false);
 
   const [processos, setProcessos] = useState<ProcessoOption[]>([]);
   const [loadingProcessos, setLoadingProcessos] = useState(false);
@@ -454,8 +460,12 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
   const handleSubmitRemanejamento = async (e: React.FormEvent) => {
     e.preventDefault();
     const f = remanejamentoForm;
-    if (!f.escola_origem_id || !f.escola_destino_id || !f.numero_patrimonial || !f.numero_documento) {
-      alert('Escola origem, escola destino, nº patrimonial e nº do documento são obrigatórios.');
+    if (!f.escola_origem_id || !f.escola_destino_id || !f.numero_documento) {
+      alert('Escola origem, escola destino e nº do documento são obrigatórios.');
+      return;
+    }
+    if (!f.pendente_incorporacao && !f.numero_patrimonial) {
+      alert('Nº patrimonial é obrigatório, a menos que o item ainda não tenha sido patrimoniado.');
       return;
     }
     if (f.escola_origem_id === f.escola_destino_id) {
@@ -493,6 +503,8 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       numero_documento: r.numero_documento, gr_link: r.gr_link || '',
       tipo_documento: r.tipo_documento === 'DOC' ? 'DOC' : 'GR',
       cadastrado_sam: r.cadastrado_sam === 'TRUE',
+      pendente_incorporacao: r.pendente_incorporacao === 'TRUE',
+      nota_fiscal_link: r.nota_fiscal_link || '',
     });
     setShowRemanejamentoForm(true);
   };
@@ -540,6 +552,10 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     [remanejamentos],
   );
   const remanejamentosPendentesSam = remanejamentos.length - remanejamentosCadastradosSam;
+  const remanejamentosPendentesIncorporacao = useMemo(
+    () => remanejamentos.filter(r => r.pendente_incorporacao === 'TRUE').length,
+    [remanejamentos],
+  );
 
   const filteredAtendimentos = useMemo(() => {
     const q = searchTerm.toLowerCase();
@@ -564,13 +580,16 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
 
   const filteredRemanejamentos = useMemo(() => {
     const q = searchTerm.toLowerCase();
-    if (!q) return remanejamentos;
-    return remanejamentos.filter(r =>
-      r.escola_origem_nome?.toLowerCase().includes(q) ||
-      r.escola_destino_nome?.toLowerCase().includes(q) ||
-      r.numero_patrimonial?.toLowerCase().includes(q) ||
-      r.numero_documento?.toLowerCase().includes(q));
-  }, [remanejamentos, searchTerm]);
+    return remanejamentos.filter(r => {
+      const matchPendente = !filterPendenteIncorporacao || r.pendente_incorporacao === 'TRUE';
+      const matchSearch = !q ||
+        r.escola_origem_nome?.toLowerCase().includes(q) ||
+        r.escola_destino_nome?.toLowerCase().includes(q) ||
+        r.numero_patrimonial?.toLowerCase().includes(q) ||
+        r.numero_documento?.toLowerCase().includes(q);
+      return matchPendente && matchSearch;
+    });
+  }, [remanejamentos, searchTerm, filterPendenteIncorporacao]);
 
   const filteredProcessos = useMemo(() => {
     const q = pickerSearch.toLowerCase();
@@ -643,7 +662,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     const rows: [string, string][] = [
       ['Escola de Origem:', r.escola_origem_nome],
       ['Escola de Destino:', r.escola_destino_nome],
-      ['Nº Patrimonial do Item:', r.numero_patrimonial],
+      ['Nº Patrimonial do Item:', r.pendente_incorporacao === 'TRUE' ? 'Pendente (item ainda não patrimoniado)' : r.numero_patrimonial],
       ['Descrição do Item:', r.descricao || '-'],
       ['Nº do Documento:', r.numero_documento],
       ['Tipo de Documento:', r.tipo_documento === 'DOC' ? 'DOC (Comunicado enviado à escola)' : 'GR (Guia de Remanejamento)'],
@@ -660,14 +679,26 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     });
 
     const semGr = r.tipo_documento === 'DOC' || !r.gr_link;
+    let avisoY = 60 + rows.length * 8 + 10;
     if (semGr) {
-      const avisoY = 60 + rows.length * 8 + 10;
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
       doc.setTextColor(180, 40, 40);
+      const linhas = doc.splitTextToSize(
+        'ATENÇÃO: Unidade escolar está pendente o envio da Guia de Remanejamento (GR) com o número de chapa patrimonial de cada item remanejado.',
+        182,
+      );
+      doc.text(linhas, lx, avisoY);
+      doc.setTextColor(0, 0, 0);
+      avisoY += linhas.length * 5 + 6;
+    }
+    if (r.pendente_incorporacao === 'TRUE') {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(180, 120, 0);
       doc.text(
         doc.splitTextToSize(
-          'ATENÇÃO: Unidade escolar está pendente o envio da Guia de Remanejamento (GR) com o número de chapa patrimonial de cada item remanejado.',
+          'ATENÇÃO: Item ainda não foi patrimoniado. Está pendente de incorporação junto ao órgão central (nota fiscal em anexo, quando disponível).',
           182,
         ),
         lx, avisoY,
@@ -766,12 +797,13 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
             <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
               <ArrowRightLeft size={13} /> Remanejamentos
             </h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               {[
                 { label: 'Total de Remanejamentos', value: remanejamentos.length, icon: <ArrowRightLeft size={20} className="text-teal-600" />, bg: 'bg-teal-50' },
                 { label: 'Remanejamentos no Mês', value: remanejamentosThisMonth.length, icon: <CalendarDays size={20} className="text-emerald-600" />, bg: 'bg-emerald-50' },
                 { label: 'Cadastrados no SAM', value: remanejamentosCadastradosSam, icon: <Check size={20} className="text-blue-600" />, bg: 'bg-blue-50' },
                 { label: 'Pendentes no SAM', value: remanejamentosPendentesSam, icon: <X size={20} className="text-red-600" />, bg: 'bg-red-50' },
+                { label: 'Pendentes de Incorporação', value: remanejamentosPendentesIncorporacao, icon: <AlertTriangle size={20} className="text-amber-600" />, bg: 'bg-amber-50' },
               ].map(card => (
                 <div key={card.label} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
                   <div className="flex items-center gap-3">
@@ -1022,6 +1054,18 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                   className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
+              <button
+                type="button"
+                onClick={() => setFilterPendenteIncorporacao(v => !v)}
+                title="Mostrar apenas itens ainda não patrimoniados, aguardando incorporação pelo órgão central"
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border transition-colors whitespace-nowrap ${
+                  filterPendenteIncorporacao
+                    ? 'bg-amber-600 border-amber-600 text-white'
+                    : 'bg-white border-slate-200 text-slate-600 hover:border-amber-300'
+                }`}
+              >
+                <AlertTriangle size={14} /> Pendentes de Incorporação ({remanejamentosPendentesIncorporacao})
+              </button>
               <span className="text-xs text-slate-400">{filteredRemanejamentos.length} registro(s)</span>
               {isAdmin && (
                 <button
@@ -1044,7 +1088,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50">
-                      {['Data', 'Escola Origem', 'Escola Destino', 'Nº Patrimonial', 'Descrição', 'Nº Documento', 'Cadastrado no SAM?', 'Autor'].map(h => (
+                      {['Data', 'Escola Origem', 'Escola Destino', 'Nº Patrimonial', 'Descrição', 'Nº Documento', 'Cadastrado no SAM?', 'Incorporação', 'Autor'].map(h => (
                         <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                       <th className="sticky right-0 z-10 bg-slate-50 text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)]" />
@@ -1056,7 +1100,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                         <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{formatDateTime(r.data_registro)}</td>
                         <td className="px-4 py-3 font-medium text-slate-800">{r.escola_origem_nome}</td>
                         <td className="px-4 py-3 font-medium text-slate-800">{r.escola_destino_nome}</td>
-                        <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{r.numero_patrimonial}</td>
+                        <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{r.numero_patrimonial || '-'}</td>
                         <td className="px-4 py-3 text-slate-500 max-w-xs truncate">{r.descricao || '-'}</td>
                         <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{r.numero_documento}</td>
                         <td className="px-4 py-3 whitespace-nowrap">
@@ -1070,12 +1114,21 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                             </span>
                           )}
                         </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {r.pendente_incorporacao === 'TRUE' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700">
+                              <AlertTriangle size={12} /> Pendente
+                            </span>
+                          ) : (
+                            <span className="text-slate-300 text-xs">-</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{r.autor_nome}</td>
                         <td className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 px-4 py-3 whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)] transition-colors">
                           <div className="flex items-center gap-1">
                             {r.gr_link && (
                               <button
-                                onClick={() => setGrModal({
+                                onClick={() => setDocModal({
                                   url: r.gr_link,
                                   title: `${r.tipo_documento === 'DOC' ? 'DOC' : 'GR'} — ${r.escola_origem_nome} → ${r.escola_destino_nome}`,
                                 })}
@@ -1083,6 +1136,18 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                                 className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 hover:border-teal-300 transition-colors whitespace-nowrap"
                               >
                                 <ExternalLink size={12} /> {r.tipo_documento === 'DOC' ? 'DOC' : 'GR'}
+                              </button>
+                            )}
+                            {r.nota_fiscal_link && (
+                              <button
+                                onClick={() => setDocModal({
+                                  url: r.nota_fiscal_link,
+                                  title: `Nota Fiscal — ${r.escola_origem_nome} → ${r.escola_destino_nome}`,
+                                })}
+                                title="Visualizar Nota Fiscal do item"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 hover:border-amber-300 transition-colors whitespace-nowrap"
+                              >
+                                <ExternalLink size={12} /> NF
                               </button>
                             )}
                             <button
@@ -1261,11 +1326,34 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Nº Patrimonial do Item <span className="text-red-500">*</span></label>
-                <input type="text" required value={remanejamentoForm.numero_patrimonial}
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  Nº Patrimonial do Item {!remanejamentoForm.pendente_incorporacao && <span className="text-red-500">*</span>}
+                </label>
+                <input type="text" required={!remanejamentoForm.pendente_incorporacao} value={remanejamentoForm.numero_patrimonial}
                   onChange={e => setRemanejamentoForm(prev => ({ ...prev, numero_patrimonial: e.target.value }))}
+                  placeholder={remanejamentoForm.pendente_incorporacao ? 'Ainda sem número — pendente de incorporação' : ''}
                   className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
               </div>
+              <label className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 cursor-pointer select-none">
+                <input type="checkbox" checked={remanejamentoForm.pendente_incorporacao}
+                  onChange={e => setRemanejamentoForm(prev => ({ ...prev, pendente_incorporacao: e.target.checked }))}
+                  className="w-4 h-4 mt-0.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500" />
+                <span className="text-sm">
+                  <span className="font-medium text-amber-800 flex items-center gap-1.5"><AlertTriangle size={14} /> Item ainda não foi patrimoniado</span>
+                  <span className="block text-xs text-amber-700 mt-0.5">A escola não possui número de chapa patrimonial para este item. Marque para acompanhar a incorporação junto ao órgão central.</span>
+                </span>
+              </label>
+              {remanejamentoForm.pendente_incorporacao && (
+                <div>
+                  <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700 mb-1.5">
+                    <Link2 size={14} /> Link da Nota Fiscal do Item (Google Drive)
+                  </label>
+                  <input type="url" value={remanejamentoForm.nota_fiscal_link}
+                    onChange={e => setRemanejamentoForm(prev => ({ ...prev, nota_fiscal_link: e.target.value }))}
+                    placeholder="https://drive.google.com/..."
+                    className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">Descrição do Item</label>
                 <textarea rows={2} value={remanejamentoForm.descricao}
@@ -1518,31 +1606,31 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         </div>
       )}
 
-      {/* Modal: Guia de Remanejamento (GR) */}
-      {grModal && (
+      {/* Modal: Guia de Remanejamento / DOC / Nota Fiscal */}
+      {docModal && (
         <div className="fixed inset-0 bg-black/60 z-[140] flex items-center justify-center p-4"
-          onClick={() => setGrModal(null)}>
+          onClick={() => setDocModal(null)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden"
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-2 min-w-0">
                 <ExternalLink size={16} className="text-teal-600 shrink-0" />
-                <h3 className="font-bold text-slate-800 text-sm truncate">{grModal.title}</h3>
+                <h3 className="font-bold text-slate-800 text-sm truncate">{docModal.title}</h3>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <a href={grModal.url} target="_blank" rel="noopener noreferrer"
+                <a href={docModal.url} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-1.5 bg-teal-600 hover:bg-teal-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors">
                   <ExternalLink size={13} />
                   Abrir em Nova Aba
                 </a>
-                <button onClick={() => setGrModal(null)}
+                <button onClick={() => setDocModal(null)}
                   className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-700 rounded-lg transition-colors">
                   <X size={16} />
                 </button>
               </div>
             </div>
             <div className="flex-1 bg-slate-50 overflow-hidden">
-              <iframe src={getDriveEmbedUrl(grModal.url)} className="w-full h-full border-0" title="Guia de Remanejamento" />
+              <iframe src={getDriveEmbedUrl(docModal.url)} className="w-full h-full border-0" title="Documento" />
             </div>
           </div>
         </div>
