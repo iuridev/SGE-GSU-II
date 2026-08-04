@@ -65,6 +65,7 @@ import { AgendaPublica } from './pages/AgendaPublica';
 import VisitasEscolares from './pages/VisitasEscolares';
 import PatrimonioSalas from './pages/PatrimonioSalas';
 import AtendimentoPatrimonio from './pages/AtendimentoPatrimonio';
+import MetricasAcesso from './pages/MetricasAcesso';
 import { Toaster } from 'react-hot-toast';
 
 
@@ -169,6 +170,7 @@ const MENU_GROUPS: MenuGroup[] = [
       //{ id: 'relatorio-fiscalizacao', label: 'Relatórios de Fiscalização', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
       //{ id: 'relatorio-acesso', label: 'Relatórios de Acesso', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
       { id: 'relatorio-utilidade', label: 'Relatórios de Consumo', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec'] },
+      { id: 'metricas-acesso', label: 'Métricas de Acesso', icon: <BarChart2 size={20} className="text-teal-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_ecc'] },
     ]
   },
   {
@@ -189,6 +191,18 @@ const MENU_GROUPS: MenuGroup[] = [
     ]
   },
 ];
+
+// Métricas de Acesso (src/pages/MetricasAcesso.tsx): grava um evento de login
+// (disparado só no evento 'SIGNED_IN' do Supabase, nunca em 'INITIAL_SESSION'
+// — isso evita contar cada F5/reabertura do app como um novo login) ou de
+// navegação de página. Falha de rede/RLS aqui nunca deve travar o app, só loga.
+async function logAccess(userId: string, eventType: 'login' | 'page_view', page?: string) {
+  try {
+    await (supabase as any).from('access_logs').insert([{ user_id: userId, event_type: eventType, page: page || null }]);
+  } catch (err) {
+    console.error('Erro ao registrar métrica de acesso:', err);
+  }
+}
 
 export default function App() {
   //const navigate = useNavigate();
@@ -219,6 +233,12 @@ export default function App() {
     localStorage.setItem('sge_page', currentPage);
   }, [currentPage]);
 
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    logAccess(session.user.id, 'page_view', currentPage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, session?.user?.id]);
+
   // ==========================================
   // CAPACITOR: CONTROLE DO BOTÃO VOLTAR (ANDROID)
   // ==========================================
@@ -248,10 +268,12 @@ export default function App() {
       else setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
-      if (session) fetchUserRole(session.user.id);
-      else {
+      if (session) {
+        fetchUserRole(session.user.id);
+        if (event === 'SIGNED_IN') logAccess(session.user.id, 'login');
+      } else {
         setUserRole('');
         setLoading(false);
       }
@@ -556,6 +578,7 @@ export default function App() {
       case 'visitas-escolares': return <VisitasEscolares />;
       case 'patrimonio-salas': return <PatrimonioSalas />;
       case 'atendimento-patrimonio': return <AtendimentoPatrimonio onNavigate={setCurrentPage} />;
+      case 'metricas-acesso': return <MetricasAcesso />;
       default: return <Dashboard />;
     }
   };

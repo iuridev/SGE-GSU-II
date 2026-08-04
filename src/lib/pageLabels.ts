@@ -1,0 +1,61 @@
+// Rótulos legíveis dos ids de página usados em App.tsx (currentPage/MENU_GROUPS)
+// e gravados em access_logs.page. Mantido separado de App.tsx para evitar
+// import circular entre App.tsx e as páginas que ele renderiza; ao adicionar
+// uma página nova em MENU_GROUPS, adicione o par aqui também se quiser que
+// ela apareça com nome amigável nas Métricas de Acesso.
+export const PAGE_LABELS: Record<string, string> = {
+  'ambientes-novo': 'Reservas Ambiente NOVO',
+  'dashboard': 'Painel Geral',
+  'comunicados': 'Comunicados',
+  'minhas-tarefas': 'Agenda Funcional',
+  'atividades': 'Atividades - SEOM/SEFISC',
+  'tutoriais': 'Manuais e Tutoriais',
+  'vistorias-prediais-dashboard': 'BI Predial',
+  'obras': 'Obras e Reformas',
+  'previsao-obras-fde': 'Previsão de Obras FDE',
+  'servicos': 'Intervenção URE',
+  'manejo': 'Manejo Arbóreo',
+  'elevadores': 'Gestão de Elevadores',
+  'plantas': 'Plantas Prediais',
+  'avcb': 'AVCB',
+  'prioritarias': 'Escolas Prioritárias',
+  'ranking': 'Ranking de Escolas',
+  'consumo': 'Consumo de Água',
+  'financeiro-agua': 'Importação Financeiro (SABESP)',
+  'zeladoria': 'Zeladoria',
+  'visitas-escolares': 'Visitas às Escolas',
+  'atendimento-patrimonio': 'Atendimento Patrimônio',
+  'educacao-patrimonial': 'Educação Patrimonial',
+  'patrimonio': 'Processos Patrimônio',
+  'aquisicao': 'Aquisição de Itens',
+  'remanejamento': 'Remanejamento',
+  'furtos': 'Cadastro de Furtos',
+  'patrimonio-salas': 'Salas de Trabalho',
+  'listchapa': 'Listar Patrimônio',
+  'chat': 'Chat',
+  'chamados': 'Central de Chamados',
+  'demandas': 'Demandas / E-mails',
+  'carros': 'Carros Oficiais',
+  'estacionamento': 'Controle de Estacionamento',
+  'reunioes': 'Calendário',
+  'ambientes': 'Reservas Ambiente (Antigo)',
+  'painel-gerencial': 'Painel Gerencial (Impressão)',
+  'raiox': 'Raio-X / Vistoria',
+  'relatorio-fiscalizacao': 'Relatórios de Fiscalização',
+  'relatorio-acesso': 'Relatórios de Acesso (Portaria)',
+  'relatorio-utilidade': 'Relatórios de Consumo',
+  'escolas': 'Escolas (Detalhes)',
+  'lista-escolas': 'Lista de Escolas',
+  'usuarios': 'Gestão de Usuários',
+  'chefes': 'Chefes',
+  'almoxarifado': 'Almoxarifado',
+  'entrada': 'Entrada no Prédio',
+  'fiscalizacao': 'Contratos Gov',
+  'fiscalizacaoURE': 'Limpeza URE',
+  'fluxo': 'Fluxo',
+  'metricas-acesso': 'Métricas de Acesso',
+};
+
+export function pageLabel(id: string): string {
+  return PAGE_LABELS[id] || id;
+}
