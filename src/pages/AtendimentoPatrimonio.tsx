@@ -44,7 +44,7 @@ const PAUTAS = [
 const CANAIS = ['Teams', 'E-mail'] as const;
 type Canal = typeof CANAIS[number];
 
-type Tab = 'atendimentos' | 'acoes' | 'remanejamentos';
+type Tab = 'atendimentos' | 'remanejamentos';
 
 interface EscolaOption {
   id: string;
@@ -128,7 +128,6 @@ const REMANEJAMENTO_INITIAL = {
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'atendimentos', label: 'Atendimentos (Teams / E-mail)', icon: <Video size={16} /> },
-  { id: 'acoes', label: 'Ações / Observações em Processos', icon: <ClipboardList size={16} /> },
   { id: 'remanejamentos', label: 'Remanejamentos', icon: <ArrowRightLeft size={16} /> },
 ];
 
@@ -569,15 +568,6 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     });
   }, [atendimentos, searchTerm, filterCanal]);
 
-  const filteredObservacoes = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    if (!q) return observacoes;
-    return observacoes.filter(o =>
-      o.escola_nome?.toLowerCase().includes(q) ||
-      o.processo_identificador?.toLowerCase().includes(q) ||
-      o.observacao?.toLowerCase().includes(q));
-  }, [observacoes, searchTerm]);
-
   const filteredRemanejamentos = useMemo(() => {
     const q = searchTerm.toLowerCase();
     return remanejamentos.filter(r => {
@@ -627,16 +617,6 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       .filter(o => o.processo_origem === selectedProcesso.origem && o.processo_id === selectedProcesso.id)
       .sort((a, b) => (a.data_registro < b.data_registro ? 1 : -1));
   }, [observacoes, selectedProcesso]);
-
-  const observacaoToProcessoOption = (o: Observacao): ProcessoOption => ({
-    origem: (o.processo_origem || 'asset_process') as ProcessoOption['origem'],
-    id: o.processo_id,
-    identificador: o.processo_identificador,
-    tipoLabel: o.tipo_processo,
-    escolaId: o.escola_id,
-    escolaNome: o.escola_nome,
-    situacaoLabel: o.etapa_atual,
-  });
 
   const formatDate = (d: string) => {
     if (!d) return '-';
@@ -733,6 +713,16 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
             <RefreshCw size={16} />
             Atualizar
           </button>
+          {isAdmin && (
+            <button
+              onClick={() => openPicker('observacao')}
+              title="Registrar uma ação/observação em um atendimento, remanejamento ou processo cadastrado"
+              className="flex items-center gap-2 px-3 py-2 text-teal-700 border border-teal-200 bg-teal-50 rounded-lg hover:bg-teal-100 transition-colors text-sm font-medium"
+            >
+              <ClipboardList size={16} />
+              Atualizar Ação
+            </button>
+          )}
           {isAdmin && SHEET_URL && (
             <a
               href={SHEET_URL}
@@ -944,93 +934,6 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                               </button>
                             )}
                           </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        </>
-      )}
-
-      {['regional_admin', 'school_manager'].includes(userRole) && activeTab === 'acoes' && (
-        <>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {[
-              { label: 'Total de Observações', value: observacoes.length, icon: <ClipboardList size={20} className="text-blue-600" />, bg: 'bg-blue-50' },
-              { label: 'Processos com Observação', value: new Set(observacoes.map(o => o.processo_id)).size, icon: <Package size={20} className="text-violet-600" />, bg: 'bg-violet-50' },
-              { label: 'No Mês', value: observacoes.filter(o => o.data_registro?.startsWith(currentMonthStr)).length, icon: <CalendarDays size={20} className="text-emerald-600" />, bg: 'bg-emerald-50' },
-            ].map(card => (
-              <div key={card.label} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-lg ${card.bg} flex items-center justify-center shrink-0`}>{card.icon}</div>
-                  <div>
-                    <p className="text-xs text-slate-500 font-medium">{card.label}</p>
-                    <p className="text-2xl font-bold text-slate-800">{card.value}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="bg-white rounded-xl border border-slate-100 shadow-sm">
-            <div className="p-4 border-b border-slate-100 flex flex-wrap gap-3 items-center">
-              <div className="relative flex-1 min-w-[200px]">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text" placeholder="Buscar escola, processo ou observação..."
-                  value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
-                />
-              </div>
-              <span className="text-xs text-slate-400">{filteredObservacoes.length} registro(s)</span>
-              {isAdmin && (
-                <button
-                  onClick={() => openPicker('observacao')}
-                  className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium ml-auto"
-                >
-                  <ClipboardList size={18} /> Atualizar Ação
-                </button>
-              )}
-            </div>
-            <div className="overflow-x-auto">
-              {loading ? (
-                <div className="flex justify-center items-center py-16"><Loader2 size={32} className="animate-spin text-teal-500" /></div>
-              ) : filteredObservacoes.length === 0 ? (
-                <div className="text-center py-16 text-slate-400">
-                  <ClipboardList size={48} className="mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">Nenhuma observação registrada ainda</p>
-                </div>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-slate-50">
-                      {['Data', 'Escola', 'Processo', 'Etapa', 'Observação', 'Autor', ''].map(h => (
-                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {filteredObservacoes.map((o, i) => (
-                      <tr key={o.id || i} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{formatDateTime(o.data_registro)}</td>
-                        <td className="px-4 py-3 font-medium text-slate-800">{o.escola_nome}</td>
-                        <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                          <span className="text-xs text-slate-400">{o.tipo_processo}</span><br />{o.processo_identificador}
-                        </td>
-                        <td className="px-4 py-3 text-slate-500">{o.etapa_atual || '-'}</td>
-                        <td className="px-4 py-3 text-slate-600 max-w-sm">{o.observacao}</td>
-                        <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{o.autor_nome}</td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <button
-                            onClick={() => openDetail(observacaoToProcessoOption(o))}
-                            title="Ver linha do tempo de ações"
-                            className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
-                          >
-                            <History size={16} />
-                          </button>
                         </td>
                       </tr>
                     ))}
