@@ -210,10 +210,8 @@ function clearAccessSessionId() {
   sessionStorage.removeItem(ACCESS_SESSION_KEY);
 }
 
-// Grava um evento de login (disparado só no evento 'SIGNED_IN' do Supabase,
-// nunca em 'INITIAL_SESSION' — isso evita contar cada F5/reabertura do app
-// como um novo login), navegação de página ou logout. Falha de rede/RLS aqui
-// nunca deve travar o app, só loga.
+// Grava um evento de login, navegação de página ou logout. Falha de rede/RLS
+// aqui nunca deve travar o app, só loga.
 async function logAccess(userId: string, eventType: 'login' | 'page_view' | 'logout', page?: string) {
   try {
     await (supabase as any).from('access_logs').insert([{
@@ -313,7 +311,14 @@ export default function App() {
       if (session) {
         lastUserIdRef.current = session.user.id;
         fetchUserRole(session.user.id);
-        if (event === 'SIGNED_IN') logAccess(session.user.id, 'login');
+        // O supabase-js dispara 'SIGNED_IN' não só num login de fato, mas também
+        // sempre que recupera uma sessão válida do storage ao carregar a página
+        // (F5, nova aba) — então 'SIGNED_IN' sozinho não distingue as duas coisas.
+        // ACCESS_SESSION_KEY (sessionStorage) já existir para esta aba é o sinal
+        // de que a sessão já estava ativa antes deste evento, ou seja: não é login novo.
+        if (event === 'SIGNED_IN' && !sessionStorage.getItem(ACCESS_SESSION_KEY)) {
+          logAccess(session.user.id, 'login');
+        }
       } else {
         // Cobre tanto o clique em "Sair do Sistema" quanto uma sessão que
         // expirou sozinha — os dois casos chegam aqui com session === null.

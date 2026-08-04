@@ -89,18 +89,34 @@ export default function MetricasAcesso() {
 
   const profileMap = useMemo(() => new Map(profiles.map(p => [p.id, p])), [profiles]);
 
-  const totalLogins = useMemo(() => logs.filter(l => l.event_type === 'login').length, [logs]);
+  // Antes de uma correção no registro de login (App.tsx), o supabase-js podia
+  // gerar mais de um evento 'login' para a mesma sessão de aba (ex: a cada F5).
+  // Esses eventos duplicados sempre compartilham o mesmo session_id, então
+  // deduplicamos aqui por session_id (mantendo o mais antigo) para que dados
+  // já gravados antes da correção não inflem as métricas exibidas.
+  const loginEvents = useMemo(() => {
+    const bySession = new Map<string, AccessLog>();
+    let fallbackIdx = 0;
+    logs.forEach(l => {
+      if (l.event_type !== 'login') return;
+      const key = l.session_id || `__no_session_${fallbackIdx++}`;
+      const existing = bySession.get(key);
+      if (!existing || l.created_at < existing.created_at) bySession.set(key, l);
+    });
+    return Array.from(bySession.values());
+  }, [logs]);
+
+  const totalLogins = useMemo(() => loginEvents.length, [loginEvents]);
   const totalPageViews = useMemo(() => logs.filter(l => l.event_type === 'page_view').length, [logs]);
   const uniqueUsers = useMemo(() => new Set(logs.map(l => l.user_id)).size, [logs]);
 
   const loginsByHour = useMemo(() => {
     const hours = Array.from({ length: 24 }, (_, h) => ({ hora: `${String(h).padStart(2, '0')}h`, total: 0 }));
-    logs.forEach(l => {
-      if (l.event_type !== 'login') return;
+    loginEvents.forEach(l => {
       hours[new Date(l.created_at).getHours()].total += 1;
     });
     return hours;
-  }, [logs]);
+  }, [loginEvents]);
 
   const picoHorario = useMemo(() => {
     if (!loginsByHour.some(h => h.total > 0)) return null;
@@ -109,8 +125,7 @@ export default function MetricasAcesso() {
 
   const topUsuarios = useMemo(() => {
     const counts = new Map<string, number>();
-    logs.forEach(l => {
-      if (l.event_type !== 'login') return;
+    loginEvents.forEach(l => {
       counts.set(l.user_id, (counts.get(l.user_id) || 0) + 1);
     });
     return Array.from(counts.entries())
@@ -122,7 +137,7 @@ export default function MetricasAcesso() {
       }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 10);
-  }, [logs, profileMap]);
+  }, [loginEvents, profileMap]);
 
   const maxUsuarioTotal = topUsuarios[0]?.total || 1;
 
