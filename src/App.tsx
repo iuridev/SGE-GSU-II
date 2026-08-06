@@ -67,6 +67,7 @@ import PatrimonioSalas from './pages/PatrimonioSalas';
 import AtendimentoPatrimonio from './pages/AtendimentoPatrimonio';
 import ReformaFunap from './pages/ReformaFunap';
 import MetricasAcesso from './pages/MetricasAcesso';
+import { FunapReminderModal } from './components/FunapReminderModal';
 import { Toaster } from 'react-hot-toast';
 
 
@@ -665,6 +666,7 @@ export default function App() {
   return (
     <div className="h-screen overflow-hidden bg-[#f8fafc] flex font-sans text-slate-900 print:bg-white print:block print:h-auto print:overflow-visible">
       <Toaster position="top-right" toastOptions={{ style: { zIndex: 99999 } }} />
+      <FunapReminderModal currentPage={currentPage} onNavigate={setCurrentPage} />
 
       <aside className={`fixed inset-y-0 left-0 z-50 bg-[#0B1120] text-white transform transition-all duration-300 ease-in-out flex flex-col shadow-2xl ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0 print:hidden ${isCollapsed ? 'w-20' : 'w-72'}`}>
         <div className="h-20 flex items-center justify-between px-4 border-b border-slate-800/50 shrink-0">

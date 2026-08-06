@@ -8,7 +8,7 @@ import { addTimbradoAllPages, TIMBRADO_HEADER_H, TIMBRADO_FOOTER_H } from '../li
 import {
   Wrench, Clock, RefreshCw, Save, CheckCircle2, AlertTriangle, History,
   FileDown, FileSpreadsheet, Image as ImageIcon, Upload, Truck, Calendar,
-  Users, X, Loader2, Search, ExternalLink,
+  Users, X, Loader2, Search, ExternalLink, FileCheck,
 } from 'lucide-react';
 
 // A URE deste sistema atende só a diretoria de Guarulhos Sul (não há campo
@@ -49,6 +49,10 @@ interface Resposta {
   editado_por_nome: string;
   logistica_atualizada_por: string;
   logistica_atualizada_em: string;
+  confirmado: string;
+  confirmado_por: string;
+  confirmado_em: string;
+  termo_texto: string;
 }
 
 interface HistoricoItem {
@@ -121,8 +125,91 @@ function formatEndereco(address?: string | null): string {
   return /guarulhos/i.test(address) ? address : `${address}, Guarulhos - SP`;
 }
 
+const MESES = [
+  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
+];
+
+const UNIDADES = ['zero', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove'];
+const DEZ_A_DEZENOVE = ['dez', 'onze', 'doze', 'treze', 'quatorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove'];
+const DEZENAS = ['', 'dez', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa'];
+const CENTENAS = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos'];
+
+// Conversor de número para extenso em português — cobre a faixa usada num
+// levantamento de mobiliário por escola (até milhares), sem pretender ser
+// gramaticalmente perfeito em todos os casos extremos.
+function numeroPorExtenso(n: number): string {
+  if (n === 0) return 'zero';
+
+  const tresDigitos = (num: number): string => {
+    if (num === 0) return '';
+    if (num === 100) return 'cem';
+    const c = Math.floor(num / 100);
+    const resto = num % 100;
+    const partes: string[] = [];
+    if (c > 0) partes.push(CENTENAS[c]);
+    if (resto > 0) {
+      if (resto < 10) partes.push(UNIDADES[resto]);
+      else if (resto < 20) partes.push(DEZ_A_DEZENOVE[resto - 10]);
+      else {
+        const d = Math.floor(resto / 10);
+        const u = resto % 10;
+        partes.push(u > 0 ? `${DEZENAS[d]} e ${UNIDADES[u]}` : DEZENAS[d]);
+      }
+    }
+    return partes.join(' e ');
+  };
+
+  const milhar = Math.floor(n / 1000);
+  const resto = n % 1000;
+  const parteMil = milhar > 0 ? (milhar === 1 ? 'mil' : `${tresDigitos(milhar)} mil`) : '';
+  const parteResto = resto > 0 ? tresDigitos(resto) : '';
+
+  if (!parteMil) return parteResto;
+  if (!parteResto) return parteMil;
+  const juntarComE = resto < 100 || resto % 100 === 0;
+  return juntarComE ? `${parteMil} e ${parteResto}` : `${parteMil} ${parteResto}`;
+}
+
+function montarTextoTermo(params: {
+  quantidade: number;
+  escolaNome: string;
+  cieCode: string;
+  nomeDiretor: string;
+  data: Date;
+}): string {
+  const { quantidade, escolaNome, cieCode, nomeDiretor, data } = params;
+  const quantidadeExtenso = numeroPorExtenso(quantidade);
+  const dia = String(data.getDate()).padStart(2, '0');
+  const mes = MESES[data.getMonth()];
+  const ano = data.getFullYear();
+
+  return `TERMO DE CONFERÊNCIA DE MOBILIÁRIO ESCOLAR
+
+Escola: ${escolaNome}   |   CIE: ${cieCode || '-'}
+
+A direção da unidade escolar acima identificada, no âmbito do preenchimento do formulário da Fundação de Amparo ao Trabalhador Preso (FUNAP) referente à reforma de conjuntos de aluno (mesa e cadeira), DECLARA, para os devidos fins, que:
+
+1. Foi realizada a conferência física, item a item, de todos os conjuntos de aluno relacionados para reforma;
+
+2. A quantidade total informada no formulário — Quantidade de conjuntos para reforma: ${quantidade} (${quantidadeExtenso}) unidades. — corresponde à quantidade real e necessária de conjuntos que efetivamente demandam reforma, não havendo divergência entre o quantitativo declarado e o quantitativo fisicamente conferido;
+
+3. Foram desconsiderados e excluídos da relação todos os itens cuja ferragem (estrutura metálica, pés, parafusos, dobradiças e demais componentes metálicos) apresente dano, quebra, deformação ou sinais de ferrugem/oxidação, de modo que os conjuntos relacionados para reforma não possuem ferragem danificada ou enferrujada;
+
+4. A escola está ciente de que a quantidade de conjuntos ora conferida e declarada deverá permanecer separada e identificada em local apropriado, aguardando a retirada pela FUNAP (ou empresa/setor responsável) para fins de reforma, responsabilizando-se pela guarda e integridade dos itens até a efetiva retirada.
+
+Por ser verdade, firma-se o presente Termo de Conferência, para que produza os efeitos legais e administrativos junto à FUNAP.
+
+Guarulhos, ${dia} de ${mes} de ${ano}.
+
+
+${nomeDiretor}
+Diretor(a) — ${escolaNome}`;
+}
+
 export default function ReformaFunap() {
   const [userRole, setUserRole] = useState('');
+  const [userName, setUserName] = useState('');
   const [userSchoolId, setUserSchoolId] = useState<string | null>(null);
 
   const [escolas, setEscolas] = useState<EscolaOption[]>([]);
@@ -154,6 +241,8 @@ export default function ReformaFunap() {
 
   const [exportingPdf, setExportingPdf] = useState(false);
   const [planilhaUrl, setPlanilhaUrl] = useState<string | null>(null);
+  const [showTermoModal, setShowTermoModal] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   const isAdmin = userRole === 'regional_admin';
   const isSchoolManager = userRole === 'school_manager';
@@ -242,6 +331,7 @@ export default function ReformaFunap() {
           .select('full_name, role, school_id')
           .eq('id', user.id)
           .single();
+        setUserName(profile?.full_name || user.email || 'Usuário');
         setUserRole(resolveViewRole(profile?.role || ''));
         setUserSchoolId(profile?.school_id || null);
       }
@@ -347,6 +437,20 @@ export default function ReformaFunap() {
       alert('Erro ao salvar: ' + e.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleConfirmarResposta = async (termoTexto: string) => {
+    setConfirming(true);
+    try {
+      await invoke('confirmar_resposta', { termo_texto: termoTexto });
+      await fetchRespostas();
+      setShowTermoModal(false);
+      alert('Quantidade confirmada com sucesso! Não é mais possível alterá-la.');
+    } catch (e: any) {
+      alert('Erro ao confirmar: ' + e.message);
+    } finally {
+      setConfirming(false);
     }
   };
 
@@ -541,6 +645,29 @@ export default function ReformaFunap() {
     XLSX.writeFile(wb, `Reforma_FUNAP_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
+  const handleBaixarTermoPdf = (texto: string, escolaNome: string) => {
+    const doc = new jsPDF('portrait');
+    const margin = 16;
+    const pageW = doc.internal.pageSize.getWidth();
+    let y = TIMBRADO_HEADER_H + 10;
+    doc.setFontSize(10);
+    doc.setTextColor(20, 20, 20);
+    const linhas = texto.split('\n');
+    linhas.forEach(linha => {
+      const wrapped = doc.splitTextToSize(linha || ' ', pageW - margin * 2);
+      wrapped.forEach((w: string) => {
+        if (y > doc.internal.pageSize.getHeight() - TIMBRADO_FOOTER_H - 10) {
+          doc.addPage();
+          y = TIMBRADO_HEADER_H + 10;
+        }
+        doc.text(w, margin, y);
+        y += 5.5;
+      });
+    });
+    addTimbradoAllPages(doc);
+    doc.save(`Termo_Conferencia_FUNAP_${escolaNome.replace(/\s+/g, '_')}.pdf`);
+  };
+
   const renderHistoricoItem = (item: HistoricoItem) => {
     let antes: Record<string, string> = {};
     let depois: Record<string, string> = {};
@@ -551,6 +678,9 @@ export default function ReformaFunap() {
       const resumo = Object.entries(depois).map(([k, v]) => `${CAMPO_LABEL[k] || k}: ${v}`).join(', ');
       return `Preencheu pela primeira vez — ${resumo}`;
     }
+    if (item.acao === 'confirmacao') {
+      return 'Confirmou o Termo de Conferência — a quantidade informada não pode mais ser alterada.';
+    }
     const mudancas = Object.keys(depois)
       .filter(k => antes[k] !== depois[k])
       .map(k => `${CAMPO_LABEL[k] || k}: ${antes[k] ?? '-'} → ${depois[k] ?? '-'}`);
@@ -559,6 +689,23 @@ export default function ReformaFunap() {
   };
 
   const minhaResposta = respostas.find(r => r.escola_id === userSchoolId) || null;
+  const confirmado = minhaResposta?.confirmado === 'TRUE';
+  const quantidadeTotalMinhaResposta = minhaResposta
+    ? Number(minhaResposta.cja05_carteiras || 0) + Number(minhaResposta.cja05_cadeiras || 0)
+      + Number(minhaResposta.cja06_carteiras || 0) + Number(minhaResposta.cja06_cadeiras || 0)
+    : 0;
+
+  const abrirModalConfirmacao = () => setShowTermoModal(true);
+
+  const textoTermoPreview = minhaResposta && !confirmado
+    ? montarTextoTermo({
+        quantidade: quantidadeTotalMinhaResposta,
+        escolaNome: minhaResposta.escola_nome,
+        cieCode: minhaResposta.cie_code,
+        nomeDiretor: userName,
+        data: new Date(),
+      })
+    : '';
 
   if (loading) {
     return (
@@ -737,7 +884,15 @@ export default function ReformaFunap() {
                 </div>
               )}
 
-              {statusJanela.fase !== 'aberto' && (
+              {confirmado && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-700 flex items-center gap-2">
+                  <CheckCircle2 size={16} className="shrink-0" />
+                  Quantidade confirmada por <strong>{minhaResposta?.confirmado_por}</strong> em {formatDateTime(minhaResposta?.confirmado_em)} —
+                  não é mais possível alterar os valores informados.
+                </div>
+              )}
+
+              {statusJanela.fase !== 'aberto' && !confirmado && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700 flex items-center gap-2">
                   <AlertTriangle size={16} className="shrink-0" />
                   {statusJanela.fase === 'aguardando' && 'O formulário ainda não está aberto para preenchimento.'}
@@ -752,7 +907,7 @@ export default function ReformaFunap() {
                   <div>
                     <label className="text-xs font-semibold text-slate-500">Quantidade de Carteiras</label>
                     <input
-                      type="number" min={0} disabled={statusJanela.fase !== 'aberto'}
+                      type="number" min={0} disabled={statusJanela.fase !== 'aberto' || confirmado}
                       value={form.cja05_carteiras}
                       onChange={e => setForm({ ...form, cja05_carteiras: e.target.value })}
                       className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm disabled:bg-slate-100 disabled:text-slate-400"
@@ -761,7 +916,7 @@ export default function ReformaFunap() {
                   <div>
                     <label className="text-xs font-semibold text-slate-500">Quantidade de Cadeiras</label>
                     <input
-                      type="number" min={0} disabled={statusJanela.fase !== 'aberto'}
+                      type="number" min={0} disabled={statusJanela.fase !== 'aberto' || confirmado}
                       value={form.cja05_cadeiras}
                       onChange={e => setForm({ ...form, cja05_cadeiras: e.target.value })}
                       className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm disabled:bg-slate-100 disabled:text-slate-400"
@@ -774,7 +929,7 @@ export default function ReformaFunap() {
                   <div>
                     <label className="text-xs font-semibold text-slate-500">Quantidade de Carteiras</label>
                     <input
-                      type="number" min={0} disabled={statusJanela.fase !== 'aberto'}
+                      type="number" min={0} disabled={statusJanela.fase !== 'aberto' || confirmado}
                       value={form.cja06_carteiras}
                       onChange={e => setForm({ ...form, cja06_carteiras: e.target.value })}
                       className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm disabled:bg-slate-100 disabled:text-slate-400"
@@ -783,7 +938,7 @@ export default function ReformaFunap() {
                   <div>
                     <label className="text-xs font-semibold text-slate-500">Quantidade de Cadeiras</label>
                     <input
-                      type="number" min={0} disabled={statusJanela.fase !== 'aberto'}
+                      type="number" min={0} disabled={statusJanela.fase !== 'aberto' || confirmado}
                       value={form.cja06_cadeiras}
                       onChange={e => setForm({ ...form, cja06_cadeiras: e.target.value })}
                       className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm disabled:bg-slate-100 disabled:text-slate-400"
@@ -792,14 +947,36 @@ export default function ReformaFunap() {
                 </div>
               </div>
 
-              <button
-                onClick={handleSalvarResposta}
-                disabled={saving || statusJanela.fase !== 'aberto'}
-                className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-lg font-medium text-sm hover:bg-teal-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
-              >
-                {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-                {minhaResposta ? 'Salvar edição' : 'Enviar resposta'}
-              </button>
+              <div className="flex gap-2 flex-wrap">
+                {!confirmado && (
+                  <button
+                    onClick={handleSalvarResposta}
+                    disabled={saving || statusJanela.fase !== 'aberto'}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-lg font-medium text-sm hover:bg-teal-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
+                  >
+                    {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                    {minhaResposta ? 'Salvar edição' : 'Enviar resposta'}
+                  </button>
+                )}
+                {minhaResposta && !confirmado && (
+                  <button
+                    onClick={abrirModalConfirmacao}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-lg font-medium text-sm hover:bg-emerald-700"
+                  >
+                    <FileCheck size={16} />
+                    Confirmar quantidade informada
+                  </button>
+                )}
+                {confirmado && (
+                  <button
+                    onClick={abrirModalConfirmacao}
+                    className="flex items-center gap-2 px-4 py-2.5 text-slate-600 border border-slate-200 rounded-lg font-medium text-sm hover:bg-slate-50"
+                  >
+                    <FileCheck size={16} />
+                    Ver Termo de Conferência
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -854,7 +1031,11 @@ export default function ReformaFunap() {
                           {resposta ? `${resposta.cja06_carteiras || 0} / ${resposta.cja06_cadeiras || 0}` : '-'}
                         </td>
                         <td className="p-3">
-                          {resposta ? (
+                          {resposta?.confirmado === 'TRUE' ? (
+                            <span className="inline-flex items-center gap-1 text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full text-xs font-medium">
+                              <FileCheck size={12} /> Confirmado
+                            </span>
+                          ) : resposta ? (
                             <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full text-xs font-medium">
                               <CheckCircle2 size={12} /> Respondido
                             </span>
@@ -1119,6 +1300,72 @@ export default function ReformaFunap() {
             </div>
           )}
         </>
+      )}
+
+      {/* Modal: Termo de Conferência de Mobiliário Escolar */}
+      {showTermoModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4" onClick={() => !confirming && setShowTermoModal(false)}>
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-slate-100">
+              <p className="font-bold text-slate-800 flex items-center gap-2">
+                <FileCheck size={18} className="text-emerald-600" /> Termo de Conferência de Mobiliário Escolar
+              </p>
+              <button onClick={() => setShowTermoModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto">
+              {!confirmado && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700 mb-4 flex items-start gap-2">
+                  <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                  Leia com atenção. Ao confirmar, a quantidade informada não poderá mais ser alterada por esta escola.
+                </div>
+              )}
+              <pre className="whitespace-pre-wrap font-sans text-sm text-slate-700 leading-relaxed bg-slate-50 border border-slate-200 rounded-lg p-4">
+                {confirmado ? (minhaResposta?.termo_texto || '') : textoTermoPreview}
+              </pre>
+            </div>
+
+            <div className="flex gap-2 justify-end p-4 border-t border-slate-100">
+              {!confirmado ? (
+                <>
+                  <button
+                    onClick={() => setShowTermoModal(false)}
+                    disabled={confirming}
+                    className="px-4 py-2.5 text-slate-600 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={() => handleConfirmarResposta(textoTermoPreview)}
+                    disabled={confirming}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:bg-slate-300"
+                  >
+                    {confirming ? <Loader2 size={16} className="animate-spin" /> : <FileCheck size={16} />}
+                    Confirmar e assinar
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setShowTermoModal(false)}
+                    className="px-4 py-2.5 text-slate-600 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50"
+                  >
+                    Fechar
+                  </button>
+                  <button
+                    onClick={() => handleBaixarTermoPdf(minhaResposta?.termo_texto || '', minhaResposta?.escola_nome || 'Escola')}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700"
+                  >
+                    <FileDown size={16} />
+                    Baixar PDF
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Painel de histórico (antes/depois) */}

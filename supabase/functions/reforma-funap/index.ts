@@ -21,6 +21,7 @@ const RESPOSTAS_COLUMNS = [
   'respondente_id', 'respondente_nome', 'data_resposta',
   'data_ultima_edicao', 'editado_por_nome',
   'logistica_atualizada_por', 'logistica_atualizada_em',
+  'confirmado', 'confirmado_por', 'confirmado_em', 'termo_texto',
 ]
 const HISTORICO_COLUMNS = [
   'id', 'resposta_id', 'escola_id', 'escola_nome', 'acao',
@@ -228,6 +229,10 @@ Deno.serve(async (req) => {
 
         const historicoSheet = await getOrCreateSheet(doc, HISTORICO_SHEET, HISTORICO_COLUMNS)
 
+        if (existente && existente.get('confirmado') === 'TRUE') {
+          throw new Error('Esta resposta já foi confirmada pela escola e não pode mais ser alterada.')
+        }
+
         if (existente) {
           const dadosAntes = {
             cja05_carteiras: existente.get('cja05_carteiras') ?? '',
@@ -287,6 +292,41 @@ Deno.serve(async (req) => {
             data_hora: agora,
           })
         }
+
+        return ok(corsHeaders, { success: true })
+      }
+
+      case 'confirmar_resposta': {
+        if (p.role !== 'school_manager') throw new Error('Apenas escolas podem confirmar a resposta.')
+        if (!p.school_id) throw new Error('Usuário não está vinculado a uma escola.')
+        if (!body.termo_texto) throw new Error('Texto do termo de conferência não informado.')
+
+        const sheet = await getOrCreateSheet(doc, RESPOSTAS_SHEET, RESPOSTAS_COLUMNS)
+        const rows = await sheet.getRows()
+        const row = rows.find((r: any) => r.get('escola_id') === String(p.school_id))
+        if (!row) throw new Error('Preencha e salve as quantidades antes de confirmar.')
+        if (row.get('confirmado') === 'TRUE') throw new Error('Esta resposta já foi confirmada.')
+
+        const agora = new Date().toISOString()
+        row.set('confirmado', 'TRUE')
+        row.set('confirmado_por', autorNome)
+        row.set('confirmado_em', agora)
+        row.set('termo_texto', String(body.termo_texto))
+        await row.save()
+
+        const historicoSheet = await getOrCreateSheet(doc, HISTORICO_SHEET, HISTORICO_COLUMNS)
+        await historicoSheet.addRow({
+          id: crypto.randomUUID(),
+          resposta_id: row.get('id'),
+          escola_id: String(p.school_id),
+          escola_nome: row.get('escola_nome') ?? '',
+          acao: 'confirmacao',
+          dados_antes: '',
+          dados_depois: JSON.stringify({ confirmado: 'TRUE' }),
+          autor_id: user.id,
+          autor_nome: autorNome,
+          data_hora: agora,
+        })
 
         return ok(corsHeaders, { success: true })
       }
