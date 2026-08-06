@@ -15,10 +15,12 @@ export interface SheetWork {
   integra?: string;
   pi?: string;
   sei?: string;
+  valor?: string;
   empresa: string;
   fiscal?: string;
   status: string;
   dataInicio?: string;
+  previsaoTermino?: string;
   detalhamento?: string;
   matchedSchoolId?: string;
   matchedSchoolName?: string;
@@ -110,10 +112,12 @@ export async function fetchObrasSheet(schools: SheetSchool[]): Promise<SheetWork
     integra:    headers.findIndex(h => h.includes('integra')),
     pi:         headers.findIndex(h => h === 'pi'),
     sei:        headers.findIndex(h => h.includes('sei')),
+    valor:      headers.findIndex(h => h.includes('valor')),
     empresa:    headers.findIndex(h => h.includes('empresa')),
     fiscal:     headers.findIndex(h => h.includes('fiscal')),
     status:     headers.findIndex(h => h.includes('status')),
     dataInicio: headers.findIndex(h => h.includes('inicio') || (h.includes('data') && h.includes('in'))),
+    previsaoTermino: headers.findIndex(h => h.includes('termino')),
     detalhamento: headers.findIndex(h => h.includes('detalhamento')),
   };
   if (idx.dataInicio < 0) idx.dataInicio = headers.findIndex(h => h.startsWith('data'));
@@ -131,10 +135,12 @@ export async function fetchObrasSheet(schools: SheetSchool[]): Promise<SheetWork
       integra:    idx.integra >= 0    ? v[idx.integra]    || '' : '',
       pi:         idx.pi >= 0         ? v[idx.pi]         || '' : '',
       sei:        idx.sei >= 0        ? v[idx.sei]        || '' : '',
+      valor:      idx.valor >= 0      ? v[idx.valor]      || '' : '',
       empresa:    idx.empresa >= 0    ? v[idx.empresa]    || '' : '',
       fiscal:     idx.fiscal >= 0     ? v[idx.fiscal]     || '' : '',
       status:     idx.status >= 0     ? v[idx.status]     || '' : '',
       dataInicio: idx.dataInicio >= 0 ? v[idx.dataInicio] || '' : '',
+      previsaoTermino: idx.previsaoTermino >= 0 ? v[idx.previsaoTermino] || '' : '',
       detalhamento: idx.detalhamento >= 0 ? v[idx.detalhamento] || '' : '',
       matchedSchoolId:   matched?.id,
       matchedSchoolName: matched?.name || escola,

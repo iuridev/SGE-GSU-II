@@ -205,15 +205,15 @@ export function Obras() {
       doc.text(`LISTAGEM DE OBRAS (${filteredWorks.length} registros)`, 14, chartEndY);
       autoTable(doc, {
         startY: chartEndY + 4,
-        head: [['Obra / Serviço', 'Escola', 'Empresa', 'Fiscal', 'Data Início', 'Status']],
+        head: [['Obra / Serviço', 'Escola', 'Empresa', 'Fiscal', 'Valor', 'Início', 'Previsão Término', 'Status']],
         body: filteredWorks.map(w => [
           w.obra, w.matchedSchoolName || w.escola, w.empresa || '-',
-          w.fiscal || '-', w.dataInicio || '-', getStatusInfo(w.status).label,
+          w.fiscal || '-', w.valor || '-', w.dataInicio || '-', w.previsaoTermino || '-', getStatusInfo(w.status).label,
         ]),
         styles: { fontSize: 7, cellPadding: 2.5 },
         headStyles: { fillColor: [234, 88, 12], textColor: 255, fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [248, 250, 252] },
-        columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 48 }, 2: { cellWidth: 36 }, 3: { cellWidth: 24 }, 4: { cellWidth: 22 }, 5: { cellWidth: 'auto' } },
+        columnStyles: { 0: { cellWidth: 44 }, 1: { cellWidth: 36 }, 2: { cellWidth: 28 }, 3: { cellWidth: 20 }, 4: { cellWidth: 24 }, 5: { cellWidth: 18 }, 6: { cellWidth: 24 }, 7: { cellWidth: 'auto' } },
       });
       addTimbradoAllPages(doc);
       doc.save(`relatorio-obras-${new Date().toISOString().split('T')[0]}.pdf`);
@@ -450,17 +450,26 @@ export function Obras() {
           ) : viewMode === 'table' ? (
 
             /* ── TABLE VIEW ── */
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
+            <div className="w-full">
+              <table className="w-full text-left table-fixed">
+                <colgroup>
+                  <col className="w-[1.5%]" />
+                  <col className="w-[26%]" />
+                  <col className="w-[15%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[13%]" />
+                  <col className="w-[13%]" />
+                  <col className="w-[6%]" />
+                </colgroup>
                 <thead>
                   <tr className="bg-stone-50 text-zinc-400 text-[10px] uppercase tracking-widest font-bold">
-                    <th className="pl-6 pr-4 py-3.5 border-b border-stone-100 w-2" />
-                    <th className="px-4 py-3.5 border-b border-stone-100">Obra / Escola</th>
-                    <th className="px-4 py-3.5 border-b border-stone-100">Empresa</th>
-                    <th className="px-4 py-3.5 border-b border-stone-100">Fiscal</th>
-                    <th className="px-4 py-3.5 border-b border-stone-100">Início</th>
-                    <th className="px-4 py-3.5 border-b border-stone-100">Status</th>
-                    <th className="px-4 py-3.5 border-b border-stone-100">Detalhamento</th>
+                    <th className="pl-4 pr-2 py-3.5 border-b border-stone-100" />
+                    <th className="px-3 py-3.5 border-b border-stone-100">Obra / Escola</th>
+                    <th className="px-3 py-3.5 border-b border-stone-100">Empresa / Fiscal</th>
+                    <th className="px-3 py-3.5 border-b border-stone-100">Valor</th>
+                    <th className="px-3 py-3.5 border-b border-stone-100">Prazo</th>
+                    <th className="px-3 py-3.5 border-b border-stone-100">Status</th>
+                    <th className="px-2 py-3.5 pr-4 border-b border-stone-100 text-right">Detalhes</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -469,15 +478,15 @@ export function Obras() {
                     return (
                       <tr key={i} className="group hover:bg-orange-50/30 transition-colors border-b border-stone-50 last:border-0">
                         {/* status bar */}
-                        <td className="pl-6 pr-2 py-4">
+                        <td className="pl-4 pr-1 py-4">
                           <div className={`w-1 h-10 rounded-full ${si.bar}`} />
                         </td>
-                        <td className="px-4 py-4 max-w-xs">
+                        <td className="px-3 py-4">
                           <p className="font-bold text-zinc-800 text-sm leading-snug flex items-center gap-1.5">
                             <Building2 size={12} className="shrink-0 text-zinc-400" />
                             <span className="truncate">{work.matchedSchoolName || work.escola}</span>
                           </p>
-                          <p className="text-xs text-zinc-400 mt-1 leading-snug">{work.obra}</p>
+                          <p className="text-xs text-zinc-400 mt-1 leading-snug break-words">{work.obra}</p>
                           {(work.sei || work.integra || work.pi) && (
                             <div className="flex flex-wrap gap-1 mt-1.5">
                               {work.sei     && <span className="inline-flex items-center gap-1 text-[9px] bg-zinc-100 text-zinc-500 px-1.5 py-0.5 rounded font-mono"><Tag size={7} />SEI: {work.sei}</span>}
@@ -486,38 +495,43 @@ export function Obras() {
                             </div>
                           )}
                         </td>
-                        <td className="px-4 py-4">
-                          <span className="text-sm text-zinc-600 font-medium">{work.empresa || '—'}</span>
-                        </td>
-                        <td className="px-4 py-4">
+                        <td className="px-3 py-4">
+                          <p className="text-xs font-semibold text-zinc-700 leading-snug break-words">{work.empresa || '—'}</p>
                           {work.fiscal ? (
-                            <div className="flex items-center gap-1.5">
-                              <div className="w-6 h-6 rounded-full bg-orange-100 flex items-center justify-center shrink-0">
-                                <User size={11} className="text-orange-600" />
-                              </div>
-                              <span className="text-xs font-semibold text-zinc-700">{work.fiscal}</span>
+                            <div className="flex items-center gap-1 mt-1 text-zinc-500">
+                              <User size={10} className="shrink-0 text-orange-500" />
+                              <span className="text-[11px] leading-snug break-words">{work.fiscal}</span>
                             </div>
-                          ) : <span className="text-zinc-300">—</span>}
+                          ) : null}
                         </td>
-                        <td className="px-4 py-4">
+                        <td className="px-3 py-4">
+                          <span className="text-xs font-semibold text-zinc-700 break-words">{work.valor || <span className="text-zinc-300 font-normal">—</span>}</span>
+                        </td>
+                        <td className="px-3 py-4">
                           {work.dataInicio ? (
-                            <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-                              <CalendarDays size={12} className="text-zinc-400" />
-                              {work.dataInicio}
+                            <div className="flex items-center gap-1 text-[11px] text-zinc-500">
+                              <CalendarDays size={11} className="shrink-0 text-zinc-400" />
+                              <span>Início: {work.dataInicio}</span>
                             </div>
-                          ) : <span className="text-zinc-300">—</span>}
+                          ) : null}
+                          {work.previsaoTermino ? (
+                            <div className="flex items-center gap-1 text-[11px] text-zinc-500 mt-1">
+                              <CalendarDays size={11} className="shrink-0 text-orange-400" />
+                              <span>Prev: {work.previsaoTermino}</span>
+                            </div>
+                          ) : null}
+                          {!work.dataInicio && !work.previsaoTermino && <span className="text-zinc-300 text-xs">—</span>}
                         </td>
-                        <td className="px-4 py-4">
-                          <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold border ${si.badge}`}>
-                            <div className={`w-1.5 h-1.5 rounded-full ${si.dot} ${si.rawStatus === 'andamento' ? 'animate-pulse' : ''}`} />
-                            {si.label}
+                        <td className="px-3 py-4">
+                          <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${si.badge}`}>
+                            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${si.dot} ${si.rawStatus === 'andamento' ? 'animate-pulse' : ''}`} />
+                            <span className="leading-snug">{si.label}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-4 pr-6">
-                          <button onClick={() => openDetalhamento(work)}
-                            className="flex items-center gap-1.5 bg-stone-50 hover:bg-orange-50 text-zinc-600 hover:text-orange-700 border border-stone-200 hover:border-orange-200 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors">
-                            <FileText size={12} />
-                            Detalhamento
+                        <td className="px-2 py-4 pr-4 text-right">
+                          <button onClick={() => openDetalhamento(work)} title="Detalhamento"
+                            className="inline-flex items-center justify-center bg-stone-50 hover:bg-orange-50 text-zinc-600 hover:text-orange-700 border border-stone-200 hover:border-orange-200 w-8 h-8 rounded-lg transition-colors">
+                            <FileText size={13} />
                           </button>
                         </td>
                       </tr>
@@ -568,11 +582,23 @@ export function Obras() {
                           <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider mb-1">Fiscal</p>
                           <p className="text-xs font-semibold text-zinc-700 truncate">{work.fiscal || '—'}</p>
                         </div>
+                        <div>
+                          <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider mb-1">Valor</p>
+                          <p className="text-xs font-semibold text-zinc-700 truncate">{work.valor || '—'}</p>
+                        </div>
                         {work.dataInicio && (
                           <div>
                             <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider mb-1">Início</p>
                             <p className="text-xs font-semibold text-zinc-600 flex items-center gap-1">
                               <CalendarDays size={10} className="text-zinc-400" /> {work.dataInicio}
+                            </p>
+                          </div>
+                        )}
+                        {work.previsaoTermino && (
+                          <div>
+                            <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider mb-1">Previsão Término</p>
+                            <p className="text-xs font-semibold text-zinc-600 flex items-center gap-1">
+                              <CalendarDays size={10} className="text-orange-400" /> {work.previsaoTermino}
                             </p>
                           </div>
                         )}
