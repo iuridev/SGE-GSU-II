@@ -3,10 +3,11 @@ import { supabase } from '../lib/supabase';
 import {
   ShoppingCart, Package, Settings, Plus, Trash2,
   Check, Edit2, FileText, X, Save, History, ClipboardList,
-  Clock, CheckCircle, XCircle, Layers, CalendarDays, AlertTriangle, Bell, FileDown
+  Clock, CheckCircle, XCircle, Layers, CalendarDays, AlertTriangle, Bell, FileDown, FileSpreadsheet
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 
 interface Item {
@@ -282,6 +283,17 @@ export default function Almoxarifado() {
     doc.save(`estoque_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
+  const gerarRelatorioExcel = () => {
+    const ws = XLSX.utils.json_to_sheet(itens.map(i => ({
+      'MATERIAL': i.nome,
+      'UNIDADE': i.unidade || 'Unidade',
+      'ESTOQUE': i.quantidade,
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Estoque');
+    XLSX.writeFile(wb, `estoque_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   const gerarPedidoPDF = (sol: SolicitacaoDetalhe) => {
     const doc = new jsPDF();
     const lx = 14;
@@ -388,10 +400,18 @@ export default function Almoxarifado() {
             </div>
           </div>
           {isAuthorized && (
-            <button onClick={gerarRelatorioPDF}
-              className="flex items-center gap-2 bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-xl text-sm font-semibold hover:bg-red-600 hover:text-white hover:border-red-600 transition-all">
-              <FileText size={16} /> Exportar PDF
-            </button>
+            <div className="flex gap-2">
+              <button onClick={gerarRelatorioPDF}
+                className="flex items-center gap-2 bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-xl text-sm font-semibold hover:bg-red-600 hover:text-white hover:border-red-600 transition-all">
+                <FileText size={16} /> Exportar PDF
+              </button>
+              {isAdmin && (
+                <button onClick={gerarRelatorioExcel}
+                  className="flex items-center gap-2 bg-emerald-50 text-emerald-600 border border-emerald-200 px-4 py-2 rounded-xl text-sm font-semibold hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition-all">
+                  <FileSpreadsheet size={16} /> Exportar Excel
+                </button>
+              )}
+            </div>
           )}
         </div>
 
