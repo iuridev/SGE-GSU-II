@@ -196,21 +196,25 @@ const MENU_GROUPS: MenuGroup[] = [
 ];
 
 // Métricas de Acesso (src/pages/MetricasAcesso.tsx): id de sessão de acesso,
-// gerado uma vez por aba/janela (sessionStorage — some ao fechar a aba, ao
-// contrário do localStorage) e gravado em todo evento dessa sessão para dar
-// para agrupá-los depois e calcular tempo de uso. Recriado sempre que não
-// existe (login novo, ou já não existia mais por causa de um logout).
+// gravado em todo evento para dar para agrupá-los depois e calcular tempo de
+// uso. Usa localStorage (não sessionStorage) de propósito: precisa ter a
+// mesma persistência da sessão do Supabase Auth (que também é localStorage),
+// senão fechar a aba/matar o app Android e reabrir com a sessão ainda válida
+// parece "login novo" pro rastreamento mesmo sem reautenticação de verdade,
+// inflando a contagem de logins de quem reabre com frequência. Recriado
+// sempre que não existe (login novo de fato, ou já não existia mais por
+// causa de um logout).
 const ACCESS_SESSION_KEY = 'sge_access_session_id';
 function getAccessSessionId(): string {
-  let id = sessionStorage.getItem(ACCESS_SESSION_KEY);
+  let id = localStorage.getItem(ACCESS_SESSION_KEY);
   if (!id) {
     id = crypto.randomUUID();
-    sessionStorage.setItem(ACCESS_SESSION_KEY, id);
+    localStorage.setItem(ACCESS_SESSION_KEY, id);
   }
   return id;
 }
 function clearAccessSessionId() {
-  sessionStorage.removeItem(ACCESS_SESSION_KEY);
+  localStorage.removeItem(ACCESS_SESSION_KEY);
 }
 
 // Grava um evento de login, navegação de página ou logout. Falha de rede/RLS
@@ -316,10 +320,11 @@ export default function App() {
         fetchUserRole(session.user.id);
         // O supabase-js dispara 'SIGNED_IN' não só num login de fato, mas também
         // sempre que recupera uma sessão válida do storage ao carregar a página
-        // (F5, nova aba) — então 'SIGNED_IN' sozinho não distingue as duas coisas.
-        // ACCESS_SESSION_KEY (sessionStorage) já existir para esta aba é o sinal
-        // de que a sessão já estava ativa antes deste evento, ou seja: não é login novo.
-        if (event === 'SIGNED_IN' && !sessionStorage.getItem(ACCESS_SESSION_KEY)) {
+        // (F5, nova aba, ou reabrir o app Android depois de morto em segundo
+        // plano) — então 'SIGNED_IN' sozinho não distingue as duas coisas.
+        // ACCESS_SESSION_KEY (localStorage) já existir é o sinal de que a
+        // sessão já estava ativa antes deste evento, ou seja: não é login novo.
+        if (event === 'SIGNED_IN' && !localStorage.getItem(ACCESS_SESSION_KEY)) {
           logAccess(session.user.id, 'login');
         }
       } else {
