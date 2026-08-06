@@ -86,11 +86,15 @@ export function matchSchool(sheetName: string, schools: SheetSchool[]): SheetSch
   );
 }
 
-export function normalizeStatus(status: string): 'EM ANDAMENTO' | 'CONCLUÍDO' | 'PARALISADO' {
+// 'OUTRO' cobre status de pré-execução (Planejamento, Orçamento, Pré-Contratação etc.)
+// que não são nem "em andamento", nem concluído, nem paralisado — evita que essas obras
+// sejam contadas como "em andamento" em KPIs, gráficos e filtros.
+export function normalizeStatus(status: string): 'EM ANDAMENTO' | 'CONCLUÍDO' | 'PARALISADO' | 'OUTRO' {
   const s = (status || '').toUpperCase().trim();
   if (s.includes('CONCLU')) return 'CONCLUÍDO';
   if (s.includes('PARALISA') || s.includes('SUSPENS')) return 'PARALISADO';
-  return 'EM ANDAMENTO';
+  if (!s || s.includes('ANDAMENTO')) return 'EM ANDAMENTO';
+  return 'OUTRO';
 }
 
 // Fetches and parses the Obras sheet, matching each row to a school id.

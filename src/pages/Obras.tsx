@@ -34,13 +34,7 @@ function getStatusInfo(status: string) {
   const n = normalizeStatus(status);
   if (n === 'CONCLUÍDO')  return { label: 'Concluída',   dot: 'bg-emerald-400', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200',  bar: 'bg-emerald-400', rawStatus: 'concluido' };
   if (n === 'PARALISADO') return { label: 'Paralisada',  dot: 'bg-slate-400',   badge: 'bg-slate-50 text-slate-600 border-slate-200',         bar: 'bg-slate-300',   rawStatus: 'paralisado' };
-  // Cai no balde "EM ANDAMENTO" apenas para fins de KPI/filtro/gráfico. Para o
-  // badge, se o texto da planilha não for literalmente "andamento" (ex: Planejamento,
-  // Orçamento, Pré-Contratação), mostra o status real em vez de rotular como "Em Andamento".
-  const raw = (status || '').trim();
-  if (raw && !/andamento/i.test(raw)) {
-    return { label: raw, dot: 'bg-sky-400', badge: 'bg-sky-50 text-sky-700 border-sky-200', bar: 'bg-sky-300', rawStatus: 'outro' };
-  }
+  if (n === 'OUTRO')      return { label: (status || '').trim(), dot: 'bg-sky-400', badge: 'bg-sky-50 text-sky-700 border-sky-200', bar: 'bg-sky-300', rawStatus: 'outro' };
   return { label: 'Em Andamento', dot: 'bg-orange-400', badge: 'bg-orange-50 text-orange-700 border-orange-200', bar: 'bg-orange-400', rawStatus: 'andamento' };
 }
 
@@ -118,29 +112,32 @@ export function Obras() {
     const total      = sheetWorks.length;
     const concluidas = sheetWorks.filter(w => normalizeStatus(w.status) === 'CONCLUÍDO').length;
     const paralisadas= sheetWorks.filter(w => normalizeStatus(w.status) === 'PARALISADO').length;
-    const emAndamento= total - concluidas - paralisadas;
-    return { total, concluidas, paralisadas, emAndamento };
+    const emAndamento= sheetWorks.filter(w => normalizeStatus(w.status) === 'EM ANDAMENTO').length;
+    const outras     = total - concluidas - paralisadas - emAndamento;
+    return { total, concluidas, paralisadas, emAndamento, outras };
   }, [sheetWorks]);
 
   const chartDataStatus = [
     { name: 'Em Andamento', value: kpiData.emAndamento, color: '#f97316' },
     { name: 'Concluídas',   value: kpiData.concluidas,  color: '#10b981' },
     { name: 'Paralisadas',  value: kpiData.paralisadas, color: '#94a3b8' },
+    { name: 'Outras',       value: kpiData.outras,      color: '#38bdf8' },
   ].filter(d => d.value > 0);
 
   const schoolBarData = useMemo(() => {
-    const counts: Record<string, { name: string; andamento: number; concluido: number; paralisado: number }> = {};
+    const counts: Record<string, { name: string; andamento: number; concluido: number; paralisado: number; outro: number }> = {};
     sheetWorks.forEach(w => {
       const key = w.matchedSchoolName || w.escola;
       const shortName = key.length > 18 ? key.substring(0, 16) + '..' : key;
-      if (!counts[key]) counts[key] = { name: shortName, andamento: 0, concluido: 0, paralisado: 0 };
+      if (!counts[key]) counts[key] = { name: shortName, andamento: 0, concluido: 0, paralisado: 0, outro: 0 };
       const n = normalizeStatus(w.status);
       if (n === 'CONCLUÍDO') counts[key].concluido++;
       else if (n === 'PARALISADO') counts[key].paralisado++;
-      else counts[key].andamento++;
+      else if (n === 'EM ANDAMENTO') counts[key].andamento++;
+      else counts[key].outro++;
     });
     return Object.values(counts)
-      .sort((a, b) => (b.andamento + b.concluido + b.paralisado) - (a.andamento + a.concluido + a.paralisado))
+      .sort((a, b) => (b.andamento + b.concluido + b.paralisado + b.outro) - (a.andamento + a.concluido + a.paralisado + a.outro))
       .slice(0, 8);
   }, [sheetWorks]);
 
@@ -157,7 +154,8 @@ export function Obras() {
         statusFilter === 'TODOS'      ? true :
         statusFilter === 'CONCLUIDO'  ? normSt === 'CONCLUÍDO' :
         statusFilter === 'ANDAMENTO'  ? normSt === 'EM ANDAMENTO' :
-        statusFilter === 'PARALISADO' ? normSt === 'PARALISADO' : true;
+        statusFilter === 'PARALISADO' ? normSt === 'PARALISADO' :
+        statusFilter === 'OUTROS'     ? normSt === 'OUTRO' : true;
       return matchesSearch && matchesFilter;
     }).sort((a, b) => {
       const rank = (w: SheetWork) => normalizeStatus(w.status) === 'EM ANDAMENTO' ? 0 : 1;
@@ -231,6 +229,7 @@ export function Obras() {
     { key: 'ANDAMENTO',  label: 'Em Andamento',  count: kpiData.emAndamento },
     { key: 'CONCLUIDO',  label: 'Concluídas',    count: kpiData.concluidas  },
     { key: 'PARALISADO', label: 'Paralisadas',   count: kpiData.paralisadas },
+    { key: 'OUTROS',     label: 'Outras',        count: kpiData.outras      },
   ];
 
   return (
@@ -343,7 +342,8 @@ export function Obras() {
                     <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', fontSize: 12 }} />
                     <Bar dataKey="andamento" name="Em Andamento" stackId="a" fill="#f97316" />
                     <Bar dataKey="concluido"  name="Concluída"    stackId="a" fill="#10b981" />
-                    <Bar dataKey="paralisado" name="Paralisada"   stackId="a" fill="#94a3b8" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="paralisado" name="Paralisada"   stackId="a" fill="#94a3b8" />
+                    <Bar dataKey="outro"      name="Outras"       stackId="a" fill="#38bdf8" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -412,6 +412,7 @@ export function Obras() {
                   key === 'ANDAMENTO'  ? (active ? 'bg-orange-500 text-white border-orange-500'  : 'bg-orange-50 text-orange-700 border-orange-200 hover:border-orange-300') :
                   key === 'CONCLUIDO'  ? (active ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:border-emerald-300') :
                   key === 'PARALISADO' ? (active ? 'bg-slate-500 text-white border-slate-500'     : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-slate-300') :
+                  key === 'OUTROS'     ? (active ? 'bg-sky-500 text-white border-sky-500'         : 'bg-sky-50 text-sky-700 border-sky-200 hover:border-sky-300') :
                                          (active ? 'bg-zinc-800 text-white border-zinc-800'       : 'bg-stone-50 text-zinc-600 border-stone-200 hover:border-stone-300');
                 return (
                   <button key={key} onClick={() => setStatusFilter(key)}
