@@ -44,7 +44,7 @@ const PAUTAS = [
 const CANAIS = ['Teams', 'E-mail'] as const;
 type Canal = typeof CANAIS[number];
 
-type Tab = 'atendimentos' | 'remanejamentos';
+type Tab = 'atendimentos' | 'remanejamentos' | 'incorporacoes';
 
 interface EscolaOption {
   id: string;
@@ -99,6 +99,21 @@ interface Remanejamento {
   data_registro: string;
 }
 
+interface Incorporacao {
+  id: string;
+  escola_id: string;
+  escola_nome: string;
+  descricao: string;
+  quantidade: string;
+  nota_fiscal_link: string;
+  status: string;
+  numero_patrimonial: string;
+  autor_nome: string;
+  data_registro: string;
+  incorporado_por: string;
+  data_incorporacao: string;
+}
+
 interface ProcessoOption {
   origem: 'asset_process' | 'processo_furto' | 'atendimento' | 'remanejamento';
   id: string;
@@ -126,9 +141,15 @@ const REMANEJAMENTO_INITIAL = {
   nota_fiscal_link: '',
 };
 
+const INCORPORACAO_INITIAL = {
+  escola_id: '', escola_nome: '',
+  descricao: '', quantidade: '', nota_fiscal_link: '',
+};
+
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'atendimentos', label: 'Atendimentos (Teams / E-mail)', icon: <Video size={16} /> },
   { id: 'remanejamentos', label: 'Remanejamentos', icon: <ArrowRightLeft size={16} /> },
+  { id: 'incorporacoes', label: 'Itens a Incorporar', icon: <Package size={16} /> },
 ];
 
 export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (page: string) => void }) {
@@ -156,6 +177,13 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
   const [editingRemanejamentoId, setEditingRemanejamentoId] = useState<string | null>(null);
   const [docModal, setDocModal] = useState<{ url: string; title: string } | null>(null);
   const [filterPendenteIncorporacao, setFilterPendenteIncorporacao] = useState(false);
+
+  const [incorporacoes, setIncorporacoes] = useState<Incorporacao[]>([]);
+  const [showIncorporacaoForm, setShowIncorporacaoForm] = useState(false);
+  const [incorporacaoForm, setIncorporacaoForm] = useState(INCORPORACAO_INITIAL);
+  const [editingIncorporacaoId, setEditingIncorporacaoId] = useState<string | null>(null);
+  const [incorporarAlvo, setIncorporarAlvo] = useState<Incorporacao | null>(null);
+  const [numeroPatrimonialIncorporar, setNumeroPatrimonialIncorporar] = useState('');
 
   const [processos, setProcessos] = useState<ProcessoOption[]>([]);
   const [loadingProcessos, setLoadingProcessos] = useState(false);
@@ -278,14 +306,16 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [a, o, r] = await Promise.all([
+      const [a, o, r, inc] = await Promise.all([
         invoke('listar_atendimentos'),
         invoke('listar_observacoes'),
         invoke('listar_remanejamentos'),
+        invoke('listar_incorporacoes'),
       ]);
       setAtendimentos(Array.isArray(a) ? a : []);
       setObservacoes(Array.isArray(o) ? o : []);
       setRemanejamentos(Array.isArray(r) ? r : []);
+      setIncorporacoes(Array.isArray(inc) ? inc : []);
     } catch (e) {
       console.error('Erro ao carregar dados:', e);
     } finally {
@@ -508,6 +538,66 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     setShowRemanejamentoForm(true);
   };
 
+  const handleSubmitIncorporacao = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const f = incorporacaoForm;
+    if (!f.escola_id || !f.descricao.trim() || !f.quantidade) {
+      alert('Escola, descrição do item e quantidade são obrigatórios.');
+      return;
+    }
+    setSaving(true);
+    try {
+      if (editingIncorporacaoId) {
+        await invoke('editar_incorporacao', { ...f, id: editingIncorporacaoId });
+      } else {
+        await invoke('registrar_incorporacao', f);
+        await notificarEscola(
+          f.escola_id,
+          `📦 Novo item pendente de incorporação registrado: ${f.descricao} (qtd: ${f.quantidade}).`
+        );
+      }
+      setShowIncorporacaoForm(false);
+      setIncorporacaoForm(INCORPORACAO_INITIAL);
+      setEditingIncorporacaoId(null);
+      setTimeout(fetchAll, 1500);
+    } catch (e) {
+      console.error(e);
+      alert(e instanceof Error ? e.message : 'Erro ao registrar item.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openEditIncorporacao = (i: Incorporacao) => {
+    setEditingIncorporacaoId(i.id);
+    setIncorporacaoForm({
+      escola_id: i.escola_id, escola_nome: i.escola_nome,
+      descricao: i.descricao, quantidade: i.quantidade, nota_fiscal_link: i.nota_fiscal_link || '',
+    });
+    setShowIncorporacaoForm(true);
+  };
+
+  const handleMarcarIncorporado = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!incorporarAlvo || !numeroPatrimonialIncorporar.trim()) return;
+    setSaving(true);
+    try {
+      await invoke('marcar_incorporado', { id: incorporarAlvo.id, numero_patrimonial: numeroPatrimonialIncorporar.trim() });
+      await notificarEscola(
+        incorporarAlvo.escola_id,
+        `✅ Item incorporado ao patrimônio: ${incorporarAlvo.descricao} — nº patrimonial ${numeroPatrimonialIncorporar.trim()}.`
+      );
+      setIncorporarAlvo(null);
+      setNumeroPatrimonialIncorporar('');
+      setTimeout(fetchAll, 1500);
+    } catch (e) {
+      console.error(e);
+      alert(e instanceof Error ? e.message : 'Erro ao marcar item como incorporado.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // ── Métricas / gráficos (aba Atendimentos) ────────────────────────────
   const now = new Date();
   const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -595,6 +685,21 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       return matchPendente && matchSearch;
     });
   }, [remanejamentos, searchTerm, filterPendenteIncorporacao]);
+
+  const incorporacoesPendentes = useMemo(
+    () => incorporacoes.filter(i => i.status !== 'Incorporado').length,
+    [incorporacoes],
+  );
+
+  const filteredIncorporacoes = useMemo(() => {
+    const q = searchTerm.toLowerCase();
+    return incorporacoes.filter(i => {
+      const matchSearch = !q ||
+        i.escola_nome?.toLowerCase().includes(q) ||
+        i.descricao?.toLowerCase().includes(q);
+      return matchSearch;
+    });
+  }, [incorporacoes, searchTerm]);
 
   const filteredProcessos = useMemo(() => {
     const q = pickerSearch.toLowerCase();
@@ -1167,6 +1272,124 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         </>
       )}
 
+      {['regional_admin', 'school_manager'].includes(userRole) && activeTab === 'incorporacoes' && (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            {[
+              { label: 'Total de Itens', value: incorporacoes.length, icon: <Package size={20} className="text-teal-600" />, bg: 'bg-teal-50' },
+              { label: 'Pendentes de Incorporação', value: incorporacoesPendentes, icon: <AlertTriangle size={20} className="text-amber-600" />, bg: 'bg-amber-50' },
+              { label: 'Incorporados', value: incorporacoes.length - incorporacoesPendentes, icon: <Check size={20} className="text-emerald-600" />, bg: 'bg-emerald-50' },
+            ].map(card => (
+              <div key={card.label} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-lg ${card.bg} flex items-center justify-center shrink-0`}>{card.icon}</div>
+                  <div>
+                    <p className="text-xs text-slate-500 font-medium">{card.label}</p>
+                    <p className="text-2xl font-bold text-slate-800">{card.value}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-100 shadow-sm">
+            <div className="p-4 border-b border-slate-100 flex flex-wrap gap-3 items-center">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text" placeholder="Buscar escola ou descrição do item..."
+                  value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+              <span className="text-xs text-slate-400">{filteredIncorporacoes.length} registro(s)</span>
+              {isAdmin && (
+                <button
+                  onClick={() => { setEditingIncorporacaoId(null); setIncorporacaoForm(INCORPORACAO_INITIAL); setShowIncorporacaoForm(true); }}
+                  className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium ml-auto"
+                >
+                  <Plus size={18} /> Novo Item
+                </button>
+              )}
+            </div>
+            <div className="overflow-x-auto">
+              {loading ? (
+                <div className="flex justify-center items-center py-16"><Loader2 size={32} className="animate-spin text-teal-500" /></div>
+              ) : filteredIncorporacoes.length === 0 ? (
+                <div className="text-center py-16 text-slate-400">
+                  <Package size={48} className="mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">Nenhum item pendente de incorporação registrado ainda</p>
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50">
+                      {['Escola', 'Descrição', 'Qtd.', 'Status', 'Registrado por', 'Data'].map(h => (
+                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                      ))}
+                      <th className="sticky right-0 z-10 bg-slate-50 text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)]" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {filteredIncorporacoes.map((i, idx) => (
+                      <tr key={i.id || idx} className="group hover:bg-slate-50 transition-colors">
+                        <td className="px-4 py-3 font-medium text-slate-800">{i.escola_nome}</td>
+                        <td className="px-4 py-3 text-slate-600 max-w-xs truncate">{i.descricao}</td>
+                        <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{i.quantidade}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {i.status === 'Incorporado' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
+                              <Check size={12} /> Incorporado{i.numero_patrimonial ? ` • ${i.numero_patrimonial}` : ''}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700">
+                              <AlertTriangle size={12} /> Pendente
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{i.autor_nome}</td>
+                        <td className="px-4 py-3 text-slate-400 whitespace-nowrap text-xs">{formatDateTime(i.data_registro)}</td>
+                        <td className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 px-4 py-3 whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)] transition-colors">
+                          <div className="flex items-center gap-1">
+                            {i.nota_fiscal_link && (
+                              <button
+                                onClick={() => setDocModal({ url: i.nota_fiscal_link, title: `Nota Fiscal — ${i.escola_nome}` })}
+                                title="Visualizar Nota Fiscal do item"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 hover:border-amber-300 transition-colors whitespace-nowrap"
+                              >
+                                <ExternalLink size={12} /> NF
+                              </button>
+                            )}
+                            {isAdmin && i.status !== 'Incorporado' && (
+                              <button
+                                onClick={() => { setIncorporarAlvo(i); setNumeroPatrimonialIncorporar(''); }}
+                                title="Marcar como incorporado"
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 hover:border-emerald-300 transition-colors whitespace-nowrap"
+                              >
+                                <Check size={14} /> Incorporar
+                              </button>
+                            )}
+                            {isAdmin && (
+                              <button
+                                onClick={() => openEditIncorporacao(i)}
+                                title="Editar item"
+                                className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                              >
+                                <Pencil size={16} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Modal: Novo Atendimento */}
       {showAtendimentoForm && (
         <div className="fixed inset-0 z-[110] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1390,6 +1613,101 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 <button type="submit" disabled={saving}
                   className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2">
                   {saving ? <><Loader2 size={16} className="animate-spin" /> Salvando...</> : editingRemanejamentoId ? 'Salvar Alterações' : 'Registrar Remanejamento'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Novo Item Pendente de Incorporação */}
+      {showIncorporacaoForm && (
+        <div className="fixed inset-0 z-[110] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100 sticky top-0 bg-white z-10">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                {editingIncorporacaoId ? <Pencil size={20} className="text-teal-600" /> : <Package size={20} className="text-teal-600" />}
+                {editingIncorporacaoId ? 'Editar Item' : 'Novo Item Pendente de Incorporação'}
+              </h2>
+              <button onClick={() => { setShowIncorporacaoForm(false); setEditingIncorporacaoId(null); }} className="p-2 hover:bg-slate-100 rounded-lg transition-colors"><X size={18} className="text-slate-500" /></button>
+            </div>
+            <form onSubmit={handleSubmitIncorporacao} className="p-5 space-y-4">
+              <p className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2.5">
+                Use este cadastro para itens que a escola recebeu (ex.: compra direta, doação) e que ainda não têm nº patrimonial, mas que <strong>não</strong> vieram de um remanejamento entre escolas.
+              </p>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Unidade Escolar <span className="text-red-500">*</span></label>
+                <select required value={incorporacaoForm.escola_id}
+                  onChange={e => {
+                    const escola = escolas.find(x => x.id === e.target.value);
+                    setIncorporacaoForm(prev => ({ ...prev, escola_id: e.target.value, escola_nome: escola?.name || '' }));
+                  }}
+                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white">
+                  <option value="">Selecione a escola...</option>
+                  {escolas.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Descrição do Item <span className="text-red-500">*</span></label>
+                <textarea rows={2} required value={incorporacaoForm.descricao}
+                  onChange={e => setIncorporacaoForm(prev => ({ ...prev, descricao: e.target.value }))}
+                  placeholder="Ex.: Notebook Dell, impressora, cadeiras..."
+                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Quantidade <span className="text-red-500">*</span></label>
+                <input type="number" min={1} required value={incorporacaoForm.quantidade}
+                  onChange={e => setIncorporacaoForm(prev => ({ ...prev, quantidade: e.target.value }))}
+                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              </div>
+              <div>
+                <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700 mb-1.5">
+                  <Link2 size={14} /> Link da Nota Fiscal (Google Drive)
+                </label>
+                <input type="url" value={incorporacaoForm.nota_fiscal_link}
+                  onChange={e => setIncorporacaoForm(prev => ({ ...prev, nota_fiscal_link: e.target.value }))}
+                  placeholder="https://drive.google.com/..."
+                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => { setShowIncorporacaoForm(false); setEditingIncorporacaoId(null); }}
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">Cancelar</button>
+                <button type="submit" disabled={saving}
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2">
+                  {saving ? <><Loader2 size={16} className="animate-spin" /> Salvando...</> : editingIncorporacaoId ? 'Salvar Alterações' : 'Registrar Item'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Marcar Item como Incorporado */}
+      {incorporarAlvo && (
+        <div className="fixed inset-0 z-[110] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Check size={20} className="text-emerald-600" /> Confirmar Incorporação</h2>
+              <button onClick={() => setIncorporarAlvo(null)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors"><X size={18} className="text-slate-500" /></button>
+            </div>
+            <form onSubmit={handleMarcarIncorporado} className="p-5 space-y-4">
+              <div className="bg-slate-50 rounded-lg px-3 py-2.5 text-sm">
+                <p className="font-medium text-slate-800">{incorporarAlvo.descricao}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{incorporarAlvo.escola_nome} • Qtd: {incorporarAlvo.quantidade}</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Nº Patrimonial Atribuído <span className="text-red-500">*</span></label>
+                <input type="text" required autoFocus value={numeroPatrimonialIncorporar}
+                  onChange={e => setNumeroPatrimonialIncorporar(e.target.value)}
+                  placeholder="Nº de chapa patrimonial"
+                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setIncorporarAlvo(null)}
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">Cancelar</button>
+                <button type="submit" disabled={saving}
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2">
+                  {saving ? <><Loader2 size={16} className="animate-spin" /> Salvando...</> : 'Confirmar Incorporação'}
                 </button>
               </div>
             </form>

@@ -13,6 +13,7 @@ const SHEET_ID = Deno.env.get('VISITAS_SHEET_ID') ?? ''
 const ATENDIMENTOS_SHEET = 'Atendimentos_Teams'
 const OBSERVACOES_SHEET = 'Observacoes_Processos'
 const REMANEJAMENTOS_SHEET = 'Remanejamentos_Patrimonio'
+const INCORPORACOES_SHEET = 'Incorporacoes_Pendentes'
 
 const ATENDIMENTOS_COLUMNS = [
   'id', 'data_atendimento', 'escola_id', 'escola_nome', 'fde_code',
@@ -30,6 +31,16 @@ const REMANEJAMENTOS_COLUMNS = [
   'numero_patrimonial', 'descricao', 'numero_documento', 'gr_link', 'tipo_documento', 'cadastrado_sam',
   'pendente_incorporacao', 'nota_fiscal_link',
   'autor_id', 'autor_nome', 'data_registro',
+]
+// Itens recebidos por uma escola (ex.: compra direta, doação) que ainda não têm nº
+// patrimonial e não passaram por remanejamento entre escolas — ficam "Pendente" até
+// o admin regional confirmar a incorporação junto ao órgão central e informar o nº
+// de chapa patrimonial atribuído.
+const INCORPORACOES_COLUMNS = [
+  'id', 'escola_id', 'escola_nome', 'descricao', 'quantidade', 'nota_fiscal_link',
+  'status', 'numero_patrimonial',
+  'autor_id', 'autor_nome', 'data_registro',
+  'incorporado_por', 'data_incorporacao',
 ]
 
 type Profile = { role: string; school_id: string | null; full_name: string | null }
@@ -308,6 +319,75 @@ Deno.serve(async (req) => {
         row.set('cadastrado_sam', body.cadastrado_sam ? 'TRUE' : 'FALSE')
         row.set('pendente_incorporacao', body.pendente_incorporacao ? 'TRUE' : 'FALSE')
         row.set('nota_fiscal_link', String(body.nota_fiscal_link || ''))
+        await row.save()
+        return ok(corsHeaders, { success: true })
+      }
+
+      case 'listar_incorporacoes': {
+        const sheet = await getOrCreateSheet(doc, INCORPORACOES_SHEET, INCORPORACOES_COLUMNS)
+        const rows = await sheet.getRows()
+        let incorporacoes = rows.map((r: any) => rowToObject(r, INCORPORACOES_COLUMNS))
+        if (p.role === 'school_manager') {
+          incorporacoes = incorporacoes.filter((i: any) => i.escola_id === p.school_id)
+        }
+        return ok(corsHeaders, incorporacoes)
+      }
+
+      case 'registrar_incorporacao': {
+        exigirRegionalAdmin(p)
+        const sheet = await getOrCreateSheet(doc, INCORPORACOES_SHEET, INCORPORACOES_COLUMNS)
+        if (!body.escola_id || !body.descricao || !body.quantidade) {
+          throw new Error('Escola, descrição do item e quantidade são obrigatórios.')
+        }
+        await sheet.addRow({
+          id: crypto.randomUUID(),
+          escola_id: String(body.escola_id),
+          escola_nome: String(body.escola_nome || ''),
+          descricao: String(body.descricao),
+          quantidade: String(body.quantidade),
+          nota_fiscal_link: String(body.nota_fiscal_link || ''),
+          status: 'Pendente',
+          numero_patrimonial: '',
+          autor_id: user.id,
+          autor_nome: autorNome,
+          data_registro: new Date().toISOString(),
+          incorporado_por: '',
+          data_incorporacao: '',
+        })
+        return ok(corsHeaders, { success: true })
+      }
+
+      case 'editar_incorporacao': {
+        exigirRegionalAdmin(p)
+        const sheet = await getOrCreateSheet(doc, INCORPORACOES_SHEET, INCORPORACOES_COLUMNS)
+        if (!body.id) throw new Error('Item não informado.')
+        if (!body.escola_id || !body.descricao || !body.quantidade) {
+          throw new Error('Escola, descrição do item e quantidade são obrigatórios.')
+        }
+        const rows = await sheet.getRows()
+        const row = rows.find((r: any) => r.get('id') === String(body.id))
+        if (!row) throw new Error('Item não encontrado.')
+        row.set('escola_id', String(body.escola_id))
+        row.set('escola_nome', String(body.escola_nome || ''))
+        row.set('descricao', String(body.descricao))
+        row.set('quantidade', String(body.quantidade))
+        row.set('nota_fiscal_link', String(body.nota_fiscal_link || ''))
+        await row.save()
+        return ok(corsHeaders, { success: true })
+      }
+
+      case 'marcar_incorporado': {
+        exigirRegionalAdmin(p)
+        const sheet = await getOrCreateSheet(doc, INCORPORACOES_SHEET, INCORPORACOES_COLUMNS)
+        if (!body.id) throw new Error('Item não informado.')
+        if (!body.numero_patrimonial) throw new Error('Nº patrimonial atribuído é obrigatório para confirmar a incorporação.')
+        const rows = await sheet.getRows()
+        const row = rows.find((r: any) => r.get('id') === String(body.id))
+        if (!row) throw new Error('Item não encontrado.')
+        row.set('status', 'Incorporado')
+        row.set('numero_patrimonial', String(body.numero_patrimonial))
+        row.set('incorporado_por', autorNome)
+        row.set('data_incorporacao', new Date().toISOString())
         await row.save()
         return ok(corsHeaders, { success: true })
       }
