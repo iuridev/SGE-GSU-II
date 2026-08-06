@@ -4,6 +4,7 @@ import { resolveViewRole } from '../lib/roles';
 import {
   Plus, Search, X, Loader2, School, CalendarDays, Target,
   MapPin, BarChart3, TrendingUp, Users, RefreshCw, ExternalLink,
+  AlertTriangle, Navigation, Route,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -33,6 +34,8 @@ interface EscolaOption {
   id: string;
   name: string;
   fde_code?: string;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 interface Visita {
@@ -64,6 +67,7 @@ export default function VisitasEscolares() {
   const [userRole, setUserRole] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState(FORM_INITIAL);
+  const [recommendFor, setRecommendFor] = useState<(EscolaOption & { dias: number | null }) | null>(null);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterObjetivo, setFilterObjetivo] = useState('');
@@ -96,7 +100,7 @@ export default function VisitasEscolares() {
     try {
       const { data } = await supabase
         .from('schools')
-        .select('id, name, fde_code')
+        .select('id, name, fde_code, latitude, longitude')
         .order('name');
       if (data) setEscolas(data as EscolaOption[]);
     } catch (e) {
@@ -190,6 +194,12 @@ export default function VisitasEscolares() {
     }));
   };
 
+  const openVisitaForm = (escolaId: string) => {
+    handleEscolaChange(escolaId);
+    setRecommendFor(null);
+    setShowForm(true);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.objetivo) {
@@ -239,6 +249,57 @@ export default function VisitasEscolares() {
     () => new Set(visitas.map(v => normalizeEscolaNome(v.escola_nome)).filter(Boolean)).size,
     [visitas],
   );
+
+  // Ranking de escolas por tempo desde a última visita técnica (nunca visitada fica no topo)
+  const escolasSemVisita = useMemo(() => {
+    const lastVisitByEscola = new Map<string, string>();
+    visitas.forEach(v => {
+      if (!v.data_visita) return;
+      const key = normalizeEscolaNome(v.escola_nome);
+      if (!key) return;
+      const atual = lastVisitByEscola.get(key);
+      if (!atual || v.data_visita > atual) lastVisitByEscola.set(key, v.data_visita);
+    });
+
+    return escolas
+      .map(e => {
+        const lastDate = lastVisitByEscola.get(normalizeEscolaNome(e.name)) || null;
+        const dias = lastDate
+          ? Math.floor((now.getTime() - new Date(`${lastDate}T00:00:00`).getTime()) / 86400000)
+          : null; // null = nunca visitada
+        return { ...e, lastDate, dias };
+      })
+      .sort((a, b) => {
+        if (a.dias === null && b.dias === null) return a.name.localeCompare(b.name);
+        if (a.dias === null) return -1;
+        if (b.dias === null) return 1;
+        return b.dias - a.dias;
+      });
+  }, [escolas, visitas]);
+
+  const OVERDUE_THRESHOLD_DAYS = 60;
+  const isOverdue = (dias: number | null) => dias === null || dias >= OVERDUE_THRESHOLD_DAYS;
+
+  const distanceKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
+
+  const recomendacoesRota = useMemo(() => {
+    if (!recommendFor?.latitude || !recommendFor?.longitude) return [];
+    return escolasSemVisita
+      .filter(e => e.id !== recommendFor.id && isOverdue(e.dias) && e.latitude && e.longitude)
+      .map(e => ({
+        ...e,
+        distanciaKm: distanceKm(recommendFor.latitude!, recommendFor.longitude!, e.latitude!, e.longitude!),
+      }))
+      .sort((a, b) => a.distanciaKm - b.distanciaKm)
+      .slice(0, 2);
+  }, [recommendFor, escolasSemVisita]);
 
   const OBJETIVOS_SET = useMemo(() => new Set(OBJETIVOS_VISITA), []);
   const OUTROS_LABEL = 'Outros (registros manuais)';
@@ -381,6 +442,46 @@ export default function VisitasEscolares() {
           </div>
         ))}
       </div>
+
+      {/* Escolas Prioritárias — mais tempo sem visita técnica */}
+      {userRole === 'regional_admin' && (
+        <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+          <h2 className="text-sm font-semibold text-slate-700 mb-1 flex items-center gap-2">
+            <AlertTriangle size={16} className="text-amber-500" />
+            Escolas Prioritárias — Mais Tempo sem Visita Técnica
+          </h2>
+          <p className="text-xs text-slate-400 mb-4">
+            Ao planejar uma visita, o sistema sugere escolas próximas também atrasadas para otimizar a viagem.
+          </p>
+          {loading ? (
+            <div className="flex justify-center items-center py-10">
+              <Loader2 size={24} className="animate-spin text-teal-500" />
+            </div>
+          ) : escolasSemVisita.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-6">Nenhuma escola cadastrada</p>
+          ) : (
+            <div className="divide-y divide-slate-50">
+              {escolasSemVisita.slice(0, 8).map(e => (
+                <div key={e.id} className="flex items-center justify-between gap-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-slate-800 truncate">{e.name}</p>
+                    <p className={`text-xs ${isOverdue(e.dias) ? 'text-red-500' : 'text-slate-400'}`}>
+                      {e.dias === null ? 'Nunca visitada' : `${e.dias} dia(s) sem visita`}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setRecommendFor(e)}
+                    className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-teal-700 border border-teal-200 bg-teal-50 rounded-lg hover:bg-teal-100 transition-colors"
+                  >
+                    <Route size={14} />
+                    Planejar Visita
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -625,6 +726,91 @@ export default function VisitasEscolares() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de recomendação de roteiro */}
+      {userRole === 'regional_admin' && recommendFor && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100 sticky top-0 bg-white z-10">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <Route size={20} className="text-teal-600" />
+                Recomendação de Roteiro
+              </h2>
+              <button onClick={() => setRecommendFor(null)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+                <X size={18} className="text-slate-500" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Escola selecionada</p>
+                <div className="flex items-center justify-between gap-3 bg-teal-50 border border-teal-100 rounded-xl px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-800 truncate">{recommendFor.name}</p>
+                    <p className="text-xs text-red-500">
+                      {recommendFor.dias === null ? 'Nunca visitada' : `${recommendFor.dias} dia(s) sem visita`}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => openVisitaForm(recommendFor.id)}
+                    className="shrink-0 px-3 py-1.5 text-xs font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition-colors"
+                  >
+                    Registrar Visita
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                  <Navigation size={13} />
+                  Escolas próximas também atrasadas
+                </p>
+
+                {!recommendFor.latitude || !recommendFor.longitude ? (
+                  <p className="text-sm text-slate-400 bg-slate-50 rounded-xl px-4 py-3">
+                    Esta escola não possui latitude/longitude cadastrada, então não é possível calcular a distância
+                    até outras unidades. Cadastre a localização em Unidades Escolares para habilitar a recomendação.
+                  </p>
+                ) : recomendacoesRota.length === 0 ? (
+                  <p className="text-sm text-slate-400 bg-slate-50 rounded-xl px-4 py-3">
+                    Nenhuma escola próxima com localização cadastrada e também atrasada foi encontrada.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {recomendacoesRota.map(r => (
+                      <div key={r.id} className="flex items-center justify-between gap-3 border border-slate-100 rounded-xl px-4 py-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate">{r.name}</p>
+                          <p className="text-xs text-slate-400">
+                            {r.distanciaKm < 1 ? `${Math.round(r.distanciaKm * 1000)} m` : `${r.distanciaKm.toFixed(1)} km`} de distância
+                            {' · '}
+                            <span className="text-red-500">
+                              {r.dias === null ? 'nunca visitada' : `${r.dias} dia(s) sem visita`}
+                            </span>
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => openVisitaForm(r.id)}
+                          className="shrink-0 px-3 py-1.5 text-xs font-medium text-teal-700 border border-teal-200 bg-teal-50 rounded-lg hover:bg-teal-100 transition-colors"
+                        >
+                          Registrar
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={() => setRecommendFor(null)}
+                className="w-full px-4 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}
