@@ -250,20 +250,32 @@ export default function VisitasEscolares() {
     [visitas],
   );
 
+  // A planilha legada (registro manual) costuma trazer o nome sem o título do patrono
+  // ("LOUIS BRAILLE" em vez de "LOUIS BRAILLE PROFESSOR"), então além da igualdade exata
+  // aceitamos casamento por prefixo respeitando limite de palavra.
+  const escolaNomesCorrespondem = (a: string, b: string) => {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    const [curto, longo] = a.length < b.length ? [a, b] : [b, a];
+    return longo.startsWith(`${curto} `);
+  };
+
   // Ranking de escolas por tempo desde a última visita técnica (nunca visitada fica no topo)
   const escolasSemVisita = useMemo(() => {
-    const lastVisitByEscola = new Map<string, string>();
-    visitas.forEach(v => {
-      if (!v.data_visita) return;
-      const key = normalizeEscolaNome(v.escola_nome);
-      if (!key) return;
-      const atual = lastVisitByEscola.get(key);
-      if (!atual || v.data_visita > atual) lastVisitByEscola.set(key, v.data_visita);
-    });
+    const visitasComData = visitas
+      .filter(v => v.data_visita)
+      .map(v => ({ nome: normalizeEscolaNome(v.escola_nome), data: v.data_visita }))
+      .filter(v => v.nome);
 
     return escolas
       .map(e => {
-        const lastDate = lastVisitByEscola.get(normalizeEscolaNome(e.name)) || null;
+        const nomeEscola = normalizeEscolaNome(e.name);
+        let lastDate: string | null = null;
+        for (const v of visitasComData) {
+          if (escolaNomesCorrespondem(nomeEscola, v.nome) && (!lastDate || v.data > lastDate)) {
+            lastDate = v.data;
+          }
+        }
         const dias = lastDate
           ? Math.floor((now.getTime() - new Date(`${lastDate}T00:00:00`).getTime()) / 86400000)
           : null; // null = nunca visitada
