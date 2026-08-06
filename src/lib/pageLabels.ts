@@ -25,6 +25,7 @@ export const PAGE_LABELS: Record<string, string> = {
   'zeladoria': 'Zeladoria',
   'visitas-escolares': 'Visitas às Escolas',
   'atendimento-patrimonio': 'Atendimento Patrimônio',
+  'reforma-funap': 'Reforma FUNAP (Carteiras/Cadeiras)',
   'educacao-patrimonial': 'Educação Patrimonial',
   'patrimonio': 'Processos Patrimônio',
   'aquisicao': 'Aquisição de Itens',
