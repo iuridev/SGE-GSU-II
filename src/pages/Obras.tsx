@@ -34,7 +34,14 @@ function getStatusInfo(status: string) {
   const n = normalizeStatus(status);
   if (n === 'CONCLUÍDO')  return { label: 'Concluída',   dot: 'bg-emerald-400', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200',  bar: 'bg-emerald-400', rawStatus: 'concluido' };
   if (n === 'PARALISADO') return { label: 'Paralisada',  dot: 'bg-slate-400',   badge: 'bg-slate-50 text-slate-600 border-slate-200',         bar: 'bg-slate-300',   rawStatus: 'paralisado' };
-  return                         { label: 'Em Andamento', dot: 'bg-orange-400',  badge: 'bg-orange-50 text-orange-700 border-orange-200',      bar: 'bg-orange-400',  rawStatus: 'andamento' };
+  // Cai no balde "EM ANDAMENTO" apenas para fins de KPI/filtro/gráfico. Para o
+  // badge, se o texto da planilha não for literalmente "andamento" (ex: Planejamento,
+  // Orçamento, Pré-Contratação), mostra o status real em vez de rotular como "Em Andamento".
+  const raw = (status || '').trim();
+  if (raw && !/andamento/i.test(raw)) {
+    return { label: raw, dot: 'bg-sky-400', badge: 'bg-sky-50 text-sky-700 border-sky-200', bar: 'bg-sky-300', rawStatus: 'outro' };
+  }
+  return { label: 'Em Andamento', dot: 'bg-orange-400', badge: 'bg-orange-50 text-orange-700 border-orange-200', bar: 'bg-orange-400', rawStatus: 'andamento' };
 }
 
 // --- Component ---
@@ -529,6 +536,7 @@ export function Obras() {
                 const topColor =
                   si.rawStatus === 'concluido'  ? 'bg-emerald-500' :
                   si.rawStatus === 'paralisado' ? 'bg-slate-300' :
+                  si.rawStatus === 'outro'      ? 'bg-sky-400' :
                   'bg-gradient-to-r from-orange-500 to-amber-400';
                 return (
                   <div key={i} className="group bg-white border border-stone-200 rounded-2xl overflow-hidden hover:shadow-lg hover:shadow-orange-100/60 hover:-translate-y-0.5 transition-all duration-200">
