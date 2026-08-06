@@ -114,6 +114,23 @@ interface Incorporacao {
   data_incorporacao: string;
 }
 
+// Linha unificada da aba "Itens a Incorporar": mescla itens cadastrados diretamente
+// (aba Incorporacoes_Pendentes) com remanejamentos marcados como pendente_incorporacao,
+// para que o admin trate as duas origens numa única lista de pendências.
+interface IncorporacaoRow {
+  origem: 'incorporacao' | 'remanejamento';
+  id: string;
+  escola_id: string;
+  escola_nome: string;
+  descricao: string;
+  quantidade: string;
+  nota_fiscal_link: string;
+  status: string;
+  numero_patrimonial: string;
+  autor_nome: string;
+  data_registro: string;
+}
+
 interface ProcessoOption {
   origem: 'asset_process' | 'processo_furto' | 'atendimento' | 'remanejamento';
   id: string;
@@ -182,7 +199,9 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
   const [showIncorporacaoForm, setShowIncorporacaoForm] = useState(false);
   const [incorporacaoForm, setIncorporacaoForm] = useState(INCORPORACAO_INITIAL);
   const [editingIncorporacaoId, setEditingIncorporacaoId] = useState<string | null>(null);
-  const [incorporarAlvo, setIncorporarAlvo] = useState<Incorporacao | null>(null);
+  const [incorporarAlvo, setIncorporarAlvo] = useState<
+    { origem: 'incorporacao'; item: Incorporacao } | { origem: 'remanejamento'; item: Remanejamento } | null
+  >(null);
   const [numeroPatrimonialIncorporar, setNumeroPatrimonialIncorporar] = useState('');
 
   const [processos, setProcessos] = useState<ProcessoOption[]>([]);
@@ -580,13 +599,25 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
   const handleMarcarIncorporado = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!incorporarAlvo || !numeroPatrimonialIncorporar.trim()) return;
+    const numero = numeroPatrimonialIncorporar.trim();
     setSaving(true);
     try {
-      await invoke('marcar_incorporado', { id: incorporarAlvo.id, numero_patrimonial: numeroPatrimonialIncorporar.trim() });
-      await notificarEscola(
-        incorporarAlvo.escola_id,
-        `✅ Item incorporado ao patrimônio: ${incorporarAlvo.descricao} — nº patrimonial ${numeroPatrimonialIncorporar.trim()}.`
-      );
+      if (incorporarAlvo.origem === 'incorporacao') {
+        const item = incorporarAlvo.item;
+        await invoke('marcar_incorporado', { id: item.id, numero_patrimonial: numero });
+        await notificarEscola(item.escola_id, `✅ Item incorporado ao patrimônio: ${item.descricao} — nº patrimonial ${numero}.`);
+      } else {
+        const r = incorporarAlvo.item;
+        await invoke('editar_remanejamento', {
+          ...r,
+          numero_patrimonial: numero,
+          pendente_incorporacao: false,
+          cadastrado_sam: r.cadastrado_sam === 'TRUE',
+        });
+        const msg = `✅ Item remanejado incorporado ao patrimônio: ${r.descricao || r.numero_documento} — nº patrimonial ${numero}.`;
+        await notificarEscola(r.escola_origem_id, msg);
+        await notificarEscola(r.escola_destino_id, msg);
+      }
       setIncorporarAlvo(null);
       setNumeroPatrimonialIncorporar('');
       setTimeout(fetchAll, 1500);
@@ -686,20 +717,39 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     });
   }, [remanejamentos, searchTerm, filterPendenteIncorporacao]);
 
+  const itensIncorporacaoUnificados = useMemo<IncorporacaoRow[]>(() => {
+    const diretos: IncorporacaoRow[] = incorporacoes.map(i => ({
+      origem: 'incorporacao', id: i.id, escola_id: i.escola_id, escola_nome: i.escola_nome,
+      descricao: i.descricao, quantidade: i.quantidade, nota_fiscal_link: i.nota_fiscal_link,
+      status: i.status, numero_patrimonial: i.numero_patrimonial,
+      autor_nome: i.autor_nome, data_registro: i.data_registro,
+    }));
+    const deRemanejamento: IncorporacaoRow[] = remanejamentos
+      .filter(r => r.pendente_incorporacao === 'TRUE')
+      .map(r => ({
+        origem: 'remanejamento', id: r.id, escola_id: r.escola_destino_id || r.escola_origem_id,
+        escola_nome: r.escola_destino_nome || r.escola_origem_nome,
+        descricao: r.descricao || `Remanejamento ${r.numero_documento}`,
+        quantidade: '-', nota_fiscal_link: r.nota_fiscal_link, status: 'Pendente',
+        numero_patrimonial: '', autor_nome: r.autor_nome, data_registro: r.data_registro,
+      }));
+    return [...diretos, ...deRemanejamento].sort((a, b) => (a.data_registro < b.data_registro ? 1 : -1));
+  }, [incorporacoes, remanejamentos]);
+
   const incorporacoesPendentes = useMemo(
-    () => incorporacoes.filter(i => i.status !== 'Incorporado').length,
-    [incorporacoes],
+    () => itensIncorporacaoUnificados.filter(i => i.status !== 'Incorporado').length,
+    [itensIncorporacaoUnificados],
   );
 
   const filteredIncorporacoes = useMemo(() => {
     const q = searchTerm.toLowerCase();
-    return incorporacoes.filter(i => {
+    return itensIncorporacaoUnificados.filter(i => {
       const matchSearch = !q ||
         i.escola_nome?.toLowerCase().includes(q) ||
         i.descricao?.toLowerCase().includes(q);
       return matchSearch;
     });
-  }, [incorporacoes, searchTerm]);
+  }, [itensIncorporacaoUnificados, searchTerm]);
 
   const filteredProcessos = useMemo(() => {
     const q = pickerSearch.toLowerCase();
@@ -1276,9 +1326,9 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         <>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {[
-              { label: 'Total de Itens', value: incorporacoes.length, icon: <Package size={20} className="text-teal-600" />, bg: 'bg-teal-50' },
+              { label: 'Total de Itens', value: itensIncorporacaoUnificados.length, icon: <Package size={20} className="text-teal-600" />, bg: 'bg-teal-50' },
               { label: 'Pendentes de Incorporação', value: incorporacoesPendentes, icon: <AlertTriangle size={20} className="text-amber-600" />, bg: 'bg-amber-50' },
-              { label: 'Incorporados', value: incorporacoes.length - incorporacoesPendentes, icon: <Check size={20} className="text-emerald-600" />, bg: 'bg-emerald-50' },
+              { label: 'Incorporados', value: itensIncorporacaoUnificados.length - incorporacoesPendentes, icon: <Check size={20} className="text-emerald-600" />, bg: 'bg-emerald-50' },
             ].map(card => (
               <div key={card.label} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
                 <div className="flex items-center gap-3">
@@ -1324,64 +1374,80 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50">
-                      {['Escola', 'Descrição', 'Qtd.', 'Status', 'Registrado por', 'Data'].map(h => (
+                      {['Origem', 'Escola', 'Descrição', 'Qtd.', 'Status', 'Registrado por', 'Data'].map(h => (
                         <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                       <th className="sticky right-0 z-10 bg-slate-50 text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)]" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {filteredIncorporacoes.map((i, idx) => (
-                      <tr key={i.id || idx} className="group hover:bg-slate-50 transition-colors">
-                        <td className="px-4 py-3 font-medium text-slate-800">{i.escola_nome}</td>
-                        <td className="px-4 py-3 text-slate-600 max-w-xs truncate">{i.descricao}</td>
-                        <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{i.quantidade}</td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {i.status === 'Incorporado' ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
-                              <Check size={12} /> Incorporado{i.numero_patrimonial ? ` • ${i.numero_patrimonial}` : ''}
+                    {filteredIncorporacoes.map((i, idx) => {
+                      const incorporacaoOrigem = i.origem === 'incorporacao' ? incorporacoes.find(x => x.id === i.id) : undefined;
+                      const remanejamentoOrigem = i.origem === 'remanejamento' ? remanejamentos.find(x => x.id === i.id) : undefined;
+                      return (
+                        <tr key={`${i.origem}-${i.id || idx}`} className="group hover:bg-slate-50 transition-colors">
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${i.origem === 'remanejamento' ? 'bg-violet-50 text-violet-700' : 'bg-slate-100 text-slate-600'}`}>
+                              {i.origem === 'remanejamento' ? 'Remanejamento' : 'Direto'}
                             </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700">
-                              <AlertTriangle size={12} /> Pendente
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{i.autor_nome}</td>
-                        <td className="px-4 py-3 text-slate-400 whitespace-nowrap text-xs">{formatDateTime(i.data_registro)}</td>
-                        <td className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 px-4 py-3 whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)] transition-colors">
-                          <div className="flex items-center gap-1">
-                            {i.nota_fiscal_link && (
-                              <button
-                                onClick={() => setDocModal({ url: i.nota_fiscal_link, title: `Nota Fiscal — ${i.escola_nome}` })}
-                                title="Visualizar Nota Fiscal do item"
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 hover:border-amber-300 transition-colors whitespace-nowrap"
-                              >
-                                <ExternalLink size={12} /> NF
-                              </button>
+                          </td>
+                          <td className="px-4 py-3 font-medium text-slate-800">{i.escola_nome}</td>
+                          <td className="px-4 py-3 text-slate-600 max-w-xs truncate">{i.descricao}</td>
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{i.quantidade}</td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            {i.status === 'Incorporado' ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
+                                <Check size={12} /> Incorporado{i.numero_patrimonial ? ` • ${i.numero_patrimonial}` : ''}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700">
+                                <AlertTriangle size={12} /> Pendente
+                              </span>
                             )}
-                            {isAdmin && i.status !== 'Incorporado' && (
-                              <button
-                                onClick={() => { setIncorporarAlvo(i); setNumeroPatrimonialIncorporar(''); }}
-                                title="Marcar como incorporado"
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 hover:border-emerald-300 transition-colors whitespace-nowrap"
-                              >
-                                <Check size={14} /> Incorporar
-                              </button>
-                            )}
-                            {isAdmin && (
-                              <button
-                                onClick={() => openEditIncorporacao(i)}
-                                title="Editar item"
-                                className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
-                              >
-                                <Pencil size={16} />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{i.autor_nome}</td>
+                          <td className="px-4 py-3 text-slate-400 whitespace-nowrap text-xs">{formatDateTime(i.data_registro)}</td>
+                          <td className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 px-4 py-3 whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)] transition-colors">
+                            <div className="flex items-center gap-1">
+                              {i.nota_fiscal_link && (
+                                <button
+                                  onClick={() => setDocModal({ url: i.nota_fiscal_link, title: `Nota Fiscal — ${i.escola_nome}` })}
+                                  title="Visualizar Nota Fiscal do item"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 hover:border-amber-300 transition-colors whitespace-nowrap"
+                                >
+                                  <ExternalLink size={12} /> NF
+                                </button>
+                              )}
+                              {isAdmin && i.status !== 'Incorporado' && (
+                                <button
+                                  onClick={() => {
+                                    if (i.origem === 'incorporacao' && incorporacaoOrigem) setIncorporarAlvo({ origem: 'incorporacao', item: incorporacaoOrigem });
+                                    else if (i.origem === 'remanejamento' && remanejamentoOrigem) setIncorporarAlvo({ origem: 'remanejamento', item: remanejamentoOrigem });
+                                    setNumeroPatrimonialIncorporar('');
+                                  }}
+                                  title="Marcar como incorporado"
+                                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 hover:border-emerald-300 transition-colors whitespace-nowrap"
+                                >
+                                  <Check size={14} /> Incorporar
+                                </button>
+                              )}
+                              {isAdmin && (
+                                <button
+                                  onClick={() => {
+                                    if (i.origem === 'incorporacao' && incorporacaoOrigem) openEditIncorporacao(incorporacaoOrigem);
+                                    else if (i.origem === 'remanejamento' && remanejamentoOrigem) openEditRemanejamento(remanejamentoOrigem);
+                                  }}
+                                  title={i.origem === 'remanejamento' ? 'Editar remanejamento' : 'Editar item'}
+                                  className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                                >
+                                  <Pencil size={16} />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -1692,8 +1758,17 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
             </div>
             <form onSubmit={handleMarcarIncorporado} className="p-5 space-y-4">
               <div className="bg-slate-50 rounded-lg px-3 py-2.5 text-sm">
-                <p className="font-medium text-slate-800">{incorporarAlvo.descricao}</p>
-                <p className="text-xs text-slate-500 mt-0.5">{incorporarAlvo.escola_nome} • Qtd: {incorporarAlvo.quantidade}</p>
+                {incorporarAlvo.origem === 'incorporacao' ? (
+                  <>
+                    <p className="font-medium text-slate-800">{incorporarAlvo.item.descricao}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{incorporarAlvo.item.escola_nome} • Qtd: {incorporarAlvo.item.quantidade}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-medium text-slate-800">{incorporarAlvo.item.descricao || `Remanejamento ${incorporarAlvo.item.numero_documento}`}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{incorporarAlvo.item.escola_destino_nome || incorporarAlvo.item.escola_origem_nome} • Doc: {incorporarAlvo.item.numero_documento}</p>
+                  </>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">Nº Patrimonial Atribuído <span className="text-red-500">*</span></label>
