@@ -181,17 +181,20 @@ const REMANEJAMENTO_INITIAL = {
 const INCORPORACAO_INITIAL = {
   escola_id: '', escola_nome: '',
   origem_aquisicao: 'Entrega FDE/SEDUC' as OrigemAquisicao,
-  data_aquisicao: '', ano_verba: '', nota_fiscal_link: '',
+  ano_verba: '', nota_fiscal_link: '',
 };
 
+// Data de aquisição e valor ficam por item: cada item de uma mesma leva pode ter sido
+// comprado em data e por valor diferentes (ex.: notas fiscais distintas).
 interface IncorporacaoItemForm {
   id: number;
   descricao: string;
   quantidade: string;
+  data_aquisicao: string;
   valor_item: string;
 }
 
-const INCORPORACAO_ITEM_INITIAL = (): IncorporacaoItemForm => ({ id: Date.now(), descricao: '', quantidade: '', valor_item: '' });
+const INCORPORACAO_ITEM_INITIAL = (): IncorporacaoItemForm => ({ id: Date.now(), descricao: '', quantidade: '', data_aquisicao: '', valor_item: '' });
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'atendimentos', label: 'Atendimentos (Teams / E-mail)', icon: <Video size={16} /> },
@@ -608,8 +611,8 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       alert('Escola e origem do item são obrigatórias.');
       return;
     }
-    if (pdde && (!f.data_aquisicao || !f.ano_verba)) {
-      alert('Data de aquisição e ano da verba são obrigatórios para itens adquiridos via PDDE.');
+    if (pdde && !f.ano_verba) {
+      alert('Ano da verba é obrigatório para itens adquiridos via PDDE.');
       return;
     }
     for (const item of incorporacaoItens) {
@@ -617,8 +620,8 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         alert('Preencha descrição e quantidade de todos os itens.');
         return;
       }
-      if (pdde && !item.valor_item) {
-        alert('Informe o valor de cada item adquirido via PDDE.');
+      if (pdde && (!item.data_aquisicao || !item.valor_item)) {
+        alert('Informe a data de aquisição e o valor de cada item adquirido via PDDE.');
         return;
       }
     }
@@ -628,12 +631,14 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         const item = incorporacaoItens[0];
         await invoke('editar_incorporacao', {
           ...f, id: editingIncorporacaoId,
-          descricao: item.descricao, quantidade: item.quantidade, valor_item: item.valor_item,
+          descricao: item.descricao, quantidade: item.quantidade,
+          data_aquisicao: item.data_aquisicao, valor_item: item.valor_item,
         });
       } else {
         for (const item of incorporacaoItens) {
           await invoke('registrar_incorporacao', {
-            ...f, descricao: item.descricao, quantidade: item.quantidade, valor_item: item.valor_item,
+            ...f, descricao: item.descricao, quantidade: item.quantidade,
+            data_aquisicao: item.data_aquisicao, valor_item: item.valor_item,
           });
         }
         const resumo = incorporacaoItens.length === 1
@@ -663,10 +668,13 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       escola_id: i.escola_id, escola_nome: i.escola_nome,
       origem_aquisicao: (ORIGENS_AQUISICAO as readonly string[]).includes(i.origem_aquisicao)
         ? (i.origem_aquisicao as OrigemAquisicao) : 'Entrega FDE/SEDUC',
-      data_aquisicao: i.data_aquisicao || '', ano_verba: i.ano_verba || '',
+      ano_verba: i.ano_verba || '',
       nota_fiscal_link: i.nota_fiscal_link || '',
     });
-    setIncorporacaoItens([{ id: Date.now(), descricao: i.descricao, quantidade: i.quantidade, valor_item: i.valor_item || '' }]);
+    setIncorporacaoItens([{
+      id: Date.now(), descricao: i.descricao, quantidade: i.quantidade,
+      data_aquisicao: i.data_aquisicao || '', valor_item: i.valor_item || '',
+    }]);
     setShowIncorporacaoForm(true);
   };
 
@@ -1816,22 +1824,14 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 </select>
               </div>
               {isOrigemPdde(incorporacaoForm.origem_aquisicao) && (
-                <div className="grid grid-cols-2 gap-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
-                  <div className="col-span-2 flex items-center gap-1.5 text-xs font-medium text-amber-800">
-                    <AlertTriangle size={13} /> Dados da aquisição com verba PDDE
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-amber-800 mb-2">
+                    <AlertTriangle size={13} /> Aquisição com verba PDDE — data e valor de cada item ficam no cadastro do item, abaixo
                   </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1.5">Data de Aquisição <span className="text-red-500">*</span></label>
-                    <input type="date" required value={incorporacaoForm.data_aquisicao}
-                      onChange={e => setIncorporacaoForm(prev => ({ ...prev, data_aquisicao: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1.5">Ano da Verba <span className="text-red-500">*</span></label>
-                    <input type="number" required min={2000} max={2100} placeholder="Ex.: 2026" value={incorporacaoForm.ano_verba}
-                      onChange={e => setIncorporacaoForm(prev => ({ ...prev, ano_verba: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white" />
-                  </div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1.5">Ano da Verba <span className="text-red-500">*</span></label>
+                  <input type="number" required min={2000} max={2100} placeholder="Ex.: 2026" value={incorporacaoForm.ano_verba}
+                    onChange={e => setIncorporacaoForm(prev => ({ ...prev, ano_verba: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white" />
                 </div>
               )}
 
@@ -1862,7 +1862,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                         placeholder="Ex.: Notebook Dell, impressora, cadeiras..."
                         className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none" />
                     </div>
-                    <div className={`grid gap-2.5 ${isOrigemPdde(incorporacaoForm.origem_aquisicao) ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                    <div className={`grid gap-2.5 ${isOrigemPdde(incorporacaoForm.origem_aquisicao) ? 'grid-cols-3' : 'grid-cols-1'}`}>
                       <div>
                         <label className="block text-xs font-medium text-slate-600 mb-1">Quantidade <span className="text-red-500">*</span></label>
                         <input type="number" min={1} required value={item.quantidade}
@@ -1870,13 +1870,21 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                           className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
                       </div>
                       {isOrigemPdde(incorporacaoForm.origem_aquisicao) && (
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-1">Valor do Item (R$) <span className="text-red-500">*</span></label>
-                          <input type="number" min={0} step="0.01" required value={item.valor_item}
-                            onChange={e => updateIncorporacaoItem(item.id, 'valor_item', e.target.value)}
-                            placeholder="0,00"
-                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
-                        </div>
+                        <>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Data Aquisição <span className="text-red-500">*</span></label>
+                            <input type="date" required value={item.data_aquisicao}
+                              onChange={e => updateIncorporacaoItem(item.id, 'data_aquisicao', e.target.value)}
+                              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Valor (R$) <span className="text-red-500">*</span></label>
+                            <input type="number" min={0} step="0.01" required value={item.valor_item}
+                              onChange={e => updateIncorporacaoItem(item.id, 'valor_item', e.target.value)}
+                              placeholder="0,00"
+                              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                          </div>
+                        </>
                       )}
                     </div>
                   </div>
