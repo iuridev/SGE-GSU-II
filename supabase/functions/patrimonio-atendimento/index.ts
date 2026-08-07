@@ -41,7 +41,12 @@ const INCORPORACOES_COLUMNS = [
   'status', 'numero_patrimonial',
   'autor_id', 'autor_nome', 'data_registro',
   'incorporado_por', 'data_incorporacao',
+  // Origem do item: entrega FDE/SEDUC (sem custo) ou aquisição própria com verba PDDE
+  // (Federal/Paulista) — nesse caso data de aquisição, valor e ano da verba importam
+  // para prestação de contas.
+  'origem_aquisicao', 'data_aquisicao', 'valor_item', 'ano_verba',
 ]
+const ORIGENS_AQUISICAO_VALIDAS = ['Entrega FDE/SEDUC', 'Aquisição PDDE Federal', 'Aquisição PDDE Paulista']
 
 type Profile = { role: string; school_id: string | null; full_name: string | null }
 
@@ -339,6 +344,11 @@ Deno.serve(async (req) => {
         if (!body.escola_id || !body.descricao || !body.quantidade) {
           throw new Error('Escola, descrição do item e quantidade são obrigatórios.')
         }
+        const origemAquisicao = ORIGENS_AQUISICAO_VALIDAS.includes(body.origem_aquisicao) ? body.origem_aquisicao : 'Entrega FDE/SEDUC'
+        const pdde = origemAquisicao !== 'Entrega FDE/SEDUC'
+        if (pdde && (!body.data_aquisicao || !body.ano_verba || !body.valor_item)) {
+          throw new Error('Data de aquisição, valor do item e ano da verba são obrigatórios para itens adquiridos via PDDE.')
+        }
         await sheet.addRow({
           id: crypto.randomUUID(),
           escola_id: String(body.escola_id),
@@ -353,6 +363,10 @@ Deno.serve(async (req) => {
           data_registro: new Date().toISOString(),
           incorporado_por: '',
           data_incorporacao: '',
+          origem_aquisicao: String(origemAquisicao),
+          data_aquisicao: String(body.data_aquisicao || ''),
+          valor_item: String(body.valor_item || ''),
+          ano_verba: String(body.ano_verba || ''),
         })
         return ok(corsHeaders, { success: true })
       }
@@ -364,6 +378,11 @@ Deno.serve(async (req) => {
         if (!body.escola_id || !body.descricao || !body.quantidade) {
           throw new Error('Escola, descrição do item e quantidade são obrigatórios.')
         }
+        const origemAquisicao = ORIGENS_AQUISICAO_VALIDAS.includes(body.origem_aquisicao) ? body.origem_aquisicao : 'Entrega FDE/SEDUC'
+        const pdde = origemAquisicao !== 'Entrega FDE/SEDUC'
+        if (pdde && (!body.data_aquisicao || !body.ano_verba || !body.valor_item)) {
+          throw new Error('Data de aquisição, valor do item e ano da verba são obrigatórios para itens adquiridos via PDDE.')
+        }
         const rows = await sheet.getRows()
         const row = rows.find((r: any) => r.get('id') === String(body.id))
         if (!row) throw new Error('Item não encontrado.')
@@ -372,6 +391,10 @@ Deno.serve(async (req) => {
         row.set('descricao', String(body.descricao))
         row.set('quantidade', String(body.quantidade))
         row.set('nota_fiscal_link', String(body.nota_fiscal_link || ''))
+        row.set('origem_aquisicao', String(origemAquisicao))
+        row.set('data_aquisicao', String(body.data_aquisicao || ''))
+        row.set('valor_item', String(body.valor_item || ''))
+        row.set('ano_verba', String(body.ano_verba || ''))
         await row.save()
         return ok(corsHeaders, { success: true })
       }
