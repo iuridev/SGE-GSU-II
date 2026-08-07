@@ -45,6 +45,9 @@ const INCORPORACOES_COLUMNS = [
   // (Federal/Paulista) — nesse caso data de aquisição, valor e ano da verba importam
   // para prestação de contas.
   'origem_aquisicao', 'data_aquisicao', 'valor_item', 'ano_verba',
+  // Agrupa itens cadastrados juntos no mesmo formulário (múltiplos itens numa leva) só
+  // para exibição — cada item mantém status/nº patrimonial de incorporação independentes.
+  'lote_id',
 ]
 const ORIGENS_AQUISICAO_VALIDAS = ['Entrega FDE/SEDUC', 'Aquisição PDDE Federal', 'Aquisição PDDE Paulista']
 
@@ -367,6 +370,7 @@ Deno.serve(async (req) => {
           data_aquisicao: String(body.data_aquisicao || ''),
           valor_item: String(body.valor_item || ''),
           ano_verba: String(body.ano_verba || ''),
+          lote_id: String(body.lote_id || ''),
         })
         return ok(corsHeaders, { success: true })
       }

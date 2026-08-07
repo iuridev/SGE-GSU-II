@@ -128,6 +128,10 @@ interface Incorporacao {
   data_aquisicao: string;
   valor_item: string;
   ano_verba: string;
+  // Identifica itens cadastrados juntos na mesma leva (mesmo formulário de "Novo Item"
+  // com múltiplos itens) — cada item mantém status/nº patrimonial totalmente
+  // independentes; o lote_id serve só para agrupamento visual na tabela.
+  lote_id: string;
 }
 
 // Linha unificada da aba "Itens a Incorporar": mescla itens cadastrados diretamente
@@ -149,6 +153,7 @@ interface IncorporacaoRow {
   data_aquisicao: string;
   valor_item: string;
   ano_verba: string;
+  lote_id: string;
 }
 
 interface ProcessoOption {
@@ -635,10 +640,12 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
           data_aquisicao: item.data_aquisicao, valor_item: item.valor_item,
         });
       } else {
+        const loteId = incorporacaoItens.length > 1 ? crypto.randomUUID() : '';
         for (const item of incorporacaoItens) {
           await invoke('registrar_incorporacao', {
             ...f, descricao: item.descricao, quantidade: item.quantidade,
             data_aquisicao: item.data_aquisicao, valor_item: item.valor_item,
+            lote_id: loteId,
           });
         }
         const resumo = incorporacaoItens.length === 1
@@ -807,6 +814,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       autor_nome: i.autor_nome, data_registro: i.data_registro,
       origem_aquisicao: i.origem_aquisicao || 'Entrega FDE/SEDUC',
       data_aquisicao: i.data_aquisicao || '', valor_item: i.valor_item || '', ano_verba: i.ano_verba || '',
+      lote_id: i.lote_id || '',
     }));
     const deRemanejamento: IncorporacaoRow[] = remanejamentos
       .filter(r => r.pendente_incorporacao === 'TRUE')
@@ -816,7 +824,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         descricao: r.descricao || `Remanejamento ${r.numero_documento}`,
         quantidade: '-', nota_fiscal_link: r.nota_fiscal_link, status: 'Pendente',
         numero_patrimonial: '', autor_nome: r.autor_nome, data_registro: r.data_registro,
-        origem_aquisicao: '', data_aquisicao: '', valor_item: '', ano_verba: '',
+        origem_aquisicao: '', data_aquisicao: '', valor_item: '', ano_verba: '', lote_id: '',
       }));
     return [...diretos, ...deRemanejamento].sort((a, b) => (a.data_registro < b.data_registro ? 1 : -1));
   }, [incorporacoes, remanejamentos]);
@@ -825,6 +833,18 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     () => itensIncorporacaoUnificados.filter(i => i.status !== 'Incorporado').length,
     [itensIncorporacaoUnificados],
   );
+
+  // Quantos itens compartilham o mesmo lote_id (cadastrados juntos no mesmo formulário
+  // de múltiplos itens) — usado só para exibir o agrupamento visual na tabela; cada
+  // item mantém status de incorporação totalmente independente.
+  const loteCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    itensIncorporacaoUnificados.forEach(i => {
+      if (!i.lote_id) return;
+      map.set(i.lote_id, (map.get(i.lote_id) || 0) + 1);
+    });
+    return map;
+  }, [itensIncorporacaoUnificados]);
 
   const filteredIncorporacoes = useMemo(() => {
     const q = searchTerm.toLowerCase();
@@ -1486,7 +1506,15 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                             </span>
                           </td>
                           <td className="px-4 py-3 font-medium text-slate-800">{i.escola_nome}</td>
-                          <td className="px-4 py-3 text-slate-600 max-w-xs truncate">{i.descricao}</td>
+                          <td className="px-4 py-3 text-slate-600 max-w-xs">
+                            <p className="truncate">{i.descricao}</p>
+                            {i.lote_id && (loteCounts.get(i.lote_id) || 0) > 1 && (
+                              <span title="Cadastrado junto com outros itens na mesma leva — cada um mantém status de incorporação independente"
+                                className="inline-flex items-center gap-1 mt-0.5 text-[10px] font-medium text-slate-400">
+                                <Link2 size={10} /> lote de {loteCounts.get(i.lote_id)} itens
+                              </span>
+                            )}
+                          </td>
                           <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{i.quantidade}</td>
                           <td className="px-4 py-3 text-slate-500 whitespace-nowrap text-xs">
                             {isOrigemPdde(i.origem_aquisicao) ? (
