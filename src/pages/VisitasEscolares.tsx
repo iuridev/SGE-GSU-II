@@ -250,14 +250,38 @@ export default function VisitasEscolares() {
     [visitas],
   );
 
-  // A planilha legada (registro manual) costuma trazer o nome sem o título do patrono
-  // ("LOUIS BRAILLE" em vez de "LOUIS BRAILLE PROFESSOR"), então além da igualdade exata
-  // aceitamos casamento por prefixo respeitando limite de palavra.
+  // A planilha legada (registro manual) costuma trazer o nome divergente do cadastro
+  // (sem título de patrono, sigla de tipo de escola, abreviado etc. — ex.: "JOAO NUNES"
+  // em vez de "EE PASTOR JOÃO NUNES"), então além da igualdade exata e do casamento por
+  // prefixo, comparamos por palavras significativas: se todas as palavras do nome mais
+  // curto aparecem no nome mais longo, consideramos a mesma escola.
+  const ESCOLA_STOPWORDS = new Set([
+    'de', 'da', 'do', 'das', 'dos', 'e',
+    'ee', 'emef', 'emei', 'emefm', 'ceu', 'cieja', 'etec', 'eja', 'cei',
+    'prof', 'profa', 'professor', 'professora', 'dr', 'dra', 'doutor', 'doutora',
+    'padre', 'pastor', 'dom', 'irma', 'irmao', 'frei', 'monsenhor',
+    'coronel', 'general', 'comendador', 'capitao', 'major', 'sargento', 'cel', 'gal',
+    'engenheiro', 'engenheira', 'desembargador', 'desembargadora',
+    'deputado', 'deputada', 'senador', 'senadora', 'vereador', 'vereadora',
+    'presidente', 'governador', 'governadora',
+  ]);
+
+  const palavrasSignificativas = (s: string) =>
+    s
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2 && !ESCOLA_STOPWORDS.has(w));
+
   const escolaNomesCorrespondem = (a: string, b: string) => {
     if (!a || !b) return false;
     if (a === b) return true;
     const [curto, longo] = a.length < b.length ? [a, b] : [b, a];
-    return longo.startsWith(`${curto} `);
+    if (longo.startsWith(`${curto} `)) return true;
+
+    const palavrasCurto = palavrasSignificativas(curto);
+    if (palavrasCurto.length < 2) return false; // 1 palavra só é comum demais p/ comparar com segurança
+    const palavrasLongo = new Set(palavrasSignificativas(longo));
+    return palavrasCurto.every(p => palavrasLongo.has(p));
   };
 
   // Ranking de escolas por tempo desde a última visita técnica (nunca visitada fica no topo)
