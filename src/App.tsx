@@ -11,7 +11,7 @@ import {
   Star, ArrowUpCircle, HardHat, TreeDeciduous, Ticket,
   School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown,
   Bell, MessageSquare, CheckCircle, ClipboardList,
-  Wrench, Search, CalendarCheck, BarChart2, Megaphone, DoorOpen
+  Wrench, Search, CalendarCheck, BarChart2, Megaphone, DoorOpen, ClipboardCheck
 } from 'lucide-react';
 
 import { Dashboard } from './pages/Dashboard';
@@ -67,6 +67,7 @@ import PatrimonioSalas from './pages/PatrimonioSalas';
 import AtendimentoPatrimonio from './pages/AtendimentoPatrimonio';
 import ReformaFunap from './pages/ReformaFunap';
 import MetricasAcesso from './pages/MetricasAcesso';
+import AcompanhamentoObras from './pages/AcompanhamentoObras';
 import { FunapReminderModal } from './components/FunapReminderModal';
 import { Toaster } from 'react-hot-toast';
 
@@ -112,6 +113,7 @@ const MENU_GROUPS: MenuGroup[] = [
     items: [
       //{ id: 'vistorias-prediais-dashboard', label: 'BI Predial', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec', 'school_manager'] },
       { id: 'obras', label: 'Obras e Reformas', icon: <HardHat size={20} className="text-orange-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'school_manager'] },
+      { id: 'acompanhamento-obras', label: 'Acompanhamento Semanal de Obras', icon: <ClipboardCheck size={20} className="text-orange-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'school_manager'] },
       { id: 'previsao-obras-fde', label: 'Previsão de Obras FDE', icon: <HardHat size={20} className="text-amber-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico'] },
       { id: 'servicos', label: 'Intervenção URE', icon: <Wrench size={20} className="text-slate-400" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
       { id: 'manejo', label: 'Manejo Arbóreo', icon: <TreeDeciduous size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
@@ -644,6 +646,7 @@ export default function App() {
       case 'painel-gerencial': return <PainelGerencial />;
       case 'comunicados': return <Comunicados />;
       case 'visitas-escolares': return <VisitasEscolares />;
+      case 'acompanhamento-obras': return <AcompanhamentoObras />;
       case 'patrimonio-salas': return <PatrimonioSalas />;
       case 'atendimento-patrimonio': return <AtendimentoPatrimonio onNavigate={setCurrentPage} />;
       case 'reforma-funap': return <ReformaFunap />;
