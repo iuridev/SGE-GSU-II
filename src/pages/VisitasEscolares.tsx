@@ -424,8 +424,19 @@ export default function VisitasEscolares() {
                 className="flex items-center gap-2 px-3 py-2 text-emerald-700 border border-emerald-200 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors text-sm font-medium"
               >
                 <ExternalLink size={16} />
-                Abrir Planilha
+                Planilha do Sistema
               </a>
+              {LEGADO_CSV_URL && (
+                <a
+                  href={LEGADO_CSV_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-3 py-2 text-amber-700 border border-amber-200 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors text-sm font-medium"
+                >
+                  <ExternalLink size={16} />
+                  Planilha Legada
+                </a>
+              )}
               <button
                 onClick={() => setShowForm(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
