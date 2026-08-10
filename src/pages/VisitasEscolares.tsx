@@ -292,6 +292,7 @@ export default function VisitasEscolares() {
       .filter(v => v.nome);
 
     return escolas
+      .filter(e => normalizeEscolaNome(e.name) !== 'unidade regional de ensino')
       .map(e => {
         const nomeEscola = normalizeEscolaNome(e.name);
         let lastDate: string | null = null;
