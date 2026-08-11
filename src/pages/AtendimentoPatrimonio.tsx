@@ -8,7 +8,7 @@ import {
   Plus, Search, X, Loader2, CalendarDays, Video,
   MapPin, BarChart3, TrendingUp, RefreshCw, ExternalLink,
   ClipboardList, ArrowRightLeft, Package, Check, Mail, History, Pencil, Ticket, Link2, FileDown,
-  AlertTriangle,
+  AlertTriangle, ListOrdered,
 } from 'lucide-react';
 
 // Mesma chave usada por Chamados.tsx para ler a referência pré-preenchida ao
@@ -56,7 +56,7 @@ const ORIGENS_AQUISICAO = [
 type OrigemAquisicao = typeof ORIGENS_AQUISICAO[number];
 const isOrigemPdde = (origem: string) => origem.startsWith('Aquisição PDDE');
 
-type Tab = 'atendimentos' | 'remanejamentos' | 'incorporacoes';
+type Tab = 'fila' | 'atendimentos' | 'remanejamentos' | 'incorporacoes';
 
 interface EscolaOption {
   id: string;
@@ -202,6 +202,7 @@ interface IncorporacaoItemForm {
 const INCORPORACAO_ITEM_INITIAL = (): IncorporacaoItemForm => ({ id: Date.now(), descricao: '', quantidade: '', data_aquisicao: '', valor_item: '' });
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+  { id: 'fila', label: 'Fila de Atendimento', icon: <ListOrdered size={16} /> },
   { id: 'atendimentos', label: 'Atendimentos (Teams / E-mail)', icon: <Video size={16} /> },
   { id: 'remanejamentos', label: 'Remanejamentos', icon: <ArrowRightLeft size={16} /> },
   { id: 'incorporacoes', label: 'Itens a Incorporar', icon: <Package size={16} /> },
@@ -718,6 +719,25 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     }
   };
 
+  // Ação rápida da Fila de Atendimento: marca um remanejamento como já cadastrado no
+  // SAM sem precisar abrir o formulário completo de edição.
+  const handleMarcarCadastradoSam = async (r: Remanejamento) => {
+    setSaving(true);
+    try {
+      await invoke('editar_remanejamento', {
+        ...r,
+        cadastrado_sam: true,
+        pendente_incorporacao: r.pendente_incorporacao === 'TRUE',
+      });
+      setTimeout(fetchAll, 1500);
+    } catch (e) {
+      console.error(e);
+      alert(e instanceof Error ? e.message : 'Erro ao marcar remanejamento como cadastrado no SAM.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // ── Métricas / gráficos (aba Atendimentos) ────────────────────────────
   const now = new Date();
   const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -846,6 +866,26 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     return map;
   }, [itensIncorporacaoUnificados]);
 
+  // Fila de Atendimento: itens ainda não incorporados, ordenados do mais antigo
+  // (cadastrado primeiro) para o mais recente — ajuda a priorizar o atendimento
+  // pela ordem de chegada, em vez da ordem de cadastro mais recente usada nas
+  // outras abas.
+  const filaIncorporacao = useMemo(
+    () => itensIncorporacaoUnificados
+      .filter(i => i.status !== 'Incorporado')
+      .sort((a, b) => (a.data_registro > b.data_registro ? 1 : -1)),
+    [itensIncorporacaoUnificados],
+  );
+
+  // Fila de remanejamentos ainda não cadastrados no SAM, também do mais antigo
+  // para o mais recente.
+  const filaRemanejamentosSam = useMemo(
+    () => remanejamentos
+      .filter(r => r.cadastrado_sam !== 'TRUE')
+      .sort((a, b) => (a.data_registro > b.data_registro ? 1 : -1)),
+    [remanejamentos],
+  );
+
   const filteredIncorporacoes = useMemo(() => {
     const q = searchTerm.toLowerCase();
     return itensIncorporacaoUnificados.filter(i => {
@@ -902,6 +942,15 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     if (!d) return '-';
     try { return new Date(d).toLocaleString('pt-BR'); } catch { return d; }
   };
+  // Dias corridos desde o registro — usado na Fila de Atendimento para mostrar
+  // há quanto tempo cada item está aguardando.
+  const diasEmEspera = (dataRegistro: string) => {
+    if (!dataRegistro) return null;
+    const d = new Date(dataRegistro);
+    if (Number.isNaN(d.getTime())) return null;
+    return Math.max(0, Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24)));
+  };
+
   const formatarMoeda = (v: string) => {
     const n = Number(v);
     if (!v || Number.isNaN(n)) return '-';
@@ -1040,6 +1089,187 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
           <Video size={36} className="mx-auto mb-2 opacity-30" />
           Seu perfil não tem acesso a este módulo.
         </div>
+      )}
+
+      {['regional_admin', 'school_manager'].includes(userRole) && activeTab === 'fila' && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center shrink-0"><Package size={20} className="text-amber-600" /></div>
+                <div>
+                  <p className="text-xs text-slate-500 font-medium">Itens a Incorporar na Fila</p>
+                  <p className="text-2xl font-bold text-slate-800">{filaIncorporacao.length}</p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center shrink-0"><ArrowRightLeft size={20} className="text-red-600" /></div>
+                <div>
+                  <p className="text-xs text-slate-500 font-medium">Remanejamentos sem Cadastro no SAM</p>
+                  <p className="text-2xl font-bold text-slate-800">{filaRemanejamentosSam.length}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-100 shadow-sm">
+            <div className="p-4 border-b border-slate-100">
+              <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                <Package size={16} className="text-amber-600" /> Fila de Itens a Incorporar
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">Ordem de chegada — item cadastrado há mais tempo aparece primeiro.</p>
+            </div>
+            <div className="overflow-x-auto">
+              {loading ? (
+                <div className="flex justify-center items-center py-16"><Loader2 size={32} className="animate-spin text-teal-500" /></div>
+              ) : filaIncorporacao.length === 0 ? (
+                <div className="text-center py-12 text-slate-400">
+                  <Check size={40} className="mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">Nenhum item pendente — fila vazia</p>
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50">
+                      {['#', 'Escola', 'Descrição', 'Origem', 'Aguardando', 'Registrado por'].map(h => (
+                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                      ))}
+                      <th className="sticky right-0 z-10 bg-slate-50 text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)]" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {filaIncorporacao.map((i, idx) => {
+                      const incorporacaoOrigem = i.origem === 'incorporacao' ? incorporacoes.find(x => x.id === i.id) : undefined;
+                      const remanejamentoOrigem = i.origem === 'remanejamento' ? remanejamentos.find(x => x.id === i.id) : undefined;
+                      const dias = diasEmEspera(i.data_registro);
+                      return (
+                        <tr key={`${i.origem}-${i.id || idx}`} className="group hover:bg-slate-50 transition-colors">
+                          <td className="px-4 py-3 font-bold text-slate-400 whitespace-nowrap">{idx + 1}º</td>
+                          <td className="px-4 py-3 font-medium text-slate-800">{i.escola_nome}</td>
+                          <td className="px-4 py-3 text-slate-600 max-w-xs truncate">{i.descricao}</td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
+                              i.origem === 'remanejamento' ? 'bg-violet-50 text-violet-700' : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {i.origem === 'remanejamento' ? 'Remanejamento' : i.origem_aquisicao}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            {dias !== null ? (
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                dias > 30 ? 'bg-red-50 text-red-700' : dias > 14 ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'
+                              }`}>
+                                {dias} dia{dias === 1 ? '' : 's'}
+                              </span>
+                            ) : '-'}
+                          </td>
+                          <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{i.autor_nome}</td>
+                          <td className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 px-4 py-3 whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)] transition-colors">
+                            {isAdmin && (
+                              <button
+                                onClick={() => {
+                                  if (i.origem === 'incorporacao' && incorporacaoOrigem) setIncorporarAlvo({ origem: 'incorporacao', item: incorporacaoOrigem });
+                                  else if (i.origem === 'remanejamento' && remanejamentoOrigem) setIncorporarAlvo({ origem: 'remanejamento', item: remanejamentoOrigem });
+                                  setNumeroPatrimonialIncorporar('');
+                                }}
+                                title="Marcar como incorporado"
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 hover:border-emerald-300 transition-colors whitespace-nowrap"
+                              >
+                                <Check size={14} /> Incorporar
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-100 shadow-sm">
+            <div className="p-4 border-b border-slate-100">
+              <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                <ArrowRightLeft size={16} className="text-red-600" /> Fila de Remanejamentos sem Cadastro no SAM
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">Ordem de chegada — remanejamento registrado há mais tempo aparece primeiro.</p>
+            </div>
+            <div className="overflow-x-auto">
+              {loading ? (
+                <div className="flex justify-center items-center py-16"><Loader2 size={32} className="animate-spin text-teal-500" /></div>
+              ) : filaRemanejamentosSam.length === 0 ? (
+                <div className="text-center py-12 text-slate-400">
+                  <Check size={40} className="mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">Nenhum remanejamento pendente — fila vazia</p>
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50">
+                      {['#', 'Escola Origem', 'Escola Destino', 'Nº Documento', 'Nº Patrimonial', 'Aguardando', 'Autor'].map(h => (
+                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                      ))}
+                      <th className="sticky right-0 z-10 bg-slate-50 text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)]" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {filaRemanejamentosSam.map((r, idx) => {
+                      const dias = diasEmEspera(r.data_registro);
+                      return (
+                        <tr key={r.id || idx} className="group hover:bg-slate-50 transition-colors">
+                          <td className="px-4 py-3 font-bold text-slate-400 whitespace-nowrap">{idx + 1}º</td>
+                          <td className="px-4 py-3 font-medium text-slate-800">{r.escola_origem_nome}</td>
+                          <td className="px-4 py-3 font-medium text-slate-800">{r.escola_destino_nome}</td>
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{r.numero_documento}</td>
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{r.numero_patrimonial || '-'}</td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            {dias !== null ? (
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                dias > 30 ? 'bg-red-50 text-red-700' : dias > 14 ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'
+                              }`}>
+                                {dias} dia{dias === 1 ? '' : 's'}
+                              </span>
+                            ) : '-'}
+                          </td>
+                          <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{r.autor_nome}</td>
+                          <td className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 px-4 py-3 whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)] transition-colors">
+                            <div className="flex items-center gap-1">
+                              {r.gr_link && (
+                                <button
+                                  onClick={() => setDocModal({
+                                    url: r.gr_link,
+                                    title: `${r.tipo_documento === 'DOC' ? 'DOC' : 'GR'} — ${r.escola_origem_nome} → ${r.escola_destino_nome}`,
+                                  })}
+                                  title={r.tipo_documento === 'DOC' ? 'Visualizar Documento/Comunicado' : 'Visualizar Guia de Remanejamento'}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 hover:border-teal-300 transition-colors whitespace-nowrap"
+                                >
+                                  <ExternalLink size={12} /> {r.tipo_documento === 'DOC' ? 'DOC' : 'GR'}
+                                </button>
+                              )}
+                              {isAdmin && (
+                                <button
+                                  onClick={() => handleMarcarCadastradoSam(r)}
+                                  disabled={saving}
+                                  title="Marcar como cadastrado no SAM"
+                                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 hover:border-emerald-300 transition-colors whitespace-nowrap disabled:opacity-60"
+                                >
+                                  <Check size={14} /> Cadastrado no SAM
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </>
       )}
 
       {['regional_admin', 'school_manager'].includes(userRole) && activeTab === 'atendimentos' && (
