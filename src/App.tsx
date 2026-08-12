@@ -11,7 +11,7 @@ import {
   Star, ArrowUpCircle, HardHat, TreeDeciduous, Ticket,
   School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown,
   Bell, MessageSquare, CheckCircle, ClipboardList,
-  Wrench, Search, CalendarCheck, BarChart2, Megaphone, DoorOpen, ClipboardCheck
+  Wrench, Search, CalendarCheck, BarChart2, Megaphone, DoorOpen, ClipboardCheck, Target
 } from 'lucide-react';
 
 import { Dashboard } from './pages/Dashboard';
@@ -68,6 +68,7 @@ import AtendimentoPatrimonio from './pages/AtendimentoPatrimonio';
 import ReformaFunap from './pages/ReformaFunap';
 import MetricasAcesso from './pages/MetricasAcesso';
 import AcompanhamentoObras from './pages/AcompanhamentoObras';
+import PlanoAcao from './pages/PlanoAcao';
 import { FunapReminderModal } from './components/FunapReminderModal';
 import { Toaster } from 'react-hot-toast';
 
@@ -106,6 +107,12 @@ const MENU_GROUPS: MenuGroup[] = [
       //{ id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <ClipboardList size={20} className="text-slate-400" />, roles: ['regional_admin', 'dirigente'] },
       { id: 'tutoriais', label: 'Manuais e Tutoriais', icon: <BookOpen size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
 
+    ]
+  },
+  {
+    title: 'PLANO DE AÇÃO',
+    items: [
+      { id: 'plano-acao', label: 'Plano de Ação – Cadastro e Monitoramento de Metas', icon: <Target size={20} className="text-indigo-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico', 'ure_ecc'] },
     ]
   },
   {
@@ -651,6 +658,7 @@ export default function App() {
       case 'atendimento-patrimonio': return <AtendimentoPatrimonio onNavigate={setCurrentPage} />;
       case 'reforma-funap': return <ReformaFunap />;
       case 'metricas-acesso': return <MetricasAcesso />;
+      case 'plano-acao': return <PlanoAcao />;
       default: return <Dashboard />;
     }
   };
