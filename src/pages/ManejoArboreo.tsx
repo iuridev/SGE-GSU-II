@@ -27,11 +27,13 @@ interface ManejoSheetRow {
   timestamp: Date;
   escola: string;            // nome normalizado (chave de merge)
   escolaOriginal: string;    // nome como veio na planilha
-  qtdRemocao: number;
-  qtdPoda: number;
-  validadeISO: string | null; // YYYY-MM-DD | null
+  qtdRemocaoSolicitada: number; // coluna C
+  qtdPodaSolicitada: number;    // coluna D
+  qtdRemocaoAutorizada: number; // coluna R
+  qtdPodaAutorizada: number;    // coluna Q
+  validadeISO: string | null; // YYYY-MM-DD | null (coluna E)
   naoSeAplica: boolean;      // coluna E contém "Não se Aplica" (sem árvores)
-  naoEnviou: boolean;        // coluna F contém "NÃO ENVIOU" → conta como NAO_RESPONDIDO
+  autorizacaoEnviada: boolean; // coluna F preenchida (link do documento)
   observacoes: string;
 }
 
@@ -65,6 +67,15 @@ function matchNames(supNorm: string, sheetNorm: string): boolean {
   return overlap / Math.min(wA.length, wB.size) >= 0.6;
 }
 
+function toQuantidade(v: any): number {
+  if (typeof v === 'number') return Math.round(v);
+  if (typeof v === 'string') {
+    const n = parseFloat(v.replace(',', '.'));
+    return Number.isFinite(n) ? Math.round(n) : 0;
+  }
+  return 0;
+}
+
 async function fetchManejoFromSheet(): Promise<Map<string, ManejoSheetRow>> {
   const url = `https://docs.google.com/spreadsheets/d/${MANEJO_SHEET_ID}/gviz/tq?tqx=out:json`;
   const res = await fetch(url);
@@ -92,20 +103,21 @@ async function fetchManejoFromSheet(): Promise<Map<string, ManejoSheetRow>> {
         ? `${validadeDate.getFullYear()}-${String(validadeDate.getMonth() + 1).padStart(2, '0')}-${String(validadeDate.getDate()).padStart(2, '0')}`
         : null;
 
-      // Coluna F (Autorização): "NÃO ENVIOU" → trata como não respondido
-      const colF = String(raw(5) ?? fmt(5) ?? '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-      const naoEnviou = colF.includes('NAO ENVIOU') || colF.includes('N O ENVIOU');
+      // Coluna F (Autorização): preenchida com o link do documento quando enviada
+      const autorizacaoEnviada = raw(5) != null && String(raw(5)).trim() !== '';
 
       const escolaOriginal = String(raw(1)).trim();
       return {
         timestamp: ts,
         escola: normalizeName(escolaOriginal),
         escolaOriginal,
-        qtdRemocao: typeof raw(2) === 'number' ? Math.round(raw(2)) : 0,
-        qtdPoda:    typeof raw(3) === 'number' ? Math.round(raw(3)) : 0,
+        qtdRemocaoSolicitada: toQuantidade(raw(2)),
+        qtdPodaSolicitada: toQuantidade(raw(3)),
+        qtdPodaAutorizada: toQuantidade(raw(16)),
+        qtdRemocaoAutorizada: toQuantidade(raw(17)),
         validadeISO,
         naoSeAplica,
-        naoEnviou,
+        autorizacaoEnviada,
         observacoes: raw(14) ? String(raw(14)).trim() : '',
       };
     });
@@ -130,13 +142,15 @@ interface Escola {
   endereco: string;
   latitude: number | null;
   longitude: number | null;
-  manejo_id: string | null;
   validadeAutorizacao: string | null;
-  qtdRemocao: number;
-  qtdPoda: number;
+  qtdRemocaoSolicitada: number;
+  qtdPodaSolicitada: number;
+  qtdRemocaoAutorizada: number;
+  qtdPodaAutorizada: number;
   naoSeAplica: boolean;
   // campos extras da planilha
   daPlanilha: boolean;
+  autorizacaoEnviada: boolean;
   observacoes: string;
   escolaOriginalPlanilha: string;
   timestampResposta: Date | null;
@@ -252,14 +266,11 @@ export default function ManejoArboreo() {
         }
       }
 
-      // 2. Busca paralela: escolas do Supabase + dados de manejo da planilha
+      // 2. Busca paralela: escolas do Supabase + dados de manejo da planilha (fonte da verdade)
       const [{ data, error }, sheetMap] = await Promise.all([
-        supabase.from('schools').select(`
-          id, name, address, latitude, longitude,
-          manejo_arboreo ( id, validade_autorizacao, qtd_remocao, qtd_poda, nao_se_aplica )
-        `),
+        supabase.from('schools').select('id, name, address, latitude, longitude'),
         fetchManejoFromSheet().catch((err) => {
-          console.warn('Planilha indisponível, usando apenas Supabase:', err);
+          console.warn('Planilha indisponível:', err);
           return new Map<string, ManejoSheetRow>();
         }),
       ]);
@@ -283,46 +294,41 @@ export default function ManejoArboreo() {
         }
 
         if (sheetRow) {
-          // "NÃO ENVIOU" na coluna F → resposta existe mas sem autorização → NAO_RESPONDIDO
-          // "Não se Aplica" na coluna E → escola sem árvores → NAO_SE_APLICA
-          const naoSeAplica = sheetRow.naoSeAplica;
-          const semDados = sheetRow.naoEnviou; // trata como NAO_RESPONDIDO
-
           return {
             id: esc.id,
             nome: esc.name || 'Sem nome',
             endereco: esc.address || '',
             latitude: Number.isNaN(lat) ? null : lat,
             longitude: Number.isNaN(lng) ? null : lng,
-            manejo_id: null,
-            validadeAutorizacao: (naoSeAplica || semDados) ? null : sheetRow.validadeISO,
-            qtdRemocao: semDados ? 0 : sheetRow.qtdRemocao,
-            qtdPoda:    semDados ? 0 : sheetRow.qtdPoda,
-            naoSeAplica,
+            validadeAutorizacao: sheetRow.naoSeAplica ? null : sheetRow.validadeISO,
+            qtdRemocaoSolicitada: sheetRow.qtdRemocaoSolicitada,
+            qtdPodaSolicitada: sheetRow.qtdPodaSolicitada,
+            qtdRemocaoAutorizada: sheetRow.qtdRemocaoAutorizada,
+            qtdPodaAutorizada: sheetRow.qtdPodaAutorizada,
+            naoSeAplica: sheetRow.naoSeAplica,
             daPlanilha: true,
+            autorizacaoEnviada: sheetRow.autorizacaoEnviada,
             observacoes: sheetRow.observacoes,
             escolaOriginalPlanilha: sheetRow.escolaOriginal,
             timestampResposta: sheetRow.timestamp,
           };
         }
 
-        // Fallback: dados do Supabase (escola ainda não respondeu a planilha)
-        const manejo = Array.isArray(esc.manejo_arboreo)
-          ? esc.manejo_arboreo[0]
-          : esc.manejo_arboreo;
-
+        // Escola ainda não respondeu a planilha
         return {
           id: esc.id,
           nome: esc.name || 'Sem nome',
           endereco: esc.address || '',
           latitude: Number.isNaN(lat) ? null : lat,
           longitude: Number.isNaN(lng) ? null : lng,
-          manejo_id: manejo?.id || null,
-          validadeAutorizacao: manejo?.validade_autorizacao || null,
-          qtdRemocao: manejo?.qtd_remocao || 0,
-          qtdPoda: manejo?.qtd_poda || 0,
-          naoSeAplica: manejo?.nao_se_aplica || false,
+          validadeAutorizacao: null,
+          qtdRemocaoSolicitada: 0,
+          qtdPodaSolicitada: 0,
+          qtdRemocaoAutorizada: 0,
+          qtdPodaAutorizada: 0,
+          naoSeAplica: false,
           daPlanilha: false,
+          autorizacaoEnviada: false,
           observacoes: '',
           escolaOriginalPlanilha: '',
           timestampResposta: null,
@@ -398,8 +404,10 @@ export default function ManejoArboreo() {
   };
 
   const totais = useMemo(() => ({
-    podas: escolas.reduce((s, e) => s + (e.naoSeAplica ? 0 : e.qtdPoda), 0),
-    remocoes: escolas.reduce((s, e) => s + (e.naoSeAplica ? 0 : e.qtdRemocao), 0),
+    podasSolicitadas: escolas.reduce((s, e) => s + (e.naoSeAplica ? 0 : e.qtdPodaSolicitada), 0),
+    remocoesSolicitadas: escolas.reduce((s, e) => s + (e.naoSeAplica ? 0 : e.qtdRemocaoSolicitada), 0),
+    podasAutorizadas: escolas.reduce((s, e) => s + (e.naoSeAplica ? 0 : e.qtdPodaAutorizada), 0),
+    remocoesAutorizadas: escolas.reduce((s, e) => s + (e.naoSeAplica ? 0 : e.qtdRemocaoAutorizada), 0),
   }), [escolas]);
 
   if (loading && escolas.length === 0) {
@@ -500,20 +508,22 @@ export default function ManejoArboreo() {
             <span className="text-xs text-emerald-300/70 font-semibold">{estatisticas.vencidos} vencidas</span>
           </div>
           <div className="h-3 w-px bg-white/10" />
-          <span className="text-xs text-emerald-500/50">Fonte: Supabase • manejo_arboreo</span>
+          <span className="text-xs text-emerald-500/50">Fonte: Planilha de manejo arbóreo</span>
         </div>
       </div>
 
       {/* ── KPI Cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {[
           { label: 'Autorizações Válidas',  value: estatisticas.validos,       icon: <CheckCircle size={20} className="text-emerald-500" />,                         bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700' },
           { label: 'Autorizações Vencidas', value: estatisticas.vencidos,       icon: <AlertCircle size={20} className="text-red-500" />,                             bg: 'bg-red-50',     border: 'border-red-200',     text: 'text-red-700'     },
           { label: 'Aguardando Validade',   value: estatisticas.pendentes,      icon: <HelpCircle size={20} className="text-amber-500" />,                            bg: 'bg-amber-50',   border: 'border-amber-200',   text: 'text-amber-700'   },
           { label: 'Sem Resposta',          value: estatisticas.naoRespondidos, icon: <HelpCircle size={20} className="text-slate-400" />,                            bg: 'bg-slate-50',   border: 'border-slate-200',   text: 'text-slate-600'   },
           { label: 'Não se Aplica',         value: estatisticas.naoSeAplica,    icon: <Triangle size={20} className="text-orange-500" fill="currentColor" />,         bg: 'bg-orange-50',  border: 'border-orange-200',  text: 'text-orange-700'  },
-          { label: 'Total de Podas',        value: totais.podas,                icon: <TreePine size={20} className="text-teal-500" />,                               bg: 'bg-teal-50',    border: 'border-teal-200',    text: 'text-teal-700'    },
-          { label: 'Total de Remoções',     value: totais.remocoes,             icon: <TreePine size={20} className="text-rose-500" />,                               bg: 'bg-rose-50',    border: 'border-rose-200',    text: 'text-rose-700'    },
+          { label: 'Podas Solicitadas',     value: totais.podasSolicitadas,     icon: <TreePine size={20} className="text-teal-500" />,                               bg: 'bg-teal-50',    border: 'border-teal-200',    text: 'text-teal-700'    },
+          { label: 'Podas Autorizadas',     value: totais.podasAutorizadas,     icon: <TreePine size={20} className="text-teal-600" />,                               bg: 'bg-teal-50',    border: 'border-teal-200',    text: 'text-teal-700'    },
+          { label: 'Remoções Solicitadas',  value: totais.remocoesSolicitadas,  icon: <TreePine size={20} className="text-rose-500" />,                               bg: 'bg-rose-50',    border: 'border-rose-200',    text: 'text-rose-700'    },
+          { label: 'Remoções Autorizadas',  value: totais.remocoesAutorizadas,  icon: <TreePine size={20} className="text-rose-600" />,                               bg: 'bg-rose-50',    border: 'border-rose-200',    text: 'text-rose-700'    },
         ].map((card, i) => (
           <div key={i} className={`bg-white rounded-2xl p-5 border ${card.border} shadow-sm hover:shadow-md transition-shadow`}>
             <div className="flex items-center justify-between mb-3">
@@ -624,9 +634,13 @@ export default function ManejoArboreo() {
                             <span className="text-[11px] font-bold text-slate-600">{status.replace(/_/g, ' ')}</span>
                           </div>
                           {!escola.naoSeAplica && (
-                            <div className="flex gap-3 mt-2 pt-2 border-t border-slate-100 text-[11px] text-slate-500">
-                              <span><b className="text-teal-600">{escola.qtdPoda}</b> poda(s)</span>
-                              <span><b className="text-rose-600">{escola.qtdRemocao}</b> remoção(ões)</span>
+                            <div className="mt-2 pt-2 border-t border-slate-100 text-[11px] text-slate-500 space-y-0.5">
+                              <div className="flex gap-3">
+                                <span>Solicitado: <b className="text-teal-600">{escola.qtdPodaSolicitada}</b> poda(s), <b className="text-rose-600">{escola.qtdRemocaoSolicitada}</b> remoção(ões)</span>
+                              </div>
+                              <div className="flex gap-3">
+                                <span>Autorizado: <b className="text-teal-600">{escola.qtdPodaAutorizada}</b> poda(s), <b className="text-rose-600">{escola.qtdRemocaoAutorizada}</b> remoção(ões)</span>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -654,8 +668,10 @@ export default function ManejoArboreo() {
                     <th className="text-left py-3.5 px-5 text-[11px] font-black text-slate-400 uppercase tracking-widest">Unidade Escolar</th>
                     <th className="text-left py-3.5 px-5 text-[11px] font-black text-slate-400 uppercase tracking-widest">Situação</th>
                     <th className="text-left py-3.5 px-5 text-[11px] font-black text-slate-400 uppercase tracking-widest">Validade</th>
-                    <th className="text-center py-3.5 px-5 text-[11px] font-black text-slate-400 uppercase tracking-widest">Podas</th>
-                    <th className="text-center py-3.5 px-5 text-[11px] font-black text-slate-400 uppercase tracking-widest">Remoções</th>
+                    <th className="text-center py-3.5 px-5 text-[11px] font-black text-slate-400 uppercase tracking-widest">Podas Solic.</th>
+                    <th className="text-center py-3.5 px-5 text-[11px] font-black text-slate-400 uppercase tracking-widest">Podas Autor.</th>
+                    <th className="text-center py-3.5 px-5 text-[11px] font-black text-slate-400 uppercase tracking-widest">Remoções Solic.</th>
+                    <th className="text-center py-3.5 px-5 text-[11px] font-black text-slate-400 uppercase tracking-widest">Remoções Autor.</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -711,13 +727,25 @@ export default function ManejoArboreo() {
                         <td className="py-4 px-5 text-center">
                           {escola.naoSeAplica
                             ? <span className="text-slate-300 text-xs">—</span>
-                            : <span className="inline-block font-black text-teal-700 bg-teal-50 border border-teal-100 px-3 py-1 rounded-lg text-sm min-w-[2.5rem]">{escola.qtdPoda}</span>
+                            : <span className="inline-block font-black text-teal-700 bg-teal-50 border border-teal-100 px-3 py-1 rounded-lg text-sm min-w-[2.5rem]">{escola.qtdPodaSolicitada}</span>
                           }
                         </td>
                         <td className="py-4 px-5 text-center">
                           {escola.naoSeAplica
                             ? <span className="text-slate-300 text-xs">—</span>
-                            : <span className="inline-block font-black text-rose-700 bg-rose-50 border border-rose-100 px-3 py-1 rounded-lg text-sm min-w-[2.5rem]">{escola.qtdRemocao}</span>
+                            : <span className="inline-block font-black text-teal-700 bg-teal-50 border border-teal-100 px-3 py-1 rounded-lg text-sm min-w-[2.5rem]">{escola.qtdPodaAutorizada}</span>
+                          }
+                        </td>
+                        <td className="py-4 px-5 text-center">
+                          {escola.naoSeAplica
+                            ? <span className="text-slate-300 text-xs">—</span>
+                            : <span className="inline-block font-black text-rose-700 bg-rose-50 border border-rose-100 px-3 py-1 rounded-lg text-sm min-w-[2.5rem]">{escola.qtdRemocaoSolicitada}</span>
+                          }
+                        </td>
+                        <td className="py-4 px-5 text-center">
+                          {escola.naoSeAplica
+                            ? <span className="text-slate-300 text-xs">—</span>
+                            : <span className="inline-block font-black text-rose-700 bg-rose-50 border border-rose-100 px-3 py-1 rounded-lg text-sm min-w-[2.5rem]">{escola.qtdRemocaoAutorizada}</span>
                           }
                         </td>
                       </tr>
@@ -730,10 +758,16 @@ export default function ManejoArboreo() {
                       Totais ({escolasFiltradas.filter(e => !e.naoSeAplica).length} escolas com manejo)
                     </td>
                     <td className="py-3 px-5 text-center font-black text-teal-700">
-                      {escolasFiltradas.reduce((s, e) => s + (e.naoSeAplica ? 0 : e.qtdPoda), 0)}
+                      {escolasFiltradas.reduce((s, e) => s + (e.naoSeAplica ? 0 : e.qtdPodaSolicitada), 0)}
+                    </td>
+                    <td className="py-3 px-5 text-center font-black text-teal-700">
+                      {escolasFiltradas.reduce((s, e) => s + (e.naoSeAplica ? 0 : e.qtdPodaAutorizada), 0)}
                     </td>
                     <td className="py-3 px-5 text-center font-black text-rose-700">
-                      {escolasFiltradas.reduce((s, e) => s + (e.naoSeAplica ? 0 : e.qtdRemocao), 0)}
+                      {escolasFiltradas.reduce((s, e) => s + (e.naoSeAplica ? 0 : e.qtdRemocaoSolicitada), 0)}
+                    </td>
+                    <td className="py-3 px-5 text-center font-black text-rose-700">
+                      {escolasFiltradas.reduce((s, e) => s + (e.naoSeAplica ? 0 : e.qtdRemocaoAutorizada), 0)}
                     </td>
                   </tr>
                 </tfoot>
