@@ -248,6 +248,10 @@ export default function PlanoAcao() {
 
   // ── Evidências ─────────────────────────────────────────────────────────
   const handleUploadEvidencia = async (etapaId: string, file: File) => {
+    if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
+      alert('Só é possível anexar imagens ou arquivos PDF.');
+      return;
+    }
     setUploadingEtapaId(etapaId);
     try {
       const ext = file.name.split('.').pop() || 'bin';
@@ -715,7 +719,7 @@ function EtapaCard({
           <label className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-bold text-slate-600 cursor-pointer transition-all shrink-0">
             {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
             {uploading ? 'Enviando...' : 'Anexar arquivo'}
-            <input type="file" className="hidden" disabled={uploading} onChange={e => {
+            <input type="file" accept="image/*,application/pdf" className="hidden" disabled={uploading} onChange={e => {
               const file = e.target.files?.[0];
               if (file) onUpload(file);
               e.target.value = '';
