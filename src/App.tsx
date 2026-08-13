@@ -238,6 +238,13 @@ async function logAccess(userId: string, eventType: 'login' | 'page_view' | 'log
   }
 }
 
+const isHomolog = import.meta.env.VITE_APP_ENV === 'homolog';
+const HomologBanner = () => (
+  <div className="fixed top-0 inset-x-0 z-[9999] h-7 flex items-center justify-center bg-amber-500 text-white text-[11px] sm:text-xs font-black uppercase tracking-wider shadow-md print:hidden">
+    ⚠️ Ambiente de homologação — não é o sistema em produção
+  </div>
+);
+
 export default function App() {
   //const navigate = useNavigate();
   const [session, setSession] = useState<any>(null);
@@ -662,12 +669,13 @@ export default function App() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        {isHomolog && <HomologBanner />}
         <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }
 
-  if (!session) return <Login />;
+  if (!session) return <>{isHomolog && <HomologBanner />}<Login /></>;
 
   const unreadCount = notifications.length;
 
@@ -680,7 +688,8 @@ export default function App() {
     .filter((item): item is MenuItem => !!item);
 
   return (
-    <div className="h-screen overflow-hidden bg-[#f8fafc] flex font-sans text-slate-900 print:bg-white print:block print:h-auto print:overflow-visible">
+    <div className={`h-screen overflow-hidden bg-[#f8fafc] flex font-sans text-slate-900 print:bg-white print:block print:h-auto print:overflow-visible ${isHomolog ? 'pt-7' : ''}`}>
+      {isHomolog && <HomologBanner />}
       <Toaster position="top-right" toastOptions={{ style: { zIndex: 99999 } }} />
       <FunapReminderModal currentPage={currentPage} onNavigate={setCurrentPage} />
 
