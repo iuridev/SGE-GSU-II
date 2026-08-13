@@ -460,6 +460,16 @@ export default function ManejoArboreo() {
 
             {/* Toggle Mapa / Lista */}
             <div className="flex items-center gap-3">
+              {userRole === 'regional_admin' && MANEJO_SHEET_ID && (
+                <a
+                  href={`https://docs.google.com/spreadsheets/d/${MANEJO_SHEET_ID}/edit`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-emerald-200 bg-white/10 border border-white/10 hover:bg-white/20 transition-all"
+                >
+                  <FileSpreadsheet size={16} /> Planilha de Origem
+                </a>
+              )}
               <div className="flex gap-1 bg-white/10 p-1 rounded-xl border border-white/10">
                 <button
                   onClick={() => setModoVisao('MAPA')}
