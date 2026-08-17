@@ -78,6 +78,10 @@ export default function Assinaturas() {
   const [addSignerBusca, setAddSignerBusca] = useState('');
   const [addingSigners, setAddingSigners] = useState(false);
 
+  const [signPreview, setSignPreview] = useState<{ doc: SignatureDocument; signer: SignatureSigner } | null>(null);
+  const [signPreviewUrl, setSignPreviewUrl] = useState<string | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+
   useEffect(() => { init(); }, []);
 
   async function init() {
@@ -165,7 +169,8 @@ export default function Assinaturas() {
       fetchDocuments();
     } catch (err) {
       console.error('Erro ao criar documento de assinatura:', err);
-      await (supabase as any).from('signature_documents').delete().eq('id', docId);
+      const { error: rollbackError } = await (supabase as any).from('signature_documents').delete().eq('id', docId);
+      if (rollbackError) console.error('Erro ao desfazer documento com falha:', rollbackError);
       toast.error('Não foi possível criar o documento. Tente novamente.');
     } finally {
       setCreating(false);
@@ -207,8 +212,37 @@ export default function Assinaturas() {
     }
   };
 
+  // ── Pré-visualização antes de assinar ─────────────────────────────────
+  const openSignPreview = async (doc: SignatureDocument, signer: SignatureSigner) => {
+    setSignPreview({ doc, signer });
+    setSignPreviewUrl(null);
+    setLoadingPreview(true);
+    try {
+      const { data, error } = await supabase.storage.from('assinaturas').createSignedUrl(doc.original_path, 300);
+      if (error || !data?.signedUrl) throw error || new Error('URL indisponível.');
+      setSignPreviewUrl(data.signedUrl);
+    } catch (err) {
+      console.error('Erro ao carregar pré-visualização do PDF:', err);
+      toast.error('Não foi possível carregar o PDF para pré-visualização.');
+      setSignPreview(null);
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
+  const closeSignPreview = () => {
+    setSignPreview(null);
+    setSignPreviewUrl(null);
+  };
+
+  const confirmarAssinatura = async () => {
+    if (!signPreview) return;
+    const ok = await handleSign(signPreview.doc, signPreview.signer);
+    if (ok) closeSignPreview();
+  };
+
   // ── Assinar ────────────────────────────────────────────────────────────
-  const handleSign = async (doc: SignatureDocument, signer: SignatureSigner) => {
+  const handleSign = async (doc: SignatureDocument, signer: SignatureSigner): Promise<boolean> => {
     setSigningId(signer.id);
     try {
       const code = crypto.randomUUID().slice(0, 8).toUpperCase();
@@ -230,9 +264,11 @@ export default function Assinaturas() {
         toast.success('Assinatura registrada!');
       }
       fetchDocuments();
+      return true;
     } catch (err) {
       console.error('Erro ao assinar documento:', err);
       toast.error('Não foi possível registrar sua assinatura. Tente novamente.');
+      return false;
     } finally {
       setSigningId(null);
     }
@@ -369,7 +405,7 @@ export default function Assinaturas() {
                       <ExternalLink size={14} /> Ver PDF
                     </button>
                     <button
-                      onClick={() => meuSigner && handleSign(doc, meuSigner)}
+                      onClick={() => meuSigner && openSignPreview(doc, meuSigner)}
                       disabled={signingId === meuSigner?.id}
                       className="ml-auto flex items-center gap-1.5 px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold disabled:opacity-60"
                     >
@@ -531,7 +567,7 @@ export default function Assinaturas() {
                         </div>
                         {souEu && s.status === 'pendente' && (
                           <button
-                            onClick={() => handleSign(selectedDoc, s)}
+                            onClick={() => openSignPreview(selectedDoc, s)}
                             disabled={signingId === s.id}
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shrink-0 disabled:opacity-60"
                           >
@@ -607,6 +643,46 @@ export default function Assinaturas() {
               ) : (
                 <p className="text-sm text-slate-400 text-center py-2">O download ficará disponível quando todos assinarem.</p>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: PRÉ-VISUALIZAÇÃO ANTES DE ASSINAR */}
+      {signPreview && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4" onClick={closeSignPreview}>
+          <div
+            className="bg-white rounded-3xl w-full max-w-3xl h-[90vh] shadow-2xl overflow-hidden flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <h2 className="font-black text-slate-900 text-lg truncate">{signPreview.doc.titulo}</h2>
+                <p className="text-xs text-slate-400 mt-1">Revise o documento antes de assinar</p>
+              </div>
+              <button onClick={closeSignPreview} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 shrink-0"><X size={22} /></button>
+            </div>
+
+            <div className="flex-1 bg-slate-100 overflow-hidden">
+              {loadingPreview ? (
+                <div className="w-full h-full flex items-center justify-center"><Loader2 className="animate-spin text-indigo-500" size={32} /></div>
+              ) : signPreviewUrl ? (
+                <iframe src={signPreviewUrl} title="Pré-visualização do documento" className="w-full h-full border-0" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-slate-400 text-sm">Não foi possível carregar o PDF.</div>
+              )}
+            </div>
+
+            <div className="p-5 border-t border-slate-100 flex items-center justify-end gap-3">
+              <button onClick={closeSignPreview} className="px-5 py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors">
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarAssinatura} disabled={signingId === signPreview.signer.id}
+                className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md transition-colors disabled:opacity-60"
+              >
+                {signingId === signPreview.signer.id ? <Loader2 className="animate-spin" size={18} /> : <FileSignature size={18} />} Confirmar Assinatura
+              </button>
             </div>
           </div>
         </div>
