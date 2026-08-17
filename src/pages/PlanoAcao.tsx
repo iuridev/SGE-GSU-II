@@ -4,6 +4,7 @@ import { resolveViewRole } from '../lib/roles';
 import {
   Plus, X, Loader2, Target, Paperclip, ChevronLeft,
   FileDown, Lock, Upload, FileText, Image as ImageIcon,
+  Trash2, History,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import { addTimbradoAllPages } from '../lib/pdfTimbrado';
@@ -36,6 +37,8 @@ interface Meta {
   acao_estrategia: string;
   responsavel_id: string;
   responsavel_nome: string;
+  corresponsavel_id: string;
+  corresponsavel_nome: string;
   criado_por: string;
   criado_em: string;
 }
@@ -64,12 +67,28 @@ interface Evidencia {
   criado_em: string;
 }
 
+interface EtapaExcluida {
+  id: string;
+  etapa_id: string;
+  meta_id: string;
+  ordem: string;
+  descricao: string;
+  responsavel_id: string;
+  responsavel_nome: string;
+  prazo_previsto: string;
+  status: string;
+  motivo_exclusao: string;
+  excluido_por: string;
+  excluido_por_nome: string;
+  excluido_em: string;
+}
+
 interface Profile {
   id: string;
   full_name: string;
 }
 
-const META_FORM_INITIAL = { dimensao: DIMENSOES[0], meta: '', acao_estrategia: '', responsavel_id: '' };
+const META_FORM_INITIAL = { dimensao: DIMENSOES[0], meta: '', acao_estrategia: '', responsavel_id: '', corresponsavel_id: '' };
 
 export default function PlanoAcao() {
   const [loading, setLoading] = useState(true);
@@ -79,6 +98,7 @@ export default function PlanoAcao() {
   const [metas, setMetas] = useState<Meta[]>([]);
   const [etapas, setEtapas] = useState<Etapa[]>([]);
   const [evidencias, setEvidencias] = useState<Evidencia[]>([]);
+  const [etapasExcluidas, setEtapasExcluidas] = useState<EtapaExcluida[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
 
   const [view, setView] = useState<'lista' | 'detalhe'>('lista');
@@ -94,6 +114,9 @@ export default function PlanoAcao() {
 
   const [uploadingEtapaId, setUploadingEtapaId] = useState<string | null>(null);
   const [evidenciaObs, setEvidenciaObs] = useState<Record<string, string>>({});
+
+  const [etapaParaExcluir, setEtapaParaExcluir] = useState<Etapa | null>(null);
+  const [excluindoEtapa, setExcluindoEtapa] = useState(false);
 
   useEffect(() => {
     init();
@@ -125,6 +148,7 @@ export default function PlanoAcao() {
     setMetas(Array.isArray(data?.metas) ? data.metas : []);
     setEtapas(Array.isArray(data?.etapas) ? data.etapas : []);
     setEvidencias(Array.isArray(data?.evidencias) ? data.evidencias : []);
+    setEtapasExcluidas(Array.isArray(data?.etapasExcluidas) ? data.etapasExcluidas : []);
   }
 
   const refreshSoon = () => setTimeout(fetchAll, 1500);
@@ -143,6 +167,7 @@ export default function PlanoAcao() {
       meta: meta.meta,
       acao_estrategia: meta.acao_estrategia,
       responsavel_id: meta.responsavel_id,
+      corresponsavel_id: meta.corresponsavel_id || '',
     });
     setShowMetaModal(true);
   };
@@ -156,11 +181,12 @@ export default function PlanoAcao() {
     setSavingMeta(true);
     try {
       const responsavelNome = profiles.find(p => p.id === metaForm.responsavel_id)?.full_name || '';
+      const corresponsavelNome = profiles.find(p => p.id === metaForm.corresponsavel_id)?.full_name || '';
       if (editingMeta) {
         const { error } = await supabase.functions.invoke('google-sheets-plano-acao', {
           body: {
             entity: 'meta', action: 'update', id: editingMeta.id,
-            data: { ...metaForm, responsavel_nome: responsavelNome },
+            data: { ...metaForm, responsavel_nome: responsavelNome, corresponsavel_nome: corresponsavelNome },
           },
         });
         if (error) throw error;
@@ -172,6 +198,7 @@ export default function PlanoAcao() {
               id: `meta-${Date.now()}`,
               ...metaForm,
               responsavel_nome: responsavelNome,
+              corresponsavel_nome: corresponsavelNome,
               criado_por: currentUser?.full_name || '',
               criado_em: new Date().toISOString(),
             },
@@ -246,6 +273,33 @@ export default function PlanoAcao() {
     }
   };
 
+  const handleConfirmarExclusaoEtapa = async (motivo: string) => {
+    if (!etapaParaExcluir) return;
+    setExcluindoEtapa(true);
+    try {
+      const { error } = await supabase.functions.invoke('google-sheets-plano-acao', {
+        body: {
+          entity: 'etapa', action: 'delete', id: etapaParaExcluir.id,
+          data: {
+            motivo_exclusao: motivo,
+            excluido_por: currentUser?.id || '',
+            excluido_por_nome: currentUser?.full_name || '',
+            excluido_em: new Date().toISOString(),
+          },
+        },
+      });
+      if (error) throw error;
+      setEtapas(prev => prev.filter(e => e.id !== etapaParaExcluir.id));
+      setEtapaParaExcluir(null);
+      refreshSoon();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao excluir etapa. Tente novamente.');
+    } finally {
+      setExcluindoEtapa(false);
+    }
+  };
+
   // ── Evidências ─────────────────────────────────────────────────────────
   const handleUploadEvidencia = async (etapaId: string, file: File) => {
     if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
@@ -295,6 +349,9 @@ export default function PlanoAcao() {
 
   const evidenciasDaEtapa = (etapaId: string) =>
     evidencias.filter(ev => ev.etapa_id === etapaId).sort((a, b) => a.criado_em.localeCompare(b.criado_em));
+
+  const etapasExcluidasDaMeta = (metaId: string) =>
+    etapasExcluidas.filter(e => e.meta_id === metaId).sort((a, b) => b.excluido_em.localeCompare(a.excluido_em));
 
   const progressoDaMeta = (metaId: string) => {
     const lista = etapasDaMeta(metaId);
@@ -443,6 +500,7 @@ export default function PlanoAcao() {
           <DetalheMeta
             meta={selectedMeta}
             etapas={etapasDaMeta(selectedMeta.id)}
+            etapasExcluidas={etapasExcluidasDaMeta(selectedMeta.id)}
             evidenciasDaEtapa={evidenciasDaEtapa}
             profiles={profiles}
             uploadingEtapaId={uploadingEtapaId}
@@ -452,6 +510,7 @@ export default function PlanoAcao() {
             onEditarMeta={() => openEditarMeta(selectedMeta)}
             onAdicionarEtapa={() => handleAdicionarEtapa(selectedMeta.id)}
             onAtualizarEtapa={handleAtualizarEtapa}
+            onExcluirEtapa={setEtapaParaExcluir}
             onUploadEvidencia={handleUploadEvidencia}
             onGerarArquivo={() => gerarArquivo([selectedMeta])}
           />
@@ -467,6 +526,15 @@ export default function PlanoAcao() {
           isEditing={!!editingMeta}
           onClose={() => setShowMetaModal(false)}
           onSubmit={handleSalvarMeta}
+        />
+      )}
+
+      {etapaParaExcluir && (
+        <ExcluirEtapaModal
+          etapa={etapaParaExcluir}
+          excluindo={excluindoEtapa}
+          onClose={() => setEtapaParaExcluir(null)}
+          onConfirmar={handleConfirmarExclusaoEtapa}
         />
       )}
     </div>
@@ -562,11 +630,12 @@ function ListaMetas({
 }
 
 function DetalheMeta({
-  meta, etapas, evidenciasDaEtapa, profiles, uploadingEtapaId, evidenciaObs, setEvidenciaObs,
-  onVoltar, onEditarMeta, onAdicionarEtapa, onAtualizarEtapa, onUploadEvidencia, onGerarArquivo,
+  meta, etapas, etapasExcluidas, evidenciasDaEtapa, profiles, uploadingEtapaId, evidenciaObs, setEvidenciaObs,
+  onVoltar, onEditarMeta, onAdicionarEtapa, onAtualizarEtapa, onExcluirEtapa, onUploadEvidencia, onGerarArquivo,
 }: {
   meta: Meta;
   etapas: Etapa[];
+  etapasExcluidas: EtapaExcluida[];
   evidenciasDaEtapa: (etapaId: string) => Evidencia[];
   profiles: Profile[];
   uploadingEtapaId: string | null;
@@ -576,6 +645,7 @@ function DetalheMeta({
   onEditarMeta: () => void;
   onAdicionarEtapa: () => void;
   onAtualizarEtapa: (etapa: Etapa, changes: Partial<Etapa>) => void;
+  onExcluirEtapa: (etapa: Etapa) => void;
   onUploadEvidencia: (etapaId: string, file: File) => void;
   onGerarArquivo: () => void;
 }) {
@@ -599,8 +669,16 @@ function DetalheMeta({
         <p className="text-sm font-bold text-slate-800 mb-4">{meta.meta}</p>
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Qual ação/estratégia?</p>
         <p className="text-sm text-slate-600 mb-4">{meta.acao_estrategia}</p>
-        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Responsável geral</p>
-        <p className="text-sm font-bold text-slate-700">{meta.responsavel_nome || '—'}</p>
+        <div className="flex flex-wrap gap-x-10 gap-y-3">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Responsável geral</p>
+            <p className="text-sm font-bold text-slate-700">{meta.responsavel_nome || '—'}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Corresponsável</p>
+            <p className="text-sm font-bold text-slate-700">{meta.corresponsavel_nome || '—'}</p>
+          </div>
+        </div>
       </div>
 
       <div className="flex items-center justify-between mb-3">
@@ -626,16 +704,38 @@ function DetalheMeta({
             observacao={evidenciaObs[etapa.id] || ''}
             setObservacao={(v) => setEvidenciaObs(prev => ({ ...prev, [etapa.id]: v }))}
             onAtualizar={(changes) => onAtualizarEtapa(etapa, changes)}
+            onExcluir={() => onExcluirEtapa(etapa)}
             onUpload={(file) => onUploadEvidencia(etapa.id, file)}
           />
         ))}
       </div>
+
+      {etapasExcluidas.length > 0 && (
+        <div className="mt-6">
+          <h2 className="text-sm font-black text-slate-700 uppercase tracking-tight flex items-center gap-1.5 mb-3">
+            <History size={16} className="text-slate-400" /> Histórico de exclusões
+          </h2>
+          <div className="space-y-2">
+            {etapasExcluidas.map(h => (
+              <div key={h.id} className="bg-white p-4 rounded-2xl border border-slate-100 text-xs">
+                <p className="font-bold text-slate-700 mb-1">
+                  Etapa {h.ordem}: {h.descricao || '(sem descrição)'}
+                </p>
+                <p className="text-slate-500 mb-1"><span className="font-bold">Motivo:</span> {h.motivo_exclusao || '—'}</p>
+                <p className="text-slate-400">
+                  Excluída por {h.excluido_por_nome || '—'} em {h.excluido_em ? new Date(h.excluido_em).toLocaleString('pt-BR') : '—'}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </>
   );
 }
 
 function EtapaCard({
-  etapa, evidencias, profiles, uploading, observacao, setObservacao, onAtualizar, onUpload,
+  etapa, evidencias, profiles, uploading, observacao, setObservacao, onAtualizar, onExcluir, onUpload,
 }: {
   etapa: Etapa;
   evidencias: Evidencia[];
@@ -644,6 +744,7 @@ function EtapaCard({
   observacao: string;
   setObservacao: (v: string) => void;
   onAtualizar: (changes: Partial<Etapa>) => void;
+  onExcluir: () => void;
   onUpload: (file: File) => void;
 }) {
   const [descricao, setDescricao] = useState(etapa.descricao);
@@ -660,6 +761,14 @@ function EtapaCard({
           onChange={e => setDescricao(e.target.value)}
           onBlur={() => { if (descricao !== etapa.descricao) onAtualizar({ descricao }); }}
         />
+        <button
+          type="button"
+          onClick={onExcluir}
+          title="Excluir etapa"
+          className="shrink-0 p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+        >
+          <Trash2 size={16} />
+        </button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
@@ -771,10 +880,72 @@ function MetaModal({
               {profiles.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
             </select>
           </div>
+          <div>
+            <label className={labelClass}>Corresponsável pela meta</label>
+            <select className={selectClass} value={form.corresponsavel_id} onChange={e => setForm(f => ({ ...f, corresponsavel_id: e.target.value }))}>
+              <option value="">Nenhum</option>
+              {profiles.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+            </select>
+          </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2.5 bg-slate-100 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-200 transition-all">Cancelar</button>
             <button type="submit" disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 rounded-xl text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-60 transition-all">
               {saving && <Loader2 size={14} className="animate-spin" />} Salvar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ExcluirEtapaModal({
+  etapa, excluindo, onClose, onConfirmar,
+}: {
+  etapa: Etapa;
+  excluindo: boolean;
+  onClose: () => void;
+  onConfirmar: (motivo: string) => void;
+}) {
+  const [motivo, setMotivo] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!motivo.trim()) {
+      alert('Informe o motivo da exclusão.');
+      return;
+    }
+    onConfirmar(motivo.trim());
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
+        <div className="flex items-center justify-between p-5 border-b border-slate-100">
+          <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">Excluir Etapa</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          <p className="text-sm text-slate-600">
+            Tem certeza que deseja excluir a etapa <span className="font-bold">{etapa.ordem}. {etapa.descricao || '(sem descrição)'}</span>?
+            Essa ação ficará registrada no histórico de exclusões da meta.
+          </p>
+          <div>
+            <label className={labelClass}>Motivo da exclusão</label>
+            <textarea
+              className={selectClass}
+              rows={3}
+              placeholder="Explique por que essa etapa está sendo excluída..."
+              value={motivo}
+              onChange={e => setMotivo(e.target.value)}
+              required
+              autoFocus
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onClose} className="px-4 py-2.5 bg-slate-100 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-200 transition-all">Cancelar</button>
+            <button type="submit" disabled={excluindo} className="flex items-center gap-2 px-4 py-2.5 bg-red-600 rounded-xl text-sm font-bold text-white hover:bg-red-700 disabled:opacity-60 transition-all">
+              {excluindo && <Loader2 size={14} className="animate-spin" />} Excluir
             </button>
           </div>
         </form>
