@@ -584,13 +584,18 @@ export default function PlanoAcao() {
             const paginas = await finalDoc.copyPages(srcDoc, srcDoc.getPageIndices());
             paginas.forEach(p => finalDoc.addPage(p));
           } else {
+            // Desenha a foto logo abaixo da legenda, na mesma página — só
+            // pula pra uma página nova se realmente não sobrar espaço.
             const pngBytes = await imagemParaPngBytes(blob);
             const img = await finalDoc.embedPng(pngBytes);
-            const maxW = A4[0] - 80, maxH = A4[1] - 80;
+            const maxW = A4[0] - 80;
+            const espacoRestante = y - 40;
+            const pagina = espacoRestante < 100 ? finalDoc.addPage(A4) : legenda;
+            const maxH = pagina === legenda ? espacoRestante : A4[1] - 80;
+            const topoImagem = pagina === legenda ? y : A4[1] - 40;
             const escala = Math.min(maxW / img.width, maxH / img.height, 1);
             const w = img.width * escala, h = img.height * escala;
-            const pagina = finalDoc.addPage(A4);
-            pagina.drawImage(img, { x: (A4[0] - w) / 2, y: (A4[1] - h) / 2, width: w, height: h });
+            pagina.drawImage(img, { x: (A4[0] - w) / 2, y: topoImagem - h, width: w, height: h });
           }
         } catch (err) {
           console.error('Erro ao anexar evidência', evidencia.arquivo_nome, err);
