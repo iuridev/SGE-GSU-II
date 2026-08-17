@@ -8,10 +8,10 @@ import { getCorsHeaders } from '../_shared/cors.ts'
 
 const SHEET_ID = Deno.env.get('PLANO_ACAO_SHEET_ID') ?? ''
 
-const SHEETS: Record<string, { name: string; columns: string[] }> = {
+const SHEETS: Record<string, { name: string; columns: string[]; optional?: boolean }> = {
   meta: {
     name: 'Metas',
-    columns: ['id', 'dimensao', 'meta', 'acao_estrategia', 'responsavel_id', 'responsavel_nome', 'criado_por', 'criado_em'],
+    columns: ['id', 'dimensao', 'meta', 'acao_estrategia', 'responsavel_id', 'responsavel_nome', 'corresponsavel_id', 'corresponsavel_nome', 'criado_por', 'criado_em'],
   },
   etapa: {
     name: 'Etapas',
@@ -20,6 +20,14 @@ const SHEETS: Record<string, { name: string; columns: string[] }> = {
   evidencia: {
     name: 'Evidencias',
     columns: ['id', 'etapa_id', 'arquivo_url', 'arquivo_nome', 'observacao', 'autor_id', 'autor_nome', 'criado_em'],
+  },
+  etapa_historico: {
+    name: 'EtapasExcluidas',
+    columns: [
+      'id', 'etapa_id', 'meta_id', 'ordem', 'descricao', 'responsavel_id', 'responsavel_nome',
+      'prazo_previsto', 'status', 'motivo_exclusao', 'excluido_por', 'excluido_por_nome', 'excluido_em',
+    ],
+    optional: true,
   },
 }
 
@@ -63,14 +71,20 @@ serve(async (req) => {
       return { sheet, columns: def.columns }
     }
 
-    // ── GET: retorna as 3 abas como arrays de objetos ────────────────────────
+    // ── GET: retorna as abas como arrays de objetos ──────────────────────────
     if (req.method === 'GET') {
       const result: Record<string, unknown[]> = {}
       for (const entity of Object.keys(SHEETS)) {
-        const { sheet, columns } = getEntitySheet(entity)
+        const def = SHEETS[entity]
+        const key = entity === 'etapa_historico' ? 'etapasExcluidas' : `${entity}s`
+        const sheet = doc.sheetsByTitle[def.name]
+        if (!sheet) {
+          if (def.optional) { result[key] = []; continue }
+          throw new Error(`Aba "${def.name}" não encontrada na planilha. Crie a aba e tente novamente.`)
+        }
         const rows = await sheet.getRows()
-        result[`${entity}s`] = rows.map((row: any) =>
-          Object.fromEntries(columns.map(col => [col, row.get(col) ?? '']))
+        result[key] = rows.map((row: any) =>
+          Object.fromEntries(def.columns.map(col => [col, row.get(col) ?? '']))
         )
       }
       return ok(corsHeaders, result)
@@ -80,11 +94,12 @@ serve(async (req) => {
     if (req.method === 'POST') {
       const body = await req.json()
       const { entity, action, id, data } = body
-      if (!entity || !action || !data) throw new Error('Requisição inválida: entity, action e data são obrigatórios.')
+      if (!entity || !action) throw new Error('Requisição inválida: entity e action são obrigatórios.')
 
       const { sheet, columns } = getEntitySheet(entity)
 
       if (action === 'create') {
+        if (!data) throw new Error('Requisição inválida: data é obrigatório para create.')
         const headers = await sheet.loadHeaderRow().then(() => sheet.headerValues).catch(() => [])
         if (!headers || headers.length === 0) {
           await sheet.setHeaderRow(columns)
@@ -95,6 +110,7 @@ serve(async (req) => {
 
       if (action === 'update') {
         if (!id) throw new Error('Requisição inválida: id é obrigatório para update.')
+        if (!data) throw new Error('Requisição inválida: data é obrigatório para update.')
         const rows = await sheet.getRows()
         const row = rows.find((r: any) => r.get('id') === id)
         if (!row) throw new Error(`Linha com id "${id}" não encontrada em ${entity}.`)
@@ -102,6 +118,38 @@ serve(async (req) => {
           if (col in data) row.set(col, data[col] ?? '')
         }
         await row.save()
+        return ok(corsHeaders, { success: true })
+      }
+
+      if (action === 'delete') {
+        if (!id) throw new Error('Requisição inválida: id é obrigatório para delete.')
+        const rows = await sheet.getRows()
+        const row = rows.find((r: any) => r.get('id') === id)
+        if (!row) throw new Error(`Linha com id "${id}" não encontrada em ${entity}.`)
+
+        if (entity === 'etapa') {
+          const histDef = SHEETS['etapa_historico']
+          let histSheet = doc.sheetsByTitle[histDef.name]
+          if (!histSheet) {
+            histSheet = await doc.addSheet({ title: histDef.name, headerValues: histDef.columns })
+          } else {
+            const histHeaders = await histSheet.loadHeaderRow().then(() => histSheet.headerValues).catch(() => [])
+            if (!histHeaders || histHeaders.length === 0) {
+              await histSheet.setHeaderRow(histDef.columns)
+            }
+          }
+          const etapaSnapshot = Object.fromEntries(columns.map(col => [col, row.get(col) ?? '']))
+          await histSheet.addRow(Object.fromEntries(histDef.columns.map(col => {
+            if (col === 'etapa_id') return [col, etapaSnapshot.id ?? '']
+            if (col === 'motivo_exclusao') return [col, data?.motivo_exclusao ?? '']
+            if (col === 'excluido_por') return [col, data?.excluido_por ?? '']
+            if (col === 'excluido_por_nome') return [col, data?.excluido_por_nome ?? '']
+            if (col === 'excluido_em') return [col, data?.excluido_em ?? new Date().toISOString()]
+            return [col, etapaSnapshot[col] ?? '']
+          })))
+        }
+
+        await row.delete()
         return ok(corsHeaders, { success: true })
       }
 
