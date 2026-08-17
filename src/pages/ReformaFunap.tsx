@@ -557,6 +557,14 @@ export default function ReformaFunap() {
   const totalRespondido = respostas.length;
   const totalPendente = Math.max(0, escolas.length - totalRespondido);
 
+  const respostasComReforma = useMemo(
+    () => respostas.filter(r =>
+      Number(r.cja05_carteiras || 0) > 0 || Number(r.cja05_cadeiras || 0) > 0 ||
+      Number(r.cja06_carteiras || 0) > 0 || Number(r.cja06_cadeiras || 0) > 0
+    ),
+    [respostas]
+  );
+
   const linhasRelatorio = useMemo(() => {
     type Linha = {
       diretoria: string; cie: string; escola: string; endereco: string; codigoBem: string;
@@ -1192,7 +1200,7 @@ export default function ReformaFunap() {
                       </tr>
                     </thead>
                     <tbody>
-                      {respostas.map(resposta => {
+                      {respostasComReforma.map(resposta => {
                         const edit = getLogisticaEdit(resposta);
                         return (
                           <tr key={resposta.id} className="border-t border-slate-100">
@@ -1243,9 +1251,9 @@ export default function ReformaFunap() {
                           </tr>
                         );
                       })}
-                      {respostas.length === 0 && (
+                      {respostasComReforma.length === 0 && (
                         <tr>
-                          <td colSpan={7} className="p-6 text-center text-slate-400 text-sm">Nenhuma resposta recebida ainda.</td>
+                          <td colSpan={7} className="p-6 text-center text-slate-400 text-sm">Nenhuma escola com quantidade a reformar.</td>
                         </tr>
                       )}
                     </tbody>
