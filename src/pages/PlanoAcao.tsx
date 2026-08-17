@@ -4,11 +4,12 @@ import { resolveViewRole } from '../lib/roles';
 import {
   Plus, X, Loader2, Target, Paperclip, ChevronLeft,
   FileDown, Lock, Upload, FileText, Image as ImageIcon,
-  Trash2, History,
+  Trash2, History, Pencil, Check, FileStack,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 import autoTable from 'jspdf-autotable';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 const DIMENSOES = [
   'Apoio e Orientação Pedagógica',
@@ -29,6 +30,42 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 const IMAGE_EXT = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+
+// Quebra um texto em linhas de até maxChars, pra desenhar com pdf-lib (que
+// não tem word-wrap nativo como o jsPDF).
+function quebrarLinha(texto: string, maxChars: number): string[] {
+  const palavras = (texto || '—').split(/\s+/);
+  const linhas: string[] = [];
+  let atual = '';
+  palavras.forEach(p => {
+    if ((atual + ' ' + p).trim().length > maxChars) {
+      if (atual) linhas.push(atual.trim());
+      atual = p;
+    } else {
+      atual = (atual + ' ' + p).trim();
+    }
+  });
+  if (atual) linhas.push(atual);
+  return linhas.length ? linhas : ['—'];
+}
+
+// Decodifica a imagem (jpg/png/webp/gif) via canvas e reexporta como PNG,
+// já que o pdf-lib só embute PNG/JPEG diretamente.
+async function imagemParaPngBytes(blob: Blob): Promise<Uint8Array> {
+  const bitmap = await createImageBitmap(blob);
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas indisponível neste navegador.');
+  ctx.drawImage(bitmap, 0, 0);
+  const dataUrl = canvas.toDataURL('image/png');
+  const base64 = dataUrl.split(',')[1];
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
 
 interface Meta {
   id: string;
@@ -114,6 +151,7 @@ export default function PlanoAcao() {
 
   const [uploadingEtapaId, setUploadingEtapaId] = useState<string | null>(null);
   const [evidenciaObs, setEvidenciaObs] = useState<Record<string, string>>({});
+  const [gerandoEvidencias, setGerandoEvidencias] = useState(false);
 
   const [etapaParaExcluir, setEtapaParaExcluir] = useState<Etapa | null>(null);
   const [excluindoEtapa, setExcluindoEtapa] = useState(false);
@@ -343,6 +381,20 @@ export default function PlanoAcao() {
     }
   };
 
+  const handleAtualizarEvidencia = async (evidencia: Evidencia, observacao: string) => {
+    setEvidencias(prev => prev.map(ev => ev.id === evidencia.id ? { ...ev, observacao } : ev));
+    try {
+      const { error } = await supabase.functions.invoke('google-sheets-plano-acao', {
+        body: { entity: 'evidencia', action: 'update', id: evidencia.id, data: { observacao } },
+      });
+      if (error) throw error;
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao atualizar observação da evidência. Recarregando dados...');
+      fetchAll();
+    }
+  };
+
   // ── Derivados ──────────────────────────────────────────────────────────
   const etapasDaMeta = (metaId: string) =>
     etapas.filter(e => e.meta_id === metaId).sort((a, b) => Number(a.ordem) - Number(b.ordem));
@@ -463,6 +515,108 @@ export default function PlanoAcao() {
     doc.save(`plano-de-acao-${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
+  // Junta todas as fotos e PDFs de evidência num único arquivo PDF (fotos
+  // viram páginas de imagem, PDFs têm suas páginas copiadas de verdade —
+  // não é só uma lista de links). Cada evidência ganha uma página de legenda
+  // antes, pra dar contexto de qual etapa/meta ela comprova.
+  const gerarArquivoEvidencias = async (metasParaExportar: Meta[]) => {
+    const itens: { meta: Meta; etapa: Etapa; evidencia: Evidencia }[] = [];
+    metasParaExportar.forEach(meta => {
+      etapasDaMeta(meta.id).forEach(etapa => {
+        evidenciasDaEtapa(etapa.id).forEach(evidencia => itens.push({ meta, etapa, evidencia }));
+      });
+    });
+    if (itens.length === 0) {
+      alert('Nenhuma evidência para exportar.');
+      return;
+    }
+
+    setGerandoEvidencias(true);
+    try {
+      const finalDoc = await PDFDocument.create();
+      const fontBold = await finalDoc.embedFont(StandardFonts.HelveticaBold);
+      const fontRegular = await finalDoc.embedFont(StandardFonts.Helvetica);
+      const A4: [number, number] = [595.28, 841.89];
+      const roxo = rgb(0.31, 0.27, 0.9);
+      const cinza = rgb(0.4, 0.4, 0.4);
+      const escuro = rgb(0.2, 0.2, 0.2);
+
+      const capa = finalDoc.addPage(A4);
+      capa.drawText('Evidências — Plano de Ação', { x: 40, y: 780, size: 18, font: fontBold, color: roxo });
+      capa.drawText(`Gerado em ${new Date().toLocaleString('pt-BR')}`, { x: 40, y: 758, size: 10, font: fontRegular, color: cinza });
+      metasParaExportar.forEach((m, i) => {
+        if (i < 30) capa.drawText(`• ${m.meta}`.slice(0, 110), { x: 40, y: 720 - i * 16, size: 9, font: fontRegular, color: escuro });
+      });
+
+      let falhas = 0;
+      for (const { meta, etapa, evidencia } of itens) {
+        const legenda = finalDoc.addPage(A4);
+        let y = 780;
+        legenda.drawText('Evidência', { x: 40, y, size: 14, font: fontBold, color: roxo });
+        y -= 30;
+        const campos: [string, string][] = [
+          ['Meta:', meta.meta],
+          [`Etapa ${etapa.ordem}:`, etapa.descricao || '(sem descrição)'],
+          ['Arquivo:', evidencia.arquivo_nome],
+          ['Observação:', evidencia.observacao || '—'],
+          ['Autor:', evidencia.autor_nome || '—'],
+          ['Data:', evidencia.criado_em ? new Date(evidencia.criado_em).toLocaleString('pt-BR') : '—'],
+        ];
+        campos.forEach(([label, valor]) => {
+          legenda.drawText(label, { x: 40, y, size: 9, font: fontBold, color: cinza });
+          const linhas = quebrarLinha(valor, 85);
+          linhas.forEach((linha, idx) => {
+            legenda.drawText(linha, { x: 150, y: y - idx * 12, size: 9, font: fontRegular, color: escuro });
+          });
+          y -= 12 * linhas.length + 8;
+        });
+
+        try {
+          const res = await fetch(evidencia.arquivo_url);
+          if (!res.ok) throw new Error(`download falhou (${res.status})`);
+          const blob = await res.blob();
+          const ext = (evidencia.arquivo_nome.split('.').pop() || '').toLowerCase();
+          const isPdf = ext === 'pdf' || blob.type === 'application/pdf';
+
+          if (isPdf) {
+            const bytes = new Uint8Array(await blob.arrayBuffer());
+            const srcDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+            const paginas = await finalDoc.copyPages(srcDoc, srcDoc.getPageIndices());
+            paginas.forEach(p => finalDoc.addPage(p));
+          } else {
+            const pngBytes = await imagemParaPngBytes(blob);
+            const img = await finalDoc.embedPng(pngBytes);
+            const maxW = A4[0] - 80, maxH = A4[1] - 80;
+            const escala = Math.min(maxW / img.width, maxH / img.height, 1);
+            const w = img.width * escala, h = img.height * escala;
+            const pagina = finalDoc.addPage(A4);
+            pagina.drawImage(img, { x: (A4[0] - w) / 2, y: (A4[1] - h) / 2, width: w, height: h });
+          }
+        } catch (err) {
+          console.error('Erro ao anexar evidência', evidencia.arquivo_nome, err);
+          falhas++;
+          legenda.drawText('⚠ Não foi possível carregar o arquivo original (link indisponível ou expirado).', { x: 40, y: y - 4, size: 9, font: fontRegular, color: rgb(0.8, 0.2, 0.2) });
+        }
+      }
+
+      const bytes = await finalDoc.save();
+      const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `evidencias-plano-de-acao-${new Date().toISOString().split('T')[0]}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      if (falhas > 0) alert(`${falhas} evidência(s) não puderam ser incluídas (arquivo indisponível). As demais foram exportadas normalmente.`);
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao gerar arquivo de evidências. Tente novamente.');
+    } finally {
+      setGerandoEvidencias(false);
+    }
+  };
+
   // ── Guard de acesso ────────────────────────────────────────────────────
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-indigo-500" size={32} /></div>;
@@ -495,6 +649,8 @@ export default function PlanoAcao() {
             onNovaMeta={openNovaMeta}
             onAbrirMeta={(id) => { setSelectedMetaId(id); setView('detalhe'); }}
             onGerarArquivo={() => gerarArquivo(metasFiltradas)}
+            onGerarArquivoEvidencias={() => gerarArquivoEvidencias(metasFiltradas)}
+            gerandoEvidencias={gerandoEvidencias}
           />
         ) : selectedMeta ? (
           <DetalheMeta
@@ -512,7 +668,10 @@ export default function PlanoAcao() {
             onAtualizarEtapa={handleAtualizarEtapa}
             onExcluirEtapa={setEtapaParaExcluir}
             onUploadEvidencia={handleUploadEvidencia}
+            onEditarEvidencia={handleAtualizarEvidencia}
             onGerarArquivo={() => gerarArquivo([selectedMeta])}
+            onGerarArquivoEvidencias={() => gerarArquivoEvidencias([selectedMeta])}
+            gerandoEvidencias={gerandoEvidencias}
           />
         ) : null}
       </div>
@@ -549,6 +708,7 @@ const labelClass = "text-[10px] font-black uppercase tracking-widest text-slate-
 function ListaMetas({
   metas, filterDimensao, setFilterDimensao, filterStatus, setFilterStatus,
   statusDaMeta, progressoDaMeta, etapasDaMeta, onNovaMeta, onAbrirMeta, onGerarArquivo,
+  onGerarArquivoEvidencias, gerandoEvidencias,
 }: {
   metas: Meta[];
   filterDimensao: string; setFilterDimensao: (v: string) => void;
@@ -559,6 +719,8 @@ function ListaMetas({
   onNovaMeta: () => void;
   onAbrirMeta: (id: string) => void;
   onGerarArquivo: () => void;
+  onGerarArquivoEvidencias: () => void;
+  gerandoEvidencias: boolean;
 }) {
   return (
     <>
@@ -570,9 +732,17 @@ function ListaMetas({
             <p className="text-xs text-slate-400 font-medium">Cadastro e Monitoramento de Metas</p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button onClick={onGerarArquivo} className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all">
             <FileDown size={16} /> Gerar arquivo
+          </button>
+          <button
+            onClick={onGerarArquivoEvidencias}
+            disabled={gerandoEvidencias}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all disabled:opacity-60"
+          >
+            {gerandoEvidencias ? <Loader2 size={16} className="animate-spin" /> : <FileStack size={16} />}
+            {gerandoEvidencias ? 'Gerando...' : 'Gerar arquivo de evidências'}
           </button>
           <button onClick={onNovaMeta} className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 rounded-xl text-sm font-bold text-white hover:bg-indigo-700 transition-all shadow-sm">
             <Plus size={16} /> Nova Meta
@@ -631,7 +801,8 @@ function ListaMetas({
 
 function DetalheMeta({
   meta, etapas, etapasExcluidas, evidenciasDaEtapa, profiles, uploadingEtapaId, evidenciaObs, setEvidenciaObs,
-  onVoltar, onEditarMeta, onAdicionarEtapa, onAtualizarEtapa, onExcluirEtapa, onUploadEvidencia, onGerarArquivo,
+  onVoltar, onEditarMeta, onAdicionarEtapa, onAtualizarEtapa, onExcluirEtapa, onUploadEvidencia, onEditarEvidencia,
+  onGerarArquivo, onGerarArquivoEvidencias, gerandoEvidencias,
 }: {
   meta: Meta;
   etapas: Etapa[];
@@ -647,7 +818,10 @@ function DetalheMeta({
   onAtualizarEtapa: (etapa: Etapa, changes: Partial<Etapa>) => void;
   onExcluirEtapa: (etapa: Etapa) => void;
   onUploadEvidencia: (etapaId: string, file: File) => void;
+  onEditarEvidencia: (evidencia: Evidencia, observacao: string) => void;
   onGerarArquivo: () => void;
+  onGerarArquivoEvidencias: () => void;
+  gerandoEvidencias: boolean;
 }) {
   return (
     <>
@@ -658,10 +832,18 @@ function DetalheMeta({
       <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm mb-6">
         <div className="flex items-start justify-between gap-4 mb-3">
           <span className="text-[9px] font-black text-indigo-600 uppercase bg-indigo-50 px-2 py-1 rounded-lg">{meta.dimensao}</span>
-          <div className="flex gap-2 shrink-0">
+          <div className="flex gap-2 shrink-0 flex-wrap justify-end">
             <button onClick={onEditarMeta} className="px-3 py-1.5 bg-slate-100 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-200 transition-all">Editar</button>
             <button onClick={onGerarArquivo} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-200 transition-all">
               <FileDown size={14} /> Gerar arquivo
+            </button>
+            <button
+              onClick={onGerarArquivoEvidencias}
+              disabled={gerandoEvidencias}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-200 transition-all disabled:opacity-60"
+            >
+              {gerandoEvidencias ? <Loader2 size={14} className="animate-spin" /> : <FileStack size={14} />}
+              {gerandoEvidencias ? 'Gerando...' : 'Gerar arquivo de evidências'}
             </button>
           </div>
         </div>
@@ -706,6 +888,7 @@ function DetalheMeta({
             onAtualizar={(changes) => onAtualizarEtapa(etapa, changes)}
             onExcluir={() => onExcluirEtapa(etapa)}
             onUpload={(file) => onUploadEvidencia(etapa.id, file)}
+            onEditarEvidencia={onEditarEvidencia}
           />
         ))}
       </div>
@@ -735,7 +918,7 @@ function DetalheMeta({
 }
 
 function EtapaCard({
-  etapa, evidencias, profiles, uploading, observacao, setObservacao, onAtualizar, onExcluir, onUpload,
+  etapa, evidencias, profiles, uploading, observacao, setObservacao, onAtualizar, onExcluir, onUpload, onEditarEvidencia,
 }: {
   etapa: Etapa;
   evidencias: Evidencia[];
@@ -746,8 +929,11 @@ function EtapaCard({
   onAtualizar: (changes: Partial<Etapa>) => void;
   onExcluir: () => void;
   onUpload: (file: File) => void;
+  onEditarEvidencia: (evidencia: Evidencia, observacao: string) => void;
 }) {
   const [descricao, setDescricao] = useState(etapa.descricao);
+  const [editandoEvidenciaId, setEditandoEvidenciaId] = useState<string | null>(null);
+  const [textoEdicao, setTextoEdicao] = useState('');
 
   return (
     <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
@@ -805,12 +991,56 @@ function EtapaCard({
           <ul className="space-y-1.5 mb-3">
             {evidencias.map(ev => {
               const isImage = IMAGE_EXT.includes((ev.arquivo_nome.split('.').pop() || '').toLowerCase());
+              const editando = editandoEvidenciaId === ev.id;
               return (
                 <li key={ev.id} className="flex items-center gap-2 text-xs bg-slate-50 rounded-lg p-2">
                   {isImage ? <ImageIcon size={14} className="text-indigo-400 shrink-0" /> : <FileText size={14} className="text-slate-400 shrink-0" />}
-                  <a href={ev.arquivo_url} target="_blank" rel="noopener noreferrer" className="font-bold text-indigo-600 hover:underline truncate">{ev.arquivo_nome}</a>
-                  <span className="text-slate-400 truncate flex-1">{ev.observacao}</span>
-                  <span className="text-slate-400 shrink-0">{ev.criado_em ? new Date(ev.criado_em).toLocaleDateString('pt-BR') : ''} · {ev.autor_nome}</span>
+                  <a href={ev.arquivo_url} target="_blank" rel="noopener noreferrer" className="font-bold text-indigo-600 hover:underline truncate shrink-0 max-w-[40%]">{ev.arquivo_nome}</a>
+                  {editando ? (
+                    <>
+                      <input
+                        type="text"
+                        autoFocus
+                        className="flex-1 p-1 bg-white border border-indigo-300 rounded text-xs outline-none"
+                        placeholder="O que essa evidência comprova?"
+                        value={textoEdicao}
+                        onChange={e => setTextoEdicao(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') { onEditarEvidencia(ev, textoEdicao.trim()); setEditandoEvidenciaId(null); }
+                          if (e.key === 'Escape') setEditandoEvidenciaId(null);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        title="Salvar"
+                        onClick={() => { onEditarEvidencia(ev, textoEdicao.trim()); setEditandoEvidenciaId(null); }}
+                        className="shrink-0 p-1 text-emerald-600 hover:bg-emerald-50 rounded transition-all"
+                      >
+                        <Check size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        title="Cancelar"
+                        onClick={() => setEditandoEvidenciaId(null)}
+                        className="shrink-0 p-1 text-slate-400 hover:bg-slate-100 rounded transition-all"
+                      >
+                        <X size={14} />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className={`truncate flex-1 ${ev.observacao ? 'text-slate-400' : 'text-slate-300 italic'}`}>{ev.observacao || 'sem observação'}</span>
+                      <button
+                        type="button"
+                        title="Editar observação"
+                        onClick={() => { setEditandoEvidenciaId(ev.id); setTextoEdicao(ev.observacao || ''); }}
+                        className="shrink-0 p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-all"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                      <span className="text-slate-400 shrink-0">{ev.criado_em ? new Date(ev.criado_em).toLocaleDateString('pt-BR') : ''} · {ev.autor_nome}</span>
+                    </>
+                  )}
                 </li>
               );
             })}
