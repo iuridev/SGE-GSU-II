@@ -12,7 +12,7 @@ import {
   School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown,
   Bell, MessageSquare, CheckCircle, ClipboardList,
   Wrench, Search, CalendarCheck, BarChart2, Megaphone, DoorOpen, ClipboardCheck, Target,
-  CalendarDays
+  CalendarDays, FileSignature
 } from 'lucide-react';
 import { AgendaUnificadaModal } from './components/AgendaUnificadaModal';
 import { AlertaEscolaModal } from './components/AlertaEscolaModal';
@@ -73,6 +73,7 @@ import ReformaFunap from './pages/ReformaFunap';
 import MetricasAcesso from './pages/MetricasAcesso';
 import AcompanhamentoObras from './pages/AcompanhamentoObras';
 import PlanoAcao from './pages/PlanoAcao';
+import Assinaturas from './pages/Assinaturas';
 import { FunapReminderModal } from './components/FunapReminderModal';
 import { Toaster } from 'react-hot-toast';
 
@@ -94,7 +95,7 @@ interface AppNotification {
   id: string;
   conversa_id: string;
   protocolo: string;
-  type: 'conclusion' | 'chat' | 'chamado' | 'chamado_update';
+  type: 'conclusion' | 'chat' | 'chamado' | 'chamado_update' | 'assinatura_pendente';
   count?: number;
   text: string;
   allMsgIds: string[];
@@ -158,6 +159,12 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'furtos', label: 'Cadastro de Furtos', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
       { id: 'patrimonio-salas', label: 'Salas de Trabalho', icon: <DoorOpen size={20} className="text-teal-500" />, roles: ['regional_admin', 'ure_servico'] },
       //{ id: 'listchapa', label: 'Listar Patrimônio', icon: <Package size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+    ]
+  },
+  {
+    title: 'DOCUMENTOS',
+    items: [
+      { id: 'assinaturas', label: 'Assinatura de Documentos', icon: <FileSignature size={20} className="text-indigo-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente', 'ure_servico', 'ure_ecc'] },
     ]
   },
   {
@@ -504,6 +511,26 @@ export default function App() {
             }
         }
 
+        // 4. BUSCA DOCUMENTOS PENDENTES DA MINHA ASSINATURA
+        const { data: assinaturasPendentes } = await (supabase as any)
+          .from('signature_signers')
+          .select('id, document_id, signature_documents(titulo)')
+          .eq('profile_id', userId)
+          .eq('status', 'pendente');
+
+        if (assinaturasPendentes && assinaturasPendentes.length > 0) {
+          assinaturasPendentes.forEach((pendencia: any) => {
+            groupedNotifs.push({
+              id: pendencia.id,
+              conversa_id: pendencia.document_id,
+              protocolo: pendencia.signature_documents?.titulo || '',
+              type: 'assinatura_pendente',
+              text: `Você tem um documento pendente de assinatura: "${pendencia.signature_documents?.titulo || 'sem título'}".`,
+              allMsgIds: [pendencia.id]
+            });
+          });
+        }
+
         setNotifications(groupedNotifs);
 
       } catch (err) {
@@ -519,6 +546,7 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'conversas' }, fetchNotifications)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'internal_tickets' }, fetchNotifications)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ticket_messages' }, fetchNotifications)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'signature_signers' }, fetchNotifications)
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
@@ -561,6 +589,12 @@ export default function App() {
             .in('id', notif.allMsgIds);
 
           setCurrentPage('chamados');
+          setShowDropdown(false);
+          return;
+      }
+
+      if (notif.type === 'assinatura_pendente') {
+          setCurrentPage('assinaturas');
           setShowDropdown(false);
           return;
       }
@@ -664,6 +698,7 @@ export default function App() {
       case 'reforma-funap': return <ReformaFunap />;
       case 'metricas-acesso': return <MetricasAcesso />;
       case 'plano-acao': return <PlanoAcao />;
+      case 'assinaturas': return <Assinaturas />;
       default: return <Dashboard />;
     }
   };
@@ -909,6 +944,19 @@ export default function App() {
                                   <button onClick={() => markAsRead(notif)} className="mt-3 text-[10px] font-bold uppercase tracking-widest bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-1.5 rounded-lg transition-colors shadow-sm">
                                     Tomar Ciência
                                   </button>
+                                </div>
+                              </>
+
+                            // ALERTA 5: DOCUMENTO PENDENTE DE ASSINATURA
+                            ) : notif.type === 'assinatura_pendente' ? (
+                              <>
+                                <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center shrink-0 mt-1">
+                                  <FileSignature size={20} />
+                                </div>
+                                <div className="flex-1 cursor-pointer group" onClick={() => markAsRead(notif)}>
+                                  <p className="text-sm font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">Documento Pendente de Assinatura</p>
+                                  <p className="text-xs text-slate-500 leading-snug mt-0.5">{notif.text}</p>
+                                  <p className="mt-2 text-[10px] font-bold text-indigo-500 uppercase tracking-widest group-hover:underline">Assinar Documento &rarr;</p>
                                 </div>
                               </>
 
