@@ -73,6 +73,11 @@ export default function Assinaturas() {
   const [signingId, setSigningId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
+  const [showAddSigner, setShowAddSigner] = useState(false);
+  const [addSignerIds, setAddSignerIds] = useState<Set<string>>(new Set());
+  const [addSignerBusca, setAddSignerBusca] = useState('');
+  const [addingSigners, setAddingSigners] = useState(false);
+
   useEffect(() => { init(); }, []);
 
   async function init() {
@@ -164,6 +169,41 @@ export default function Assinaturas() {
       toast.error('Não foi possível criar o documento. Tente novamente.');
     } finally {
       setCreating(false);
+    }
+  };
+
+  // ── Adicionar signatário a um documento existente ─────────────────────
+  const openDetalhe = (docId: string) => {
+    setSelectedDocId(docId);
+    setShowAddSigner(false);
+    setAddSignerIds(new Set());
+    setAddSignerBusca('');
+  };
+
+  const toggleAddSigner = (id: string) => {
+    setAddSignerIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleAddSigners = async () => {
+    if (!selectedDocId || addSignerIds.size === 0) return;
+    setAddingSigners(true);
+    try {
+      const rows = Array.from(addSignerIds).map(profileId => ({ document_id: selectedDocId, profile_id: profileId }));
+      const { error } = await (supabase as any).from('signature_signers').insert(rows);
+      if (error) throw error;
+      toast.success(`${rows.length} signatário(s) adicionado(s)!`);
+      setShowAddSigner(false);
+      setAddSignerIds(new Set());
+      fetchDocuments();
+    } catch (err) {
+      console.error('Erro ao adicionar signatários:', err);
+      toast.error('Não foi possível adicionar signatário(s). Tente novamente.');
+    } finally {
+      setAddingSigners(false);
     }
   };
 
@@ -288,6 +328,10 @@ export default function Assinaturas() {
 
   const selectedDoc = documents.find(d => d.id === selectedDocId) || null;
   const selectedSigners = selectedDoc ? (signersByDoc[selectedDoc.id] || []) : [];
+  const souCriadorDoSelecionado = !!selectedDoc && !!me && selectedDoc.created_by === me.id;
+  const profilesParaAdicionar = profiles
+    .filter(p => !selectedSigners.some(s => s.profile_id === p.id))
+    .filter(p => p.full_name.toLowerCase().includes(addSignerBusca.toLowerCase()));
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8">
@@ -354,7 +398,7 @@ export default function Assinaturas() {
               return (
                 <button
                   key={doc.id}
-                  onClick={() => setSelectedDocId(doc.id)}
+                  onClick={() => openDetalhe(doc.id)}
                   className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-slate-50 transition-colors"
                 >
                   <div className="p-2.5 bg-slate-100 rounded-xl text-slate-500 shrink-0"><FileText size={18} /></div>
@@ -497,8 +541,61 @@ export default function Assinaturas() {
                       </div>
                     );
                   })}
+                  {selectedSigners.length === 0 && (
+                    <p className="px-4 py-4 text-sm text-slate-400 text-center">Nenhum signatário ainda.</p>
+                  )}
                 </div>
               </div>
+
+              {souCriadorDoSelecionado && selectedDoc.status === 'pendente' && (
+                <div className="space-y-2 pt-2 border-t border-slate-100">
+                  {!showAddSigner ? (
+                    <button
+                      onClick={() => setShowAddSigner(true)}
+                      className="flex items-center gap-2 text-sm font-bold text-indigo-600 hover:underline"
+                    >
+                      <Plus size={16} /> Adicionar signatário
+                    </button>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between gap-3">
+                        <label className="text-xs font-bold text-slate-500 uppercase">
+                          Adicionar signatários ({addSignerIds.size} selecionado{addSignerIds.size !== 1 ? 's' : ''})
+                        </label>
+                        <button onClick={() => { setShowAddSigner(false); setAddSignerIds(new Set()); }} className="text-slate-400 hover:text-slate-600">
+                          <X size={16} />
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                        <input
+                          type="text" placeholder="Buscar usuário..."
+                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-indigo-500"
+                          value={addSignerBusca} onChange={e => setAddSignerBusca(e.target.value)}
+                        />
+                      </div>
+                      <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100">
+                        {profilesParaAdicionar.map(p => (
+                          <label key={p.id} className="flex items-center gap-3 px-3 py-2.5 text-sm cursor-pointer hover:bg-slate-50">
+                            <input type="checkbox" className="accent-indigo-600" checked={addSignerIds.has(p.id)} onChange={() => toggleAddSigner(p.id)} />
+                            <span className="flex-1 truncate">{p.full_name}</span>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">{ROLE_LABELS[p.role] || p.role}</span>
+                          </label>
+                        ))}
+                        {profilesParaAdicionar.length === 0 && (
+                          <p className="px-3 py-4 text-sm text-slate-400 text-center">Nenhum usuário disponível.</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={handleAddSigners} disabled={addingSigners || addSignerIds.size === 0}
+                        className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm shadow-md transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+                      >
+                        {addingSigners ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />} Adicionar
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
 
               {selectedDoc.status === 'concluido' ? (
                 <button
