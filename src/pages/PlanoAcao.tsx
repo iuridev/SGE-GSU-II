@@ -541,17 +541,35 @@ export default function PlanoAcao() {
       const cinza = rgb(0.4, 0.4, 0.4);
       const escuro = rgb(0.2, 0.2, 0.2);
 
-      const capa = finalDoc.addPage(A4);
-      capa.drawText('Evidências — Plano de Ação', { x: 40, y: 780, size: 18, font: fontBold, color: roxo });
-      capa.drawText(`Gerado em ${new Date().toLocaleString('pt-BR')}`, { x: 40, y: 758, size: 10, font: fontRegular, color: cinza });
-      metasParaExportar.forEach((m, i) => {
-        if (i < 30) capa.drawText(`• ${m.meta}`.slice(0, 110), { x: 40, y: 720 - i * 16, size: 9, font: fontRegular, color: escuro });
-      });
-
       let falhas = 0;
+      let primeiraPagina = true;
       for (const { meta, etapa, evidencia } of itens) {
         const legenda = finalDoc.addPage(A4);
         let y = 780;
+
+        // Cabeçalho só na primeira página — em vez de uma capa dedicada
+        // (que sobrava quase inteira em branco), o resumo entra no topo
+        // da página da primeira evidência.
+        if (primeiraPagina) {
+          legenda.drawText('Evidências — Plano de Ação', { x: 40, y, size: 18, font: fontBold, color: roxo });
+          y -= 22;
+          legenda.drawText(`Gerado em ${new Date().toLocaleString('pt-BR')}`, { x: 40, y, size: 10, font: fontRegular, color: cinza });
+          y -= 18;
+          const metasMostradas = metasParaExportar.slice(0, 8);
+          metasMostradas.forEach(m => {
+            legenda.drawText(`• ${m.meta}`.slice(0, 110), { x: 40, y, size: 9, font: fontRegular, color: escuro });
+            y -= 13;
+          });
+          if (metasParaExportar.length > metasMostradas.length) {
+            legenda.drawText(`+ ${metasParaExportar.length - metasMostradas.length} outra(s) meta(s)`, { x: 40, y, size: 9, font: fontRegular, color: cinza });
+            y -= 13;
+          }
+          y -= 12;
+          legenda.drawLine({ start: { x: 40, y: y + 6 }, end: { x: A4[0] - 40, y: y + 6 }, thickness: 0.5, color: rgb(0.85, 0.85, 0.85) });
+          y -= 12;
+          primeiraPagina = false;
+        }
+
         legenda.drawText('Evidência', { x: 40, y, size: 14, font: fontBold, color: roxo });
         y -= 30;
         const campos: [string, string][] = [
