@@ -168,8 +168,15 @@ Deno.serve(async (req) => {
         }
 
         const geradoEm = new Date().toISOString()
-        let atualizadas = 0
-        let criadas = 0
+
+        // Separa em inserções (o caso comum: cada semana nova é 100% linhas
+        // novas, uma por escola da rede) e atualizações (só ocorre se o
+        // mesmo snapshot da mesma semana for gerado de novo). Gravar uma
+        // linha por vez (addRow/save sequenciais) estourava a cota de
+        // escrita do Google Sheets em redes com muitas escolas — por isso as
+        // inserções vão em uma única chamada em lote (addRows).
+        const paraInserir: Record<string, string>[] = []
+        const paraAtualizar: { row: any; valores: Record<string, string> }[] = []
 
         for (const linha of linhas) {
           if (!linha.escola_id) continue
@@ -188,16 +195,21 @@ Deno.serve(async (req) => {
 
           const existente = porChave.get(chave)
           if (existente) {
-            for (const [col, val] of Object.entries(valores)) existente.set(col, val)
-            await existente.save()
-            atualizadas++
+            paraAtualizar.push({ row: existente, valores })
           } else {
-            await sheet.addRow({ id: crypto.randomUUID(), ...valores })
-            criadas++
+            paraInserir.push({ id: crypto.randomUUID(), ...valores })
           }
         }
 
-        return ok(corsHeaders, { success: true, criadas, atualizadas })
+        if (paraInserir.length > 0) {
+          await sheet.addRows(paraInserir)
+        }
+        for (const { row, valores } of paraAtualizar) {
+          for (const [col, val] of Object.entries(valores)) row.set(col, val)
+          await row.save()
+        }
+
+        return ok(corsHeaders, { success: true, criadas: paraInserir.length, atualizadas: paraAtualizar.length })
       }
 
       default:
