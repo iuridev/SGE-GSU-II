@@ -238,13 +238,17 @@ export default function PendenciasSemanais() {
       const total = rows.length;
       const comAgua = rows.filter(r => isTrue(r.tem_pendencia_agua)).length;
       const comManejo = rows.filter(r => isTrue(r.tem_pendencia_manejo)).length;
-      const comQualquer = rows.filter(r => isTrue(r.tem_pendencia_agua) || isTrue(r.tem_pendencia_manejo)).length;
       const pct = (n: number) => (total > 0 ? Math.round((n / total) * 1000) / 10 : 0);
+      const pctAgua = pct(comAgua);
+      const pctManejo = pct(comManejo);
       return {
         semana,
         semanaLabel: formatWeekLabel(semana),
-        total, comAgua, comManejo, comQualquer,
-        pctAgua: pct(comAgua), pctManejo: pct(comManejo), pctQualquer: pct(comQualquer),
+        total, comAgua, comManejo,
+        pctAgua, pctManejo,
+        // Total = média simples entre % Água e % Manejo (não é a % de escolas
+        // com pelo menos uma das duas pendências).
+        pctQualquer: Math.round(((pctAgua + pctManejo) / 2) * 10) / 10,
       };
     });
   }, [snapshots, userRole, supervisorSchoolIds]);
