@@ -242,7 +242,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
   const [incorporarAlvo, setIncorporarAlvo] = useState<
     { origem: 'incorporacao'; item: Incorporacao } | { origem: 'remanejamento'; item: Remanejamento } | null
   >(null);
-  const [numeroPatrimonialIncorporar, setNumeroPatrimonialIncorporar] = useState('');
+  const [numerosPatrimoniaisIncorporar, setNumerosPatrimoniaisIncorporar] = useState<string[]>(['']);
 
   const [processos, setProcessos] = useState<ProcessoOption[]>([]);
   const [loadingProcessos, setLoadingProcessos] = useState(false);
@@ -597,6 +597,11 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     setShowRemanejamentoForm(true);
   };
 
+  // Um item de incorporação pode ter sido comprado em lote (ex.: 5 cadeiras na mesma
+  // nota fiscal), mas cada unidade física recebe sua própria chapa patrimonial — por
+  // isso o modal de confirmação abre um campo por unidade, conforme a quantidade.
+  const quantidadeParaIncorporar = (quantidade: string) => Math.max(1, parseInt(quantidade, 10) || 1);
+
   const addIncorporacaoItem = () => {
     setIncorporacaoItens(prev => [...prev, INCORPORACAO_ITEM_INITIAL()]);
   };
@@ -688,8 +693,10 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
 
   const handleMarcarIncorporado = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!incorporarAlvo || !numeroPatrimonialIncorporar.trim()) return;
-    const numero = numeroPatrimonialIncorporar.trim();
+    if (!incorporarAlvo) return;
+    const numeros = numerosPatrimoniaisIncorporar.map(n => n.trim());
+    if (numeros.some(n => !n)) return;
+    const numero = numeros.join(', ');
     setSaving(true);
     try {
       if (incorporarAlvo.origem === 'incorporacao') {
@@ -709,7 +716,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         await notificarEscola(r.escola_destino_id, msg);
       }
       setIncorporarAlvo(null);
-      setNumeroPatrimonialIncorporar('');
+      setNumerosPatrimoniaisIncorporar(['']);
       setTimeout(fetchAll, 1500);
     } catch (e) {
       console.error(e);
@@ -1170,9 +1177,13 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                             {isAdmin && (
                               <button
                                 onClick={() => {
-                                  if (i.origem === 'incorporacao' && incorporacaoOrigem) setIncorporarAlvo({ origem: 'incorporacao', item: incorporacaoOrigem });
-                                  else if (i.origem === 'remanejamento' && remanejamentoOrigem) setIncorporarAlvo({ origem: 'remanejamento', item: remanejamentoOrigem });
-                                  setNumeroPatrimonialIncorporar('');
+                                  if (i.origem === 'incorporacao' && incorporacaoOrigem) {
+                                    setIncorporarAlvo({ origem: 'incorporacao', item: incorporacaoOrigem });
+                                    setNumerosPatrimoniaisIncorporar(Array(quantidadeParaIncorporar(incorporacaoOrigem.quantidade)).fill(''));
+                                  } else if (i.origem === 'remanejamento' && remanejamentoOrigem) {
+                                    setIncorporarAlvo({ origem: 'remanejamento', item: remanejamentoOrigem });
+                                    setNumerosPatrimoniaisIncorporar(['']);
+                                  }
                                 }}
                                 title="Marcar como incorporado"
                                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 hover:border-emerald-300 transition-colors whitespace-nowrap"
@@ -1781,9 +1792,13 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                               {isAdmin && i.status !== 'Incorporado' && (
                                 <button
                                   onClick={() => {
-                                    if (i.origem === 'incorporacao' && incorporacaoOrigem) setIncorporarAlvo({ origem: 'incorporacao', item: incorporacaoOrigem });
-                                    else if (i.origem === 'remanejamento' && remanejamentoOrigem) setIncorporarAlvo({ origem: 'remanejamento', item: remanejamentoOrigem });
-                                    setNumeroPatrimonialIncorporar('');
+                                    if (i.origem === 'incorporacao' && incorporacaoOrigem) {
+                                      setIncorporarAlvo({ origem: 'incorporacao', item: incorporacaoOrigem });
+                                      setNumerosPatrimoniaisIncorporar(Array(quantidadeParaIncorporar(incorporacaoOrigem.quantidade)).fill(''));
+                                    } else if (i.origem === 'remanejamento' && remanejamentoOrigem) {
+                                      setIncorporarAlvo({ origem: 'remanejamento', item: remanejamentoOrigem });
+                                      setNumerosPatrimoniaisIncorporar(['']);
+                                    }
                                   }}
                                   title="Marcar como incorporado"
                                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 hover:border-emerald-300 transition-colors whitespace-nowrap"
@@ -2194,11 +2209,17 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 )}
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Nº Patrimonial Atribuído <span className="text-red-500">*</span></label>
-                <input type="text" required autoFocus value={numeroPatrimonialIncorporar}
-                  onChange={e => setNumeroPatrimonialIncorporar(e.target.value)}
-                  placeholder="Nº de chapa patrimonial"
-                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  Nº Patrimonial Atribuído {numerosPatrimoniaisIncorporar.length > 1 && `(${numerosPatrimoniaisIncorporar.length} itens)`} <span className="text-red-500">*</span>
+                </label>
+                <div className="space-y-2">
+                  {numerosPatrimoniaisIncorporar.map((numero, idx) => (
+                    <input key={idx} type="text" required autoFocus={idx === 0} value={numero}
+                      onChange={e => setNumerosPatrimoniaisIncorporar(prev => prev.map((v, i) => (i === idx ? e.target.value : v)))}
+                      placeholder={numerosPatrimoniaisIncorporar.length > 1 ? `Nº de chapa patrimonial — item ${idx + 1}` : 'Nº de chapa patrimonial'}
+                      className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                  ))}
+                </div>
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setIncorporarAlvo(null)}
