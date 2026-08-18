@@ -52,7 +52,9 @@ interface UpcomingEvent {
 const MONTHS_SHORT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
 // Registros de consumo de água só passam a ser cobrados a partir deste mês.
-const WATER_REPORTING_HARD_START = new Date(2026, 4, 1); // Maio/2026
+// Exportado porque src/pages/PendenciasSemanais.tsx reaproveita a mesma janela
+// para que o número de escolas pendentes bata com o que o Dashboard mostra.
+export const WATER_REPORTING_HARD_START = new Date(2026, 4, 1); // Maio/2026
 
 interface PendingWaterSchoolMonth {
   year: number;
