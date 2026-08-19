@@ -15,8 +15,8 @@ import {
 // abrir o formulário de novo chamado a partir de um atendimento/remanejamento.
 const CHAMADO_ORIGEM_SESSION_KEY = 'sge_chamado_origem';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell, PieChart, Pie, Legend,
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ReferenceLine, Cell, PieChart, Pie, Legend,
 } from 'recharts';
 
 const SHEET_URL = import.meta.env.VITE_VISITAS_SHEET_URL as string;
@@ -894,6 +894,55 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     [remanejamentos],
   );
 
+  // Meta do Plano de Ação: mapear até dez/2026, 100% dos itens PDDE (2021-2026) ainda
+  // não incorporados ao SAM, revisando a prestação de contas escola por escola. Como
+  // não há um "check" explícito por escola, usa-se como proxy o 1º dia em que a escola
+  // recebeu um item PDDE cadastrado na aba de incorporações — marca que ela já foi
+  // revisada, mesmo que depois ganhe outros itens no mesmo dia ou depois.
+  const mapeamentoPddeEvolucao = useMemo(() => {
+    const totalEscolas = escolas.length;
+    if (totalEscolas === 0) {
+      return { pontos: [] as { data: string; dataLabel: string; escolasMapeadas: number; pct: number }[], totalEscolas: 0, escolasMapeadas: 0, pctAtual: 0 };
+    }
+
+    const primeiraDataPorEscola = new Map<string, string>();
+    incorporacoes
+      .filter(i => isOrigemPdde(i.origem_aquisicao) && i.escola_id && i.data_registro)
+      .forEach(i => {
+        const dia = i.data_registro.slice(0, 10);
+        const atual = primeiraDataPorEscola.get(i.escola_id);
+        if (!atual || dia < atual) primeiraDataPorEscola.set(i.escola_id, dia);
+      });
+
+    const novasPorDia = new Map<string, number>();
+    primeiraDataPorEscola.forEach(dia => {
+      novasPorDia.set(dia, (novasPorDia.get(dia) || 0) + 1);
+    });
+
+    const dias = Array.from(novasPorDia.keys()).sort();
+    const hojeStr = new Date().toISOString().slice(0, 10);
+    if (dias.length > 0 && dias[dias.length - 1] !== hojeStr) dias.push(hojeStr);
+
+    let cumulativo = 0;
+    const pontos = dias.map(dia => {
+      cumulativo += novasPorDia.get(dia) || 0;
+      return {
+        data: dia,
+        dataLabel: `${dia.slice(8, 10)}/${dia.slice(5, 7)}`,
+        escolasMapeadas: cumulativo,
+        pct: Math.round((cumulativo / totalEscolas) * 1000) / 10,
+      };
+    });
+
+    const escolasMapeadas = primeiraDataPorEscola.size;
+    return {
+      pontos,
+      totalEscolas,
+      escolasMapeadas,
+      pctAtual: Math.round((escolasMapeadas / totalEscolas) * 1000) / 10,
+    };
+  }, [incorporacoes, escolas]);
+
   const filteredIncorporacoes = useMemo(() => {
     const q = searchTerm.toLowerCase();
     return itensIncorporacaoUnificados.filter(i => {
@@ -1676,6 +1725,36 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
 
       {['regional_admin', 'school_manager'].includes(userRole) && activeTab === 'incorporacoes' && (
         <>
+          <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
+              <div>
+                <p className="text-sm font-bold text-slate-800">Meta: mapear 100% dos itens PDDE (2021-2026) até dez/2026</p>
+                <p className="text-xs text-slate-500 mt-0.5">% de escolas com pelo menos um item PDDE já identificado e cadastrado, por revisão da prestação de contas</p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-2xl font-black text-teal-600">{mapeamentoPddeEvolucao.pctAtual}%</p>
+                <p className="text-xs text-slate-400">{mapeamentoPddeEvolucao.escolasMapeadas} de {mapeamentoPddeEvolucao.totalEscolas} escolas</p>
+              </div>
+            </div>
+            {mapeamentoPddeEvolucao.pontos.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-sm">Nenhum item PDDE cadastrado ainda</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={mapeamentoPddeEvolucao.pontos} margin={{ top: 8, right: 16, left: -8, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis dataKey="dataLabel" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
+                  <ReferenceLine y={100} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: 'Meta: 100%', position: 'insideBottomRight', fill: '#94a3b8', fontSize: 11, fontWeight: 700 }} />
+                  <Tooltip
+                    formatter={(value: any, _name: any, item: any) => [`${value}% (${item.payload.escolasMapeadas} escolas)`, 'Mapeado']}
+                    contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 12 }}
+                  />
+                  <Line type="stepAfter" dataKey="pct" name="Mapeado" stroke="#0d9488" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 6 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {[
               { label: 'Total de Itens', value: itensIncorporacaoUnificados.length, icon: <Package size={20} className="text-teal-600" />, bg: 'bg-teal-50' },
