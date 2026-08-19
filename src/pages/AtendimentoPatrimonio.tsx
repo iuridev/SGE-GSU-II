@@ -233,6 +233,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
   const [editingRemanejamentoId, setEditingRemanejamentoId] = useState<string | null>(null);
   const [docModal, setDocModal] = useState<{ url: string; title: string } | null>(null);
   const [filterPendenteIncorporacao, setFilterPendenteIncorporacao] = useState(false);
+  const [filterOrigemIncorporacao, setFilterOrigemIncorporacao] = useState('');
 
   const [incorporacoes, setIncorporacoes] = useState<Incorporacao[]>([]);
   const [showIncorporacaoForm, setShowIncorporacaoForm] = useState(false);
@@ -949,9 +950,11 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       const matchSearch = !q ||
         i.escola_nome?.toLowerCase().includes(q) ||
         i.descricao?.toLowerCase().includes(q);
-      return matchSearch;
+      const matchOrigem = !filterOrigemIncorporacao ||
+        (filterOrigemIncorporacao === 'remanejamento' ? i.origem === 'remanejamento' : i.origem_aquisicao === filterOrigemIncorporacao);
+      return matchSearch && matchOrigem;
     });
-  }, [itensIncorporacaoUnificados, searchTerm]);
+  }, [itensIncorporacaoUnificados, searchTerm, filterOrigemIncorporacao]);
 
   const filteredProcessos = useMemo(() => {
     const q = pickerSearch.toLowerCase();
@@ -1783,6 +1786,15 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                   className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
+              <select
+                value={filterOrigemIncorporacao}
+                onChange={e => setFilterOrigemIncorporacao(e.target.value)}
+                className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-600"
+              >
+                <option value="">Todas as origens</option>
+                <option value="remanejamento">Remanejamento</option>
+                {ORIGENS_AQUISICAO.map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
               <span className="text-xs text-slate-400">{filteredIncorporacoes.length} registro(s)</span>
               {isAdmin && (
                 <button
