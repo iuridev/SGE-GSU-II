@@ -344,13 +344,13 @@ Deno.serve(async (req) => {
       case 'registrar_incorporacao': {
         exigirRegionalAdmin(p)
         const sheet = await getOrCreateSheet(doc, INCORPORACOES_SHEET, INCORPORACOES_COLUMNS)
-        if (!body.escola_id || !body.descricao || !body.quantidade) {
-          throw new Error('Escola, descrição do item e quantidade são obrigatórios.')
+        if (!body.escola_id || !body.descricao || !body.quantidade || !body.data_aquisicao) {
+          throw new Error('Escola, descrição do item, quantidade e data de aquisição são obrigatórios.')
         }
         const origemAquisicao = ORIGENS_AQUISICAO_VALIDAS.includes(body.origem_aquisicao) ? body.origem_aquisicao : 'Entrega FDE/SEDUC'
         const pdde = origemAquisicao !== 'Entrega FDE/SEDUC'
-        if (pdde && (!body.data_aquisicao || !body.ano_verba || !body.valor_item)) {
-          throw new Error('Data de aquisição, valor do item e ano da verba são obrigatórios para itens adquiridos via PDDE.')
+        if (pdde && (!body.ano_verba || !body.valor_item)) {
+          throw new Error('Valor do item e ano da verba são obrigatórios para itens adquiridos via PDDE.')
         }
         await sheet.addRow({
           id: crypto.randomUUID(),
@@ -379,13 +379,13 @@ Deno.serve(async (req) => {
         exigirRegionalAdmin(p)
         const sheet = await getOrCreateSheet(doc, INCORPORACOES_SHEET, INCORPORACOES_COLUMNS)
         if (!body.id) throw new Error('Item não informado.')
-        if (!body.escola_id || !body.descricao || !body.quantidade) {
-          throw new Error('Escola, descrição do item e quantidade são obrigatórios.')
+        if (!body.escola_id || !body.descricao || !body.quantidade || !body.data_aquisicao) {
+          throw new Error('Escola, descrição do item, quantidade e data de aquisição são obrigatórios.')
         }
         const origemAquisicao = ORIGENS_AQUISICAO_VALIDAS.includes(body.origem_aquisicao) ? body.origem_aquisicao : 'Entrega FDE/SEDUC'
         const pdde = origemAquisicao !== 'Entrega FDE/SEDUC'
-        if (pdde && (!body.data_aquisicao || !body.ano_verba || !body.valor_item)) {
-          throw new Error('Data de aquisição, valor do item e ano da verba são obrigatórios para itens adquiridos via PDDE.')
+        if (pdde && (!body.ano_verba || !body.valor_item)) {
+          throw new Error('Valor do item e ano da verba são obrigatórios para itens adquiridos via PDDE.')
         }
         const rows = await sheet.getRows()
         const row = rows.find((r: any) => r.get('id') === String(body.id))

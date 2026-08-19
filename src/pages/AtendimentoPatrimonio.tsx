@@ -629,12 +629,12 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       return;
     }
     for (const item of incorporacaoItens) {
-      if (!item.descricao.trim() || !item.quantidade) {
-        alert('Preencha descrição e quantidade de todos os itens.');
+      if (!item.descricao.trim() || !item.quantidade || !item.data_aquisicao) {
+        alert('Preencha descrição, quantidade e data de aquisição de todos os itens.');
         return;
       }
-      if (pdde && (!item.data_aquisicao || !item.valor_item)) {
-        alert('Informe a data de aquisição e o valor de cada item adquirido via PDDE.');
+      if (pdde && !item.valor_item) {
+        alert('Informe o valor de cada item adquirido via PDDE.');
         return;
       }
     }
@@ -1817,7 +1817,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50">
-                      {['Origem', 'Escola', 'Descrição', 'Qtd.', 'Verba', 'Status', 'Registrado por', 'Data'].map(h => (
+                      {['Origem', 'Escola', 'Descrição', 'Qtd.', 'Aquisição', 'Status', 'Registrado por', 'Data'].map(h => (
                         <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                       <th className="sticky right-0 z-10 bg-slate-50 text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)]" />
@@ -1850,12 +1850,10 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                           </td>
                           <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{i.quantidade}</td>
                           <td className="px-4 py-3 text-slate-500 whitespace-nowrap text-xs">
-                            {isOrigemPdde(i.origem_aquisicao) ? (
-                              <>
-                                <span className="block font-medium text-slate-700">{formatarMoeda(i.valor_item)}</span>
-                                <span className="block">{formatDate(i.data_aquisicao)}{i.ano_verba ? ` • ${i.ano_verba}` : ''}</span>
-                              </>
-                            ) : '-'}
+                            <span className="block font-medium text-slate-700">{formatDate(i.data_aquisicao)}</span>
+                            {isOrigemPdde(i.origem_aquisicao) && (
+                              <span className="block">{formatarMoeda(i.valor_item)}{i.ano_verba ? ` • ${i.ano_verba}` : ''}</span>
+                            )}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             {i.status === 'Incorporado' ? (
@@ -2202,7 +2200,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
               {isOrigemPdde(incorporacaoForm.origem_aquisicao) && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
                   <div className="flex items-center gap-1.5 text-xs font-medium text-amber-800 mb-2">
-                    <AlertTriangle size={13} /> Aquisição com verba PDDE — data e valor de cada item ficam no cadastro do item, abaixo
+                    <AlertTriangle size={13} /> Aquisição com verba PDDE — valor de cada item fica no cadastro do item, abaixo
                   </div>
                   <label className="block text-xs font-medium text-slate-700 mb-1.5">Ano da Verba <span className="text-red-500">*</span></label>
                   <input type="number" required min={2000} max={2100} placeholder="Ex.: 2026" value={incorporacaoForm.ano_verba}
@@ -2238,29 +2236,27 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                         placeholder="Ex.: Notebook Dell, impressora, cadeiras..."
                         className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none" />
                     </div>
-                    <div className={`grid gap-2.5 ${isOrigemPdde(incorporacaoForm.origem_aquisicao) ? 'grid-cols-3' : 'grid-cols-1'}`}>
+                    <div className={`grid gap-2.5 ${isOrigemPdde(incorporacaoForm.origem_aquisicao) ? 'grid-cols-3' : 'grid-cols-2'}`}>
                       <div>
                         <label className="block text-xs font-medium text-slate-600 mb-1">Quantidade <span className="text-red-500">*</span></label>
                         <input type="number" min={1} required value={item.quantidade}
                           onChange={e => updateIncorporacaoItem(item.id, 'quantidade', e.target.value)}
                           className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
                       </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Data Aquisição <span className="text-red-500">*</span></label>
+                        <input type="date" required value={item.data_aquisicao}
+                          onChange={e => updateIncorporacaoItem(item.id, 'data_aquisicao', e.target.value)}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                      </div>
                       {isOrigemPdde(incorporacaoForm.origem_aquisicao) && (
-                        <>
-                          <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">Data Aquisição <span className="text-red-500">*</span></label>
-                            <input type="date" required value={item.data_aquisicao}
-                              onChange={e => updateIncorporacaoItem(item.id, 'data_aquisicao', e.target.value)}
-                              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">Valor (R$) <span className="text-red-500">*</span></label>
-                            <input type="number" min={0} step="0.01" required value={item.valor_item}
-                              onChange={e => updateIncorporacaoItem(item.id, 'valor_item', e.target.value)}
-                              placeholder="0,00"
-                              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
-                          </div>
-                        </>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 mb-1">Valor (R$) <span className="text-red-500">*</span></label>
+                          <input type="number" min={0} step="0.01" required value={item.valor_item}
+                            onChange={e => updateIncorporacaoItem(item.id, 'valor_item', e.target.value)}
+                            placeholder="0,00"
+                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                        </div>
                       )}
                     </div>
                   </div>
