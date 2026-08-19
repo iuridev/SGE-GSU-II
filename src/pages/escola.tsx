@@ -22,9 +22,10 @@ interface School {
   zip_code: string | null;
   director_name: string | null;
   manager_name: string | null;
-  cie_code: string | null;           
-  fde_code: string | null;           
-  sgi_code: string | null;           
+  cie_code: string | null;
+  fde_code: string | null;
+  sgi_code: string | null;
+  ua_code: string | null;
   building_year: number | null;
   sector_number: string | null;
   teaching_types: string[] | null;   
@@ -265,7 +266,8 @@ export function Escola() {
   const filteredEscolas = escolas.filter(e => 
     e.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     e.cie_code?.includes(searchTerm) ||
-    e.fde_code?.includes(searchTerm)
+    e.fde_code?.includes(searchTerm) ||
+    e.ua_code?.includes(searchTerm)
   );
 
   const isAdmin = userRole === 'regional_admin';
@@ -370,6 +372,7 @@ export function Escola() {
                 <span className="bg-slate-100 px-2 py-0.5 rounded-lg text-[9px] font-black text-slate-500 uppercase tracking-widest border border-slate-200">CIE: {escola.cie_code || '---'}</span>
                 <span className="bg-blue-50 px-2 py-0.5 rounded-lg text-[9px] font-black text-blue-600 uppercase tracking-widest border border-blue-100">SGI: {escola.sgi_code || '---'}</span>
                 <span className="bg-indigo-50 px-2 py-0.5 rounded-lg text-[9px] font-black text-indigo-600 uppercase tracking-widest border border-indigo-100">FDE: {escola.fde_code || '---'}</span>
+                <span className="bg-emerald-50 px-2 py-0.5 rounded-lg text-[9px] font-black text-emerald-600 uppercase tracking-widest border border-emerald-100">UA: {escola.ua_code || '---'}</span>
               </div>
               
               <div className="space-y-4 text-sm text-slate-600 mb-6 relative z-10">
@@ -464,7 +467,7 @@ export function Escola() {
                         <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Nome da Unidade Escolar</label>
                         <input disabled={!isAdmin} required placeholder="Ex: EE PROFESSOR JOÃO DA SILVA" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-800 focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} />
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div className="space-y-1.5">
                           <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><Hash size={12}/> CIE</label>
                           <input disabled={!isAdmin} placeholder="000000" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-mono font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.cie_code || ''} onChange={e => setFormData({...formData, cie_code: e.target.value})} />
@@ -476,6 +479,10 @@ export function Escola() {
                         <div className="space-y-1.5">
                           <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><Hash size={12}/> FDE</label>
                           <input disabled={!isAdmin} placeholder="0000" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-mono font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.fde_code || ''} onChange={e => setFormData({...formData, fde_code: e.target.value})} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-black text-slate-500 uppercase ml-1 flex items-center gap-1.5"><Hash size={12}/> UA</label>
+                          <input disabled={!isAdmin} placeholder="0000" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-mono font-bold focus:border-indigo-500 outline-none transition-all disabled:opacity-70" value={formData.ua_code || ''} onChange={e => setFormData({...formData, ua_code: e.target.value})} />
                         </div>
                       </div>
                     </div>

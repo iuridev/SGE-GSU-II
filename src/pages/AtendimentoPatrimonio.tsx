@@ -62,7 +62,17 @@ interface EscolaOption {
   id: string;
   name: string;
   fde_code?: string;
+  cie_code?: string;
+  ua_code?: string;
 }
+
+// Rótulo compacto "UA · CIE" para mostrar do lado do nome da escola — omite
+// cada código que ainda não foi cadastrado em vez de mostrar "---" repetido.
+const codigosEscola = (e?: { ua_code?: string; cie_code?: string } | null) => {
+  if (!e) return '';
+  const partes = [e.ua_code && `UA ${e.ua_code}`, e.cie_code && `CIE ${e.cie_code}`].filter(Boolean);
+  return partes.length ? ` (${partes.join(' · ')})` : '';
+};
 
 interface Atendimento {
   id: string;
@@ -357,7 +367,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
 
   const fetchEscolas = async () => {
     try {
-      const { data } = await supabase.from('schools').select('id, name, fde_code').order('name');
+      const { data } = await supabase.from('schools').select('id, name, fde_code, cie_code, ua_code').order('name');
       if (data) setEscolas(data as EscolaOption[]);
     } catch (e) {
       console.error(e);
@@ -1207,7 +1217,10 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                       return (
                         <tr key={`${i.origem}-${i.id || idx}`} className="group hover:bg-slate-50 transition-colors">
                           <td className="px-4 py-3 font-bold text-slate-400 whitespace-nowrap">{idx + 1}º</td>
-                          <td className="px-4 py-3 font-medium text-slate-800">{i.escola_nome}</td>
+                          <td className="px-4 py-3 font-medium text-slate-800">
+                            {i.escola_nome}
+                            <span className="block text-[10px] font-normal text-slate-400">{codigosEscola(escolas.find(e => e.id === i.escola_id)).trim()}</span>
+                          </td>
                           <td className="px-4 py-3 text-slate-600 max-w-xs truncate">{i.descricao}</td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
@@ -1838,7 +1851,10 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                               {i.origem === 'remanejamento' ? 'Remanejamento' : i.origem_aquisicao}
                             </span>
                           </td>
-                          <td className="px-4 py-3 font-medium text-slate-800">{i.escola_nome}</td>
+                          <td className="px-4 py-3 font-medium text-slate-800">
+                            {i.escola_nome}
+                            <span className="block text-[10px] font-normal text-slate-400">{codigosEscola(escolas.find(e => e.id === i.escola_id)).trim()}</span>
+                          </td>
                           <td className="px-4 py-3 text-slate-600 max-w-xs">
                             <p className="truncate">{i.descricao}</p>
                             {i.lote_id && (loteCounts.get(i.lote_id) || 0) > 1 && (
@@ -1883,7 +1899,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                             <div className="flex items-center gap-1">
                               {i.nota_fiscal_link && (
                                 <button
-                                  onClick={() => setDocModal({ url: i.nota_fiscal_link, title: `Nota Fiscal — ${i.escola_nome}` })}
+                                  onClick={() => setDocModal({ url: i.nota_fiscal_link, title: `Nota Fiscal — ${i.escola_nome}${codigosEscola(escolas.find(e => e.id === i.escola_id))}` })}
                                   title="Visualizar Nota Fiscal do item"
                                   className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 hover:border-amber-300 transition-colors whitespace-nowrap"
                                 >
