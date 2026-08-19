@@ -8,7 +8,7 @@ import {
   Plus, Search, X, Loader2, CalendarDays, Video,
   MapPin, BarChart3, TrendingUp, RefreshCw, ExternalLink,
   ClipboardList, ArrowRightLeft, Package, Check, Mail, History, Pencil, Ticket, Link2, FileDown,
-  AlertTriangle, ListOrdered,
+  AlertTriangle, ListOrdered, Eye,
 } from 'lucide-react';
 
 // Mesma chave usada por Chamados.tsx para ler a referência pré-preenchida ao
@@ -243,6 +243,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     { origem: 'incorporacao'; item: Incorporacao } | { origem: 'remanejamento'; item: Remanejamento } | null
   >(null);
   const [numerosPatrimoniaisIncorporar, setNumerosPatrimoniaisIncorporar] = useState<string[]>(['']);
+  const [chapasModal, setChapasModal] = useState<{ descricao: string; numeros: string[] } | null>(null);
 
   const [processos, setProcessos] = useState<ProcessoOption[]>([]);
   const [loadingProcessos, setLoadingProcessos] = useState(false);
@@ -1767,8 +1768,19 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             {i.status === 'Incorporado' ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
-                                <Check size={12} /> Incorporado{i.numero_patrimonial ? ` • ${i.numero_patrimonial}` : ''}
+                              <span className="inline-flex items-center gap-1.5">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
+                                  <Check size={12} /> Incorporado
+                                </span>
+                                {i.numero_patrimonial && (
+                                  <button
+                                    onClick={() => setChapasModal({ descricao: i.descricao, numeros: i.numero_patrimonial.split(',').map(n => n.trim()).filter(Boolean) })}
+                                    title="Ver chapa(s) patrimonial(is)"
+                                    className="p-1 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-md transition-colors"
+                                  >
+                                    <Eye size={14} />
+                                  </button>
+                                )}
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700">
@@ -2212,7 +2224,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">
                   Nº Patrimonial Atribuído {numerosPatrimoniaisIncorporar.length > 1 && `(${numerosPatrimoniaisIncorporar.length} itens)`} <span className="text-red-500">*</span>
                 </label>
-                <div className="space-y-2">
+                <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                   {numerosPatrimoniaisIncorporar.map((numero, idx) => (
                     <input key={idx} type="text" required autoFocus={idx === 0} value={numero}
                       onChange={e => setNumerosPatrimoniaisIncorporar(prev => prev.map((v, i) => (i === idx ? e.target.value : v)))}
@@ -2230,6 +2242,29 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Ver Chapas Patrimoniais de um item já incorporado */}
+      {chapasModal && (
+        <div className="fixed inset-0 z-[110] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Eye size={20} className="text-emerald-600" /> Chapas Patrimoniais</h2>
+              <button onClick={() => setChapasModal(null)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors"><X size={18} className="text-slate-500" /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-slate-600">{chapasModal.descricao}</p>
+              <div className="max-h-64 overflow-y-auto space-y-1.5 pr-1">
+                {chapasModal.numeros.map((numero, idx) => (
+                  <div key={idx} className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700">
+                    {chapasModal.numeros.length > 1 && <span className="text-xs font-semibold text-slate-400 w-5">{idx + 1}.</span>}
+                    {numero}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}
