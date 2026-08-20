@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
 import { DefesoEleitoralBanner } from '../components/DefesoEleitoralBanner';
 import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 import {
   Plus, Search, X, Loader2, CalendarDays, Video,
@@ -1115,6 +1116,53 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     doc.save(`comprovante_remanejamento_${(r.numero_documento || r.id).replace(/[\\/]/g, '-')}.pdf`);
   };
 
+  // PDF da lista atualmente exibida na aba "Itens a Incorporar" — respeita a busca e
+  // o filtro de origem selecionados, útil pra levar impresso ou anexar num processo.
+  const gerarPdfIncorporacoes = () => {
+    const doc = new jsPDF({ orientation: 'landscape' });
+
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Itens a Incorporar', 14, 38);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${filteredIncorporacoes.length} registro(s) — gerado em ${new Date().toLocaleString('pt-BR')}`, 14, 44);
+
+    const body = filteredIncorporacoes.map(i => {
+      const aquisicao = [
+        formatDate(i.data_aquisicao),
+        isOrigemPdde(i.origem_aquisicao) ? formatarMoeda(i.valor_item) : '',
+      ].filter(v => v && v !== '-').join(' — ');
+      const status = i.status === 'Incorporado'
+        ? `Incorporado${i.numero_patrimonial ? ` (${i.numero_patrimonial})` : ''}`
+        : 'Pendente';
+      return [
+        labelOrigemItem(i),
+        `${i.escola_nome}${codigosEscola(escolas.find(e => e.id === i.escola_id))}`,
+        i.descricao,
+        i.quantidade,
+        aquisicao || '-',
+        status,
+        i.autor_nome,
+        formatDateTime(i.data_registro),
+      ];
+    });
+
+    autoTable(doc, {
+      startY: 48,
+      head: [['Origem', 'Escola', 'Descrição', 'Qtd.', 'Aquisição', 'Status', 'Registrado por', 'Data']],
+      body,
+      theme: 'grid',
+      headStyles: { fillColor: [13, 148, 136], textColor: 255, fontStyle: 'bold' },
+      styles: { fontSize: 8, cellPadding: 2.5 },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      margin: { top: 34 },
+    });
+
+    addTimbradoAllPages(doc);
+    doc.save(`itens_a_incorporar_${new Date().toISOString().split('T')[0]}.pdf`);
+  };
+
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
       <DefesoEleitoralBanner />
@@ -1837,14 +1885,23 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 {ORIGENS_AQUISICAO.filter(o => isOrigemPdde(o)).map(o => <option key={o} value={o}>{o}</option>)}
               </select>
               <span className="text-xs text-slate-400">{filteredIncorporacoes.length} registro(s)</span>
-              {isAdmin && (
+              <div className="flex items-center gap-2 ml-auto">
                 <button
-                  onClick={() => { setEditingIncorporacaoId(null); setIncorporacaoForm(INCORPORACAO_INITIAL); setIncorporacaoItens([INCORPORACAO_ITEM_INITIAL()]); setShowIncorporacaoForm(true); }}
-                  className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium ml-auto"
+                  onClick={gerarPdfIncorporacoes}
+                  disabled={filteredIncorporacoes.length === 0}
+                  className="flex items-center gap-2 px-3 py-2 text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-sm font-medium disabled:opacity-50"
                 >
-                  <Plus size={18} /> Novo Item
+                  <FileDown size={16} /> Gerar PDF
                 </button>
-              )}
+                {isAdmin && (
+                  <button
+                    onClick={() => { setEditingIncorporacaoId(null); setIncorporacaoForm(INCORPORACAO_INITIAL); setIncorporacaoItens([INCORPORACAO_ITEM_INITIAL()]); setShowIncorporacaoForm(true); }}
+                    className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
+                  >
+                    <Plus size={18} /> Novo Item
+                  </button>
+                )}
+              </div>
             </div>
             <div className="overflow-x-auto">
               {loading ? (
