@@ -56,6 +56,11 @@ const ORIGENS_AQUISICAO = [
 type OrigemAquisicao = typeof ORIGENS_AQUISICAO[number];
 const isOrigemPdde = (origem: string) => origem.startsWith('Aquisição PDDE');
 
+// Órgão responsável pela entrega, quando a origem é "Entrega FDE/SEDUC" (não se
+// aplica a itens PDDE, que já têm sua própria especificação de origem da verba).
+const ORGAOS_ENTREGA_FDE = ['FDE', 'CEQUI', 'CITEM', 'COINTEC'] as const;
+type OrgaoEntregaFde = typeof ORGAOS_ENTREGA_FDE[number];
+
 type Tab = 'fila' | 'atendimentos' | 'remanejamentos' | 'incorporacoes';
 
 interface EscolaOption {
@@ -72,6 +77,15 @@ const codigosEscola = (e?: { ua_code?: string; cie_code?: string } | null) => {
   if (!e) return '';
   const partes = [e.ua_code && `UA ${e.ua_code}`, e.cie_code && `CIE ${e.cie_code}`].filter(Boolean);
   return partes.length ? ` (${partes.join(' · ')})` : '';
+};
+
+// Rótulo de origem exibido nos badges/filtro da tabela: para itens de Entrega
+// FDE/SEDUC mostra o órgão específico (FDE/CEQUI/CITEM/COINTEC) quando já
+// informado; itens antigos sem essa informação caem no rótulo genérico.
+const labelOrigemItem = (i: { origem: 'incorporacao' | 'remanejamento'; origem_aquisicao: string; orgao_entrega: string }) => {
+  if (i.origem === 'remanejamento') return 'Remanejamento';
+  if (isOrigemPdde(i.origem_aquisicao)) return i.origem_aquisicao;
+  return i.orgao_entrega || 'Entrega FDE/SEDUC';
 };
 
 interface Atendimento {
@@ -135,6 +149,7 @@ interface Incorporacao {
   incorporado_por: string;
   data_incorporacao: string;
   origem_aquisicao: string;
+  orgao_entrega: string;
   data_aquisicao: string;
   valor_item: string;
   ano_verba: string;
@@ -160,6 +175,7 @@ interface IncorporacaoRow {
   autor_nome: string;
   data_registro: string;
   origem_aquisicao: string;
+  orgao_entrega: string;
   data_aquisicao: string;
   valor_item: string;
   ano_verba: string;
@@ -196,6 +212,7 @@ const REMANEJAMENTO_INITIAL = {
 const INCORPORACAO_INITIAL = {
   escola_id: '', escola_nome: '',
   origem_aquisicao: 'Entrega FDE/SEDUC' as OrigemAquisicao,
+  orgao_entrega: '' as OrgaoEntregaFde | '',
   ano_verba: '', nota_fiscal_link: '',
 };
 
@@ -638,6 +655,10 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       alert('Ano da verba é obrigatório para itens adquiridos via PDDE.');
       return;
     }
+    if (!pdde && !f.orgao_entrega) {
+      alert('Órgão de entrega é obrigatório para itens de Entrega FDE/SEDUC.');
+      return;
+    }
     for (const item of incorporacaoItens) {
       if (!item.descricao.trim() || !item.quantidade || !item.data_aquisicao) {
         alert('Preencha descrição, quantidade e data de aquisição de todos os itens.');
@@ -693,6 +714,8 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       escola_id: i.escola_id, escola_nome: i.escola_nome,
       origem_aquisicao: (ORIGENS_AQUISICAO as readonly string[]).includes(i.origem_aquisicao)
         ? (i.origem_aquisicao as OrigemAquisicao) : 'Entrega FDE/SEDUC',
+      orgao_entrega: (ORGAOS_ENTREGA_FDE as readonly string[]).includes(i.orgao_entrega)
+        ? (i.orgao_entrega as OrgaoEntregaFde) : '',
       ano_verba: i.ano_verba || '',
       nota_fiscal_link: i.nota_fiscal_link || '',
     });
@@ -851,7 +874,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       descricao: i.descricao, quantidade: i.quantidade, nota_fiscal_link: i.nota_fiscal_link,
       status: i.status, numero_patrimonial: i.numero_patrimonial,
       autor_nome: i.autor_nome, data_registro: i.data_registro,
-      origem_aquisicao: i.origem_aquisicao || 'Entrega FDE/SEDUC',
+      origem_aquisicao: i.origem_aquisicao || 'Entrega FDE/SEDUC', orgao_entrega: i.orgao_entrega || '',
       data_aquisicao: i.data_aquisicao || '', valor_item: i.valor_item || '', ano_verba: i.ano_verba || '',
       lote_id: i.lote_id || '',
     }));
@@ -863,7 +886,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         descricao: r.descricao || `Remanejamento ${r.numero_documento}`,
         quantidade: '-', nota_fiscal_link: r.nota_fiscal_link, status: 'Pendente',
         numero_patrimonial: '', autor_nome: r.autor_nome, data_registro: r.data_registro,
-        origem_aquisicao: '', data_aquisicao: '', valor_item: '', ano_verba: '', lote_id: '',
+        origem_aquisicao: '', orgao_entrega: '', data_aquisicao: '', valor_item: '', ano_verba: '', lote_id: '',
       }));
     return [...diretos, ...deRemanejamento].sort((a, b) => (a.data_registro < b.data_registro ? 1 : -1));
   }, [incorporacoes, remanejamentos]);
@@ -961,7 +984,9 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         i.escola_nome?.toLowerCase().includes(q) ||
         i.descricao?.toLowerCase().includes(q);
       const matchOrigem = !filterOrigemIncorporacao ||
-        (filterOrigemIncorporacao === 'remanejamento' ? i.origem === 'remanejamento' : i.origem_aquisicao === filterOrigemIncorporacao);
+        (filterOrigemIncorporacao === 'remanejamento' ? i.origem === 'remanejamento'
+          : (ORGAOS_ENTREGA_FDE as readonly string[]).includes(filterOrigemIncorporacao) ? i.orgao_entrega === filterOrigemIncorporacao
+            : i.origem_aquisicao === filterOrigemIncorporacao);
       return matchSearch && matchOrigem;
     });
   }, [itensIncorporacaoUnificados, searchTerm, filterOrigemIncorporacao]);
@@ -1226,7 +1251,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
                               i.origem === 'remanejamento' ? 'bg-violet-50 text-violet-700' : 'bg-slate-100 text-slate-600'
                             }`}>
-                              {i.origem === 'remanejamento' ? 'Remanejamento' : i.origem_aquisicao}
+                              {labelOrigemItem(i)}
                             </span>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
@@ -1806,7 +1831,8 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
               >
                 <option value="">Todas as origens</option>
                 <option value="remanejamento">Remanejamento</option>
-                {ORIGENS_AQUISICAO.map(o => <option key={o} value={o}>{o}</option>)}
+                {ORGAOS_ENTREGA_FDE.map(o => <option key={o} value={o}>{o}</option>)}
+                {ORIGENS_AQUISICAO.filter(o => isOrigemPdde(o)).map(o => <option key={o} value={o}>{o}</option>)}
               </select>
               <span className="text-xs text-slate-400">{filteredIncorporacoes.length} registro(s)</span>
               {isAdmin && (
@@ -1848,7 +1874,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                                 : isOrigemPdde(i.origem_aquisicao) ? 'bg-blue-50 text-blue-700'
                                   : 'bg-slate-100 text-slate-600'
                             }`}>
-                              {i.origem === 'remanejamento' ? 'Remanejamento' : i.origem_aquisicao}
+                              {labelOrigemItem(i)}
                             </span>
                           </td>
                           <td className="px-4 py-3 font-medium text-slate-800">
@@ -2213,7 +2239,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                   {ORIGENS_AQUISICAO.map(o => <option key={o} value={o}>{o}</option>)}
                 </select>
               </div>
-              {isOrigemPdde(incorporacaoForm.origem_aquisicao) && (
+              {isOrigemPdde(incorporacaoForm.origem_aquisicao) ? (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
                   <div className="flex items-center gap-1.5 text-xs font-medium text-amber-800 mb-2">
                     <AlertTriangle size={13} /> Aquisição com verba PDDE — valor de cada item fica no cadastro do item, abaixo
@@ -2222,6 +2248,16 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                   <input type="number" required min={2000} max={2100} placeholder="Ex.: 2026" value={incorporacaoForm.ano_verba}
                     onChange={e => setIncorporacaoForm(prev => ({ ...prev, ano_verba: e.target.value }))}
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white" />
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Órgão de Entrega <span className="text-red-500">*</span></label>
+                  <select required value={incorporacaoForm.orgao_entrega}
+                    onChange={e => setIncorporacaoForm(prev => ({ ...prev, orgao_entrega: e.target.value as OrgaoEntregaFde }))}
+                    className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white">
+                    <option value="">Selecione...</option>
+                    {ORGAOS_ENTREGA_FDE.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
                 </div>
               )}
 
