@@ -985,8 +985,9 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         i.descricao?.toLowerCase().includes(q);
       const matchOrigem = !filterOrigemIncorporacao ||
         (filterOrigemIncorporacao === 'remanejamento' ? i.origem === 'remanejamento'
-          : (ORGAOS_ENTREGA_FDE as readonly string[]).includes(filterOrigemIncorporacao) ? i.orgao_entrega === filterOrigemIncorporacao
-            : i.origem_aquisicao === filterOrigemIncorporacao);
+          : filterOrigemIncorporacao === 'sem-orgao' ? (i.origem === 'incorporacao' && !isOrigemPdde(i.origem_aquisicao) && !i.orgao_entrega)
+            : (ORGAOS_ENTREGA_FDE as readonly string[]).includes(filterOrigemIncorporacao) ? i.orgao_entrega === filterOrigemIncorporacao
+              : i.origem_aquisicao === filterOrigemIncorporacao);
       return matchSearch && matchOrigem;
     });
   }, [itensIncorporacaoUnificados, searchTerm, filterOrigemIncorporacao]);
@@ -1831,6 +1832,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
               >
                 <option value="">Todas as origens</option>
                 <option value="remanejamento">Remanejamento</option>
+                <option value="sem-orgao">⚠️ FDE/SEDUC sem órgão ({itensIncorporacaoUnificados.filter(i => i.origem === 'incorporacao' && !isOrigemPdde(i.origem_aquisicao) && !i.orgao_entrega).length})</option>
                 {ORGAOS_ENTREGA_FDE.map(o => <option key={o} value={o}>{o}</option>)}
                 {ORIGENS_AQUISICAO.filter(o => isOrigemPdde(o)).map(o => <option key={o} value={o}>{o}</option>)}
               </select>
