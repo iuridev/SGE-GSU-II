@@ -45,11 +45,15 @@ const INCORPORACOES_COLUMNS = [
   // (Federal/Paulista) — nesse caso data de aquisição, valor e ano da verba importam
   // para prestação de contas.
   'origem_aquisicao', 'data_aquisicao', 'valor_item', 'ano_verba',
+  // Órgão específico responsável pela entrega, quando origem_aquisicao é "Entrega
+  // FDE/SEDUC" — não se aplica a itens PDDE.
+  'orgao_entrega',
   // Agrupa itens cadastrados juntos no mesmo formulário (múltiplos itens numa leva) só
   // para exibição — cada item mantém status/nº patrimonial de incorporação independentes.
   'lote_id',
 ]
 const ORIGENS_AQUISICAO_VALIDAS = ['Entrega FDE/SEDUC', 'Aquisição PDDE Federal', 'Aquisição PDDE Paulista']
+const ORGAOS_ENTREGA_VALIDOS = ['FDE', 'CEQUI', 'CITEM', 'COINTEC']
 
 type Profile = { role: string; school_id: string | null; full_name: string | null }
 
@@ -352,6 +356,9 @@ Deno.serve(async (req) => {
         if (pdde && (!body.ano_verba || !body.valor_item)) {
           throw new Error('Valor do item e ano da verba são obrigatórios para itens adquiridos via PDDE.')
         }
+        if (!pdde && !ORGAOS_ENTREGA_VALIDOS.includes(body.orgao_entrega)) {
+          throw new Error('Órgão de entrega é obrigatório para itens de Entrega FDE/SEDUC.')
+        }
         await sheet.addRow({
           id: crypto.randomUUID(),
           escola_id: String(body.escola_id),
@@ -367,6 +374,7 @@ Deno.serve(async (req) => {
           incorporado_por: '',
           data_incorporacao: '',
           origem_aquisicao: String(origemAquisicao),
+          orgao_entrega: pdde ? '' : String(body.orgao_entrega || ''),
           data_aquisicao: String(body.data_aquisicao || ''),
           valor_item: String(body.valor_item || ''),
           ano_verba: String(body.ano_verba || ''),
@@ -387,6 +395,9 @@ Deno.serve(async (req) => {
         if (pdde && (!body.ano_verba || !body.valor_item)) {
           throw new Error('Valor do item e ano da verba são obrigatórios para itens adquiridos via PDDE.')
         }
+        if (!pdde && !ORGAOS_ENTREGA_VALIDOS.includes(body.orgao_entrega)) {
+          throw new Error('Órgão de entrega é obrigatório para itens de Entrega FDE/SEDUC.')
+        }
         const rows = await sheet.getRows()
         const row = rows.find((r: any) => r.get('id') === String(body.id))
         if (!row) throw new Error('Item não encontrado.')
@@ -396,6 +407,7 @@ Deno.serve(async (req) => {
         row.set('quantidade', String(body.quantidade))
         row.set('nota_fiscal_link', String(body.nota_fiscal_link || ''))
         row.set('origem_aquisicao', String(origemAquisicao))
+        row.set('orgao_entrega', pdde ? '' : String(body.orgao_entrega || ''))
         row.set('data_aquisicao', String(body.data_aquisicao || ''))
         row.set('valor_item', String(body.valor_item || ''))
         row.set('ano_verba', String(body.ano_verba || ''))
