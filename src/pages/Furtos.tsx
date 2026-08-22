@@ -2,9 +2,12 @@ import React, { useState, useMemo, useEffect } from 'react';
 import {
   Plus, Trash2, Save, FileText, AlertTriangle, ShieldAlert, Building2,
   Calculator, BarChart3, TrendingUp, Clock, CheckCircle, Search, Pencil, X, CalendarClock,
-  Package, Loader2, Download
+  Package, Loader2, Download, FileDown
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 import { supabase } from '../lib/supabase';
 
 const TIPOS_OCORRENCIA = ["FURTO", "ROUBO", "EXTRAVIO", "INCÊNCIO", "VANDALISMO"];
@@ -399,6 +402,87 @@ export default function CadastroFurtos() {
 
     const hoje = new Date().toISOString().slice(0, 10);
     XLSX.writeFile(wb, `TCE_relacao_ativos_furtos_${hoje}.xlsx`);
+  };
+
+  // Gera o PDF de uma ocorrência individual, com dados do processo, itens
+  // atingidos e o status da baixa patrimonial (SAM / NL do SEAFIN).
+  const gerarPdfOcorrencia = (proc: ProcessoHistorico) => {
+    const doc = new jsPDF();
+    const lx = 14;
+
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('COMPROVANTE DE OCORRÊNCIA DE FURTO/ROUBO/EXTRAVIO', 105, 40, { align: 'center', maxWidth: 180 });
+
+    doc.setFontSize(10);
+    const rows: [string, string][] = [
+      ['Nº do SEI:', proc.numero_sei || '-'],
+      ['Escola:', `${proc.escolaNome}${proc.escolaCie ? ` (CIE: ${proc.escolaCie})` : ''}`],
+      ['Data da Ocorrência:', proc.data_ocorrencia ? new Date(proc.data_ocorrencia + 'T00:00:00').toLocaleDateString('pt-BR') : '-'],
+      ['Tipo de Ocorrência:', proc.tipo_ocorrencia || '-'],
+      ['Nº do B.O.:', proc.numero_bo || '-'],
+      ['Autoria:', proc.autoria || '-'],
+      ['Situação (Triagem):', proc.situacao || '-'],
+      ['Status Final do Processo:', proc.status || '-'],
+      ['Valor Total Estimado:', formatarMoeda(proc.valor_total)],
+    ];
+    rows.forEach(([label, value], i) => {
+      const y = 52 + i * 8;
+      doc.setFont('helvetica', 'bold');
+      doc.text(label, lx, y);
+      doc.setFont('helvetica', 'normal');
+      doc.text(value || '-', 75, y, { maxWidth: 120 });
+    });
+
+    const itensDoProcesso = (proc.itens || []).filter(item => item.descricao);
+    const tabelaY = 52 + rows.length * 8 + 6;
+
+    autoTable(doc, {
+      startY: tabelaY,
+      head: [['Descrição do Item', 'Nº Património (SAM)', 'Valor Un. R$']],
+      body: itensDoProcesso.length > 0
+        ? itensDoProcesso.map(item => [
+            item.descricao,
+            item.patrimonio || '-',
+            item.valorUnitario ? formatarMoeda(parseFloat(item.valorUnitario)) : '-',
+          ])
+        : [['Nenhum item registado', '-', '-']],
+      theme: 'grid',
+      headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
+      styles: { fontSize: 9, cellPadding: 3 },
+      margin: { left: lx, right: lx },
+    });
+
+    let baixaY = (doc as any).lastAutoTable.finalY + 12;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.text('Baixa Patrimonial (SEFISC):', lx, baixaY);
+    baixaY += 8;
+
+    doc.setFont('helvetica', 'normal');
+    const temSam = !!proc.numero_baixa_sam;
+    const temNl = !!(proc.nl_baixa && proc.nl_baixa !== 'Aguardando');
+    const statusBaixa = temSam && temNl
+      ? 'Baixa Concluída'
+      : temSam
+        ? 'Baixa de NL Pendente no SEAFIN'
+        : 'Aguardando registo da baixa';
+
+    const baixaRows: [string, string][] = [
+      ['Status:', statusBaixa],
+      ['Nº Registo de Baixa no SAM Patrimônio:', proc.numero_baixa_sam || '-'],
+      ['Nº de NL (SEAFIN):', temNl ? proc.nl_baixa! : '-'],
+    ];
+    baixaRows.forEach(([label, value], i) => {
+      const y = baixaY + i * 7;
+      doc.setFont('helvetica', 'bold');
+      doc.text(label, lx, y);
+      doc.setFont('helvetica', 'normal');
+      doc.text(value, 90, y, { maxWidth: 105 });
+    });
+
+    addTimbradoAllPages(doc);
+    doc.save(`ocorrencia_furto_${(proc.numero_sei || proc.id).replace(/[\\/]/g, '-')}.pdf`);
   };
 
   // Salvando/Atualizando dados no Supabase
@@ -897,6 +981,9 @@ export default function CadastroFurtos() {
 
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-center gap-2">
+                          <button onClick={() => gerarPdfOcorrencia(proc)} className="p-1.5 rounded-md text-slate-600 hover:bg-slate-100 transition-colors" title="Gerar PDF da Ocorrência">
+                            <FileDown className="w-4 h-4" />
+                          </button>
                           <button onClick={() => handleEdit(proc)} className={`p-1.5 rounded-md transition-colors ${editingId === proc.id ? 'bg-amber-200 text-amber-800' : 'text-blue-600 hover:bg-blue-50'}`} title="Editar Processo">
                             <Pencil className="w-4 h-4" />
                           </button>
