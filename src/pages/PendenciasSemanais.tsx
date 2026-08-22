@@ -23,7 +23,7 @@ const COR_TOTAL = '#e11d48';   // rose-600 — % da rede com qualquer pendência
 const COR_AGUA = '#2563eb';    // blue-600 — mesma cor usada em Consumo de Água
 const COR_MANEJO = '#059669';  // emerald-600 — mesma cor usada em Manejo Arbóreo
 
-interface SchoolLite { id: string; name: string; }
+interface SchoolLite { id: string; name: string; water_exempt: boolean; }
 
 interface SnapshotRow {
   id: string;
@@ -32,11 +32,17 @@ interface SnapshotRow {
   escola_nome: string;
   tem_pendencia_agua: string; // 'TRUE' | 'FALSE'
   dias_agua_pendentes: string;
+  agua_dispensada: string; // 'TRUE' | 'FALSE' — escola dispensada do registro de água
   status_manejo: string;
   tem_pendencia_manejo: string; // 'TRUE' | 'FALSE'
   gerado_em: string;
   gerado_por_nome: string;
 }
+
+// Registro administrativo da própria URE, não uma escola — nunca deve entrar
+// nas contagens/percentuais desta página (mesmo padrão de exclusão usado em
+// src/pages/VisitasEscolares.tsx e src/pages/Remanejamento.tsx).
+const NOME_URE = 'UNIDADE REGIONAL DE ENSINO';
 
 function formatDateToYMD(date: Date): string {
   const year = date.getFullYear();
@@ -134,13 +140,13 @@ export default function PendenciasSemanais() {
       const all: SchoolLite[] = [];
       let from = 0;
       while (true) {
-        const { data: page } = await supabase.from('schools').select('id, name').order('name').range(from, from + PAGE - 1);
+        const { data: page } = await supabase.from('schools').select('id, name, water_exempt').order('name').range(from, from + PAGE - 1);
         if (!page || page.length === 0) break;
         all.push(...(page as SchoolLite[]));
         if (page.length < PAGE) break;
         from += PAGE;
       }
-      setSchools(all);
+      setSchools(all.filter(s => normalizeName(s.name) !== NOME_URE));
 
       await carregarHistorico();
     } catch (err) {
@@ -199,6 +205,7 @@ export default function PendenciasSemanais() {
           escola_nome: escola.name,
           tem_pendencia_agua: diasAgua > 0,
           dias_agua_pendentes: diasAgua,
+          agua_dispensada: !!escola.water_exempt,
           status_manejo: status,
           tem_pendencia_manejo: temPendenciaManejo(status),
         };
@@ -236,11 +243,16 @@ export default function PendenciasSemanais() {
       let rows = bySemana.get(semana)!;
       if (userRole === 'supervisor') rows = rows.filter(r => supervisorSchoolIds.includes(r.escola_id));
       const total = rows.length;
-      const comAgua = rows.filter(r => isTrue(r.tem_pendencia_agua)).length;
-      const comManejo = rows.filter(r => isTrue(r.tem_pendencia_manejo)).length;
-      const pct = (n: number) => (total > 0 ? Math.round((n / total) * 1000) / 10 : 0);
-      const pctAgua = pct(comAgua);
-      const pctManejo = pct(comManejo);
+      // Escolas dispensadas (água) ou "não se aplica" (manejo) não são avaliadas
+      // nesses pilares — mesmo critério de RankingEscolas.tsx/ManejoArboreo.tsx —
+      // então saem do denominador de cada percentual, não só do numerador.
+      const elegiveisAgua = rows.filter(r => !isTrue(r.agua_dispensada));
+      const elegiveisManejo = rows.filter(r => r.status_manejo !== 'NAO_SE_APLICA');
+      const comAgua = elegiveisAgua.filter(r => isTrue(r.tem_pendencia_agua)).length;
+      const comManejo = elegiveisManejo.filter(r => isTrue(r.tem_pendencia_manejo)).length;
+      const pct = (n: number, base: number) => (base > 0 ? Math.round((n / base) * 1000) / 10 : 0);
+      const pctAgua = pct(comAgua, elegiveisAgua.length);
+      const pctManejo = pct(comManejo, elegiveisManejo.length);
       return {
         semana,
         semanaLabel: formatWeekLabel(semana),
