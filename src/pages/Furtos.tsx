@@ -49,6 +49,7 @@ interface ProcessoHistorico {
   autoria?: string;
   status?: string;
   nl_baixa?: string;
+  numero_baixa_sam?: string;
   itens?: Item[];
   valor_total: number;
   updated_at?: string; 
@@ -59,6 +60,7 @@ const FORM_INITIAL_STATE = {
   escola: '',
   situacao: 'Em Análise',
   nlBaixa: 'Aguardando',
+  numeroBaixaSam: '',
   tipoOcorrencia: 'FURTO',
   dataOcorrencia: '',
   numeroBO: '',
@@ -88,7 +90,7 @@ export default function CadastroFurtos() {
   const [filterDataFim, setFilterDataFim] = useState('');
 
   // ================= ESTADO DO MODAL DE BAIXA PATRIMONIAL =================
-  const [baixaModal, setBaixaModal] = useState({ isOpen: false, processoId: '', nlBaixa: '' });
+  const [baixaModal, setBaixaModal] = useState({ isOpen: false, processoId: '', nlBaixa: '', numeroBaixaSam: '' });
 
   // Efeito para buscar utilizador logado, lista de escolas e histórico real do banco
   useEffect(() => {
@@ -127,6 +129,7 @@ export default function CadastroFurtos() {
             autoria,
             status,
             nl_baixa,
+            numero_baixa_sam,
             itens,
             situacao,
             valor_total,
@@ -152,6 +155,7 @@ export default function CadastroFurtos() {
             autoria: proc.autoria,
             status: proc.status,
             nl_baixa: proc.nl_baixa,
+            numero_baixa_sam: proc.numero_baixa_sam,
             itens: proc.itens,
             valor_total: Number(proc.valor_total) || 0,
             updated_at: proc.updated_at || proc.created_at
@@ -204,6 +208,7 @@ export default function CadastroFurtos() {
       escola: processo.escola_id || '',
       situacao: processo.situacao || 'Em Análise',
       nlBaixa: processo.nl_baixa || 'Aguardando',
+      numeroBaixaSam: processo.numero_baixa_sam || '',
       tipoOcorrencia: processo.tipo_ocorrencia || 'FURTO',
       dataOcorrencia: processo.data_ocorrencia || '',
       numeroBO: processo.numero_bo || '',
@@ -241,36 +246,42 @@ export default function CadastroFurtos() {
 
   // ================= AÇÕES DA BAIXA PATRIMONIAL (SEFISC) =================
   const handleOpenBaixa = (proc: ProcessoHistorico) => {
-    setBaixaModal({ 
-      isOpen: true, 
-      processoId: proc.id, 
-      nlBaixa: proc.nl_baixa !== 'Aguardando' ? proc.nl_baixa || '' : '' 
+    setBaixaModal({
+      isOpen: true,
+      processoId: proc.id,
+      nlBaixa: proc.nl_baixa && proc.nl_baixa !== 'Aguardando' ? proc.nl_baixa : '',
+      numeroBaixaSam: proc.numero_baixa_sam || ''
     });
   }
 
   const handleSaveBaixa = async () => {
-    if (!baixaModal.nlBaixa.trim()) {
-      alert("Por favor, informe o número da NL gerada no inventário.");
+    if (!baixaModal.numeroBaixaSam.trim()) {
+      alert("Por favor, informe o número de registro da Baixa no SAM Patrimônio.");
       return;
     }
-    
+
     setIsSaving(true);
     try {
-      // CORREÇÃO AQUI: Adicionado (supabase as any)
+      const nlBaixaTrim = baixaModal.nlBaixa.trim();
+      const payloadBaixa = {
+        numero_baixa_sam: baixaModal.numeroBaixaSam.trim(),
+        nl_baixa: nlBaixaTrim || null
+      };
+
       const { error } = await (supabase as any).from('processos_furtos')
-        .update({ nl_baixa: baixaModal.nlBaixa.trim() })
+        .update(payloadBaixa)
         .eq('id', baixaModal.processoId);
-      
+
       if (error) throw error;
 
       // Atualiza o estado local sem recarregar a página
-      setHistorico(prev => prev.map(p => 
-        p.id === baixaModal.processoId ? { ...p, nl_baixa: baixaModal.nlBaixa.trim() } : p
+      setHistorico(prev => prev.map(p =>
+        p.id === baixaModal.processoId ? { ...p, ...payloadBaixa, nl_baixa: nlBaixaTrim || undefined } : p
       ));
-      
-      setBaixaModal({ isOpen: false, processoId: '', nlBaixa: '' });
-      alert("Baixa patrimonial registrada com sucesso!");
-      
+
+      setBaixaModal({ isOpen: false, processoId: '', nlBaixa: '', numeroBaixaSam: '' });
+      alert(nlBaixaTrim ? "Baixa patrimonial registrada com sucesso!" : "Baixa no SAM registrada. Aguardando emissão da NL pelo SEAFIN.");
+
     } catch(err) {
       console.error(err);
       alert("Erro ao registrar a baixa. Verifique sua conexão.");
@@ -412,6 +423,7 @@ export default function CadastroFurtos() {
         situacao: formData.situacao,
         status: formData.status,
         nl_baixa: formData.nlBaixa,
+        numero_baixa_sam: formData.numeroBaixaSam || null,
         valor_total: valorTotal,
         itens: itens,
         updated_at: agoraIso 
@@ -441,6 +453,7 @@ export default function CadastroFurtos() {
           autoria,
           status,
           nl_baixa,
+          numero_baixa_sam,
           itens,
           situacao,
           valor_total,
@@ -465,6 +478,7 @@ export default function CadastroFurtos() {
           autoria: registroSalvo.autoria,
           status: registroSalvo.status,
           nl_baixa: registroSalvo.nl_baixa,
+          numero_baixa_sam: registroSalvo.numero_baixa_sam,
           itens: registroSalvo.itens,
           valor_total: Number(registroSalvo.valor_total) || 0,
           updated_at: registroSalvo.updated_at
@@ -854,9 +868,19 @@ export default function CadastroFurtos() {
                       <td className="px-4 py-3 text-center">
                         {proc.valor_total > 0 && proc.situacao === 'Concluído' ? (
                           proc.nl_baixa && proc.nl_baixa !== 'Aguardando' ? (
-                            <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider" title="Baixa Concluída">
+                            <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider" title={`Baixa no SAM: ${proc.numero_baixa_sam || '-'}`}>
                               NL: {proc.nl_baixa}
                             </span>
+                          ) : proc.numero_baixa_sam ? (
+                            userProfile?.role === 'regional_admin' ? (
+                              <button onClick={() => handleOpenBaixa(proc)} className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-sm transition-all active:scale-95" title={`Baixa no SAM: ${proc.numero_baixa_sam}. Informe a NL quando o SEAFIN emitir.`}>
+                                NL Pendente no SEAFIN
+                              </button>
+                            ) : (
+                              <span className="bg-amber-100 text-amber-700 px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border border-amber-200" title={`Baixa no SAM: ${proc.numero_baixa_sam}`}>
+                                NL Pendente no SEAFIN
+                              </span>
+                            )
                           ) : userProfile?.role === 'regional_admin' ? (
                             <button onClick={() => handleOpenBaixa(proc)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-sm transition-all active:scale-95">
                               Registrar Baixa
@@ -906,31 +930,42 @@ export default function CadastroFurtos() {
                 <Package className="w-5 h-5 text-indigo-600" />
                 Registrar Baixa Patrimonial
               </h3>
-              <button onClick={() => setBaixaModal({ isOpen: false, processoId: '', nlBaixa: '' })} className="text-gray-400 hover:text-gray-600 p-1">
+              <button onClick={() => setBaixaModal({ isOpen: false, processoId: '', nlBaixa: '', numeroBaixaSam: '' })} className="text-gray-400 hover:text-gray-600 p-1">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            
+
             <div className="p-6 space-y-4">
               <p className="text-sm text-gray-600">
-                Informe o número do documento <span className="font-bold text-gray-800">(Nota de Lançamento / NL)</span> que comprova a baixa dos itens no inventário para este processo.
+                A baixa patrimonial exige dois documentos. Informe primeiro a <span className="font-bold text-gray-800">Baixa no SAM Patrimônio</span>; o <span className="font-bold text-gray-800">Número de NL</span> é emitido depois pelo SEAFIN e pode ser preenchido quando disponível.
               </p>
               <div>
-                <label className="block text-[10px] font-black text-gray-700 uppercase tracking-wider mb-2">Número do Documento (NL)</label>
-                <input 
-                  type="text" 
-                  value={baixaModal.nlBaixa}
-                  onChange={(e) => setBaixaModal({ ...baixaModal, nlBaixa: e.target.value })}
-                  placeholder="Ex: NL 2026NE00123"
+                <label className="block text-[10px] font-black text-gray-700 uppercase tracking-wider mb-2">Nº Registro de Baixa no SAM Patrimônio</label>
+                <input
+                  type="text"
+                  value={baixaModal.numeroBaixaSam}
+                  onChange={(e) => setBaixaModal({ ...baixaModal, numeroBaixaSam: e.target.value })}
+                  placeholder="Ex: 123456"
                   className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-800 transition-all bg-slate-50 focus:bg-white"
                   autoFocus
                 />
               </div>
+              <div>
+                <label className="block text-[10px] font-black text-gray-700 uppercase tracking-wider mb-2">Número de NL (SEAFIN)</label>
+                <input
+                  type="text"
+                  value={baixaModal.nlBaixa}
+                  onChange={(e) => setBaixaModal({ ...baixaModal, nlBaixa: e.target.value })}
+                  placeholder="Ex: NL 2026NE00123 (preencher quando o SEAFIN emitir)"
+                  className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-800 transition-all bg-slate-50 focus:bg-white"
+                />
+                <p className="text-xs text-gray-400 mt-1">Deixe em branco se a NL ainda estiver pendente no SEAFIN.</p>
+              </div>
             </div>
 
             <div className="p-5 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
-              <button 
-                onClick={() => setBaixaModal({ isOpen: false, processoId: '', nlBaixa: '' })} 
+              <button
+                onClick={() => setBaixaModal({ isOpen: false, processoId: '', nlBaixa: '', numeroBaixaSam: '' })}
                 className="px-5 py-2.5 text-gray-600 font-bold hover:bg-gray-200 rounded-xl transition-colors text-sm"
               >
                 Cancelar
