@@ -15,7 +15,7 @@ const SHEET_ID = Deno.env.get('PENDENCIAS_SEMANAIS_SHEET_ID') ?? ''
 const TAB_NAME = 'PendenciasSemanais'
 const COLUMNS = [
   'id', 'semana', 'escola_id', 'escola_nome',
-  'tem_pendencia_agua', 'dias_agua_pendentes',
+  'tem_pendencia_agua', 'dias_agua_pendentes', 'agua_dispensada',
   'status_manejo', 'tem_pendencia_manejo',
   'gerado_em', 'gerado_por_nome',
 ]
@@ -187,6 +187,7 @@ Deno.serve(async (req) => {
             escola_nome: String(linha.escola_nome || ''),
             tem_pendencia_agua: linha.tem_pendencia_agua ? 'TRUE' : 'FALSE',
             dias_agua_pendentes: String(linha.dias_agua_pendentes ?? 0),
+            agua_dispensada: linha.agua_dispensada ? 'TRUE' : 'FALSE',
             status_manejo: String(linha.status_manejo || ''),
             tem_pendencia_manejo: linha.tem_pendencia_manejo ? 'TRUE' : 'FALSE',
             gerado_em: geradoEm,
