@@ -123,6 +123,21 @@ serve(async (req: Request) => {
       htmlContent = `<div style="font-family: sans-serif; padding: 20px;"><h3>Solicitante: ${escapeHtml(userName)}</h3><pre>${escapeHtml(data?.notes)}</pre></div>`;
     }
 
+    // --- AVALIAÇÃO DE SATISFAÇÃO BAIXA (Fiscalização de Terceirizados) ---
+    else if (normalizedType === 'LOW_SATISFACTION_RATING') {
+      subject = `⚠️ AVALIAÇÃO BAIXA (nota ${escapeHtml(data?.nota)}): ${schoolName}`;
+      htmlContent = `<div style="font-family: sans-serif; padding: 20px; color: #1e293b;">
+        <h2 style="color: #dc2626;">Avaliação de satisfação baixa</h2>
+        <div style="padding: 15px; background: #fef2f2; border-radius: 10px; border: 1px solid #fecaca; margin-bottom: 10px;">
+          <p style="margin: 0;"><b>Escola:</b> ${escapeHtml(schoolName)}</p>
+          <p style="margin: 5px 0 0;"><b>Serviço:</b> ${escapeHtml(data?.serviceTypeNome)}</p>
+          <p style="margin: 5px 0 0;"><b>Nota:</b> ${escapeHtml(data?.nota)}/10</p>
+          <p style="margin: 5px 0 0;"><b>Registrado por:</b> ${escapeHtml(userName)}</p>
+        </div>
+        ${data?.comentario ? `<p><b>Comentário:</b></p><pre style="white-space: pre-wrap; font-family: sans-serif;">${escapeHtml(data.comentario)}</pre>` : ''}
+      </div>`;
+    }
+
     // DISPARO
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
