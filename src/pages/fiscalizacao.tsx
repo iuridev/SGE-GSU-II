@@ -438,6 +438,24 @@ export function Fiscalizacao() {
       });
       if (error) throw error;
       toast.success('Avaliação registrada, obrigado!');
+
+      // Nota muito baixa (1 ou 2) dispara alerta por e-mail para a GSU — não
+      // bloqueia nem falha o registro da avaliação se o envio der erro.
+      if (satisfacaoForm.nota <= 2) {
+        supabase.functions.invoke('send-outage-email', {
+          body: {
+            type: 'LOW_SATISFACTION_RATING',
+            schoolName: schoolName(escolaId),
+            userName: currentUser?.full_name || '',
+            data: {
+              nota: satisfacaoForm.nota,
+              comentario: satisfacaoForm.comentario,
+              serviceTypeNome: serviceTypeName(satisfacaoForm.serviceTypeId),
+            },
+          },
+        }).catch(err => console.error('Erro ao enviar e-mail de alerta de avaliação baixa:', err));
+      }
+
       setSatisfacaoForm({ serviceTypeId: '', nota: 8, comentario: '' });
       refreshSoon();
     } catch (err) {
