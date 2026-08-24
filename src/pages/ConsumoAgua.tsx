@@ -248,6 +248,7 @@ export function ConsumoAgua() {
             .from('schools')
             .select('id, name, water_exempt')
             .order('name')
+            .order('id')
             .range(from, from + PAGE - 1);
           if (!page || page.length === 0) break;
           all.push(...page);
@@ -280,33 +281,41 @@ export function ConsumoAgua() {
     const lastDay = formatDateToYMD(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0));
 
     try {
-      let query = (supabase as any).from('consumo_agua').select('*');
-      
-      if (selectedSchoolId) {
-        query = query.eq('school_id', selectedSchoolId);
-      } else if (userRole === 'supervisor') {
-        if (supervisorSchoolIds.length > 0) {
-          query = query.in('school_id', supervisorSchoolIds);
-        } else {
-          setAllMonthLogs([]);
-          setLogs({});
-          return;
-        }
+      if (userRole === 'supervisor' && supervisorSchoolIds.length === 0) {
+        setAllMonthLogs([]);
+        setLogs({});
+        return;
       }
-      
+
+      // Monta uma query nova a cada página: o query builder do Supabase JS NÃO é
+      // imutável (.gte/.lte usam append() e acumulariam filtros duplicados se
+      // reaproveitássemos o mesmo builder entre iterações do range()).
+      const buildBaseQuery = () => {
+        let q = (supabase as any).from('consumo_agua').select('*');
+        if (selectedSchoolId) {
+          q = q.eq('school_id', selectedSchoolId);
+        } else if (userRole === 'supervisor') {
+          q = q.in('school_id', supervisorSchoolIds);
+        }
+        return q;
+      };
+
       // Paginação para contornar o limite máximo de linhas do Supabase por requisição.
       // Cada .range() busca até 1000 linhas; iteramos até não ter mais páginas.
-      // O query builder do Supabase JS é imutável: .range() cria uma nova requisição
-      // sem modificar `query`, então é seguro reusar o mesmo builder em cada iteração.
+      // O order precisa de um desempate único (id) além de date: com ORDER BY date
+      // sozinho, linhas com a mesma data não têm ordem estável entre requisições
+      // separadas, então o offset/limit da paginação pode pular ou duplicar registros
+      // quando há mais de uma linha por dia (múltiplas escolas/hidrômetros).
       const fetchAllPages = async (): Promise<WaterLog[]> => {
         const PAGE = 1000;
         const all: WaterLog[] = [];
         let from = 0;
         while (true) {
-          const { data: page, error: pageErr } = await query
+          const { data: page, error: pageErr } = await buildBaseQuery()
             .gte('date', firstDay)
             .lte('date', lastDay)
             .order('date', { ascending: true })
+            .order('id', { ascending: true })
             .range(from, from + PAGE - 1);
           if (pageErr) throw pageErr;
           if (!page || page.length === 0) break;
