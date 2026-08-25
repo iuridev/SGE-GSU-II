@@ -30,6 +30,7 @@ interface WaterLog {
   student_count: number;
   staff_count: number;
   limit_exceeded: boolean;
+  is_sporadic_excess?: boolean;
   justification: string | null;
   action_plan: string | null;
   created_at?: string;
@@ -62,10 +63,20 @@ const YEARS = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 +
 
 const LIMITE_DIARIO_POR_PESSOA = 0.009;
 
+// Margem de tolerância para excesso esporádico: dias que estouram o limite
+// diário por até esse tanto de m³ são tolerados automaticamente (sem exigir
+// justificativa/ação). Esses valores precisam ficar em sincronia com o
+// trigger handle_water_tolerance() (migration 20260824000000) — ele é quem
+// decide de fato; aqui é só a prévia mostrada antes de salvar.
+const MARGEM_TOLERANCIA_ESPORADICA = 3;
+const LIMITE_ALERTA_CONSCIENTIZACAO = 4;
+const LIMITE_PERDA_TOLERANCIA = 8;
+const JUSTIFICATIVA_ESPORADICA = 'Excesso de consumo esporádico';
+
 // ─── Tutorial ────────────────────────────────────────────────────────────────
 const TUTORIAL_SLIDES = [
   { badge: null,        title: 'Guia de Registro de Consumo de Água',   desc: 'Aprenda em poucos passos como registrar o consumo hídrico diário da sua escola de forma simples e rápida.', accent: 'blue'    },
-  { badge: 'Visão Geral', title: 'Entendendo o Calendário',             desc: 'O calendário mostra todos os dias do mês. Cada cor indica o estado do dia: verde = ok, amarelo = excedido, vermelho = atrasado, roxo = suspensão.', accent: 'slate'   },
+  { badge: 'Visão Geral', title: 'Entendendo o Calendário',             desc: 'O calendário mostra todos os dias do mês. Cada cor indica o estado do dia: verde = ok, laranja = excesso esporádico tolerado (até 3 m³, sem justificativa), amarelo = excedido, vermelho = atrasado, roxo = suspensão.', accent: 'slate'   },
   { badge: 'Passo 1',   title: 'Clique no Dia que Deseja Registrar',   desc: 'Toque ou clique em qualquer dia passado do calendário para abrir o formulário. Dias futuros e dias de suspensão não podem ser editados.', accent: 'blue'    },
   { badge: 'Passo 2',   title: 'Informe Alunos e Funcionários',        desc: 'No Passo 1 do formulário, preencha quantos alunos e funcionários estavam presentes. Esses números definem o limite diário de consumo (9 L por pessoa).', accent: 'violet'  },
   { badge: 'Passo 3',   title: 'Faça a Leitura do Hidrômetro',        desc: 'Vá até o hidrômetro físico e anote os números exibidos no mostrador. Digite esse valor no campo grande escuro (Passo 2 do formulário).', accent: 'emerald' },
@@ -506,9 +517,11 @@ export function ConsumoAgua() {
   }, [filteredMonthLogs]);
 
   // 4. Atualizamos a lista de JUSTIFICATIVAS para usar a lista filtrada
+  // Exclui excessos esporádicos tolerados automaticamente: não há nada pra
+  // revisar neles (sem ação cadastrada, justificativa é só o texto padrão).
   const justificationsList = useMemo(() => {
     return filteredMonthLogs
-      .filter(log => log.limit_exceeded && log.justification)
+      .filter(log => log.limit_exceeded && log.justification && !log.is_sporadic_excess)
       .map(log => ({
         ...log,
         school_name: schools.find(s => s.id === log.school_id)?.name || 'Escola não identificada'
@@ -907,6 +920,23 @@ export function ConsumoAgua() {
   const isLimitExceeded = currentConsumption > currentLimit && formData.reading_m3 > 0;
   const isHydrometerBlocked = !isManagerRole && (formData.student_count <= 0 || formData.staff_count <= 0);
 
+  // Prévia da tolerância de excesso esporádico (a regra de verdade está no
+  // trigger handle_water_tolerance no banco — isso aqui só decide se mostra
+  // os campos obrigatórios de justificativa/ação antes de salvar).
+  const isWithinToleranceMargin = isLimitExceeded && currentConsumption <= currentLimit + MARGEM_TOLERANCIA_ESPORADICA;
+  const sporadicDaysThisMonth = useMemo(() => {
+    if (!selectedSchoolId) return 0;
+    const days = new Set(
+      allMonthLogs
+        .filter(l => l.school_id === selectedSchoolId && l.is_sporadic_excess && l.date !== selectedDateStr)
+        .map(l => l.date)
+    );
+    return days.size;
+  }, [allMonthLogs, selectedSchoolId, selectedDateStr]);
+  const toleranceAvailable = sporadicDaysThisMonth < LIMITE_PERDA_TOLERANCIA;
+  const willAutoTolerate = isWithinToleranceMargin && toleranceAvailable;
+  const requiresManualJustification = isLimitExceeded && !willAutoTolerate;
+
   // ============================================================
   // SALVAR REGISTRO (atualizado para incluir meter_id)
   // ============================================================
@@ -914,7 +944,7 @@ export function ConsumoAgua() {
     e.preventDefault();
     setSaveLoading(true);
     try {
-      if (!isFirstReading && isLimitExceeded && (!formData.justification || !formData.action_plan)) {
+      if (!isFirstReading && requiresManualJustification && (!formData.justification || !formData.action_plan)) {
           throw new Error("Preencha justificativa e ação para excessos.");
       }
 
@@ -922,6 +952,10 @@ export function ConsumoAgua() {
       // Primeiro registro da escola: apenas registra a leitura base, consumo = 0
       const finalConsumption = (isHydrometerBlocked || isFirstReading) ? 0 : currentConsumption;
       const finalLimitExceeded = isFirstReading ? false : isLimitExceeded;
+      // Dentro da margem de tolerância: justificativa/ação ficam a cargo do
+      // trigger handle_water_tolerance (que também é quem confirma se a
+      // tolerância ainda está disponível — essa é só a prévia local).
+      const finalWillAutoTolerate = !isFirstReading && willAutoTolerate;
 
       const meterId = selectedMeterId || null;
 
@@ -934,8 +968,8 @@ export function ConsumoAgua() {
         student_count: formData.student_count,
         staff_count: formData.staff_count,
         limit_exceeded: finalLimitExceeded,
-        justification: finalLimitExceeded ? formData.justification : null,
-        action_plan: finalLimitExceeded ? formData.action_plan : null,
+        justification: finalLimitExceeded ? (finalWillAutoTolerate ? JUSTIFICATIVA_ESPORADICA : formData.justification) : null,
+        action_plan: finalLimitExceeded ? (finalWillAutoTolerate ? null : formData.action_plan) : null,
         created_by: userId
       };
 
@@ -1184,10 +1218,14 @@ export function ConsumoAgua() {
         if (isSuspension) {
           stateClass = "bg-purple-50 text-purple-700 border-purple-200";
         } else {
-          stateClass = "bg-emerald-50 text-emerald-700 border-emerald-200"; 
+          stateClass = "bg-emerald-50 text-emerald-700 border-emerald-200";
           if (log.limit_exceeded) {
-            showAttention = true;
-            stateClass = "bg-amber-50 text-amber-700 border-amber-300 ring-1 ring-amber-400 ring-inset";
+            if (log.is_sporadic_excess) {
+              stateClass = "bg-orange-50 text-orange-700 border-orange-300 ring-1 ring-orange-400 ring-inset";
+            } else {
+              showAttention = true;
+              stateClass = "bg-amber-50 text-amber-700 border-amber-300 ring-1 ring-amber-400 ring-inset";
+            }
           }
         }
     } else {
@@ -1220,6 +1258,11 @@ export function ConsumoAgua() {
         <div className="flex justify-between items-start z-10">
           <span className="text-sm font-black">{day}</span>
           {showAttention && <div className="p-1 bg-amber-500 text-white rounded-full animate-bounce shadow-lg"><AlertTriangle size={14} /></div>}
+          {log && !isSuspension && log.limit_exceeded && log.is_sporadic_excess && (
+            <div className="p-1 bg-orange-400 text-white rounded-full shadow-lg" title="Excesso esporádico tolerado, dentro da margem">
+              <Droplets size={14} />
+            </div>
+          )}
           {log && !log.limit_exceeded && !isSuspension && <CheckCircle size={14} className="text-emerald-500" />}
           {isSuspension && <CalendarOff size={14} className="text-purple-500" />}
         </div>
@@ -1234,7 +1277,7 @@ export function ConsumoAgua() {
                 <>
                   <div className="text-[14px] font-black text-slate-900 leading-none">{log.reading_m3.toLocaleString()}</div>
                   <div className="text-[9px] font-bold uppercase text-slate-400 mt-1">m³ Registrado</div>
-                  <div className={`mt-2 text-[10px] font-black px-2 py-0.5 rounded-full inline-block ${log.limit_exceeded ? 'bg-amber-500 text-white' : 'bg-emerald-200 text-emerald-800'}`}>
+                  <div className={`mt-2 text-[10px] font-black px-2 py-0.5 rounded-full inline-block ${log.limit_exceeded ? (log.is_sporadic_excess ? 'bg-orange-400 text-white' : 'bg-amber-500 text-white') : 'bg-emerald-200 text-emerald-800'}`}>
                     {log.consumption_diff.toFixed(2)} m³
                   </div>
                 </>
@@ -2065,7 +2108,23 @@ export function ConsumoAgua() {
                 </div>
               </div>
 
-              {isLimitExceeded && (
+              {isLimitExceeded && willAutoTolerate && (
+                  <div className="p-8 bg-orange-50 border-2 border-orange-300 rounded-[2.5rem] space-y-2 animate-in slide-in-from-top-4 shadow-xl shadow-orange-100">
+                    <div className="flex items-center gap-3 text-orange-700">
+                      <Droplets size={32} className="shrink-0" />
+                      <div>
+                        <h4 className="text-lg font-black uppercase tracking-tight leading-none">EXCESSO ESPORÁDICO TOLERADO</h4>
+                        <p className="text-xs font-bold opacity-70 mt-1 uppercase">Até {MARGEM_TOLERANCIA_ESPORADICA} m³ acima do limite — não precisa de justificativa.</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-orange-700 font-medium leading-snug pl-1">
+                      {sporadicDaysThisMonth + 1}/{LIMITE_ALERTA_CONSCIENTIZACAO} dias esporádicos este mês
+                      {sporadicDaysThisMonth + 1 >= LIMITE_ALERTA_CONSCIENTIZACAO ? ' — a escola será avisada para ficar atenta ao consumo.' : '.'}
+                    </p>
+                  </div>
+              )}
+
+              {isLimitExceeded && requiresManualJustification && (
                   <div className="p-8 bg-amber-50 border-2 border-amber-300 rounded-[2.5rem] space-y-6 animate-in slide-in-from-top-4 shadow-xl shadow-amber-100">
                     <div className="flex items-center gap-3 text-amber-700"><AlertCircle size={32} className="shrink-0" /><div><h4 className="text-lg font-black uppercase tracking-tight leading-none">ALERTA DE EXCESSO</h4><p className="text-xs font-bold opacity-70 mt-1 uppercase">O consumo excedeu o limite operacional diário.</p></div></div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
