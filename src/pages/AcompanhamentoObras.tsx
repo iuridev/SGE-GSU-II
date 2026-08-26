@@ -5,6 +5,7 @@ import { fetchObrasSheet, normalizeStatus, normalizeForMatch, type SheetSchool }
 import {
   Loader2, HardHat, Search, X, RefreshCw, ExternalLink, CalendarDays,
   School, Star, AlertTriangle, ImageIcon, TrendingUp, BarChart3, Clock,
+  Eye, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
@@ -51,8 +52,29 @@ function parseDateBR(raw: string): string {
 
 const OCORRENCIA_NEGATIVA = /^(nao|nenhuma?|n a|na|sem ocorrencia)\b/;
 
+// Extrai o ID do arquivo de um link do Google Drive (aceita tanto
+// "drive.google.com/open?id=..." quanto "drive.google.com/file/d/.../view").
+function getDriveFileId(url: string): string | null {
+  const m = url.match(/[?&]id=([a-zA-Z0-9_-]+)/) || url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  return m ? m[1] : null;
+}
+
+// Converte o link para o formato de pré-visualização embutível do Drive
+// (funciona para imagem, PDF e outros tipos que o Drive sabe pré-visualizar).
+function getDrivePreviewUrl(url: string): string {
+  const id = getDriveFileId(url);
+  return id ? `https://drive.google.com/file/d/${id}/preview` : url;
+}
+
 function parseRow(headers: string[], row: Record<string, string>): AcompanhamentoRow | null {
-  const findKey = (terms: string[]) => headers.find(h => terms.some(t => normalizeHeader(h).includes(t)));
+  // Prioriza correspondência exata do cabeçalho normalizado (ex.: "Fiscal") antes de cair
+  // para "contém o termo" — sem isso, "Fiscal" batia primeiro com a pergunta de fotos
+  // ("...LO do fiscal da FDE..."), que aparece antes da coluna real na planilha.
+  const findKey = (terms: string[]) => {
+    const exato = headers.find(h => terms.includes(normalizeHeader(h)));
+    if (exato) return exato;
+    return headers.find(h => terms.some(t => normalizeHeader(h).includes(t)));
+  };
 
   const kTimestamp = findKey(['carimbo']);
   const kEscola = findKey(['selecione a ue']);
@@ -133,6 +155,7 @@ export default function AcompanhamentoObras() {
   const [searchTerm, setSearchTerm] = useState('');
   const [onlyAtencao, setOnlyAtencao] = useState(false);
   const [escolaEvolucao, setEscolaEvolucao] = useState('');
+  const [visualizacao, setVisualizacao] = useState<{ urls: string[]; index: number } | null>(null);
 
   useEffect(() => {
     fetchAll();
@@ -645,14 +668,14 @@ export default function AcompanhamentoObras() {
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       {r.fotosUrls.length > 0 ? (
-                        <a
-                          href={r.fotosUrls[0]}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          type="button"
+                          onClick={() => setVisualizacao({ urls: r.fotosUrls, index: 0 })}
                           className="inline-flex items-center gap-1 text-xs text-teal-700 hover:underline"
                         >
                           <ImageIcon size={13} /> {r.fotosUrls.length}
-                        </a>
+                          <Eye size={13} />
+                        </button>
                       ) : '-'}
                     </td>
                     <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{r.responsavel || '-'}</td>
@@ -663,6 +686,66 @@ export default function AcompanhamentoObras() {
           )}
         </div>
       </div>
+
+      {/* Modal de visualização de anexos (fotos/PDFs) */}
+      {visualizacao && (
+        <div
+          className="fixed inset-0 z-[100] bg-slate-900/70 flex items-center justify-center p-4"
+          onClick={() => setVisualizacao(null)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-3xl flex flex-col overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+              <p className="text-sm font-semibold text-slate-700">
+                Anexo {visualizacao.index + 1} de {visualizacao.urls.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <a
+                  href={visualizacao.urls[visualizacao.index]}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs text-teal-700 hover:underline"
+                >
+                  <ExternalLink size={13} /> Abrir em nova aba
+                </a>
+                <button
+                  onClick={() => setVisualizacao(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="relative bg-slate-50">
+              <iframe
+                src={getDrivePreviewUrl(visualizacao.urls[visualizacao.index])}
+                className="w-full h-[70vh] border-0"
+                allow="autoplay"
+                title="Pré-visualização do anexo"
+              />
+              {visualizacao.urls.length > 1 && (
+                <>
+                  <button
+                    onClick={() => setVisualizacao(v => v && { ...v, index: (v.index - 1 + v.urls.length) % v.urls.length })}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 p-2 bg-white/90 hover:bg-white shadow rounded-full text-slate-600"
+                  >
+                    <ChevronLeft size={20} />
+                  </button>
+                  <button
+                    onClick={() => setVisualizacao(v => v && { ...v, index: (v.index + 1) % v.urls.length })}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-white/90 hover:bg-white shadow rounded-full text-slate-600"
+                  >
+                    <ChevronRight size={20} />
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
