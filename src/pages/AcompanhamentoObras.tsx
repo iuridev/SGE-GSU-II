@@ -7,7 +7,7 @@ import {
   School, Star, AlertTriangle, ImageIcon, TrendingUp, BarChart3, Clock,
 } from 'lucide-react';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
 
 const CSV_URL = import.meta.env.VITE_ACOMPANHAMENTO_OBRAS_CSV_URL as string;
@@ -132,6 +132,7 @@ export default function AcompanhamentoObras() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [onlyAtencao, setOnlyAtencao] = useState(false);
+  const [escolaEvolucao, setEscolaEvolucao] = useState('');
 
   useEffect(() => {
     fetchAll();
@@ -249,6 +250,60 @@ export default function AcompanhamentoObras() {
     }));
     return counts;
   }, [rows]);
+
+  // Limites (segunda a domingo) das últimas 8 semanas, usados na evolução da avaliação.
+  const weekBounds = useMemo(() => {
+    const weeks: { label: string; startISO: string; endISO: string }[] = [];
+    for (let i = 7; i >= 0; i--) {
+      const ref = new Date(now);
+      ref.setDate(ref.getDate() - i * 7);
+      const day = ref.getDay();
+      const diffToMonday = day === 0 ? -6 : 1 - day;
+      const monday = new Date(ref);
+      monday.setDate(ref.getDate() + diffToMonday);
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      weeks.push({
+        label: monday.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+        startISO: monday.toISOString().split('T')[0],
+        endISO: sunday.toISOString().split('T')[0],
+      });
+    }
+    return weeks;
+  }, [rows]);
+
+  // Nota semanal de cada escola com obra em andamento: média das respostas da semana,
+  // ou nota máxima (5) quando a escola não respondeu o formulário naquela semana —
+  // entende-se que, sem resposta, não houve ocorrência a relatar.
+  const evolucaoPorEscola = useMemo(() => {
+    const NOTA_MAXIMA = 5;
+    return obrasAtivas.map(o => ({
+      nome: o.nome,
+      semanas: weekBounds.map(w => {
+        const respostas = rows.filter(
+          r => schoolMatches(r.escola, o.nome) && r.dataISO >= w.startISO && r.dataISO <= w.endISO && r.avaliacao !== null,
+        );
+        const valor = respostas.length > 0
+          ? respostas.reduce((s, r) => s + (r.avaliacao || 0), 0) / respostas.length
+          : NOTA_MAXIMA;
+        return { label: w.label, valor };
+      }),
+    }));
+  }, [obrasAtivas, rows, weekBounds]);
+
+  // Dados do gráfico de evolução: média geral da rede, ou de uma escola específica se selecionada.
+  const chartEvolucao = useMemo(() => {
+    if (escolaEvolucao) {
+      const escola = evolucaoPorEscola.find(e => e.nome === escolaEvolucao);
+      return escola ? escola.semanas.map(s => ({ label: s.label, media: Math.round(s.valor * 10) / 10 })) : [];
+    }
+    if (evolucaoPorEscola.length === 0) return [];
+    return weekBounds.map((w, i) => {
+      const valores = evolucaoPorEscola.map(e => e.semanas[i].valor);
+      const media = valores.reduce((a, b) => a + b, 0) / valores.length;
+      return { label: w.label, media: Math.round(media * 10) / 10 };
+    });
+  }, [evolucaoPorEscola, weekBounds, escolaEvolucao]);
 
   const filtered = useMemo(() => {
     return rows.filter(r => {
@@ -434,6 +489,51 @@ export default function AcompanhamentoObras() {
             </ResponsiveContainer>
           )}
         </div>
+      </div>
+
+      {/* Evolução da Avaliação */}
+      <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-1">
+          <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+            <TrendingUp size={16} className="text-teal-500" />
+            Evolução da Avaliação (últimas 8 semanas)
+          </h2>
+          <select
+            value={escolaEvolucao}
+            onChange={e => setEscolaEvolucao(e.target.value)}
+            className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500"
+          >
+            <option value="">Todas as Escolas (média)</option>
+            {obrasAtivas
+              .map(o => o.nome)
+              .sort((a, b) => a.localeCompare(b))
+              .map(nome => (
+                <option key={nome} value={nome}>{nome}</option>
+              ))}
+          </select>
+        </div>
+        <p className="text-xs text-slate-400 mb-4">
+          Semanas em que a escola não respondeu o formulário entram com nota máxima (5), pois entende-se que não houve ocorrência.
+        </p>
+        {loading ? (
+          <div className="flex items-center justify-center h-[240px] text-slate-400 text-sm">
+            <Loader2 size={24} className="animate-spin" />
+          </div>
+        ) : chartEvolucao.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-10">
+            Nenhuma obra em andamento encontrada para calcular a evolução.
+          </p>
+        ) : (
+          <ResponsiveContainer width="100%" height={240}>
+            <LineChart data={chartEvolucao} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+              <YAxis domain={[0, 5]} tick={{ fontSize: 11 }} allowDecimals={false} />
+              <Tooltip formatter={(v) => [v, 'Avaliação']} labelFormatter={l => `Semana de ${l}`} />
+              <Line type="monotone" dataKey="media" name="Avaliação" stroke="#0d9488" strokeWidth={2} dot={{ r: 3 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       {/* Registros que precisam de atenção */}
