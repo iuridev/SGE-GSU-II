@@ -51,11 +51,15 @@ const INCORPORACOES_COLUMNS = [
   // Agrupa itens cadastrados juntos no mesmo formulário (múltiplos itens numa leva) só
   // para exibição — cada item mantém status/nº patrimonial de incorporação independentes.
   'lote_id',
+  // Exclusão (lixeira): item nunca é removido da planilha, só marcado com
+  // status "Excluído" e some da listagem — mantém o registro de quem excluiu
+  // e quando, para auditoria (mesmo padrão de incorporado_por/data_incorporacao).
+  'excluido_por', 'data_exclusao',
 ]
 const ORIGENS_AQUISICAO_VALIDAS = ['Entrega FDE/SEDUC', 'Aquisição PDDE Federal', 'Aquisição PDDE Paulista']
 const ORGAOS_ENTREGA_VALIDOS = ['FDE', 'CEQUI', 'CITEM', 'COINTEC']
 
-type Profile = { role: string; school_id: string | null; full_name: string | null }
+type Profile = { role: string; school_id: string | null; full_name: string | null; supervisor_schools: string[] | null }
 
 // Cache em memória do módulo, reaproveitado entre invocações "quentes" da mesma
 // instância — mesmo motivo/padrão de supabase/functions/patrimonio-salas: sem isso
@@ -150,12 +154,12 @@ Deno.serve(async (req) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) throw new Error('Token inválido ou expirado.')
 
-    const { data: profile } = await supabase.from('profiles').select('role, school_id, full_name').eq('id', user.id).single()
+    const { data: profile } = await supabase.from('profiles').select('role, school_id, full_name, supervisor_schools').eq('id', user.id).single()
     if (!profile) throw new Error('Perfil de usuário não encontrado.')
     const p = profile as Profile
     const autorNome = p.full_name || user.email || 'Usuário'
 
-    if (!['regional_admin', 'school_manager', 'chefe_departamento'].includes(p.role)) {
+    if (!['regional_admin', 'school_manager', 'chefe_departamento', 'supervisor'].includes(p.role)) {
       throw new Error('Seu perfil não tem acesso a este módulo.')
     }
 
@@ -172,6 +176,9 @@ Deno.serve(async (req) => {
         let atendimentos = rows.map((r: any) => rowToObject(r, ATENDIMENTOS_COLUMNS))
         if (p.role === 'school_manager') {
           atendimentos = atendimentos.filter((a: any) => a.escola_id === p.school_id)
+        } else if (p.role === 'supervisor') {
+          const escolasSupervisionadas = p.supervisor_schools || []
+          atendimentos = atendimentos.filter((a: any) => escolasSupervisionadas.includes(a.escola_id))
         }
         return ok(corsHeaders, atendimentos)
       }
@@ -231,6 +238,9 @@ Deno.serve(async (req) => {
         let observacoes = rows.map((r: any) => rowToObject(r, OBSERVACOES_COLUMNS))
         if (p.role === 'school_manager') {
           observacoes = observacoes.filter((o: any) => o.escola_id === p.school_id)
+        } else if (p.role === 'supervisor') {
+          const escolasSupervisionadas = p.supervisor_schools || []
+          observacoes = observacoes.filter((o: any) => escolasSupervisionadas.includes(o.escola_id))
         } else if (body.processo_id) {
           observacoes = observacoes.filter((o: any) => o.processo_id === String(body.processo_id))
         }
@@ -266,6 +276,9 @@ Deno.serve(async (req) => {
         let remanejamentos = rows.map((r: any) => rowToObject(r, REMANEJAMENTOS_COLUMNS))
         if (p.role === 'school_manager') {
           remanejamentos = remanejamentos.filter((r: any) => r.escola_origem_id === p.school_id || r.escola_destino_id === p.school_id)
+        } else if (p.role === 'supervisor') {
+          const escolasSupervisionadas = p.supervisor_schools || []
+          remanejamentos = remanejamentos.filter((r: any) => escolasSupervisionadas.includes(r.escola_origem_id) || escolasSupervisionadas.includes(r.escola_destino_id))
         }
         return ok(corsHeaders, remanejamentos)
       }
@@ -338,9 +351,12 @@ Deno.serve(async (req) => {
       case 'listar_incorporacoes': {
         const sheet = await getOrCreateSheet(doc, INCORPORACOES_SHEET, INCORPORACOES_COLUMNS)
         const rows = await sheet.getRows()
-        let incorporacoes = rows.map((r: any) => rowToObject(r, INCORPORACOES_COLUMNS))
+        let incorporacoes = rows.map((r: any) => rowToObject(r, INCORPORACOES_COLUMNS)).filter((i: any) => i.status !== 'Excluído')
         if (p.role === 'school_manager') {
           incorporacoes = incorporacoes.filter((i: any) => i.escola_id === p.school_id)
+        } else if (p.role === 'supervisor') {
+          const escolasSupervisionadas = p.supervisor_schools || []
+          incorporacoes = incorporacoes.filter((i: any) => escolasSupervisionadas.includes(i.escola_id))
         }
         return ok(corsHeaders, incorporacoes)
       }
@@ -427,6 +443,21 @@ Deno.serve(async (req) => {
         row.set('numero_patrimonial', String(body.numero_patrimonial))
         row.set('incorporado_por', autorNome)
         row.set('data_incorporacao', new Date().toISOString())
+        await row.save()
+        return ok(corsHeaders, { success: true })
+      }
+
+      case 'excluir_incorporacao': {
+        exigirRegionalAdmin(p)
+        const sheet = await getOrCreateSheet(doc, INCORPORACOES_SHEET, INCORPORACOES_COLUMNS)
+        if (!body.id) throw new Error('Item não informado.')
+        const rows = await sheet.getRows()
+        const row = rows.find((r: any) => r.get('id') === String(body.id))
+        if (!row) throw new Error('Item não encontrado.')
+        if (row.get('status') === 'Excluído') throw new Error('Item já foi excluído.')
+        row.set('status', 'Excluído')
+        row.set('excluido_por', autorNome)
+        row.set('data_exclusao', new Date().toISOString())
         await row.save()
         return ok(corsHeaders, { success: true })
       }
