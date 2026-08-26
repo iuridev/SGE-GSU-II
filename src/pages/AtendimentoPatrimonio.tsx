@@ -9,7 +9,7 @@ import {
   Plus, Search, X, Loader2, CalendarDays, Video,
   MapPin, BarChart3, TrendingUp, RefreshCw, ExternalLink,
   ClipboardList, ArrowRightLeft, Package, Check, Mail, History, Pencil, Ticket, Link2, FileDown,
-  AlertTriangle, ListOrdered, Eye,
+  AlertTriangle, ListOrdered, Eye, Trash2,
 } from 'lucide-react';
 
 // Mesma chave usada por Chamados.tsx para ler a referência pré-preenchida ao
@@ -289,6 +289,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
 
   const isAdmin = userRole === 'regional_admin';
   const isSchoolManager = userRole === 'school_manager';
+  const hasModuleAccess = ['regional_admin', 'school_manager', 'supervisor'].includes(userRole);
 
   // Escola abrindo um chamado citando um atendimento/remanejamento específico:
   // guarda a referência em sessionStorage (única forma de "passar dados" entre
@@ -762,6 +763,23 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     }
   };
 
+  // "Lixeira": exclusão fica registrada na planilha (quem excluiu e quando) em vez de
+  // apagar a linha — o item só some da listagem, seguindo o mesmo padrão de auditoria
+  // usado em "marcar como incorporado" (incorporado_por/data_incorporacao).
+  const handleExcluirIncorporacao = async (item: Incorporacao) => {
+    if (!window.confirm(`Excluir o item "${item.descricao}" (${item.escola_nome})? Esta ação não pode ser desfeita.`)) return;
+    setSaving(true);
+    try {
+      await invoke('excluir_incorporacao', { id: item.id });
+      setTimeout(fetchAll, 1500);
+    } catch (e) {
+      console.error(e);
+      alert(e instanceof Error ? e.message : 'Erro ao excluir item.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // Ação rápida da Fila de Atendimento: marca um remanejamento como já cadastrado no
   // SAM sem precisar abrir o formulário completo de edição.
   const handleMarcarCadastradoSam = async (r: Remanejamento) => {
@@ -1228,14 +1246,14 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         ))}
       </div>
 
-      {!['regional_admin', 'school_manager'].includes(userRole) && (
+      {!hasModuleAccess && (
         <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-6 text-center text-slate-400 text-sm">
           <Video size={36} className="mx-auto mb-2 opacity-30" />
           Seu perfil não tem acesso a este módulo.
         </div>
       )}
 
-      {['regional_admin', 'school_manager'].includes(userRole) && activeTab === 'fila' && (
+      {hasModuleAccess && activeTab === 'fila' && (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
@@ -1423,7 +1441,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         </>
       )}
 
-      {['regional_admin', 'school_manager'].includes(userRole) && activeTab === 'atendimentos' && (
+      {hasModuleAccess && activeTab === 'atendimentos' && (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
@@ -1661,7 +1679,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         </>
       )}
 
-      {['regional_admin', 'school_manager'].includes(userRole) && activeTab === 'remanejamentos' && (
+      {hasModuleAccess && activeTab === 'remanejamentos' && (
         <>
           <div className="bg-white rounded-xl border border-slate-100 shadow-sm">
             <div className="p-4 border-b border-slate-100 flex flex-wrap gap-3 items-center">
@@ -1813,7 +1831,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         </>
       )}
 
-      {['regional_admin', 'school_manager'].includes(userRole) && activeTab === 'incorporacoes' && (
+      {hasModuleAccess && activeTab === 'incorporacoes' && (
         <>
           <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
             <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
@@ -2018,6 +2036,16 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                                   className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
                                 >
                                   <Pencil size={16} />
+                                </button>
+                              )}
+                              {isAdmin && i.origem === 'incorporacao' && incorporacaoOrigem && (
+                                <button
+                                  onClick={() => handleExcluirIncorporacao(incorporacaoOrigem)}
+                                  disabled={saving}
+                                  title="Excluir item"
+                                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-60"
+                                >
+                                  <Trash2 size={16} />
                                 </button>
                               )}
                             </div>
