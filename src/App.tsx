@@ -12,7 +12,7 @@ import {
   School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown,
   Bell, MessageSquare, CheckCircle, ClipboardList,
   Wrench, Search, CalendarCheck, BarChart2, Megaphone, DoorOpen, ClipboardCheck, Target,
-  CalendarDays, FileSignature
+  CalendarDays, FileSignature, Bot
 } from 'lucide-react';
 import { AgendaUnificadaModal } from './components/AgendaUnificadaModal';
 import { AlertaEscolaModal } from './components/AlertaEscolaModal';
@@ -75,6 +75,9 @@ import AcompanhamentoObras from './pages/AcompanhamentoObras';
 import PlanoAcao from './pages/PlanoAcao';
 import PendenciasSemanais from './pages/PendenciasSemanais';
 import Assinaturas from './pages/Assinaturas';
+import AssistenteValidacao from './pages/AssistenteValidacao';
+import AssistenteFAQ from './pages/AssistenteFAQ';
+import AssistenteFlutuante from './components/AssistenteFlutuante';
 import { FunapReminderModal } from './components/FunapReminderModal';
 import { Toaster } from 'react-hot-toast';
 
@@ -173,6 +176,8 @@ const MENU_GROUPS: MenuGroup[] = [
     title: 'ATENDIMENTO',
     items: [
       { id: 'chat', label: 'Chat', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager', 'dirigente'] },
+      { id: 'assistente-validacao', label: 'Assistente IA – Validação', icon: <Bot size={20} className="text-blue-500" />, roles: ['regional_admin'] },
+      { id: 'assistente-faq', label: 'Assistente IA – Base de Conhecimento', icon: <BookOpen size={20} className="text-blue-500" />, roles: ['regional_admin'] },
       { id: 'chamados', label: 'Central de Chamados', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'demandas', label: 'Demandas / E-mails', icon: <AlertTriangle size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager', 'dirigente'] },
     ]
@@ -702,6 +707,8 @@ export default function App() {
       case 'metricas-acesso': return <MetricasAcesso />;
       case 'plano-acao': return <PlanoAcao />;
       case 'assinaturas': return <Assinaturas />;
+      case 'assistente-validacao': return <AssistenteValidacao />;
+      case 'assistente-faq': return <AssistenteFAQ />;
       default: return <Dashboard />;
     }
   };
@@ -1044,6 +1051,8 @@ export default function App() {
       >
         <img src="/ure-logo.png" alt="URE Guarulhos Sul" className="w-full h-full object-cover" />
       </a>
+
+      {userRole === 'school_manager' && <AssistenteFlutuante />}
     </div>
   );
 }
