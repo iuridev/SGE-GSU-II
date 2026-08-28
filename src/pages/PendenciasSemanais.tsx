@@ -23,6 +23,12 @@ const COR_TOTAL = '#e11d48';   // rose-600 — % da rede com qualquer pendência
 const COR_AGUA = '#2563eb';    // blue-600 — mesma cor usada em Consumo de Água
 const COR_MANEJO = '#059669';  // emerald-600 — mesma cor usada em Manejo Arbóreo
 
+// Manejo arbóreo entra numa fase posterior — por ora a página acompanha apenas
+// a água. Com `false`, todos os elementos de manejo somem (KPIs, gráfico, tabela,
+// PDF, título e menu em src/App.tsx) e o snapshot semanal grava só os campos de
+// água. Todo o código de manejo continua aqui: basta voltar para `true`.
+export const MOSTRAR_MANEJO: boolean = false;
+
 interface SchoolLite { id: string; name: string; water_exempt: boolean; }
 
 interface SnapshotRow {
@@ -181,24 +187,35 @@ export default function PendenciasSemanais() {
         diasPendentesPorEscola[row.school_id] = (diasPendentesPorEscola[row.school_id] || 0) + row.missing_days;
       });
 
-      // ── Manejo arbóreo: mesma lógica/planilha de src/pages/ManejoArboreo.tsx ─
-      const sheetMap = await fetchManejoFromSheet().catch((err) => {
-        console.warn('Planilha de manejo indisponível ao gerar snapshot:', err);
-        return new Map<string, ManejoSheetRow>();
-      });
+      // ── Manejo arbóreo: só é calculado quando MOSTRAR_MANEJO está ativo.
+      // Enquanto a página acompanha apenas água, o snapshot grava os campos de
+      // manejo vazios (mesma lógica/planilha de src/pages/ManejoArboreo.tsx). ─
+      const sheetMap = MOSTRAR_MANEJO
+        ? await fetchManejoFromSheet().catch((err) => {
+            console.warn('Planilha de manejo indisponível ao gerar snapshot:', err);
+            return new Map<string, ManejoSheetRow>();
+          })
+        : new Map<string, ManejoSheetRow>();
 
       const linhas = schools.map((escola) => {
-        const supNorm = normalizeName(escola.name);
-        let sheetRow: ManejoSheetRow | undefined;
-        for (const [sheetNorm, row] of sheetMap) {
-          if (matchNames(supNorm, sheetNorm)) { sheetRow = row; break; }
-        }
-        const status: StatusManejo = determinarStatus({
-          naoSeAplica: sheetRow?.naoSeAplica ?? false,
-          validadeAutorizacao: sheetRow ? (sheetRow.naoSeAplica ? null : sheetRow.validadeISO) : null,
-          daPlanilha: !!sheetRow,
-        });
         const diasAgua = diasPendentesPorEscola[escola.id] || 0;
+
+        let statusManejo = '';
+        let temManejo = false;
+        if (MOSTRAR_MANEJO) {
+          const supNorm = normalizeName(escola.name);
+          let sheetRow: ManejoSheetRow | undefined;
+          for (const [sheetNorm, row] of sheetMap) {
+            if (matchNames(supNorm, sheetNorm)) { sheetRow = row; break; }
+          }
+          const status: StatusManejo = determinarStatus({
+            naoSeAplica: sheetRow?.naoSeAplica ?? false,
+            validadeAutorizacao: sheetRow ? (sheetRow.naoSeAplica ? null : sheetRow.validadeISO) : null,
+            daPlanilha: !!sheetRow,
+          });
+          statusManejo = status;
+          temManejo = temPendenciaManejo(status);
+        }
 
         return {
           escola_id: escola.id,
@@ -206,8 +223,8 @@ export default function PendenciasSemanais() {
           tem_pendencia_agua: diasAgua > 0,
           dias_agua_pendentes: diasAgua,
           agua_dispensada: !!escola.water_exempt,
-          status_manejo: status,
-          tem_pendencia_manejo: temPendenciaManejo(status),
+          status_manejo: statusManejo,
+          tem_pendencia_manejo: temManejo,
         };
       });
 
@@ -258,9 +275,12 @@ export default function PendenciasSemanais() {
         semanaLabel: formatWeekLabel(semana),
         total, comAgua, comManejo,
         pctAgua, pctManejo,
-        // Total = média simples entre % Água e % Manejo (não é a % de escolas
-        // com pelo menos uma das duas pendências).
-        pctQualquer: Math.round(((pctAgua + pctManejo) / 2) * 10) / 10,
+        // Com manejo ativo, Total = média simples entre % Água e % Manejo (não é
+        // a % de escolas com pelo menos uma das duas pendências). Enquanto só a
+        // água é acompanhada, Total = % Água.
+        pctQualquer: MOSTRAR_MANEJO
+          ? Math.round(((pctAgua + pctManejo) / 2) * 10) / 10
+          : pctAgua,
       };
     });
   }, [snapshots, userRole, supervisorSchoolIds]);
@@ -354,7 +374,7 @@ export default function PendenciasSemanais() {
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-[10px] font-black text-rose-300 uppercase tracking-[0.2em] bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">Plano de Ação</span>
                 </div>
-                <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight leading-tight">Pendências Semanais — Água e Manejo Arbóreo</h1>
+                <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight leading-tight">{MOSTRAR_MANEJO ? 'Pendências Semanais — Água e Manejo Arbóreo' : 'Pendências Semanais — Água'}</h1>
                 <p className="text-rose-200/70 text-sm mt-1">
                   Meta: zerar o percentual de escolas com pendências junto à URE
                 </p>
@@ -374,11 +394,13 @@ export default function PendenciasSemanais() {
           </div>
         </div>
 
-        <div className="bg-black/20 px-8 py-3 flex flex-wrap items-center gap-2 border-t border-white/5">
-          <span className="text-xs text-rose-300/70 font-semibold">
-            Pendência de manejo arbóreo = aguardando validade, vencida ou sem resposta.
-          </span>
-        </div>
+        {MOSTRAR_MANEJO && (
+          <div className="bg-black/20 px-8 py-3 flex flex-wrap items-center gap-2 border-t border-white/5">
+            <span className="text-xs text-rose-300/70 font-semibold">
+              Pendência de manejo arbóreo = aguardando validade, vencida ou sem resposta.
+            </span>
+          </div>
+        )}
       </div>
 
       {snapshotMsg && (
@@ -417,10 +439,12 @@ export default function PendenciasSemanais() {
               <p className="text-2xl font-black flex items-center gap-1.5"><DeltaIcon size={20} />{delta === null ? '—' : `${delta > 0 ? '+' : ''}${delta}%`}</p>
             </div>
             <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Água / Manejo Pendentes</p>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">{MOSTRAR_MANEJO ? 'Água / Manejo Pendentes' : 'Escolas com Água Pendente'}</p>
               <p className="text-2xl font-black text-slate-700 flex items-center gap-3">
                 <span className="flex items-center gap-1.5"><Droplets size={18} style={{ color: COR_AGUA }} />{semanaAtual?.comAgua ?? '—'}</span>
-                <span className="flex items-center gap-1.5"><TreeDeciduous size={18} style={{ color: COR_MANEJO }} />{semanaAtual?.comManejo ?? '—'}</span>
+                {MOSTRAR_MANEJO && (
+                  <span className="flex items-center gap-1.5"><TreeDeciduous size={18} style={{ color: COR_MANEJO }} />{semanaAtual?.comManejo ?? '—'}</span>
+                )}
               </p>
             </div>
           </div>
@@ -448,7 +472,7 @@ export default function PendenciasSemanais() {
 
             {escolaFocoId ? (
               <div>
-                <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Evolução semanal — Água e Manejo Arbóreo</p>
+                <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">{MOSTRAR_MANEJO ? 'Evolução semanal — Água e Manejo Arbóreo' : 'Evolução semanal — Água'}</p>
                 <div className="overflow-x-auto">
                   <div className="flex gap-2 min-w-max pb-2">
                     {schoolWeeklyData.map((w) => (
@@ -458,10 +482,12 @@ export default function PendenciasSemanais() {
                           <Droplets size={13} style={{ color: w.agua ? COR_AGUA : '#cbd5e1' }} />
                           <div className="w-2 h-2 rounded-full" style={{ background: w.agua ? '#ef4444' : '#10b981' }} />
                         </div>
-                        <div className="flex items-center gap-1" title={`Manejo: ${w.statusManejo}`}>
-                          <TreeDeciduous size={13} style={{ color: w.manejo ? COR_MANEJO : '#cbd5e1' }} />
-                          <div className="w-2 h-2 rounded-full" style={{ background: w.manejo ? '#ef4444' : '#10b981' }} />
-                        </div>
+                        {MOSTRAR_MANEJO && (
+                          <div className="flex items-center gap-1" title={`Manejo: ${w.statusManejo}`}>
+                            <TreeDeciduous size={13} style={{ color: w.manejo ? COR_MANEJO : '#cbd5e1' }} />
+                            <div className="w-2 h-2 rounded-full" style={{ background: w.manejo ? '#ef4444' : '#10b981' }} />
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -478,9 +504,9 @@ export default function PendenciasSemanais() {
                     <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: 'Meta: 0%', position: 'insideTopRight', fill: '#94a3b8', fontSize: 11, fontWeight: 700 }} />
                     <Tooltip formatter={(value: any, name: any) => [`${value}%`, name]} contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 12 }} />
                     <Legend wrapperStyle={{ fontSize: 12, fontWeight: 700 }} />
-                    <Line type="monotone" dataKey="pctQualquer" name="Total com pendência" stroke={COR_TOTAL} strokeWidth={2.5} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                    <Line type="monotone" dataKey="pctAgua" name="Água" stroke={COR_AGUA} strokeWidth={2} dot={{ r: 3 }} />
-                    <Line type="monotone" dataKey="pctManejo" name="Manejo Arbóreo" stroke={COR_MANEJO} strokeWidth={2} dot={{ r: 3 }} />
+                    {MOSTRAR_MANEJO && <Line type="monotone" dataKey="pctQualquer" name="Total com pendência" stroke={COR_TOTAL} strokeWidth={2.5} dot={{ r: 4 }} activeDot={{ r: 6 }} />}
+                    <Line type="monotone" dataKey="pctAgua" name="Água" stroke={COR_AGUA} strokeWidth={MOSTRAR_MANEJO ? 2 : 2.5} dot={{ r: MOSTRAR_MANEJO ? 3 : 4 }} activeDot={{ r: 6 }} />
+                    {MOSTRAR_MANEJO && <Line type="monotone" dataKey="pctManejo" name="Manejo Arbóreo" stroke={COR_MANEJO} strokeWidth={2} dot={{ r: 3 }} />}
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -494,9 +520,9 @@ export default function PendenciasSemanais() {
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-100">
                       <th className="text-left py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Semana</th>
-                      <th className="text-center py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">% Total</th>
+                      {MOSTRAR_MANEJO && <th className="text-center py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">% Total</th>}
                       <th className="text-center py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">% Água</th>
-                      <th className="text-center py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">% Manejo</th>
+                      {MOSTRAR_MANEJO && <th className="text-center py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">% Manejo</th>}
                       <th className="text-center py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Escolas</th>
                     </tr>
                   </thead>
@@ -504,9 +530,9 @@ export default function PendenciasSemanais() {
                     {weeklyData.slice().reverse().map(w => (
                       <tr key={w.semana}>
                         <td className="py-2.5 px-4 font-bold text-slate-700">{w.semanaLabel}</td>
-                        <td className="py-2.5 px-4 text-center font-black" style={{ color: COR_TOTAL }}>{w.pctQualquer}%</td>
+                        {MOSTRAR_MANEJO && <td className="py-2.5 px-4 text-center font-black" style={{ color: COR_TOTAL }}>{w.pctQualquer}%</td>}
                         <td className="py-2.5 px-4 text-center" style={{ color: COR_AGUA }}>{w.pctAgua}%</td>
-                        <td className="py-2.5 px-4 text-center" style={{ color: COR_MANEJO }}>{w.pctManejo}%</td>
+                        {MOSTRAR_MANEJO && <td className="py-2.5 px-4 text-center" style={{ color: COR_MANEJO }}>{w.pctManejo}%</td>}
                         <td className="py-2.5 px-4 text-center text-slate-400">{w.total}</td>
                       </tr>
                     ))}
