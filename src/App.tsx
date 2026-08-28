@@ -73,7 +73,7 @@ import ReformaFunap from './pages/ReformaFunap';
 import MetricasAcesso from './pages/MetricasAcesso';
 import AcompanhamentoObras from './pages/AcompanhamentoObras';
 import PlanoAcao from './pages/PlanoAcao';
-import PendenciasSemanais from './pages/PendenciasSemanais';
+import PendenciasSemanais, { MOSTRAR_MANEJO } from './pages/PendenciasSemanais';
 import Assinaturas from './pages/Assinaturas';
 import AssistenteValidacao from './pages/AssistenteValidacao';
 import AssistenteFAQ from './pages/AssistenteFAQ';
@@ -122,7 +122,7 @@ const MENU_GROUPS: MenuGroup[] = [
     title: 'PLANO DE AÇÃO',
     items: [
       { id: 'plano-acao', label: 'Plano de Ação – Cadastro e Monitoramento de Metas', icon: <Target size={20} className="text-indigo-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico', 'ure_ecc'] },
-      { id: 'pendencias-semanais', label: 'Pendências Semanais – Água e Manejo Arbóreo', icon: <ClipboardCheck size={20} className="text-rose-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+      { id: 'pendencias-semanais', label: `Pendências Semanais – Água${MOSTRAR_MANEJO ? ' e Manejo Arbóreo' : ''}`, icon: <ClipboardCheck size={20} className="text-rose-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
     ]
   },
   {
