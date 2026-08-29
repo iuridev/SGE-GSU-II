@@ -79,6 +79,7 @@ import AssistenteValidacao from './pages/AssistenteValidacao';
 import AssistenteFAQ from './pages/AssistenteFAQ';
 import AssistenteFlutuante from './components/AssistenteFlutuante';
 import { FunapReminderModal } from './components/FunapReminderModal';
+import { AlertaAguaPendenteModal } from './components/AlertaAguaPendenteModal';
 import { Toaster } from 'react-hot-toast';
 
 
@@ -742,6 +743,7 @@ export default function App() {
       {isHomolog && <HomologBanner />}
       <Toaster position="top-right" toastOptions={{ style: { zIndex: 99999 } }} />
       <FunapReminderModal currentPage={currentPage} onNavigate={setCurrentPage} />
+      <AlertaAguaPendenteModal currentPage={currentPage} onNavigate={setCurrentPage} />
       <AlertaEscolaModal />
       <ImpactoOcorrenciasModal />
       {showAgenda && <AgendaUnificadaModal onClose={() => setShowAgenda(false)} />}
