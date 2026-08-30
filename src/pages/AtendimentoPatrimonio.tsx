@@ -27,7 +27,24 @@ const CHART_COLORS = [
   '#8b5cf6', '#ec4899', '#06b6d4',
 ];
 
-function getDriveEmbedUrl(url: string): string {
+// Links de documento (GR / Nota Fiscal) são colados à mão na planilha e nem sempre
+// vêm como URL http(s) válida — às vezes é só um texto ("AGUARDANDO"), às vezes o
+// domínio sem "https://". Sem esse tratamento o iframe resolve o valor como caminho
+// relativo e acaba carregando o próprio app dentro do modal.
+function normalizeDocUrl(raw?: string): string {
+  const url = (raw || '').trim();
+  if (!url) return '';
+  if (/^https?:\/\//i.test(url)) return url;
+  // Sem esquema, mas com cara de domínio (tem ponto, sem espaço) → assume https://
+  if (!url.includes(' ') && /^[^/\s]+\.[^/\s]+/.test(url)) return `https://${url}`;
+  return '';
+}
+
+const isDocLinkValido = (raw?: string) => normalizeDocUrl(raw) !== '';
+
+function getDriveEmbedUrl(raw: string): string {
+  const url = normalizeDocUrl(raw);
+  if (!url) return '';
   const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
   if (match) return `https://drive.google.com/file/d/${match[1]}/preview`;
   return url;
@@ -1048,14 +1065,32 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       .sort((a, b) => (a.data_registro < b.data_registro ? 1 : -1));
   }, [observacoes, selectedProcesso]);
 
+  // Datas na planilha aparecem em formatos diferentes conforme a época/origem do
+  // registro: ISO (yyyy-mm-dd[ hh:mm]), dd/mm/yyyy e dd/mm/yyyy hh:mm. `new Date`
+  // não lança em data inválida — só devolve um Date NaN que vira "Invalid Date" ao
+  // formatar —, então parseamos manualmente e devolvemos null quando não dá.
+  const parseDataFlexivel = (d: string): Date | null => {
+    if (!d) return null;
+    const iso = new Date(d);
+    if (!Number.isNaN(iso.getTime())) return iso;
+    const m = d.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (m) {
+      const dt = new Date(+m[3], +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+      if (!Number.isNaN(dt.getTime())) return dt;
+    }
+    return null;
+  };
   const formatDate = (d: string) => {
     if (!d) return '-';
     const p = d.split('-');
-    return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : d;
+    if (p.length === 3 && p[0].length === 4) return `${p[2].slice(0, 2)}/${p[1]}/${p[0]}`;
+    const dt = parseDataFlexivel(d);
+    return dt ? dt.toLocaleDateString('pt-BR') : d;
   };
   const formatDateTime = (d: string) => {
     if (!d) return '-';
-    try { return new Date(d).toLocaleString('pt-BR'); } catch { return d; }
+    const dt = parseDataFlexivel(d);
+    return dt ? dt.toLocaleString('pt-BR') : d;
   };
   // Dias corridos desde o registro — usado na Fila de Atendimento para mostrar
   // há quanto tempo cada item está aguardando.
@@ -1102,7 +1137,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       doc.text(value || '-', 70, y, { maxWidth: 125 });
     });
 
-    const semGr = r.tipo_documento === 'DOC' || !r.gr_link;
+    const semGr = r.tipo_documento === 'DOC' || !isDocLinkValido(r.gr_link);
     let avisoY = 60 + rows.length * 8 + 10;
     if (semGr) {
       doc.setFont('helvetica', 'bold');
@@ -1406,7 +1441,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                           <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{r.autor_nome}</td>
                           <td className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 px-4 py-3 whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)] transition-colors">
                             <div className="flex items-center gap-1">
-                              {r.gr_link && (
+                              {isDocLinkValido(r.gr_link) && (
                                 <button
                                   onClick={() => setDocModal({
                                     url: r.gr_link,
@@ -1763,7 +1798,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                         <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{r.autor_nome}</td>
                         <td className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 px-4 py-3 whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)] transition-colors">
                           <div className="flex items-center gap-1">
-                            {r.gr_link && (
+                            {isDocLinkValido(r.gr_link) && (
                               <button
                                 onClick={() => setDocModal({
                                   url: r.gr_link,
@@ -1775,7 +1810,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                                 <ExternalLink size={12} /> {r.tipo_documento === 'DOC' ? 'DOC' : 'GR'}
                               </button>
                             )}
-                            {r.nota_fiscal_link && (
+                            {isDocLinkValido(r.nota_fiscal_link) && (
                               <button
                                 onClick={() => setDocModal({
                                   url: r.nota_fiscal_link,
@@ -2000,7 +2035,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                           <td className="px-4 py-3 text-slate-400 whitespace-nowrap text-xs">{formatDateTime(i.data_registro)}</td>
                           <td className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 px-4 py-3 whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)] transition-colors">
                             <div className="flex items-center gap-1">
-                              {i.nota_fiscal_link && (
+                              {isDocLinkValido(i.nota_fiscal_link) && (
                                 <button
                                   onClick={() => setDocModal({ url: i.nota_fiscal_link, title: `Nota Fiscal — ${i.escola_nome}${codigosEscola(escolas.find(e => e.id === i.escola_id))}` })}
                                   title="Visualizar Nota Fiscal do item"
@@ -2689,11 +2724,13 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 <h3 className="font-bold text-slate-800 text-sm truncate">{docModal.title}</h3>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <a href={docModal.url} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 bg-teal-600 hover:bg-teal-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors">
-                  <ExternalLink size={13} />
-                  Abrir em Nova Aba
-                </a>
+                {isDocLinkValido(docModal.url) && (
+                  <a href={normalizeDocUrl(docModal.url)} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 bg-teal-600 hover:bg-teal-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors">
+                    <ExternalLink size={13} />
+                    Abrir em Nova Aba
+                  </a>
+                )}
                 <button onClick={() => setDocModal(null)}
                   className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-700 rounded-lg transition-colors">
                   <X size={16} />
@@ -2701,7 +2738,16 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
               </div>
             </div>
             <div className="flex-1 bg-slate-50 overflow-hidden">
-              <iframe src={getDriveEmbedUrl(docModal.url)} className="w-full h-full border-0" title="Documento" />
+              {getDriveEmbedUrl(docModal.url) ? (
+                <iframe src={getDriveEmbedUrl(docModal.url)} className="w-full h-full border-0" title="Documento" />
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500">
+                  <AlertTriangle size={40} className="mb-3 text-amber-500" />
+                  <p className="text-sm font-medium text-slate-700">O link salvo não é um endereço da web válido</p>
+                  <p className="text-xs mt-1 break-all max-w-md">Valor registrado: "{docModal.url}"</p>
+                  <p className="text-xs mt-2">Peça ao administrador regional para corrigir o link no cadastro.</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
