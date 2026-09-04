@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { MANUAL_DO_SISTEMA } from '../lib/manualIA';
+import { selectEmLotes } from '../lib/consultaEmLotes';
 import { Loader2, History, MessageSquare, BarChart2, CheckCircle, Clock, MessageCircle, Users, X, ChevronDown, Search } from 'lucide-react';
 
 export interface Profile {
@@ -270,11 +271,15 @@ export default function Chat() {
 
       if (conversas.length > 0) {
         const convIds = conversas.map((c) => c.id);
-        const { data: naoLidasData } = await (supabase.from('messages') as any)
-          .select('*')
-          .in('conversa_id', convIds)
-          .eq('is_read', false)
-          .neq('sender_id', user.id);
+        // Em lotes: o regional_admin carrega todas as conversas e a URL do
+        // filtro `in` com centenas de ids voltava 400.
+        const { data: naoLidasData } = await selectEmLotes<Mensagem>(convIds, (lote) =>
+          (supabase.from('messages') as any)
+            .select('*')
+            .in('conversa_id', lote)
+            .eq('is_read', false)
+            .neq('sender_id', user.id)
+        );
         if (naoLidasData) setTodasMensagensNaoLidas(naoLidasData as Mensagem[]);
       }
 
@@ -394,11 +399,15 @@ export default function Chat() {
       const { data: convs } = await queryHist as any;
       if (convs && convs.length > 0) {
         const convIds = convs.map((c: any) => c.id);
-        const { data: msgs } = await (supabase.from('messages') as any)
-          .select('*')
-          .in('conversa_id', convIds)
-          .order('created_at', { ascending: true });
+        const { data: msgs } = await selectEmLotes<Mensagem>(convIds, (lote) =>
+          (supabase.from('messages') as any)
+            .select('*')
+            .in('conversa_id', lote)
+            .order('created_at', { ascending: true })
+        );
         if (msgs) {
+          // Os lotes voltam ordenados individualmente; reordena o conjunto.
+          msgs.sort((a: any, b: any) => String(a.created_at).localeCompare(String(b.created_at)));
           setMensagens(msgs as unknown as Mensagem[]);
           setShowingHistory(true);
         }

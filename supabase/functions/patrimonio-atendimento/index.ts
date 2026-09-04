@@ -134,6 +134,18 @@ function rowToObject(row: any, columns: string[]) {
   return Object.fromEntries(columns.map(col => [col, row.get(col) ?? '']))
 }
 
+// Links de documento (GR, Nota Fiscal) são digitados/colados à mão. Aceita só o que
+// parece ser uma URL http(s); acrescenta "https://" quando falta apenas o esquema
+// (ex.: "drive.google.com/..."); descarta texto solto ("AGUARDANDO", "-", etc.) que
+// no frontend acabava sendo carregado como caminho relativo dentro de um iframe.
+function normalizeDocUrl(raw: unknown): string {
+  const url = String(raw ?? '').trim()
+  if (!url) return ''
+  if (/^https?:\/\//i.test(url)) return url
+  if (!url.includes(' ') && /^[^/\s]+\.[^/\s]+/.test(url)) return `https://${url}`
+  return ''
+}
+
 Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req.headers.get('origin'))
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -304,11 +316,11 @@ Deno.serve(async (req) => {
           numero_patrimonial: String(body.numero_patrimonial || ''),
           descricao: String(body.descricao || ''),
           numero_documento: String(body.numero_documento),
-          gr_link: String(body.gr_link || ''),
+          gr_link: normalizeDocUrl(body.gr_link),
           tipo_documento: body.tipo_documento === 'DOC' ? 'DOC' : 'GR',
           cadastrado_sam: body.cadastrado_sam ? 'TRUE' : 'FALSE',
           pendente_incorporacao: body.pendente_incorporacao ? 'TRUE' : 'FALSE',
-          nota_fiscal_link: String(body.nota_fiscal_link || ''),
+          nota_fiscal_link: normalizeDocUrl(body.nota_fiscal_link),
           autor_id: user.id,
           autor_nome: autorNome,
           data_registro: new Date().toISOString(),
@@ -339,11 +351,11 @@ Deno.serve(async (req) => {
         row.set('numero_patrimonial', String(body.numero_patrimonial || ''))
         row.set('descricao', String(body.descricao || ''))
         row.set('numero_documento', String(body.numero_documento))
-        row.set('gr_link', String(body.gr_link || ''))
+        row.set('gr_link', normalizeDocUrl(body.gr_link))
         row.set('tipo_documento', body.tipo_documento === 'DOC' ? 'DOC' : 'GR')
         row.set('cadastrado_sam', body.cadastrado_sam ? 'TRUE' : 'FALSE')
         row.set('pendente_incorporacao', body.pendente_incorporacao ? 'TRUE' : 'FALSE')
-        row.set('nota_fiscal_link', String(body.nota_fiscal_link || ''))
+        row.set('nota_fiscal_link', normalizeDocUrl(body.nota_fiscal_link))
         await row.save()
         return ok(corsHeaders, { success: true })
       }
@@ -381,7 +393,7 @@ Deno.serve(async (req) => {
           escola_nome: String(body.escola_nome || ''),
           descricao: String(body.descricao),
           quantidade: String(body.quantidade),
-          nota_fiscal_link: String(body.nota_fiscal_link || ''),
+          nota_fiscal_link: normalizeDocUrl(body.nota_fiscal_link),
           status: 'Pendente',
           numero_patrimonial: '',
           autor_id: user.id,
@@ -421,7 +433,7 @@ Deno.serve(async (req) => {
         row.set('escola_nome', String(body.escola_nome || ''))
         row.set('descricao', String(body.descricao))
         row.set('quantidade', String(body.quantidade))
-        row.set('nota_fiscal_link', String(body.nota_fiscal_link || ''))
+        row.set('nota_fiscal_link', normalizeDocUrl(body.nota_fiscal_link))
         row.set('origem_aquisicao', String(origemAquisicao))
         row.set('orgao_entrega', pdde ? '' : String(body.orgao_entrega || ''))
         row.set('data_aquisicao', String(body.data_aquisicao || ''))
