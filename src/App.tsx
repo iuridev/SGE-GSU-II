@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 //import { useNavigate } from 'react-router-dom';
 import { supabase } from './lib/supabase';
 import { resolveViewRole, isReadOnlyRole } from './lib/roles';
+import { selectEmLotes } from './lib/consultaEmLotes';
 import {
   LayoutDashboard, Waves, ShieldCheck, ArrowRightLeft,
   Building2, UserCog, LogOut, Menu,
@@ -415,11 +416,17 @@ export default function App() {
 
         if (conversaIds.length > 0) {
 
-          const { data: msgs, error: msgError } = await (supabase as any)
-            .from('messages')
-            .select('id, content, is_read, sender_id, conversa_id')
-            .in('conversa_id', conversaIds)
-            .neq('sender_id', userId);
+          // Lotes: com todas as conversas da regional a URL do filtro `in`
+          // estourava e a busca voltava 400. O não-lido também já é filtrado
+          // no banco para não baixar o histórico inteiro de mensagens.
+          const { data: msgs, error: msgError } = await selectEmLotes<any>(conversaIds, (lote) =>
+            (supabase as any)
+              .from('messages')
+              .select('id, content, is_read, sender_id, conversa_id')
+              .in('conversa_id', lote)
+              .neq('sender_id', userId)
+              .or('is_read.is.null,is_read.eq.false')
+          );
 
           if (msgError) console.error("❌ Erro ao buscar mensagens:", msgError);
 
@@ -489,11 +496,15 @@ export default function App() {
 
         if (myTickets && myTickets.length > 0) {
             const ticketIds = myTickets.map((t: any) => t.id);
-            const { data: unreadTicketMsgs } = await (supabase as any)
-                .from('ticket_messages')
-                .select('*')
-                .in('ticket_id', ticketIds)
-                .neq('user_id', userId);
+            // Mesmo motivo do chat: o admin enxerga todos os chamados.
+            const { data: unreadTicketMsgs } = await selectEmLotes<any>(ticketIds, (lote) =>
+                (supabase as any)
+                    .from('ticket_messages')
+                    .select('*')
+                    .in('ticket_id', lote)
+                    .neq('user_id', userId)
+                    .or('is_read.is.null,is_read.eq.false')
+            );
 
             const unreadTktFiltered = (unreadTicketMsgs || []).filter((m: any) =>
                m.is_read === false || m.is_read === null || m.is_read === 'false'
