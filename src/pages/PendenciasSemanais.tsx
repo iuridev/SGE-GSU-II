@@ -50,6 +50,12 @@ interface SnapshotRow {
 // src/pages/VisitasEscolares.tsx e src/pages/Remanejamento.tsx).
 const NOME_URE = 'UNIDADE REGIONAL DE ENSINO';
 
+// Tolerância de atraso no registro de água: uma escola com até 2 dias úteis sem
+// lançamento ainda está dentro do prazo e NÃO conta como pendência. Só vira
+// pendência a partir do 3º dia. Aplicada tanto ao gerar o snapshot quanto na
+// leitura do histórico (para que snapshots antigos também respeitem a regra).
+const TOLERANCIA_DIAS_AGUA = 2;
+
 function formatDateToYMD(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -73,6 +79,13 @@ function formatWeekLabel(ymd: string): string {
 
 function isTrue(v: string): boolean {
   return v === 'TRUE' || v === 'true';
+}
+
+// Pendência de água considerando a tolerância: releva o booleano gravado e
+// recalcula a partir dos dias pendentes, para que snapshots antigos (gerados
+// antes da tolerância) também deixem de acusar escolas com ≤ 2 dias de atraso.
+function aguaPendente(r: SnapshotRow): boolean {
+  return (Number(r.dias_agua_pendentes) || 0) > TOLERANCIA_DIAS_AGUA;
 }
 
 export default function PendenciasSemanais() {
@@ -220,7 +233,7 @@ export default function PendenciasSemanais() {
         return {
           escola_id: escola.id,
           escola_nome: escola.name,
-          tem_pendencia_agua: diasAgua > 0,
+          tem_pendencia_agua: diasAgua > TOLERANCIA_DIAS_AGUA,
           dias_agua_pendentes: diasAgua,
           agua_dispensada: !!escola.water_exempt,
           status_manejo: statusManejo,
@@ -265,7 +278,7 @@ export default function PendenciasSemanais() {
       // então saem do denominador de cada percentual, não só do numerador.
       const elegiveisAgua = rows.filter(r => !isTrue(r.agua_dispensada));
       const elegiveisManejo = rows.filter(r => r.status_manejo !== 'NAO_SE_APLICA');
-      const comAgua = elegiveisAgua.filter(r => isTrue(r.tem_pendencia_agua)).length;
+      const comAgua = elegiveisAgua.filter(r => aguaPendente(r)).length;
       const comManejo = elegiveisManejo.filter(r => isTrue(r.tem_pendencia_manejo)).length;
       const pct = (n: number, base: number) => (base > 0 ? Math.round((n / base) * 1000) / 10 : 0);
       const pctAgua = pct(comAgua, elegiveisAgua.length);
@@ -296,7 +309,7 @@ export default function PendenciasSemanais() {
       .map(s => ({
         semana: s.semana,
         semanaLabel: formatWeekLabel(s.semana),
-        agua: isTrue(s.tem_pendencia_agua),
+        agua: aguaPendente(s),
         manejo: isTrue(s.tem_pendencia_manejo),
         statusManejo: s.status_manejo,
       }));
