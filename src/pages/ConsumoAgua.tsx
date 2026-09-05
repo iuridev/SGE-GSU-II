@@ -44,6 +44,25 @@ interface School {
   water_exempt?: boolean;
 }
 
+// Período de dispensa (isenção de registro de água) de uma escola.
+// end_date null = dispensa ainda em aberto.
+interface WaterExemption {
+  id?: string;
+  school_id: string;
+  start_date: string;
+  end_date: string | null;
+}
+
+// Uma data (YYYY-MM-DD) cai dentro de algum período de dispensa da lista?
+function isDateExempt(periods: WaterExemption[], dateStr: string): boolean {
+  return periods.some(p => dateStr >= p.start_date && (p.end_date == null || dateStr <= p.end_date));
+}
+
+function formatExemptStart(period: WaterExemption | null): string {
+  if (!period) return '';
+  return new Date(period.start_date + 'T12:00:00').toLocaleDateString('pt-BR');
+}
+
 // Hidrômetro cadastrado para uma escola
 interface SchoolMeter {
   id: string;
@@ -64,11 +83,12 @@ const YEARS = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 +
 const LIMITE_DIARIO_POR_PESSOA = 0.009;
 
 // Margem de tolerância para excesso esporádico: dias que estouram o limite
-// diário por até esse tanto de m³ são tolerados automaticamente (sem exigir
-// justificativa/ação). Esses valores precisam ficar em sincronia com o
-// trigger handle_water_tolerance() (migration 20260824000000) — ele é quem
+// diário em até 35% (consumo <= limite × 1,35) são tolerados automaticamente
+// (sem exigir justificativa/ação) — folga proporcional ao porte da escola,
+// não mais um teto fixo de m³. Esse fator precisa ficar em sincronia com o
+// trigger handle_water_tolerance() (migration 20260905000000) — ele é quem
 // decide de fato; aqui é só a prévia mostrada antes de salvar.
-const MARGEM_TOLERANCIA_ESPORADICA = 3;
+const FATOR_TOLERANCIA_ESPORADICA = 0.35;
 const LIMITE_ALERTA_CONSCIENTIZACAO = 4;
 const LIMITE_PERDA_TOLERANCIA = 8;
 const JUSTIFICATIVA_ESPORADICA = 'Excesso de consumo esporádico';
@@ -76,7 +96,7 @@ const JUSTIFICATIVA_ESPORADICA = 'Excesso de consumo esporádico';
 // ─── Tutorial ────────────────────────────────────────────────────────────────
 const TUTORIAL_SLIDES = [
   { badge: null,        title: 'Guia de Registro de Consumo de Água',   desc: 'Aprenda em poucos passos como registrar o consumo hídrico diário da sua escola de forma simples e rápida.', accent: 'blue'    },
-  { badge: 'Visão Geral', title: 'Entendendo o Calendário',             desc: 'O calendário mostra todos os dias do mês. Cada cor indica o estado do dia: verde = ok, laranja = excesso esporádico tolerado (até 3 m³, sem justificativa), amarelo = excedido, vermelho = atrasado, roxo = suspensão.', accent: 'slate'   },
+  { badge: 'Visão Geral', title: 'Entendendo o Calendário',             desc: 'O calendário mostra todos os dias do mês. Cada cor indica o estado do dia: verde = ok, laranja = excesso esporádico tolerado (até 35% acima do limite, sem justificativa), amarelo = excedido, vermelho = atrasado, roxo = suspensão.', accent: 'slate'   },
   { badge: 'Passo 1',   title: 'Clique no Dia que Deseja Registrar',   desc: 'Toque ou clique em qualquer dia passado do calendário para abrir o formulário. Dias futuros e dias de suspensão não podem ser editados.', accent: 'blue'    },
   { badge: 'Passo 2',   title: 'Informe Alunos e Funcionários',        desc: 'No Passo 1 do formulário, preencha quantos alunos e funcionários estavam presentes. Esses números definem o limite diário de consumo (9 L por pessoa).', accent: 'violet'  },
   { badge: 'Passo 3',   title: 'Faça a Leitura do Hidrômetro',        desc: 'Vá até o hidrômetro físico e anote os números exibidos no mostrador. Digite esse valor no campo grande escuro (Passo 2 do formulário).', accent: 'emerald' },
@@ -116,6 +136,17 @@ export function ConsumoAgua() {
   const [allMonthLogs, setAllMonthLogs] = useState<WaterLog[]>([]); 
   const [waterTruckCount, setWaterTruckCount] = useState(0);
   const [exporting, setExporting] = useState(false);
+
+  // --- Dispensa (isenção de registro de água) ---
+  // Períodos da escola selecionada (para o calendário) e mapa de todos os
+  // períodos da rede por escola (para lateSchools na visão global).
+  const [exemptionPeriods, setExemptionPeriods] = useState<WaterExemption[]>([]);
+  const [allExemptions, setAllExemptions] = useState<Record<string, WaterExemption[]>>({});
+  const [togglingExempt, setTogglingExempt] = useState(false);
+  // Modal de gestão da dispensa (definir início ao dispensar, editar início / encerrar depois)
+  const [isExemptionModalOpen, setIsExemptionModalOpen] = useState(false);
+  const [exemptionStartInput, setExemptionStartInput] = useState('');
+  const [exemptionEndInput, setExemptionEndInput] = useState('');
 
   // --- Hidrômetros ---
   const [schoolMeters, setSchoolMeters] = useState<SchoolMeter[]>([]);
@@ -169,22 +200,96 @@ export function ConsumoAgua() {
   const hasMultipleMeters = schoolMeters.length > 1;
 
   // Escola selecionada está isenta do registro de água?
-  const selectedSchool = schools.find(s => s.id === selectedSchoolId);
-  const isWaterExempt = selectedSchool?.water_exempt === true;
+  const openExemption = exemptionPeriods.find(p => p.end_date == null) || null;
+  const isWaterExempt = !!openExemption;
 
-  async function handleToggleWaterExempt() {
+  async function fetchExemptionPeriods(schoolId: string) {
+    const { data } = await (supabase as any)
+      .from('school_water_exemptions')
+      .select('id, school_id, start_date, end_date')
+      .eq('school_id', schoolId)
+      .order('start_date', { ascending: true });
+    setExemptionPeriods((data as WaterExemption[]) || []);
+  }
+
+  async function fetchAllExemptions() {
+    const { data } = await (supabase as any)
+      .from('school_water_exemptions')
+      .select('id, school_id, start_date, end_date');
+    const map: Record<string, WaterExemption[]> = {};
+    ((data as WaterExemption[]) || []).forEach(p => {
+      (map[p.school_id] ||= []).push(p);
+    });
+    setAllExemptions(map);
+  }
+
+  // Abre o modal de dispensa: em "criar" pré-seleciona hoje como início; com
+  // dispensa em aberto, carrega a data de início atual para edição.
+  function openExemptionModal() {
     if (!selectedSchoolId) return;
-    const newValue = !isWaterExempt;
+    const todayStr = formatDateToYMD(new Date());
+    setExemptionStartInput(openExemption?.start_date || todayStr);
+    setExemptionEndInput(todayStr);
+    setIsExemptionModalOpen(true);
+  }
+
+  async function refreshExemptions() {
+    if (!selectedSchoolId) return;
+    await Promise.all([fetchExemptionPeriods(selectedSchoolId), fetchAllExemptions()]);
+  }
+
+  // Cria um período novo com o início escolhido no modal.
+  async function handleCreateExemption() {
+    if (!selectedSchoolId || togglingExempt || !exemptionStartInput) return;
+    setTogglingExempt(true);
     const { error } = await (supabase as any)
-      .from('schools')
-      .update({ water_exempt: newValue })
-      .eq('id', selectedSchoolId);
-    if (error) { alert(`Erro ao atualizar isenção: ${error.message}`); return; }
-    setSchools(prev => prev.map(s => s.id === selectedSchoolId ? { ...s, water_exempt: newValue } : s));
+      .from('school_water_exemptions')
+      .insert([{ school_id: selectedSchoolId, start_date: exemptionStartInput, created_by: userId }]);
+    setTogglingExempt(false);
+    if (error) { alert(`Erro ao dispensar: ${error.message}`); return; }
+    await refreshExemptions();
+    setSchools(prev => prev.map(s => s.id === selectedSchoolId ? { ...s, water_exempt: true } : s));
+    setIsExemptionModalOpen(false);
+  }
+
+  // Edita a data de início da dispensa em aberto.
+  async function handleUpdateExemptionStart() {
+    if (!selectedSchoolId || togglingExempt || !openExemption?.id || !exemptionStartInput) return;
+    setTogglingExempt(true);
+    const { error } = await (supabase as any)
+      .from('school_water_exemptions')
+      .update({ start_date: exemptionStartInput })
+      .eq('id', openExemption.id);
+    setTogglingExempt(false);
+    if (error) { alert(`Erro ao atualizar início da dispensa: ${error.message}`); return; }
+    await refreshExemptions();
+    setIsExemptionModalOpen(false);
+  }
+
+  // Encerra a dispensa em aberto na data escolhida.
+  async function handleEndExemption() {
+    if (!selectedSchoolId || togglingExempt || !openExemption?.id || !exemptionEndInput) return;
+    if (exemptionEndInput < (openExemption.start_date || '')) {
+      alert('A data de fim não pode ser anterior à data de início da dispensa.');
+      return;
+    }
+    const endBR = new Date(exemptionEndInput + 'T12:00:00').toLocaleDateString('pt-BR');
+    if (!window.confirm(`Encerrar a dispensa em ${endBR}? A partir do dia seguinte os registros voltam a ser cobrados.`)) return;
+    setTogglingExempt(true);
+    const { error } = await (supabase as any)
+      .from('school_water_exemptions')
+      .update({ end_date: exemptionEndInput, ended_by: userId, ended_at: new Date().toISOString() })
+      .eq('id', openExemption.id);
+    setTogglingExempt(false);
+    if (error) { alert(`Erro ao encerrar dispensa: ${error.message}`); return; }
+    await refreshExemptions();
+    setSchools(prev => prev.map(s => s.id === selectedSchoolId ? { ...s, water_exempt: false } : s));
+    setIsExemptionModalOpen(false);
   }
 
   useEffect(() => {
     fetchInitialData();
+    fetchAllExemptions();
   }, []);
 
   // Recarrega sempre que o mês, a escola ou os acessos de supervisor mudarem
@@ -194,13 +299,15 @@ export function ConsumoAgua() {
     fetchWaterTruckStats();
   }, [selectedSchoolId, currentDate, userRole, supervisorSchoolIds]);
 
-  // Quando a escola muda, busca os hidrômetros dela
+  // Quando a escola muda, busca os hidrômetros e os períodos de dispensa dela
   useEffect(() => {
     if (selectedSchoolId) {
       fetchSchoolMeters(selectedSchoolId);
+      fetchExemptionPeriods(selectedSchoolId);
     } else {
       setSchoolMeters([]);
       setSelectedMeterId(null);
+      setExemptionPeriods([]);
     }
   }, [selectedSchoolId]);
 
@@ -583,18 +690,20 @@ export function ConsumoAgua() {
 
     const schoolLateMap: Record<string, { name: string; missingDays: string[] }> = {};
 
-    schools.filter(school => !school.water_exempt).forEach(school => {
+    schools.forEach(school => {
+      const periods = allExemptions[school.id] || [];
       const coveredDates = new Set(
         allMonthLogs.filter(l => l.school_id === school.id).map(l => l.date)
       );
-      const missing = pastDays.filter(d => !coveredDates.has(d));
+      // Dias sem registro que não caem dentro de um período de dispensa
+      const missing = pastDays.filter(d => !coveredDates.has(d) && !isDateExempt(periods, d));
       if (missing.length > 0) {
         schoolLateMap[school.id] = { name: school.name, missingDays: missing };
       }
     });
 
     return Object.values(schoolLateMap).sort((a, b) => a.name.localeCompare(b.name));
-  }, [allMonthLogs, schools, userRole, selectedSchoolId, currentDate, suspensionLogs]);
+  }, [allMonthLogs, schools, userRole, selectedSchoolId, currentDate, suspensionLogs, allExemptions]);
 
   function handleCopyLateList() {
     const monthLabel = `${MONTHS[currentDate.getMonth()]}/${currentDate.getFullYear()}`;
@@ -923,7 +1032,7 @@ export function ConsumoAgua() {
   // Prévia da tolerância de excesso esporádico (a regra de verdade está no
   // trigger handle_water_tolerance no banco — isso aqui só decide se mostra
   // os campos obrigatórios de justificativa/ação antes de salvar).
-  const isWithinToleranceMargin = isLimitExceeded && currentConsumption <= currentLimit + MARGEM_TOLERANCIA_ESPORADICA;
+  const isWithinToleranceMargin = isLimitExceeded && currentConsumption <= currentLimit * (1 + FATOR_TOLERANCIA_ESPORADICA);
   const sporadicDaysThisMonth = useMemo(() => {
     if (!selectedSchoolId) return 0;
     const days = new Set(
@@ -1244,7 +1353,9 @@ export function ConsumoAgua() {
         }
     }
 
-    const showDispensada = isWaterExempt && !log && !isFuture && dateStr < todayStr;
+    // "Dispensada" só nos dias que caem dentro de um período de dispensa —
+    // dias antes do início ou depois do fim voltam a contar como "Atrasado".
+    const showDispensada = !log && !isFuture && dateStr < todayStr && isDateExempt(exemptionPeriods, dateStr);
     if (showDispensada) stateClass = "bg-cyan-50 text-cyan-700 border-cyan-200";
 
     const isClickable = !!selectedSchoolId || canRegisterSuspension;
@@ -1382,13 +1493,14 @@ export function ConsumoAgua() {
             <div className="ml-auto flex items-center gap-2">
               {userRole === 'regional_admin' && (
                 <button
-                  onClick={handleToggleWaterExempt}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-black border rounded-xl transition-all ${
+                  onClick={openExemptionModal}
+                  disabled={togglingExempt}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-black border rounded-xl transition-all disabled:opacity-50 ${
                     isWaterExempt
                       ? 'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100'
                       : 'text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 border-slate-200 hover:border-cyan-200'
                   }`}
-                  title={isWaterExempt ? 'Remover isenção' : 'Dispensar do registro de água'}
+                  title={isWaterExempt ? `Dispensada desde ${formatExemptStart(openExemption)} — clique para editar ou encerrar` : 'Dispensar do registro de água'}
                 >
                   <Droplets size={12} />
                   {isWaterExempt ? 'Isenta' : 'Dispensar'}
@@ -1411,16 +1523,17 @@ export function ConsumoAgua() {
         <div className="flex justify-end gap-2 print:hidden">
           {userRole === 'regional_admin' && (
             <button
-              onClick={handleToggleWaterExempt}
-              className={`flex items-center gap-2 px-4 py-2 text-xs font-black border rounded-xl transition-all ${
+              onClick={openExemptionModal}
+              disabled={togglingExempt}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-black border rounded-xl transition-all disabled:opacity-50 ${
                 isWaterExempt
                   ? 'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100'
                   : 'text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 border-slate-200 hover:border-cyan-200'
               }`}
-              title={isWaterExempt ? 'Remover isenção de registro de água' : 'Marcar escola como isenta de registro de água'}
+              title={isWaterExempt ? `Dispensada desde ${formatExemptStart(openExemption)} — clique para editar ou encerrar` : 'Marcar escola como isenta de registro de água'}
             >
               <Droplets size={14} />
-              {isWaterExempt ? 'Isenta (remover)' : 'Dispensar do registro'}
+              {isWaterExempt ? `Isenta desde ${formatExemptStart(openExemption)} (remover)` : 'Dispensar do registro'}
             </button>
           )}
           <button
@@ -2114,7 +2227,7 @@ export function ConsumoAgua() {
                       <Droplets size={32} className="shrink-0" />
                       <div>
                         <h4 className="text-lg font-black uppercase tracking-tight leading-none">EXCESSO ESPORÁDICO TOLERADO</h4>
-                        <p className="text-xs font-bold opacity-70 mt-1 uppercase">Até {MARGEM_TOLERANCIA_ESPORADICA} m³ acima do limite — não precisa de justificativa.</p>
+                        <p className="text-xs font-bold opacity-70 mt-1 uppercase">Até 35% acima do limite (~{(currentLimit * FATOR_TOLERANCIA_ESPORADICA).toFixed(2)} m³) — não precisa de justificativa.</p>
                       </div>
                     </div>
                     <p className="text-xs text-orange-700 font-medium leading-snug pl-1">
@@ -2238,6 +2351,83 @@ export function ConsumoAgua() {
                 </div>
              </div>
          </div>
+      )}
+
+      {/* ===================================================================
+          MODAL DE DISPENSA (isenção de registro de água) — Admin
+      ==================================================================== */}
+      {isExemptionModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-cyan-900/40 backdrop-blur-md p-4 print:hidden">
+          <div className="bg-white rounded-[3rem] w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden border border-white">
+            <div className="p-8 border-b border-cyan-100 flex justify-between items-center bg-cyan-50/50">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-cyan-600 rounded-[1.2rem] flex items-center justify-center text-white"><CalendarOff size={24}/></div>
+                <div>
+                  <h2 className="text-xl font-black text-slate-900 tracking-tighter text-cyan-600">Dispensa de Registro de Água</h2>
+                  <p className="text-[11px] text-slate-400 font-bold">{schools.find(s => s.id === selectedSchoolId)?.name}</p>
+                </div>
+              </div>
+              <button onClick={() => setIsExemptionModalOpen(false)} className="p-3 hover:bg-cyan-100 rounded-full transition-all text-cyan-400"><X size={20}/></button>
+            </div>
+
+            <div className="p-8 space-y-6">
+              <div className="p-4 bg-cyan-50 rounded-2xl border border-cyan-100">
+                <p className="text-xs text-cyan-800 font-medium leading-relaxed">
+                  Nos dias dentro do período de dispensa a escola <strong>não é cobrada</strong> pelo
+                  registro diário (calendário, escolas atrasadas, pendências e ranking).
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Início da dispensa</label>
+                <input
+                  type="date"
+                  value={exemptionStartInput}
+                  onChange={(e) => setExemptionStartInput(e.target.value)}
+                  className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-700 focus:border-cyan-500 outline-none"
+                />
+              </div>
+
+              {isWaterExempt ? (
+                <>
+                  <button
+                    onClick={handleUpdateExemptionStart}
+                    disabled={togglingExempt || !exemptionStartInput || exemptionStartInput === openExemption?.start_date}
+                    className="w-full py-4 bg-cyan-600 text-white rounded-[1.5rem] font-black shadow-xl shadow-cyan-200 hover:bg-cyan-700 active:scale-95 disabled:opacity-50 transition-all uppercase tracking-widest text-[11px] flex items-center justify-center gap-2"
+                  >
+                    {togglingExempt ? <Loader2 className="animate-spin" size={18}/> : <><Save size={18}/> Salvar data de início</>}
+                  </button>
+
+                  <div className="pt-4 border-t border-slate-100 space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Encerrar dispensa em</label>
+                    <input
+                      type="date"
+                      value={exemptionEndInput}
+                      min={openExemption?.start_date || undefined}
+                      onChange={(e) => setExemptionEndInput(e.target.value)}
+                      className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-700 focus:border-amber-500 outline-none"
+                    />
+                    <button
+                      onClick={handleEndExemption}
+                      disabled={togglingExempt || !exemptionEndInput}
+                      className="w-full py-4 bg-amber-600 text-white rounded-[1.5rem] font-black shadow-xl shadow-amber-200 hover:bg-amber-700 active:scale-95 disabled:opacity-50 transition-all uppercase tracking-widest text-[11px] flex items-center justify-center gap-2"
+                    >
+                      {togglingExempt ? <Loader2 className="animate-spin" size={18}/> : <><CalendarOff size={18}/> Encerrar dispensa</>}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <button
+                  onClick={handleCreateExemption}
+                  disabled={togglingExempt || !exemptionStartInput}
+                  className="w-full py-4 bg-cyan-600 text-white rounded-[1.5rem] font-black shadow-xl shadow-cyan-200 hover:bg-cyan-700 active:scale-95 disabled:opacity-50 transition-all uppercase tracking-widest text-[11px] flex items-center justify-center gap-2"
+                >
+                  {togglingExempt ? <Loader2 className="animate-spin" size={18}/> : <><Save size={18}/> Confirmar dispensa</>}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ===================================================================
