@@ -99,6 +99,17 @@ function rowToObject(row: any, columns: string[]) {
   return Object.fromEntries(columns.map(col => [col, row.get(col) ?? '']))
 }
 
+// A1: número da coluna (1-based) → letra ("A", "B", ... "AA").
+function colLetter(n: number): string {
+  let s = ''
+  while (n > 0) {
+    const m = (n - 1) % 26
+    s = String.fromCharCode(65 + m) + s
+    n = Math.floor((n - 1) / 26)
+  }
+  return s
+}
+
 Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req.headers.get('origin'))
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -170,11 +181,12 @@ Deno.serve(async (req) => {
         const geradoEm = new Date().toISOString()
 
         // Separa em inserções (o caso comum: cada semana nova é 100% linhas
-        // novas, uma por escola da rede) e atualizações (só ocorre se o
-        // mesmo snapshot da mesma semana for gerado de novo). Gravar uma
-        // linha por vez (addRow/save sequenciais) estourava a cota de
-        // escrita do Google Sheets em redes com muitas escolas — por isso as
-        // inserções vão em uma única chamada em lote (addRows).
+        // novas, uma por escola da rede) e atualizações (ocorre quando o
+        // mesmo snapshot da mesma semana é gerado de novo). Gravar uma linha
+        // por vez (addRow/save sequenciais) estourava a cota de escrita do
+        // Google Sheets em redes com muitas escolas — por isso as inserções
+        // vão numa única chamada em lote (addRows) e as atualizações via
+        // saveUpdatedCells (também uma única chamada, ver abaixo).
         const paraInserir: Record<string, string>[] = []
         const paraAtualizar: { row: any; valores: Record<string, string> }[] = []
 
@@ -205,9 +217,30 @@ Deno.serve(async (req) => {
         if (paraInserir.length > 0) {
           await sheet.addRows(paraInserir)
         }
-        for (const { row, valores } of paraAtualizar) {
-          for (const [col, val] of Object.entries(valores)) row.set(col, val)
-          await row.save()
+
+        if (paraAtualizar.length > 0) {
+          // Atualização em lote: carrega de uma vez o bloco de células que
+          // cobre as linhas a alterar, escreve todos os valores em memória e
+          // persiste com um único saveUpdatedCells(). Antes era um row.save()
+          // por escola, o que estourava a cota de escrita da Sheets API ao
+          // regerar o snapshot da semana numa rede com centenas de escolas.
+          const headers: string[] = sheet.headerValues || COLUMNS
+          const colIdx = new Map<string, number>(headers.map((h, i) => [h, i] as [string, number]))
+          const rowNums = paraAtualizar.map(u => u.row.rowNumber as number)
+          const minRow = Math.min(...rowNums)
+          const maxRow = Math.max(...rowNums)
+          const ultimaColuna = colLetter(headers.length)
+          await sheet.loadCells(`A${minRow}:${ultimaColuna}${maxRow}`)
+
+          for (const { row, valores } of paraAtualizar) {
+            const r = (row.rowNumber as number) - 1 // getCell usa índice 0-based
+            for (const [col, val] of Object.entries(valores)) {
+              const c = colIdx.get(col)
+              if (c === undefined) continue
+              sheet.getCell(r, c).value = val
+            }
+          }
+          await sheet.saveUpdatedCells()
         }
 
         return ok(corsHeaders, { success: true, criadas: paraInserir.length, atualizadas: paraAtualizar.length })
