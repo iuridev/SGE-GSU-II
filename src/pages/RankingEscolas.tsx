@@ -335,12 +335,13 @@ export function RankingEscolas() {
       const toISODate = (d: Date) => d.toISOString().split('T')[0];
 
       // 2. Faz as requisições ao Supabase (e a leitura do AVCB) ao mesmo tempo usando Promise.all
-      const [water, demands, manejo, ocorrencias, zeladorias, avcbMap] = await Promise.all([
+      const [water, demands, manejo, ocorrencias, zeladorias, exemptions, avcbMap] = await Promise.all([
         (supabase as any).from('consumo_agua').select('*').gte('date', toISODate(waterFetchStart)), // Água (janela mais ampla)
         (supabase as any).from('demands').select('*'), // Demandas (todas)
         (supabase as any).from('manejo_arboreo').select('*'), // Árvores (todas)
         (supabase as any).from('patrimonial_occurrences').select('*').gte('created_at', new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]), // Vandalismo (este mês)
         (supabase as any).from('zeladorias').select('*'), // Zeladorias (todas)
+        (supabase as any).from('school_water_exemptions').select('school_id, start_date, end_date'), // Períodos de dispensa do registro de água
         fetchAvcbMap() // Mapa: código FDE -> data de validade do AVCB (planilha do Corpo de Bombeiros)
       ]);
 
@@ -356,6 +357,20 @@ export function RankingEscolas() {
       const effWindowStartStr = toISODate(effWindowStart);
       // Quantos dias existem dentro da janela de Registo de Água (base da divisão da frequência)
       const daysInRegWindow = Math.max(1, Math.floor((now.getTime() - regWindowStart.getTime()) / 86400000) + 1);
+      const todayISO = toISODate(now);
+
+      // Dias de dispensa (isenção de registro de água) dentro da janela de Registo,
+      // por escola. Um período (start_date .. end_date, null = em aberto) que
+      // cobre parte da janela reduz o denominador da frequência daquela escola —
+      // se cobre a janela inteira, o pilar sai do cálculo e o peso é redistribuído.
+      const exemptDaysBySchool: Record<string, number> = {};
+      ((exemptions.data as any[]) || []).forEach((e: any) => {
+        const from = e.start_date > regWindowStartStr ? e.start_date : regWindowStartStr;
+        const to = (e.end_date && e.end_date < todayISO) ? e.end_date : todayISO;
+        if (to < from) return;
+        const days = Math.floor((new Date(to + 'T12:00:00').getTime() - new Date(from + 'T12:00:00').getTime()) / 86400000) + 1;
+        exemptDaysBySchool[e.school_id] = (exemptDaysBySchool[e.school_id] || 0) + days;
+      });
 
       // 3. Roda uma repetição para avaliar escola por escola
       const ranking: SchoolRanking[] = allSchools.map((school: SchoolBase) => {
@@ -363,11 +378,16 @@ export function RankingEscolas() {
         // ---- CRITÉRIO 1: ÁGUA FREQUÊNCIA (Registo de Água - últimos 12 meses, piso maio/2026) ----
         const schoolWaterAll = waterLogs.filter((w: any) => w.school_id === school.id); // Isola a água da escola
         const schoolWaterReg = schoolWaterAll.filter((w: any) => w.date >= regWindowStartStr);
-        // Escola marcada como dispensada do registro de água (Consumo de Água) não é cobrada neste pilar:
-        // sem essa checagem ela nunca teria lançamentos e cairia pra perto de 0% injustamente.
-        const waterRegPct = school.water_exempt
+        // Escola dispensada do registro de água (Consumo de Água) não é cobrada
+        // pelos dias em que esteve dispensada: o denominador da frequência é a
+        // janela menos os dias de dispensa. Se ela esteve dispensada a janela
+        // inteira, effectiveRegDays <= 0 e o pilar sai do cálculo (redistribuição
+        // de peso abaixo) — sem essa checagem ela cairia pra perto de 0% injustamente.
+        const effectiveRegDays = daysInRegWindow - (exemptDaysBySchool[school.id] || 0);
+        const fullyWaterExempt = effectiveRegDays <= 0;
+        const waterRegPct = fullyWaterExempt
           ? 1
-          : Math.min(1, schoolWaterReg.length / daysInRegWindow); // Divisão: Entregues / Dias da janela. Teto máximo é 1 (100%)
+          : Math.min(1, schoolWaterReg.length / effectiveRegDays); // Divisão: Entregues / Dias cobrados da janela. Teto máximo é 1 (100%)
 
         // ---- CRITÉRIO 2: ÁGUA EFICIÊNCIA (Eficiência Hídrica - últimos 3 meses) ----
         const schoolWaterEff = schoolWaterAll.filter((w: any) => w.date >= effWindowStartStr);
@@ -439,8 +459,10 @@ export function RankingEscolas() {
         // o pilar é removido do cálculo da escola dispensada e seu peso é redistribuído
         // proporcionalmente entre os outros 5 pilares dela - ela ainda pode tirar nota 10, mas
         // deixa de "furar a fila" de quem realmente faz o registro diário.
+        // Só sai do cálculo quem esteve dispensada a JANELA INTEIRA; dispensa
+        // parcial já foi tratada acima reduzindo o denominador da frequência.
         const positiveKeys = ['water_reg', 'water_limit', 'demand_on_time', 'tree_management', 'zeladoria', 'avcb'] as const;
-        const applicableKeys = school.water_exempt ? positiveKeys.filter(k => k !== 'water_reg') : positiveKeys;
+        const applicableKeys = fullyWaterExempt ? positiveKeys.filter(k => k !== 'water_reg') : positiveKeys;
         const applicableWeightSum = applicableKeys.reduce((acc, k) => acc + currentWeights[k], 0);
         const scaleFactor = applicableWeightSum > 0 ? 10 / applicableWeightSum : 0;
         const effectiveWeights = {
@@ -483,7 +505,7 @@ export function RankingEscolas() {
             avcb_label: avcbLabel,
             zeladoria_status: zeladoriaPct * 100,
             patrimonial_penalty: penalty,
-            water_exempt: !!school.water_exempt,
+            water_exempt: fullyWaterExempt,
             weights: effectiveWeights
           }
         };

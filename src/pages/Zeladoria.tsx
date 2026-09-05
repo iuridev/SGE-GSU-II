@@ -11,7 +11,8 @@ import {
   BarChart3, PieChart as PieIcon,
   CheckSquare, UserPlus, ShieldCheck,
   ChevronRight, Filter, MessageSquare, MapPin, AlertTriangle, FileCheck2,
-  Eye, EyeOff, ArrowLeft
+  Eye, EyeOff, ArrowLeft,
+  ListChecks, LayoutGrid, Clock, Hourglass, Target
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -38,6 +39,314 @@ const ETAPAS_PROCESSO = [
 const ETAPA_SEFREP = "11 - SEFREP";
 
 const isIsento = (dare?: string | null) => !!dare?.toLowerCase().includes('isento');
+
+/* ------------------------------------------------------------------ *
+ * FILA DE TRABALHO — motor de priorização
+ * Ajuste os números abaixo conforme a realidade da regional.
+ * ------------------------------------------------------------------ */
+
+// Dias esperados que um processo permanece em cada etapa (ESTIMATIVAS).
+const SLA_ETAPA: Record<string, number> = {
+  "1 - RECEBIDO NO SEI": 5,
+  "2 - ANÁLISE SEFISC": 10,
+  "2.1 - DEVOLUÇÃO PARA ESCOLA": 15,
+  "3 - RELATÓRIO FOTOGRÁFICO": 10,
+  "4 - VISTORIA SEOM": 15,
+  "5 - CECIG - PGE": 20,
+  "6 - CIÊNCIA DO OCUPANTE": 7,
+  "7 - TERMO DE COMPROMISSO": 7,
+  "8 - APROVAÇÃO DIRIGENTE": 5,
+  "9 - DPAT-SEDUC": 20,
+  "10 - CASA CIVIL": 30,
+  "10.1 - RETORNO DPAT": 10,
+  "11 - SEFREP": 15,
+};
+const SLA_PADRAO = 15;
+
+// O que o gestor precisa FAZER quando o processo está em cada etapa.
+const ACAO_ETAPA: Record<string, string> = {
+  "1 - RECEBIDO NO SEI": "Distribuir para análise da SEFISC",
+  "2 - ANÁLISE SEFISC": "Concluir a análise técnica",
+  "2.1 - DEVOLUÇÃO PARA ESCOLA": "Cobrar o retorno da escola",
+  "3 - RELATÓRIO FOTOGRÁFICO": "Anexar o relatório fotográfico",
+  "4 - VISTORIA SEOM": "Agendar / cobrar a vistoria da SEOM",
+  "5 - CECIG - PGE": "Acompanhar a manifestação da PGE",
+  "6 - CIÊNCIA DO OCUPANTE": "Colher a ciência do ocupante",
+  "7 - TERMO DE COMPROMISSO": "Emitir / colher o termo de compromisso",
+  "8 - APROVAÇÃO DIRIGENTE": "Levar para aprovação do dirigente",
+  "9 - DPAT-SEDUC": "Encaminhar à DPAT-SEDUC",
+  "10 - CASA CIVIL": "Acompanhar na Casa Civil",
+  "10.1 - RETORNO DPAT": "Processar o retorno da DPAT",
+  "11 - SEFREP": "Enviar o valor ao SEFREP",
+  "CONCLUÍDO": "Processo concluído",
+};
+
+// Etapas em que a "bola" está com terceiros (escola ou órgão externo).
+const ETAPAS_AGUARDA_TERCEIROS = new Set<string>([
+  "2.1 - DEVOLUÇÃO PARA ESCOLA",
+  "4 - VISTORIA SEOM",
+  "5 - CECIG - PGE",
+  "9 - DPAT-SEDUC",
+  "10 - CASA CIVIL",
+]);
+
+const PESOS = {
+  prazoVencido: 50,
+  prazoAte30: 28,
+  prazoAte90: 12,
+  estagnadoGrave: 26,
+  estagnado: 14,
+  progressoPorEtapa: 2,
+  retaFinal: 12,
+  terrenoPendente: 8,
+  semCertidao: 6,
+  escolaSemResposta: 22,
+};
+
+const ETAPA_RETA_FINAL_IDX = ETAPAS_PROCESSO.indexOf("9 - DPAT-SEDUC");
+
+type Tom = 'red' | 'amber' | 'blue' | 'slate';
+
+interface Prioridade {
+  score: number;
+  nivel: 'agora' | 'semana' | 'acompanhar' | 'em_dia';
+  motivos: { texto: string; tom: Tom }[];
+  acao: string;
+  aguardaTerceiros: boolean;
+  diasNaFase: number;
+  diasPrazo: number | null;
+}
+
+const TOM_CHIP: Record<Tom, string> = {
+  red: 'bg-red-50 text-red-700 border-red-100',
+  amber: 'bg-amber-50 text-amber-700 border-amber-100',
+  blue: 'bg-blue-50 text-blue-700 border-blue-100',
+  slate: 'bg-slate-50 text-slate-500 border-slate-100',
+};
+const TOM_BARRA: Record<Tom, string> = {
+  red: 'bg-red-600',
+  amber: 'bg-amber-500',
+  blue: 'bg-blue-600',
+  slate: 'bg-slate-500',
+};
+
+function calcPrioridade(item: Zeladoria): Prioridade {
+  const motivos: Prioridade['motivos'] = [];
+  let score = 0;
+
+  const idx = ETAPAS_PROCESSO.indexOf(item.ocupada);
+  const sla = SLA_ETAPA[item.ocupada] ?? SLA_PADRAO;
+
+  const entrada = new Date(item.status_updated_at || item.created_at || Date.now());
+  const diasNaFase = Math.max(0, Math.floor((Date.now() - entrada.getTime()) / 86400000));
+
+  // --- Prazo de validade da autorização ---
+  let diasPrazo: number | null = null;
+  if (item.ate) {
+    const venc = new Date(item.ate);
+    venc.setHours(0, 0, 0, 0);
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    const d = Math.ceil((venc.getTime() - hoje.getTime()) / 86400000);
+    if (!isNaN(d)) diasPrazo = d;
+  }
+  let prazoVencido = false;
+  if (diasPrazo !== null) {
+    if (diasPrazo < 0) {
+      prazoVencido = true;
+      score += PESOS.prazoVencido + Math.min(Math.abs(diasPrazo), 30);
+      motivos.push({ texto: `Prazo vencido há ${Math.abs(diasPrazo)} dia(s)`, tom: 'red' });
+    } else if (diasPrazo <= 30) {
+      score += PESOS.prazoAte30;
+      motivos.push({ texto: diasPrazo === 0 ? 'Vence hoje' : `Vence em ${diasPrazo} dia(s)`, tom: 'red' });
+    } else if (diasPrazo <= 90) {
+      score += PESOS.prazoAte90;
+      motivos.push({ texto: `Vence em ${diasPrazo} dia(s)`, tom: 'amber' });
+    }
+  }
+
+  // --- Estagnação na etapa ---
+  if (diasNaFase > sla * 2) {
+    score += PESOS.estagnadoGrave;
+    motivos.push({ texto: `Parado há ${diasNaFase} dias (meta ~${sla})`, tom: 'red' });
+  } else if (diasNaFase > sla) {
+    score += PESOS.estagnado;
+    motivos.push({ texto: `Parado há ${diasNaFase} dias`, tom: 'amber' });
+  }
+
+  // --- Escola não respondeu (devolução) ---
+  if (item.ocupada === '2.1 - DEVOLUÇÃO PARA ESCOLA' && diasNaFase > sla) {
+    score += PESOS.escolaSemResposta;
+    motivos.push({ texto: `Escola não responde há ${diasNaFase} dias — cobrar`, tom: 'red' });
+  }
+
+  // --- Progresso: processo adiantado não pode parar ---
+  if (idx > 0) score += idx * PESOS.progressoPorEtapa;
+  if (ETAPA_RETA_FINAL_IDX >= 0 && idx >= ETAPA_RETA_FINAL_IDX && item.ocupada !== 'CONCLUÍDO') {
+    score += PESOS.retaFinal;
+    motivos.push({ texto: 'Reta final — priorize a conclusão', tom: 'blue' });
+  }
+
+  // --- Bloqueios estruturais ---
+  if (item.terreno_fazenda_estado === false) {
+    score += PESOS.terrenoPendente;
+    motivos.push({ texto: 'Terreno pendente de regularização', tom: 'amber' });
+  }
+  if (item.certidao_matricula === false) {
+    score += PESOS.semCertidao;
+    motivos.push({ texto: 'Sem certidão de matrícula', tom: 'amber' });
+  }
+
+  let nivel: Prioridade['nivel'];
+  if (prazoVencido || score >= 45) nivel = 'agora';
+  else if (score >= 25) nivel = 'semana';
+  else if (score >= 12) nivel = 'acompanhar';
+  else nivel = 'em_dia';
+
+  if (motivos.length === 0) motivos.push({ texto: 'Dentro do prazo', tom: 'slate' });
+
+  return {
+    score,
+    nivel,
+    motivos,
+    acao: ACAO_ETAPA[item.ocupada] ?? 'Analisar o processo',
+    aguardaTerceiros: ETAPAS_AGUARDA_TERCEIROS.has(item.ocupada),
+    diasNaFase,
+    diasPrazo,
+  };
+}
+
+type FilaItem = Zeladoria & { prioridade: Prioridade };
+
+function FilaRow({ item, advancing, onAdvance, onHistory }: {
+  item: FilaItem;
+  advancing: boolean;
+  onAdvance: () => void;
+  onHistory: () => void;
+}) {
+  const p = item.prioridade;
+  const step = ETAPAS_PROCESSO.indexOf(item.ocupada) + 1;
+  const currentIndex = ETAPAS_PROCESSO.indexOf(item.ocupada);
+  const hasNext = currentIndex >= 0 && currentIndex < ETAPAS_PROCESSO.length - 1;
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex flex-col lg:flex-row lg:items-center gap-3 hover:border-blue-100 hover:shadow-md transition-all">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          {item.ue && <span className="text-[9px] font-black text-slate-400 uppercase flex-shrink-0">UE {item.ue}</span>}
+          <span className="text-xs font-black text-slate-900 uppercase truncate">{item.nome}</span>
+        </div>
+        <div className="flex items-center gap-2 mt-1 flex-wrap">
+          <span className="text-[9px] font-black uppercase text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-2 py-0.5 flex-shrink-0">
+            {step}/{ETAPAS_PROCESSO.length} · {shortStageName(item.ocupada)}
+          </span>
+          <span className="text-[10px] font-mono text-slate-400 truncate">{item.sei_numero || 'SEI n/d'}</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+          {p.motivos.slice(0, 3).map((m, i) => (
+            <span key={i} className={`text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${TOM_CHIP[m.tom]}`}>
+              {m.texto}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0 border-t lg:border-t-0 lg:border-l border-slate-100 pt-3 lg:pt-0 lg:pl-3">
+        <div className="text-left lg:text-right flex-1 lg:flex-none">
+          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Próxima ação</p>
+          <p className="text-[10px] font-bold text-slate-600 lg:max-w-[170px]">{p.acao}</p>
+        </div>
+        <button onClick={onHistory} className="p-2 hover:bg-blue-50 text-slate-400 hover:text-blue-600 rounded-lg transition-colors flex-shrink-0" title="Ver histórico">
+          <History size={14} />
+        </button>
+        {hasNext && (
+          <button
+            onClick={onAdvance}
+            disabled={advancing}
+            className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-[10px] font-black uppercase transition-all active:scale-95 flex-shrink-0"
+          >
+            {advancing ? <Loader2 size={12} className="animate-spin" /> : <ArrowRight size={12} />}
+            Avançar
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FocoCard({ item, rank, advancing, canEdit, onAdvance, onHistory, onEdit }: {
+  item: FilaItem;
+  rank: number;
+  advancing: boolean;
+  canEdit: boolean;
+  onAdvance: () => void;
+  onHistory: () => void;
+  onEdit: () => void;
+}) {
+  const p = item.prioridade;
+  const step = ETAPAS_PROCESSO.indexOf(item.ocupada) + 1;
+  const currentIndex = ETAPAS_PROCESSO.indexOf(item.ocupada);
+  const hasNext = currentIndex >= 0 && currentIndex < ETAPAS_PROCESSO.length - 1;
+  const manchete = p.motivos[0];
+  return (
+    <div className="bg-white rounded-[2rem] border border-slate-100 shadow-xl shadow-slate-200/50 overflow-hidden flex flex-col">
+      <div className={`px-5 py-2.5 flex items-center gap-2 ${TOM_BARRA[manchete.tom]}`}>
+        <span className="w-5 h-5 rounded-full bg-white/25 text-white text-[10px] font-black flex items-center justify-center flex-shrink-0">{rank}</span>
+        <span className="text-[10px] font-black text-white uppercase tracking-wide truncate">{manchete.texto}</span>
+      </div>
+      <div className="p-5 flex flex-col gap-3 flex-1">
+        <div>
+          {item.ue && <span className="text-[9px] font-black text-slate-400 uppercase">UE {item.ue}</span>}
+          <p className="font-black text-slate-900 text-sm uppercase leading-tight">{item.nome}</p>
+          <p className="font-mono text-[10px] text-slate-400 mt-0.5">{item.sei_numero || 'SEI não informado'}</p>
+        </div>
+        <div>
+          <div className="flex justify-between text-[9px] font-bold text-slate-400 mb-1">
+            <span className="uppercase">{shortStageName(item.ocupada)}</span>
+            <span className="font-black text-blue-600">{step}/{ETAPAS_PROCESSO.length}</span>
+          </div>
+          <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden flex gap-px">
+            {Array.from({ length: ETAPAS_PROCESSO.length }).map((_, i) => (
+              <div key={i} className={`flex-1 h-full ${i < step ? 'bg-blue-500' : 'bg-slate-100'}`} />
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500">
+          <Clock size={11} /> {p.diasNaFase === 0 ? 'Entrou hoje nesta etapa' : `${p.diasNaFase} dia(s) nesta etapa`}
+        </div>
+        {p.motivos.length > 1 && (
+          <div className="flex flex-wrap gap-1.5">
+            {p.motivos.slice(1, 4).map((m, i) => (
+              <span key={i} className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full border ${TOM_CHIP[m.tom]}`}>{m.texto}</span>
+            ))}
+          </div>
+        )}
+        <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 mt-auto">
+          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Próxima ação</p>
+          <p className="text-xs font-bold text-slate-700 mt-0.5">{p.acao}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {hasNext && (
+            <button
+              onClick={onAdvance}
+              disabled={advancing}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-[10px] font-black uppercase transition-all active:scale-95 shadow-sm shadow-blue-200"
+            >
+              {advancing ? <Loader2 size={12} className="animate-spin" /> : <ArrowRight size={12} />}
+              Avançar etapa
+            </button>
+          )}
+          <button onClick={onHistory} className="p-2.5 hover:bg-blue-50 text-slate-400 hover:text-blue-600 rounded-lg transition-colors border border-slate-100" title="Ver histórico">
+            <History size={14} />
+          </button>
+          {canEdit && (
+            <button onClick={onEdit} className="p-2.5 hover:bg-amber-50 text-slate-400 hover:text-amber-600 rounded-lg transition-colors border border-slate-100" title="Editar dados">
+              <Edit size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface Zeladoria {
   id: string | number;
@@ -90,6 +399,18 @@ interface School {
 
 const shortStageName = (etapa: string) => etapa.replace(/^\d+\.?\d*\s*-\s*/, '');
 
+// Rótulos curtos para os chips do Pipeline de Fases (mantém o nome completo no title).
+const STEP_ALIAS: Record<string, string> = {
+  "2 - ANÁLISE SEFISC": "Análise SEFISC",
+  "2.1 - DEVOLUÇÃO PARA ESCOLA": "Devolução escola",
+  "3 - RELATÓRIO FOTOGRÁFICO": "Rel. fotográfico",
+  "6 - CIÊNCIA DO OCUPANTE": "Ciência ocupante",
+  "7 - TERMO DE COMPROMISSO": "Termo compromisso",
+  "8 - APROVAÇÃO DIRIGENTE": "Aprov. dirigente",
+  "10.1 - RETORNO DPAT": "Retorno DPAT",
+};
+const stepChipLabel = (etapa: string) => STEP_ALIAS[etapa] ?? shortStageName(etapa);
+
 export function Zeladoria() {
   const [data, setData] = useState<Zeladoria[]>([]);
   const [schools, setSchools] = useState<School[]>([]);
@@ -100,6 +421,8 @@ export function Zeladoria() {
   const [searchTerm, setSearchTerm] = useState('');
   const [exporting, setExporting] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('TODOS');
+  const [viewMode, setViewMode] = useState<'pipeline' | 'fila' | 'indicadores'>('pipeline');
+  const [prazoExpanded, setPrazoExpanded] = useState(false);
   const [advancingId, setAdvancingId] = useState<string | number | null>(null);
   const [terrenoFilter, setTerrenoFilter] = useState<'true' | 'false' | 'null' | null>(null);
   const [certidaoFilter, setCertidaoFilter] = useState<'true' | 'false' | 'null' | null>(null);
@@ -194,6 +517,25 @@ export function Zeladoria() {
 
   const todosPillCount = useMemo(() => {
     return activeData.filter(z => z.ocupada !== 'CONCLUÍDO').length;
+  }, [activeData]);
+
+  // Fila de Trabalho: processos ativos ranqueados por prioridade e agrupados em faixas.
+  const fila = useMemo(() => {
+    const ranked: FilaItem[] = activeData
+      .filter(z => z.ocupada !== 'CONCLUÍDO')
+      .map(z => ({ ...z, prioridade: calcPrioridade(z) }))
+      .sort((a, b) => b.prioridade.score - a.prioridade.score);
+
+    const agora = ranked.filter(r => r.prioridade.nivel === 'agora');
+    const semTerceiros = ranked.filter(r => r.prioridade.nivel !== 'agora' && !r.prioridade.aguardaTerceiros);
+    return {
+      foco: agora.slice(0, 3),
+      agora: agora.slice(3),
+      terceiros: ranked.filter(r => r.prioridade.nivel !== 'agora' && r.prioridade.aguardaTerceiros),
+      proximos: semTerceiros.filter(r => r.prioridade.nivel === 'semana' || r.prioridade.nivel === 'acompanhar'),
+      emDia: semTerceiros.filter(r => r.prioridade.nivel === 'em_dia'),
+      total: ranked.length,
+    };
   }, [activeData]);
 
   const prazosZeladoria = useMemo(() => {
@@ -650,6 +992,11 @@ export function Zeladoria() {
   }
 
   const getStepIndex = (etapa: string) => ETAPAS_PROCESSO.indexOf(etapa) + 1;
+  const isRegionalAdmin = userRole === 'regional_admin';
+  const currentView = isRegionalAdmin ? viewMode : 'pipeline';
+  const prazoTotal = vencidas.length + expiringSoon.length;
+
+  const advanceFilaItem = (item: FilaItem) => handleAdvanceStage(item);
 
   return (
     <div className="space-y-6 pb-20 relative">
@@ -664,80 +1011,94 @@ export function Zeladoria() {
           </div>
         </div>
         <div className="flex gap-3">
-          {userRole === 'regional_admin' && (
-            <>
-              <button
-                onClick={handleExportPDF}
-                disabled={exporting}
-                className="bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50"
-              >
-                {exporting ? <Loader2 className="animate-spin" size={18}/> : <FileDown size={18} />}
-                {exporting ? 'GERANDO PDF...' : 'RESUMO P/ CHEFIA (PDF)'}
-              </button>
-              <button
-                onClick={() => handleOpenModal()}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-100 transition-all active:scale-95"
-              >
-                <Plus size={18} /> Novo Processo
-              </button>
-            </>
+          {isRegionalAdmin && (
+            <button
+              onClick={() => handleOpenModal()}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-100 transition-all active:scale-95"
+            >
+              <Plus size={18} /> Novo Processo
+            </button>
           )}
         </div>
       </div>
 
-      {/* ALERTA: ZELADORIAS VENCIDAS */}
-      {vencidas.length > 0 && (
-        <div className="bg-red-600 border-2 border-red-700 rounded-[2rem] p-5 shadow-lg shadow-red-200">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="p-2 bg-white text-red-600 rounded-xl flex-shrink-0"><AlertTriangle size={16} /></div>
-            <h3 className="text-xs font-black text-white uppercase tracking-wide">
-              {vencidas.length} Zeladoria(s) com prazo VENCIDO
-            </h3>
-          </div>
-          <div className="flex flex-col gap-2 max-h-[220px] overflow-y-auto custom-scrollbar">
-            {vencidas.map(item => (
-              <div key={item.id} className="flex items-center justify-between gap-3 bg-white rounded-xl px-4 py-2.5">
-                <div className="min-w-0 flex items-center gap-2">
-                  {item.ue && <span className="text-[9px] font-black text-slate-400 uppercase flex-shrink-0">UE {item.ue}</span>}
-                  <span className="text-xs font-bold text-slate-800 uppercase truncate">{item.nome}</span>
-                  <span className="text-[10px] font-mono text-slate-400 flex-shrink-0">SEI: {item.sei_numero || 'não informado'}</span>
-                </div>
-                <span className="text-[9px] font-black uppercase px-2.5 py-1 rounded-full flex-shrink-0 bg-red-600 text-white">
-                  Vencido há {Math.abs(item.diasRestantes)} dia(s)
-                </span>
-              </div>
-            ))}
-          </div>
+      {/* NAVEGAÇÃO DE VISÕES */}
+      {isRegionalAdmin && (
+        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl w-full sm:w-fit">
+          {([
+            { key: 'pipeline', label: 'Pipeline', icon: LayoutGrid },
+            { key: 'fila', label: 'Fila de Trabalho', icon: ListChecks },
+            { key: 'indicadores', label: 'Indicadores', icon: BarChart3 },
+          ] as const).map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              onClick={() => setViewMode(key)}
+              className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
+                viewMode === key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              <Icon size={14} />
+              <span className="hidden sm:inline">{label}</span>
+            </button>
+          ))}
         </div>
       )}
 
-      {/* ALERTA: PRAZOS DE ZELADORIA PRÓXIMOS DO VENCIMENTO */}
-      {expiringSoon.length > 0 && (
-        <div className="bg-amber-50 border-2 border-amber-200 rounded-[2rem] p-5 shadow-sm">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="p-2 bg-amber-500 text-white rounded-xl flex-shrink-0"><AlertTriangle size={16} /></div>
-            <h3 className="text-xs font-black text-amber-700 uppercase tracking-wide">
-              {expiringSoon.length} Zeladoria(s) com prazo a vencer em até 90 dias
-            </h3>
-          </div>
-          <div className="flex flex-col gap-2 max-h-[220px] overflow-y-auto custom-scrollbar">
-            {expiringSoon.map(item => (
-              <div key={item.id} className="flex items-center justify-between gap-3 bg-white rounded-xl px-4 py-2.5 border border-amber-100">
-                <div className="min-w-0 flex items-center gap-2">
-                  {item.ue && <span className="text-[9px] font-black text-slate-400 uppercase flex-shrink-0">UE {item.ue}</span>}
-                  <span className="text-xs font-bold text-slate-800 uppercase truncate">{item.nome}</span>
-                  <span className="text-[10px] font-mono text-slate-400 flex-shrink-0">SEI: {item.sei_numero || 'não informado'}</span>
-                </div>
-                <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-full flex-shrink-0 ${
-                  item.diasRestantes <= 30 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
-                }`}>
-                  {item.diasRestantes === 0 ? 'Vence hoje' : `Vence em ${item.diasRestantes} dia(s)`}
-                </span>
+      {/* ALERTA DE PRAZOS — banner enxuto e colapsável */}
+      {prazoTotal > 0 && (
+        <div className={`rounded-2xl border overflow-hidden ${vencidas.length > 0 ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
+          <button
+            onClick={() => setPrazoExpanded(v => !v)}
+            className="w-full flex items-center justify-between gap-3 px-4 py-3"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className={`p-1.5 rounded-lg flex-shrink-0 text-white ${vencidas.length > 0 ? 'bg-red-600' : 'bg-amber-500'}`}>
+                <AlertTriangle size={14} />
               </div>
-            ))}
-          </div>
+              <span className={`text-[11px] font-black uppercase tracking-wide truncate ${vencidas.length > 0 ? 'text-red-700' : 'text-amber-700'}`}>
+                {vencidas.length > 0 && `${vencidas.length} vencida(s)`}
+                {vencidas.length > 0 && expiringSoon.length > 0 && ' · '}
+                {expiringSoon.length > 0 && `${expiringSoon.length} a vencer em 90 dias`}
+              </span>
+            </div>
+            <ChevronRight size={16} className={`flex-shrink-0 transition-transform ${prazoExpanded ? 'rotate-90' : ''} ${vencidas.length > 0 ? 'text-red-400' : 'text-amber-400'}`} />
+          </button>
+          {prazoExpanded && (
+            <div className="px-4 pb-4 flex flex-col gap-2 max-h-[280px] overflow-y-auto custom-scrollbar">
+              {[...vencidas, ...expiringSoon].map(item => (
+                <div key={item.id} className="flex items-center justify-between gap-3 bg-white rounded-xl px-4 py-2.5 border border-slate-100">
+                  <div className="min-w-0 flex items-center gap-2">
+                    {item.ue && <span className="text-[9px] font-black text-slate-400 uppercase flex-shrink-0">UE {item.ue}</span>}
+                    <span className="text-xs font-bold text-slate-800 uppercase truncate">{item.nome}</span>
+                    <span className="text-[10px] font-mono text-slate-400 flex-shrink-0 hidden sm:inline">SEI: {item.sei_numero || 'não informado'}</span>
+                  </div>
+                  <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-full flex-shrink-0 ${
+                    item.diasRestantes < 0 ? 'bg-red-600 text-white'
+                      : item.diasRestantes <= 30 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {item.diasRestantes < 0 ? `Vencido há ${Math.abs(item.diasRestantes)} dia(s)`
+                      : item.diasRestantes === 0 ? 'Vence hoje' : `Vence em ${item.diasRestantes} dia(s)`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
+
+      {/* ========================= VISÃO: INDICADORES ========================= */}
+      {currentView === 'indicadores' && (
+      <div className="space-y-6">
+      <div className="flex justify-end">
+        <button
+          onClick={handleExportPDF}
+          disabled={exporting}
+          className="bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50"
+        >
+          {exporting ? <Loader2 className="animate-spin" size={18}/> : <FileDown size={18} />}
+          {exporting ? 'GERANDO PDF...' : 'RESUMO P/ CHEFIA (PDF)'}
+        </button>
+      </div>
 
       {/* CARDS DE INDICADORES */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
@@ -969,10 +1330,149 @@ export function Zeladoria() {
         </div>
         </div>
       )}
+      </div>
+      )}
+
+      {/* ========================= VISÃO: FILA DE TRABALHO ========================= */}
+      {currentView === 'fila' && (
+        <div className="space-y-6">
+
+          {/* Tira-resumo */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {([
+              { n: fila.foco.length + fila.agora.length, label: 'Para agir agora', tone: 'bg-red-50 border-red-100 text-red-700', icon: Target },
+              { n: fila.proximos.length, label: 'Próximos dias', tone: 'bg-amber-50 border-amber-100 text-amber-700', icon: Clock },
+              { n: fila.terceiros.length, label: 'Aguardando terceiros', tone: 'bg-blue-50 border-blue-100 text-blue-700', icon: Hourglass },
+              { n: fila.emDia.length, label: 'Em dia', tone: 'bg-slate-50 border-slate-100 text-slate-500', icon: CheckSquare },
+            ] as const).map(({ n, label, tone, icon: Icon }) => (
+              <div key={label} className={`rounded-2xl border p-4 ${tone}`}>
+                <div className="flex items-center gap-2">
+                  <Icon size={14} />
+                  <span className="text-3xl font-black leading-none">{n}</span>
+                </div>
+                <p className="text-[9px] font-black uppercase tracking-widest mt-2 opacity-80">{label}</p>
+              </div>
+            ))}
+          </div>
+
+          {loading && data.length === 0 ? (
+            <div className="flex items-center justify-center py-24 gap-3 text-slate-400">
+              <Loader2 className="animate-spin text-blue-600" size={24}/>
+              <span className="font-bold uppercase text-sm tracking-widest">Sincronizando dados...</span>
+            </div>
+          ) : fila.total === 0 ? (
+            <div className="flex flex-col items-center justify-center py-24 gap-3">
+              <ShieldCheck size={36} className="text-slate-200" />
+              <span className="font-bold uppercase text-sm tracking-widest text-slate-400">Nenhum processo ativo na fila.</span>
+            </div>
+          ) : (
+            <>
+              {/* Foco de hoje */}
+              {fila.foco.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Target size={16} className="text-red-600" />
+                    <h2 className="text-sm font-black text-slate-800 uppercase tracking-tight">Foco de hoje</h2>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">· comece por aqui</span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {fila.foco.map((item, i) => (
+                      <FocoCard
+                        key={item.id}
+                        item={item}
+                        rank={i + 1}
+                        advancing={advancingId === item.id}
+                        canEdit={isRegionalAdmin}
+                        onAdvance={() => advanceFilaItem(item)}
+                        onHistory={() => fetchHistory(item.id)}
+                        onEdit={() => handleOpenModal(item)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Agir agora (restante) */}
+              {fila.agora.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <AlertTriangle size={15} className="text-red-500" />
+                    <h2 className="text-sm font-black text-slate-800 uppercase tracking-tight">Agir agora</h2>
+                    <span className="text-[10px] font-black text-red-600 bg-red-50 border border-red-100 rounded-full px-2 py-0.5">{fila.agora.length}</span>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    {fila.agora.map(item => (
+                      <FilaRow key={item.id} item={item} advancing={advancingId === item.id}
+                        onAdvance={() => advanceFilaItem(item)} onHistory={() => fetchHistory(item.id)} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Próximos dias */}
+              {fila.proximos.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Clock size={15} className="text-amber-500" />
+                    <h2 className="text-sm font-black text-slate-800 uppercase tracking-tight">Próximos dias</h2>
+                    <span className="text-[10px] font-black text-amber-600 bg-amber-50 border border-amber-100 rounded-full px-2 py-0.5">{fila.proximos.length}</span>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    {fila.proximos.map(item => (
+                      <FilaRow key={item.id} item={item} advancing={advancingId === item.id}
+                        onAdvance={() => advanceFilaItem(item)} onHistory={() => fetchHistory(item.id)} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Aguardando terceiros */}
+              {fila.terceiros.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Hourglass size={15} className="text-blue-500" />
+                    <h2 className="text-sm font-black text-slate-800 uppercase tracking-tight">Aguardando terceiros</h2>
+                    <span className="text-[10px] font-black text-blue-600 bg-blue-50 border border-blue-100 rounded-full px-2 py-0.5">{fila.terceiros.length}</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:inline">· acompanhe / cobre</span>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    {fila.terceiros.map(item => (
+                      <FilaRow key={item.id} item={item} advancing={advancingId === item.id}
+                        onAdvance={() => advanceFilaItem(item)} onHistory={() => fetchHistory(item.id)} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Em dia */}
+              {fila.emDia.length > 0 && (
+                <details className="bg-white rounded-2xl border border-slate-100 shadow-sm">
+                  <summary className="flex items-center gap-2 px-4 py-3 cursor-pointer list-none">
+                    <CheckSquare size={15} className="text-emerald-500" />
+                    <h2 className="text-sm font-black text-slate-800 uppercase tracking-tight">Em dia</h2>
+                    <span className="text-[10px] font-black text-slate-500 bg-slate-50 border border-slate-100 rounded-full px-2 py-0.5">{fila.emDia.length}</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-auto">Ver</span>
+                  </summary>
+                  <div className="flex flex-col gap-3 p-4 pt-0">
+                    {fila.emDia.map(item => (
+                      <FilaRow key={item.id} item={item} advancing={advancingId === item.id}
+                        onAdvance={() => advanceFilaItem(item)} onHistory={() => fetchHistory(item.id)} />
+                    ))}
+                  </div>
+                </details>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ========================= VISÃO: PIPELINE ========================= */}
+      {currentView === 'pipeline' && (
+      <div className="space-y-6">
 
       {/* PIPELINE STEPPER + BUSCA */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="px-4 pt-4 pb-0">
+        <div className="px-4 pt-4 pb-4">
           <div className="flex items-center justify-between gap-2 mb-3">
             <div className="flex items-center gap-2">
               <Filter size={13} className="text-slate-400" />
@@ -990,57 +1490,66 @@ export function Zeladoria() {
               {activeTab === 'CONCLUÍDO' ? 'Ver Processos Ativos' : 'Mostrar Concluídos'}
             </button>
           </div>
-          <div className="relative">
-            <div className="overflow-x-auto custom-scrollbar pb-3">
-              <div className="flex items-center gap-1 min-w-max">
 
-              {/* Botão TODOS */}
-              <button
-                onClick={() => setActiveTab('TODOS')}
-                className={`flex flex-col items-center justify-between px-3 py-2.5 rounded-xl transition-all min-w-[72px] h-[72px] border ${
-                  activeTab === 'TODOS'
-                    ? 'bg-slate-900 border-slate-900 text-white shadow-md'
-                    : 'bg-slate-50 border-slate-100 text-slate-500 hover:bg-slate-100'
-                }`}
-              >
-                <span className={`text-[8px] font-black uppercase tracking-widest ${activeTab === 'TODOS' ? 'text-slate-300' : 'text-slate-400'}`}>Todos</span>
-                <span className={`text-2xl font-black leading-none ${activeTab === 'TODOS' ? 'text-white' : 'text-slate-700'}`}>{todosPillCount}</span>
-                <span className={`text-[7px] font-bold uppercase ${activeTab === 'TODOS' ? 'text-slate-400' : 'text-slate-300'}`}>processos</span>
-              </button>
+          {/* Distribuição do fluxo — barra proporcional */}
+          <div className="flex h-1.5 rounded-full overflow-hidden bg-slate-100 mb-3">
+            {ETAPAS_PROCESSO.map(etapa => {
+              const count = activeData.filter(z => z.ocupada === etapa).length;
+              if (count === 0) return null;
+              const isConcluido = etapa === 'CONCLUÍDO';
+              return (
+                <div
+                  key={etapa}
+                  title={`${shortStageName(etapa)}: ${count}`}
+                  style={{ flexGrow: count }}
+                  className={`${isConcluido ? 'bg-emerald-400' : 'bg-blue-400'} ${activeTab === etapa ? 'ring-2 ring-inset ring-slate-900/40' : ''}`}
+                />
+              );
+            })}
+          </div>
 
-              {ETAPAS_PROCESSO.map((etapa, idx) => {
-                const count = activeData.filter(z => z.ocupada === etapa).length;
-                const isActive = activeTab === etapa;
-                const isConcluido = etapa === "CONCLUÍDO";
-                const label = shortStageName(etapa);
-                return (
-                  <div key={etapa} className="flex items-center gap-1">
-                    <ChevronRight size={10} className="text-slate-200 flex-shrink-0" />
-                    <button
-                      onClick={() => setActiveTab(etapa)}
-                      title={etapa}
-                      className={`flex flex-col items-center justify-between px-3 py-2.5 rounded-xl transition-all min-w-[80px] max-w-[80px] h-[72px] border ${
-                        isActive
-                          ? isConcluido
-                            ? 'bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-200'
-                            : 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-200'
-                          : count > 0
-                            ? 'bg-slate-50 border-slate-100 text-slate-600 hover:bg-slate-100'
-                            : 'bg-slate-50 border-slate-100 text-slate-300 opacity-60'
-                      }`}
-                    >
-                      <span className={`text-[8px] font-black ${isActive ? 'text-white/60' : 'text-slate-400'}`}>{idx + 1}</span>
-                      <span className={`text-[8px] font-black uppercase text-center leading-tight w-full line-clamp-2`}>{label}</span>
-                      <span className={`text-sm font-black leading-none ${isActive ? 'text-white' : count > 0 ? 'text-slate-700' : 'text-slate-300'}`}>{count}</span>
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          <div className="pointer-events-none absolute top-0 right-0 bottom-3 w-14 bg-gradient-to-l from-white via-white/90 to-transparent flex items-center justify-end">
-            <ChevronRight size={14} className="text-slate-300 mr-1" />
-          </div>
+          {/* Chips das fases — quebram em linha, sem rolagem horizontal */}
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              onClick={() => setActiveTab('TODOS')}
+              className={`flex items-center gap-1.5 pl-1.5 pr-2.5 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-tight transition-all ${
+                activeTab === 'TODOS'
+                  ? 'bg-slate-900 border-slate-900 text-white'
+                  : 'bg-white border-slate-200 text-slate-600 hover:border-slate-400'
+              }`}
+            >
+              <span className={`w-4 h-4 rounded-md flex items-center justify-center text-[9px] flex-shrink-0 ${activeTab === 'TODOS' ? 'bg-white/20' : 'bg-slate-100 text-slate-500'}`}>Σ</span>
+              <span className="whitespace-nowrap">Todos</span>
+              <span className={`text-[11px] tabular-nums ${activeTab === 'TODOS' ? 'text-white' : 'text-slate-900'}`}>{todosPillCount}</span>
+            </button>
+
+            {ETAPAS_PROCESSO.map((etapa, idx) => {
+              const count = activeData.filter(z => z.ocupada === etapa).length;
+              const isActive = activeTab === etapa;
+              const isConcluido = etapa === "CONCLUÍDO";
+              return (
+                <button
+                  key={etapa}
+                  onClick={() => setActiveTab(etapa)}
+                  title={etapa}
+                  className={`flex items-center gap-1.5 pl-1.5 pr-2.5 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-tight transition-all ${
+                    isActive
+                      ? isConcluido
+                        ? 'bg-emerald-600 border-emerald-600 text-white'
+                        : 'bg-blue-600 border-blue-600 text-white'
+                      : count > 0
+                        ? 'bg-white border-slate-200 text-slate-600 hover:border-blue-300'
+                        : 'bg-slate-50 border-slate-100 text-slate-300'
+                  }`}
+                >
+                  <span className={`w-4 h-4 rounded-md flex items-center justify-center text-[9px] flex-shrink-0 ${
+                    isActive ? 'bg-white/20' : count > 0 ? 'bg-slate-100 text-slate-500' : 'bg-slate-100 text-slate-300'
+                  }`}>{idx + 1}</span>
+                  <span className="whitespace-nowrap">{stepChipLabel(etapa)}</span>
+                  <span className={`text-[11px] tabular-nums ${isActive ? 'text-white' : count > 0 ? 'text-slate-900' : 'text-slate-300'}`}>{count}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -1299,6 +1808,8 @@ export function Zeladoria() {
             );
           })}
         </div>
+      )}
+      </div>
       )}
 
       {/* MODAL DE EDIÇÃO */}
