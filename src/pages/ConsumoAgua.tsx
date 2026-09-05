@@ -129,6 +129,7 @@ export function ConsumoAgua() {
   const [selectedSchoolId, setSelectedSchoolId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string>('');
   const [userId, setUserId] = useState<string>('');
+  const [userName, setUserName] = useState<string>('');
   const [supervisorSchoolIds, setSupervisorSchoolIds] = useState<string[]>([]);
   
   const [logs, setLogs] = useState<Record<string, WaterLog>>({}); 
@@ -147,6 +148,13 @@ export function ConsumoAgua() {
   const [isExemptionModalOpen, setIsExemptionModalOpen] = useState(false);
   const [exemptionStartInput, setExemptionStartInput] = useState('');
   const [exemptionEndInput, setExemptionEndInput] = useState('');
+
+  // Registro manual de caminhão-pipa (solicitações recebidas fora do sistema, ex.: WhatsApp)
+  const [isPipaModalOpen, setIsPipaModalOpen] = useState(false);
+  const [pipaSchoolId, setPipaSchoolId] = useState('');
+  const [pipaQty, setPipaQty] = useState(1);
+  const [pipaDate, setPipaDate] = useState('');
+  const [savingPipa, setSavingPipa] = useState(false);
 
   // --- Hidrômetros ---
   const [schoolMeters, setSchoolMeters] = useState<SchoolMeter[]>([]);
@@ -349,7 +357,7 @@ export function ConsumoAgua() {
       let profile: any = null;
 
       if (user) {
-        const { data: profileData } = await (supabase as any).from('profiles').select('role, school_id, supervisor_schools').eq('id', user.id).single();
+        const { data: profileData } = await (supabase as any).from('profiles').select('full_name, role, school_id, supervisor_schools').eq('id', user.id).single();
         profile = profileData;
         currentRole = resolveViewRole(profile?.role || '');
         currentSupSchools = profile?.supervisor_schools || [];
@@ -379,6 +387,7 @@ export function ConsumoAgua() {
 
       if (user) {
         setUserId(user.id);
+        setUserName(profile?.full_name || '');
         setUserRole(currentRole);
         if (currentRole === 'school_manager') setSelectedSchoolId(profile.school_id);
         if (currentRole === 'supervisor') setSupervisorSchoolIds(currentSupSchools);
@@ -554,6 +563,43 @@ export function ConsumoAgua() {
       if (!error) setWaterTruckCount(count || 0);
     } catch (err) {
       console.error("Erro ao buscar estatísticas de pipa:", err);
+    }
+  }
+
+  // Abre o modal de registro manual de pipa (para solicitações feitas fora do
+  // sistema, tipicamente por WhatsApp direto com a Regional).
+  function openPipaModal() {
+    setPipaSchoolId(selectedSchoolId || '');
+    setPipaQty(1);
+    setPipaDate(formatDateToYMD(new Date()));
+    setIsPipaModalOpen(true);
+  }
+
+  // Grava uma linha em `occurrences` por caminhão solicitado (1 linha = 1 pipa),
+  // mantendo a contagem de "Pipas no Ano" coerente com o fluxo do sistema.
+  async function handleRegisterPipa() {
+    if (savingPipa || !pipaSchoolId || pipaQty < 1) return;
+    const school = schools.find(s => s.id === pipaSchoolId);
+    if (!school) { alert('Selecione uma escola.'); return; }
+    setSavingPipa(true);
+    try {
+      const createdAt = new Date(pipaDate + 'T12:00:00').toISOString();
+      const rows = Array.from({ length: pipaQty }, () => ({
+        type: 'WATER_TRUCK',
+        school_id: pipaSchoolId,
+        school_name: school.name,
+        user_name: userName ? `${userName} (registro manual)` : 'Registro manual (Regional)',
+        details: 'Solicitação de caminhão-pipa registrada manualmente pela Regional (recebida fora do sistema, ex.: WhatsApp).',
+        created_at: createdAt,
+      }));
+      const { error } = await (supabase as any).from('occurrences').insert(rows);
+      if (error) throw error;
+      setIsPipaModalOpen(false);
+      fetchWaterTruckStats();
+    } catch (err: any) {
+      alert(`Erro ao registrar pipa: ${err.message}`);
+    } finally {
+      setSavingPipa(false);
     }
   }
 
@@ -1602,10 +1648,19 @@ export function ConsumoAgua() {
           </div>
           <div className="bg-white p-5 rounded-[2rem] border-2 border-slate-100 shadow-lg flex items-center gap-4">
               <div className="p-3 bg-cyan-600 text-white rounded-xl shrink-0"><Activity size={18} /></div>
-              <div>
+              <div className="flex-1 min-w-0">
                 <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Pipas no Ano</p>
                 <h3 className="text-lg font-black text-slate-800">{waterTruckCount}</h3>
                 <p className="text-[10px] opacity-40 mt-0.5 leading-tight">Caminhões-pipa solicitados nos últimos 12 meses</p>
+                {userRole === 'regional_admin' && (
+                  <button
+                    onClick={openPipaModal}
+                    className="mt-2 flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-black text-cyan-700 bg-cyan-50 border border-cyan-200 rounded-xl hover:bg-cyan-100 transition-all active:scale-95"
+                    title="Registrar pipa solicitada fora do sistema (ex.: WhatsApp)"
+                  >
+                    <Plus size={12} /> Registrar pipa (WhatsApp)
+                  </button>
+                )}
               </div>
           </div>
       </div>
@@ -2425,6 +2480,82 @@ export function ConsumoAgua() {
                   {togglingExempt ? <Loader2 className="animate-spin" size={18}/> : <><Save size={18}/> Confirmar dispensa</>}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================
+          MODAL DE REGISTRO MANUAL DE CAMINHÃO-PIPA (regional_admin)
+      ==================================================================== */}
+      {isPipaModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-cyan-900/40 backdrop-blur-md p-4 print:hidden">
+          <div className="bg-white rounded-[3rem] w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden border border-white">
+            <div className="p-8 border-b border-cyan-100 flex justify-between items-center bg-cyan-50/50">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-cyan-600 rounded-[1.2rem] flex items-center justify-center text-white"><Activity size={24}/></div>
+                <div>
+                  <h2 className="text-xl font-black text-slate-900 tracking-tighter text-cyan-600">Registrar Caminhão-Pipa</h2>
+                  <p className="text-[11px] text-slate-400 font-bold">Solicitação recebida fora do sistema</p>
+                </div>
+              </div>
+              <button onClick={() => setIsPipaModalOpen(false)} className="p-3 hover:bg-cyan-100 rounded-full transition-all text-cyan-400"><X size={20}/></button>
+            </div>
+
+            <div className="p-8 space-y-6">
+              <div className="p-4 bg-cyan-50 rounded-2xl border border-cyan-100">
+                <p className="text-xs text-cyan-800 font-medium leading-relaxed">
+                  Use quando a escola pediu o caminhão-pipa por WhatsApp (ou outro canal) e não
+                  abriu a solicitação no sistema. Serve só para <strong>contabilizar</strong> as pipas —
+                  não dispara e-mail nem checklist.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Escola solicitante</label>
+                <select
+                  value={pipaSchoolId}
+                  onChange={(e) => setPipaSchoolId(e.target.value)}
+                  className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-700 focus:border-cyan-500 outline-none"
+                >
+                  <option value="">-- Selecione --</option>
+                  {schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Qtd. de caminhões</label>
+                  <div className="flex items-center border-2 border-slate-200 rounded-2xl overflow-hidden">
+                    <button type="button" onClick={() => setPipaQty(q => Math.max(1, q - 1))} className="px-4 py-3 text-slate-500 font-black hover:bg-slate-50">−</button>
+                    <input
+                      type="number" min={1}
+                      value={pipaQty}
+                      onChange={(e) => setPipaQty(Math.max(1, Number(e.target.value) || 1))}
+                      className="w-full p-3 text-center font-black text-slate-800 outline-none"
+                    />
+                    <button type="button" onClick={() => setPipaQty(q => q + 1)} className="px-4 py-3 text-slate-500 font-black hover:bg-slate-50">+</button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data da solicitação</label>
+                  <input
+                    type="date"
+                    value={pipaDate}
+                    max={formatDateToYMD(new Date())}
+                    onChange={(e) => setPipaDate(e.target.value)}
+                    className="w-full p-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-700 focus:border-cyan-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              <button
+                onClick={handleRegisterPipa}
+                disabled={savingPipa || !pipaSchoolId || pipaQty < 1 || !pipaDate}
+                className="w-full py-4 bg-cyan-600 text-white rounded-[1.5rem] font-black shadow-xl shadow-cyan-200 hover:bg-cyan-700 active:scale-95 disabled:opacity-50 transition-all uppercase tracking-widest text-[11px] flex items-center justify-center gap-2"
+              >
+                {savingPipa ? <Loader2 className="animate-spin" size={18}/> : <><Save size={18}/> Registrar {pipaQty > 1 ? `${pipaQty} pipas` : 'pipa'}</>}
+              </button>
             </div>
           </div>
         </div>
