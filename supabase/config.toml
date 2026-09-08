@@ -383,6 +383,14 @@ s3_access_key = "env(S3_ACCESS_KEY)"
 # Configures AWS_SECRET_ACCESS_KEY for S3 bucket
 s3_secret_key = "env(S3_SECRET_KEY)"
 
+[functions.obras-alerta-semanal]
+enabled = true
+# Chamada só pelo cron semanal (pg_cron + pg_net), nunca por um usuário
+# logado no app — a autenticação é um segredo próprio no header
+# x-cron-secret (ver OBRAS_ALERTA_CRON_SECRET), não um JWT de usuário.
+verify_jwt = false
+entrypoint = "./functions/obras-alerta-semanal/index.ts"
+
 [functions.send-outage-email]
 enabled = true
 verify_jwt = true

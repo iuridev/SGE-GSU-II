@@ -151,6 +151,10 @@ export default function AcompanhamentoObras() {
   const [rows, setRows] = useState<AcompanhamentoRow[]>([]);
   const [obrasAtivas, setObrasAtivas] = useState<{ nome: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  // Id (mesmo formato usado no row.id, "carimbo-escola") -> se o alerta
+  // semanal por e-mail (nota < 4) já foi disparado pra GSU. Alimentado pela
+  // Edge Function obras-alerta-semanal (cron de toda segunda-feira).
+  const [emailEnviadoPorId, setEmailEnviadoPorId] = useState<Record<string, boolean>>({});
 
   const [searchTerm, setSearchTerm] = useState('');
   const [onlyAtencao, setOnlyAtencao] = useState(false);
@@ -164,13 +168,21 @@ export default function AcompanhamentoObras() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [csvResult, schoolsResult] = await Promise.allSettled([
+      const [csvResult, schoolsResult, alertasResult] = await Promise.allSettled([
         fetchAcompanhamentoCSV(),
         (supabase as any).from('schools').select('id, name').order('name'),
+        (supabase as any).from('obra_avaliacao_alertas').select('id, email_enviado'),
       ]);
 
       if (csvResult.status === 'fulfilled') setRows(csvResult.value);
       else console.error('Erro ao buscar respostas do formulário:', csvResult.reason);
+
+      if (alertasResult.status === 'fulfilled') {
+        const alertas: { id: string; email_enviado: boolean }[] = alertasResult.value?.data || [];
+        setEmailEnviadoPorId(Object.fromEntries(alertas.map(a => [a.id, a.email_enviado])));
+      } else {
+        console.error('Erro ao buscar status de alerta por e-mail:', alertasResult.reason);
+      }
 
       if (schoolsResult.status === 'fulfilled') {
         const schools: SheetSchool[] = schoolsResult.value?.data || [];
@@ -353,6 +365,23 @@ export default function AcompanhamentoObras() {
     if (nota <= 2) return 'bg-red-50 text-red-700 border-red-200';
     if (nota === 3) return 'bg-amber-50 text-amber-700 border-amber-200';
     return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  };
+
+  // Nota < 4 dispara o alerta semanal por e-mail pra GSU (toda segunda,
+  // via obras-alerta-semanal) — mostra se aquele registro específico já foi
+  // notificado ou ainda vai entrar no próximo disparo.
+  const emailAlertaBadge = (row: AcompanhamentoRow) => {
+    if (row.avaliacao === null || row.avaliacao >= 4) return null;
+    const enviado = !!emailEnviadoPorId[row.id];
+    return (
+      <span
+        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border whitespace-nowrap ${
+          enviado ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-500 border-slate-200'
+        }`}
+      >
+        {enviado ? 'E-mail Enviado' : 'E-mail Não Enviado'}
+      </span>
+    );
   };
 
   return (
@@ -580,6 +609,7 @@ export default function AcompanhamentoObras() {
                         Nota {r.avaliacao}
                       </span>
                     )}
+                    {emailAlertaBadge(r)}
                     <span className="text-xs text-slate-400">{formatDate(r.dataISO)}</span>
                   </div>
                 </div>
@@ -661,9 +691,12 @@ export default function AcompanhamentoObras() {
                     <td className="px-4 py-3 text-slate-500 max-w-xs truncate" title={r.servicosExecutados}>{r.servicosExecutados || '-'}</td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       {r.avaliacao !== null ? (
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${ratingBadge(r.avaliacao)}`}>
-                          {r.avaliacao}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${ratingBadge(r.avaliacao)}`}>
+                            {r.avaliacao}
+                          </span>
+                          {emailAlertaBadge(r)}
+                        </div>
                       ) : '-'}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
