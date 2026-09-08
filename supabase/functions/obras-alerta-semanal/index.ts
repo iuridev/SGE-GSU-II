@@ -117,13 +117,14 @@ serve(async (req: Request) => {
       carimbo: findKey(['carimbo']),
       escola: findKey(['selecione a ue']),
       ocorrencia: findKey(['ocorrencia']),
+      fotos: findKey(['fotos']),
       avaliacao: findKey(['andamento da obra']),
       responsavel: findKey(['responsavel']),
     }
 
     const { inicio, fim } = semanaAnterior(new Date())
 
-    type Candidato = { id: string; escola: string; nota: number; ocorrencia: string; responsavel: string; data: string }
+    type Candidato = { id: string; escola: string; nota: number; ocorrencia: string; fotosUrls: string[]; responsavel: string; data: string }
     const candidatos: Candidato[] = []
 
     for (let i = 1; i < csvRows.length; i++) {
@@ -136,11 +137,13 @@ serve(async (req: Request) => {
       if (!Number.isFinite(nota) || nota < 1 || nota > 5 || nota >= 4) continue
       const escola = idx.escola >= 0 ? (r[idx.escola] || '').trim() : ''
       if (!escola) continue
+      const fotosRaw = idx.fotos >= 0 ? (r[idx.fotos] || '').trim() : ''
       candidatos.push({
         id: `${carimbo}-${escola}`,
         escola,
         nota,
         ocorrencia: idx.ocorrencia >= 0 ? (r[idx.ocorrencia] || '').trim() : '',
+        fotosUrls: fotosRaw ? fotosRaw.split(',').map(u => u.trim()).filter(Boolean) : [],
         responsavel: idx.responsavel >= 0 ? (r[idx.responsavel] || '').trim() : '',
         data: dataISO,
       })
@@ -192,6 +195,7 @@ serve(async (req: Request) => {
           <p style="margin:5px 0 0;"><b>Nota:</b> ${escapeHtml(p.nota)}/5</p>
           <p style="margin:5px 0 0;"><b>Data da resposta:</b> ${fmtBR(p.data)}</p>
           ${p.ocorrencia ? `<p style="margin:5px 0 0;"><b>Ocorrência relatada:</b> ${escapeHtml(p.ocorrencia)}</p>` : ''}
+          ${p.fotosUrls.length > 0 ? `<p style="margin:5px 0 0;"><b>Fotos/anexos:</b> ${p.fotosUrls.map((u, i) => `<a href="${escapeHtml(u)}" style="color:#2563eb;">link ${i + 1}</a>`).join(', ')}</p>` : ''}
           <p style="margin:5px 0 0;"><b>Responsável pelo preenchimento:</b> ${escapeHtml(p.responsavel)}</p>
         </div>`).join('')}
     </div>`
