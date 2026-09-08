@@ -168,14 +168,41 @@ export default function AcompanhamentoObras() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [csvResult, schoolsResult, alertasResult] = await Promise.allSettled([
+      // school_manager só pode ver os registros da própria escola — os dados
+      // vêm de uma planilha pública sem nenhum controle de acesso embutido,
+      // então o filtro precisa ser feito aqui, cruzando o school_id do
+      // perfil logado com o nome da escola na planilha (fuzzy match, mesma
+      // lógica de schoolMatches usada no restante da tela).
+      const { data: { user } } = await supabase.auth.getUser();
+      const profilePromise = user
+        ? (supabase as any).from('profiles').select('role, school_id').eq('id', user.id).single()
+        : Promise.resolve({ data: null });
+
+      const [csvResult, schoolsResult, alertasResult, profileResult] = await Promise.allSettled([
         fetchAcompanhamentoCSV(),
         (supabase as any).from('schools').select('id, name').order('name'),
         (supabase as any).from('obra_avaliacao_alertas').select('id, email_enviado'),
+        profilePromise,
       ]);
 
-      if (csvResult.status === 'fulfilled') setRows(csvResult.value);
-      else console.error('Erro ao buscar respostas do formulário:', csvResult.reason);
+      const schools: SheetSchool[] = schoolsResult.status === 'fulfilled' ? (schoolsResult.value?.data || []) : [];
+
+      let minhaEscolaNome: string | null = null;
+      if (profileResult.status === 'fulfilled') {
+        const profile = profileResult.value?.data;
+        if (profile?.role === 'school_manager' && profile.school_id) {
+          minhaEscolaNome = schools.find(s => s.id === profile.school_id)?.name || null;
+        }
+      } else {
+        console.error('Erro ao buscar perfil do usuário:', profileResult.reason);
+      }
+
+      if (csvResult.status === 'fulfilled') {
+        const todasAsLinhas = csvResult.value;
+        setRows(minhaEscolaNome ? todasAsLinhas.filter(r => schoolMatches(r.escola, minhaEscolaNome!)) : todasAsLinhas);
+      } else {
+        console.error('Erro ao buscar respostas do formulário:', csvResult.reason);
+      }
 
       if (alertasResult.status === 'fulfilled') {
         const alertas: { id: string; email_enviado: boolean }[] = alertasResult.value?.data || [];
@@ -185,13 +212,13 @@ export default function AcompanhamentoObras() {
       }
 
       if (schoolsResult.status === 'fulfilled') {
-        const schools: SheetSchool[] = schoolsResult.value?.data || [];
         try {
           const obras = await fetchObrasSheet(schools);
           const emAndamento = obras.filter(o => normalizeStatus(o.status) === 'EM ANDAMENTO');
           const uniqueNames = new Map<string, string>();
           emAndamento.forEach(o => {
             const display = o.matchedSchoolName || o.escola;
+            if (minhaEscolaNome && !schoolMatches(display, minhaEscolaNome)) return;
             uniqueNames.set(normalizeForMatch(display), display);
           });
           setObrasAtivas(Array.from(uniqueNames.values()).map(nome => ({ nome })));
