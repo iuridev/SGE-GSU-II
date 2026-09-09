@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
 import {
@@ -12,8 +12,8 @@ import {
   HelpCircle, FileDown, ChevronDown
 } from 'lucide-react';
 import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 import { fetchObrasSheet, normalizeStatus } from '../lib/obrasSheet';
-import { addTimbradoAllPages, TIMBRADO_HEADER_H } from '../lib/pdfTimbrado';
 
 // Tipos atualizados
 interface School {
@@ -59,15 +59,170 @@ const PERIOD_OPTIONS = ['Manhã', 'Tarde', 'Noite', 'Integral 9h', 'Integral 7h'
 
 type TabType = 'identificacao' | 'localizacao' | 'infraestrutura' | 'ensino';
 
-// Passo a passo exibido no topo da aba Infraestrutura e no PDF gerado
-const MATRICULA_TUTORIAL_STEPS = [
-  'Acesse o sistema SGE-GSU com o login da sua unidade escolar.',
-  'No menu lateral, abra "Escolas" (Unidades Escolares).',
-  'Localize o card da sua escola e clique no botão "Ver Detalhes" (ícone de grade), no canto superior do card, para abrir a Ficha da Unidade.',
-  'No topo da ficha, clique na aba "Infraestrutura".',
-  'Na seção "Prédio e Património", localize o campo "Matrícula". O número exibido ali é a matrícula imobiliária do imóvel da escola.',
-  'Se o campo estiver vazio ou o número estiver desatualizado, entre em contato com a URE — Serviço de Obras e Manutenção Escolar (SEOM) para regularização.',
+// Passo a passo ilustrado exibido no topo da aba Infraestrutura e no PDF gerado
+const MATRICULA_TUTORIAL_STEPS: { titulo: string; texto: string }[] = [
+  { titulo: 'Acesse o sistema', texto: 'Entre no SGE-GSU com o login da sua unidade escolar.' },
+  { titulo: 'Abra o menu "Escolas"', texto: 'No menu lateral, clique em "Escolas" (Unidades Escolares).' },
+  { titulo: 'Clique em "Ver Detalhes"', texto: 'No card da sua escola, clique no botão com ícone de grade, no canto superior do card.' },
+  { titulo: 'Abra a aba "Infraestrutura"', texto: 'Dentro da Ficha da Unidade, clique na aba "Infraestrutura", no topo da janela.' },
+  { titulo: 'Leia o campo "Matrícula"', texto: 'No bloco "Prédio e Património", o número mostrado no campo "Matrícula" é a matrícula imobiliária do imóvel.' },
 ];
+
+const MATRICULA_TUTORIAL_NOTA =
+  'Campo vazio ou número desatualizado? Entre em contato com a URE — Serviço de Obras e Manutenção Escolar (SEOM) para regularização.';
+
+// Ilustração (mockup) de cada passo — usada na tela e capturada para o PDF
+function PassoArte({ n }: { n: number }) {
+  const svg = { viewBox: '0 0 340 160', width: '100%', style: { display: 'block' } };
+  const frame = (
+    <rect x={8} y={8} width={324} height={144} rx={16} fill="#ffffff" stroke="#e2e8f0" strokeWidth={2} />
+  );
+
+  if (n === 0) {
+    return (
+      <svg {...svg}>
+        {frame}
+        <rect x={120} y={26} width={100} height={104} rx={12} fill="#f8fafc" stroke="#e2e8f0" strokeWidth={2} />
+        <circle cx={170} cy={48} r={9} fill="#6366f1" />
+        <rect x={136} y={66} width={68} height={11} rx={4} fill="#e2e8f0" />
+        <rect x={136} y={83} width={68} height={11} rx={4} fill="#e2e8f0" />
+        <rect x={136} y={103} width={68} height={15} rx={5} fill="#6366f1" />
+        <text x={170} y={114} fontSize={7} fontWeight={700} fill="#ffffff" textAnchor="middle">ENTRAR</text>
+      </svg>
+    );
+  }
+
+  if (n === 1) {
+    return (
+      <svg {...svg}>
+        {frame}
+        <rect x={24} y={20} width={96} height={120} rx={12} fill="#0f172a" />
+        <rect x={38} y={32} width={44} height={8} rx={4} fill="#475569" />
+        <rect x={36} y={54} width={72} height={9} rx={4} fill="#334155" />
+        <rect x={30} y={72} width={84} height={22} rx={8} fill="#6366f1" />
+        <text x={44} y={87} fontSize={10} fontWeight={700} fill="#ffffff">Escolas</text>
+        <rect x={36} y={104} width={64} height={9} rx={4} fill="#334155" />
+        <rect x={36} y={120} width={72} height={9} rx={4} fill="#334155" />
+        <line x1={172} y1={83} x2={128} y2={83} stroke="#f97316" strokeWidth={3} />
+        <polygon points="130,77 130,89 119,83" fill="#f97316" />
+      </svg>
+    );
+  }
+
+  if (n === 2) {
+    return (
+      <svg {...svg}>
+        {frame}
+        <rect x={64} y={30} width={208} height={100} rx={14} fill="#f8fafc" stroke="#e2e8f0" strokeWidth={2} />
+        <rect x={80} y={44} width={30} height={30} rx={9} fill="#6366f1" />
+        <rect x={120} y={48} width={80} height={9} rx={4} fill="#cbd5e1" />
+        <rect x={120} y={62} width={52} height={7} rx={3} fill="#e2e8f0" />
+        <rect x={80} y={90} width={150} height={7} rx={3} fill="#e2e8f0" />
+        <rect x={80} y={104} width={110} height={7} rx={3} fill="#e2e8f0" />
+        <rect x={226} y={36} width={30} height={30} rx={9} fill="#eef2ff" stroke="#6366f1" strokeWidth={2.5} />
+        <rect x={233} y={43} width={6} height={6} rx={1} fill="#6366f1" />
+        <rect x={243} y={43} width={6} height={6} rx={1} fill="#6366f1" />
+        <rect x={233} y={53} width={6} height={6} rx={1} fill="#6366f1" />
+        <rect x={243} y={53} width={6} height={6} rx={1} fill="#6366f1" />
+        <line x1={300} y1={16} x2={262} y2={40} stroke="#f97316" strokeWidth={3} />
+        <polygon points="256,36 268,34 262,46" fill="#f97316" />
+        <text x={182} y={126} fontSize={9} fontWeight={700} fill="#f97316">Ver Detalhes</text>
+      </svg>
+    );
+  }
+
+  if (n === 3) {
+    return (
+      <svg {...svg}>
+        {frame}
+        <rect x={30} y={26} width={280} height={108} rx={14} fill="#ffffff" stroke="#e2e8f0" strokeWidth={2} />
+        <path d="M30 42 a14 14 0 0 1 14 -16 h252 a14 14 0 0 1 14 16 v14 h-280 z" fill="#f8fafc" />
+        <text x={44} y={45} fontSize={8} fill="#94a3b8">Identificação</text>
+        <text x={112} y={45} fontSize={8} fill="#94a3b8">Localização</text>
+        <text x={174} y={45} fontSize={8} fontWeight={800} fill="#6366f1">Infraestrutura</text>
+        <text x={256} y={45} fontSize={8} fill="#94a3b8">Ensino</text>
+        <rect x={172} y={50} width={72} height={3} rx={2} fill="#6366f1" />
+        <rect x={48} y={74} width={90} height={11} rx={4} fill="#f1f5f9" />
+        <rect x={48} y={94} width={224} height={11} rx={4} fill="#f1f5f9" />
+        <line x1={208} y1={86} x2={208} y2={60} stroke="#f97316" strokeWidth={3} />
+        <polygon points="202,62 214,62 208,52" fill="#f97316" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg {...svg}>
+      {frame}
+      <text x={22} y={28} fontSize={8} fontWeight={800} letterSpacing={1} fill="#94a3b8">PRÉDIO E PATRIMÓNIO</text>
+      <text x={24} y={46} fontSize={7} fill="#94a3b8">ANO</text>
+      <rect x={20} y={50} width={62} height={34} rx={8} fill="#f8fafc" stroke="#e2e8f0" strokeWidth={2} />
+      <text x={94} y={46} fontSize={7} fill="#94a3b8">SETOR</text>
+      <rect x={90} y={50} width={62} height={34} rx={8} fill="#f8fafc" stroke="#e2e8f0" strokeWidth={2} />
+      <text x={164} y={46} fontSize={7} fill="#94a3b8">SALAS</text>
+      <rect x={160} y={50} width={62} height={34} rx={8} fill="#f8fafc" stroke="#e2e8f0" strokeWidth={2} />
+      <text x={232} y={46} fontSize={7} fontWeight={800} fill="#6366f1">MATRÍCULA</text>
+      <rect x={230} y={50} width={90} height={34} rx={8} fill="#eef2ff" stroke="#6366f1" strokeWidth={2.5} />
+      <text x={237} y={71} fontSize={8} fontWeight={700} fill="#4338ca">000.00.00.0000.00</text>
+      <line x1={275} y1={126} x2={275} y2={92} stroke="#f97316" strokeWidth={3} />
+      <polygon points="269,94 281,94 275,84" fill="#f97316" />
+      <text x={116} y={140} fontSize={9} fontWeight={700} fill="#f97316">Número da matrícula imobiliária</text>
+    </svg>
+  );
+}
+
+// Lista de passos ilustrados — estilos inline (hex) p/ renderizar igual na tela e no PDF
+function TutorialMatriculaSteps() {
+  return (
+    <div>
+      {MATRICULA_TUTORIAL_STEPS.map((s, i) => (
+        <div
+          key={i}
+          style={{
+            display: 'flex',
+            gap: '14px',
+            alignItems: 'flex-start',
+            padding: '14px 0',
+            borderTop: i > 0 ? '1px solid #eef2ff' : 'none',
+          }}
+        >
+          <div
+            style={{
+              flexShrink: 0,
+              width: '26px',
+              height: '26px',
+              borderRadius: '50%',
+              background: '#4f46e5',
+              color: '#ffffff',
+              fontWeight: 800,
+              fontSize: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {i + 1}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>{s.titulo}</div>
+            <div style={{ fontSize: '12px', color: '#475569', marginTop: '2px', lineHeight: 1.5 }}>{s.texto}</div>
+            <div
+              style={{
+                marginTop: '10px',
+                maxWidth: '360px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '12px',
+                overflow: 'hidden',
+                background: '#f8fafc',
+              }}
+            >
+              <PassoArte n={i} />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 interface SchoolIndicators {
   openTickets: number;
@@ -88,6 +243,8 @@ export function Escola() {
   const [editingSchool, setEditingSchool] = useState<School | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('identificacao');
   const [showMatriculaHelp, setShowMatriculaHelp] = useState(true);
+  const [gerandoPdf, setGerandoPdf] = useState(false);
+  const tutorialPdfRef = useRef<HTMLDivElement>(null);
   
   const [formData, setFormData] = useState<Partial<School>>({
     teaching_types: [],
@@ -277,48 +434,39 @@ export function Escola() {
     setFormData({ ...formData, [field]: updated });
   };
 
-  function baixarTutorialMatriculaPDF() {
-    const doc = new jsPDF();
-    const pageW = doc.internal.pageSize.getWidth();
-    const pageH = doc.internal.pageSize.getHeight();
-    const marginX = 16;
-    const maxW = pageW - marginX * 2;
-    let y = TIMBRADO_HEADER_H + 12;
+  async function baixarTutorialMatriculaPDF() {
+    const alvo = tutorialPdfRef.current;
+    if (!alvo || gerandoPdf) return;
+    setGerandoPdf(true);
+    try {
+      const canvas = await html2canvas(alvo, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const margin = 10;
+      const imgW = pageW - margin * 2;
+      const imgH = (canvas.height * imgW) / canvas.width;
 
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
-    doc.text('Como localizar a Matrícula Imobiliária da sua escola', marginX, y);
-    y += 9;
+      let heightLeft = imgH;
+      let position = margin;
+      pdf.addImage(imgData, 'PNG', margin, position, imgW, imgH);
+      heightLeft -= pageH - margin * 2;
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    const intro =
-      'A matrícula imobiliária é o número de registro do imóvel da unidade escolar. Ela já está cadastrada no próprio sistema SGE-GSU e pode ser consultada a qualquer momento pela escola, seguindo os passos abaixo.';
-    const introLines = doc.splitTextToSize(intro, maxW);
-    doc.text(introLines, marginX, y);
-    y += introLines.length * 5 + 5;
-
-    MATRICULA_TUTORIAL_STEPS.forEach((step, i) => {
-      const lines = doc.splitTextToSize(`${i + 1}.  ${step}`, maxW - 2);
-      if (y + lines.length * 5 > pageH - 20) {
-        doc.addPage();
-        y = TIMBRADO_HEADER_H + 12;
+      while (heightLeft > 0) {
+        position = margin - (imgH - heightLeft);
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', margin, position, imgW, imgH);
+        heightLeft -= pageH - margin * 2;
       }
-      doc.text(lines, marginX, y);
-      y += lines.length * 5 + 3;
-    });
 
-    y += 5;
-    doc.setFont('helvetica', 'italic');
-    doc.setFontSize(8);
-    doc.text(
-      `Documento gerado pelo SGE-GSU em ${new Date().toLocaleDateString('pt-BR')}.`,
-      marginX,
-      y,
-    );
-
-    addTimbradoAllPages(doc);
-    doc.save('tutorial-matricula-imobiliaria.pdf');
+      pdf.save('tutorial-matricula-imobiliaria.pdf');
+    } catch (e) {
+      console.error('Erro ao gerar PDF do tutorial:', e);
+      alert('Não foi possível gerar o PDF. Tente novamente.');
+    } finally {
+      setGerandoPdf(false);
+    }
   }
 
   const filteredEscolas = escolas.filter(e =>
@@ -640,23 +788,56 @@ export function Escola() {
                         <p className="text-xs text-slate-600 leading-relaxed">
                           A <strong>matrícula imobiliária</strong> é o número de registro do imóvel da unidade escolar. Ela já está cadastrada no próprio sistema e pode ser consultada a qualquer momento seguindo os passos abaixo.
                         </p>
-                        <ol className="space-y-2.5">
-                          {MATRICULA_TUTORIAL_STEPS.map((step, i) => (
-                            <li key={i} className="flex gap-3 text-xs text-slate-700 leading-relaxed">
-                              <span className="shrink-0 w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[10px] flex items-center justify-center mt-0.5">{i + 1}</span>
-                              <span>{step}</span>
-                            </li>
-                          ))}
-                        </ol>
+
+                        <div className="bg-white rounded-2xl border border-indigo-100 px-4">
+                          <TutorialMatriculaSteps />
+                        </div>
+
+                        <div className="flex gap-2.5 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3 leading-relaxed">
+                          <Info size={14} className="shrink-0 mt-0.5 text-amber-500" />
+                          <span>{MATRICULA_TUTORIAL_NOTA}</span>
+                        </div>
+
                         <button
                           type="button"
                           onClick={baixarTutorialMatriculaPDF}
-                          className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-indigo-600 text-white rounded-xl font-black text-[11px] uppercase tracking-wider transition-all active:scale-95"
+                          disabled={gerandoPdf}
+                          className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-indigo-600 text-white rounded-xl font-black text-[11px] uppercase tracking-wider transition-all active:scale-95 disabled:opacity-60"
                         >
-                          <FileDown size={14} /> Baixar tutorial em PDF
+                          {gerandoPdf ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />}
+                          {gerandoPdf ? 'Gerando PDF...' : 'Baixar tutorial em PDF'}
                         </button>
                       </div>
                     )}
+                  </div>
+
+                  {/* Container oculto capturado para o PDF do tutorial */}
+                  <div aria-hidden style={{ position: 'fixed', left: '-10000px', top: 0, pointerEvents: 'none' }}>
+                    <div
+                      ref={tutorialPdfRef}
+                      style={{ width: '760px', background: '#ffffff', padding: '36px', fontFamily: 'Arial, Helvetica, sans-serif' }}
+                    >
+                      <div style={{ borderBottom: '3px solid #4f46e5', paddingBottom: '12px', marginBottom: '18px' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '2px', color: '#4f46e5', textTransform: 'uppercase' }}>
+                          SGE-GSU · Tutorial
+                        </div>
+                        <div style={{ fontSize: '20px', fontWeight: 800, color: '#0f172a', marginTop: '4px' }}>
+                          Como localizar a Matrícula Imobiliária da sua escola
+                        </div>
+                      </div>
+                      <p style={{ fontSize: '13px', color: '#334155', lineHeight: 1.6, margin: '0 0 12px' }}>
+                        A matrícula imobiliária é o número de registro do imóvel da unidade escolar. Ela já está
+                        cadastrada no próprio sistema SGE-GSU e pode ser consultada a qualquer momento pela escola,
+                        seguindo os passos abaixo.
+                      </p>
+                      <TutorialMatriculaSteps />
+                      <div style={{ marginTop: '16px', padding: '12px 14px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '12px', fontSize: '12px', color: '#9a3412', lineHeight: 1.5 }}>
+                        {MATRICULA_TUTORIAL_NOTA}
+                      </div>
+                      <div style={{ marginTop: '20px', fontSize: '10px', color: '#94a3b8', textAlign: 'center' }}>
+                        Documento gerado pelo SGE-GSU em {new Date().toLocaleDateString('pt-BR')}.
+                      </div>
+                    </div>
                   </div>
 
                   <section className="space-y-6">
