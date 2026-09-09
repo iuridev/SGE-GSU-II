@@ -208,7 +208,7 @@ const MENU_GROUPS: MenuGroup[] = [
   {
     title: 'SISTEMA',
     items: [
-      { id: 'escolas', label: 'Escolas (Detalhes)', icon: <Building2 size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+      { id: 'escolas', label: 'Escolas (Detalhes)', icon: <Building2 size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente', 'ure_servico', 'ure_ecc'] },
       { id: 'lista-escolas', label: 'Lista de Escolas', icon: <School size={20} />, roles: ['regional_admin'] },
       { id: 'usuarios', label: 'Gestão de Usuários', icon: <UserCog size={20} />, roles: ['regional_admin'] },
       { id: 'chefes', label: 'Chefes', icon: <BookOpen size={20} />, roles: ['regional_admin'] },
