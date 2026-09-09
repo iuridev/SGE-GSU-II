@@ -388,13 +388,25 @@ export function PatrimonioProcessos() {
   }, [isExporting, activeProcesses, exportTargetSchool, schools]);
 
   const filteredProcesses = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    const qDigits = q.replace(/\D/g, '');
     return processes.filter(p => {
-      const matchesSearch = p.sei_number.includes(searchTerm) || p.schools?.name.toLowerCase().includes(searchTerm.toLowerCase());
+      // Busca ativa: procura em TODAS as categorias e status. Achar um Nº SEI
+      // específico não pode depender de qual aba está aberta nem de o processo
+      // estar concluído. O casamento por dígitos ignora diferença de pontuação/
+      // espaço entre o que foi digitado e o que está gravado.
+      if (q) {
+        const sei = (p.sei_number || '').toLowerCase();
+        const seiDigits = sei.replace(/\D/g, '');
+        return sei.includes(q)
+          || (qDigits.length >= 4 && seiDigits.includes(qDigits))
+          || (p.schools?.name || '').toLowerCase().includes(q);
+      }
       const typeInfo = PROCESS_TYPES.find(t => t.id === p.type);
       const matchesMainTab = typeInfo?.category === activeMainTab;
       const isConcluido = p.status === 'CONCLUÍDO';
       const matchesSubTab = activeSubTab === 'concluido' ? isConcluido : !isConcluido;
-      return matchesSearch && matchesMainTab && matchesSubTab;
+      return matchesMainTab && matchesSubTab;
     });
   }, [processes, searchTerm, activeMainTab, activeSubTab]);
 
@@ -793,6 +805,12 @@ export function PatrimonioProcessos() {
           />
         </div>
 
+        {searchTerm.trim() && (
+          <p className="text-xs text-slate-400 -mt-3 px-1">
+            Busca em <strong>todas as categorias e status</strong> — {filteredProcesses.length} resultado(s).
+          </p>
+        )}
+
         {/* ── PROCESS LIST ──────────────────────────────────────── */}
         {loading ? (
           <div className="py-24 flex flex-col items-center justify-center gap-3">
@@ -805,7 +823,9 @@ export function PatrimonioProcessos() {
               <ClipboardList size={28} />
             </div>
             <p className="text-sm font-semibold text-slate-400">
-              Nenhum processo {activeSubTab === 'concluido' ? 'concluído' : 'pendente'} nesta categoria.
+              {searchTerm.trim()
+                ? `Nenhum processo encontrado para "${searchTerm.trim()}".`
+                : `Nenhum processo ${activeSubTab === 'concluido' ? 'concluído' : 'pendente'} nesta categoria.`}
             </p>
           </div>
         ) : (
