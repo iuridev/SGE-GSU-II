@@ -8,9 +8,12 @@ import {
   Building2, Zap, Droplets, Hash,
   Calendar, Layers, Clock, DoorOpen, Compass, ArrowUpCircle,
   Loader2, User, Users, UsersRound, LayoutGrid,
-  Info, Ticket, HardHat
+  Info, Ticket, HardHat,
+  HelpCircle, FileDown, ChevronDown
 } from 'lucide-react';
+import jsPDF from 'jspdf';
 import { fetchObrasSheet, normalizeStatus } from '../lib/obrasSheet';
+import { addTimbradoAllPages, TIMBRADO_HEADER_H } from '../lib/pdfTimbrado';
 
 // Tipos atualizados
 interface School {
@@ -56,6 +59,16 @@ const PERIOD_OPTIONS = ['Manhã', 'Tarde', 'Noite', 'Integral 9h', 'Integral 7h'
 
 type TabType = 'identificacao' | 'localizacao' | 'infraestrutura' | 'ensino';
 
+// Passo a passo exibido no topo da aba Infraestrutura e no PDF gerado
+const MATRICULA_TUTORIAL_STEPS = [
+  'Acesse o sistema SGE-GSU com o login da sua unidade escolar.',
+  'No menu lateral, abra "Escolas" (Unidades Escolares).',
+  'Localize o card da sua escola e clique no botão "Ver Detalhes" (ícone de grade), no canto superior do card, para abrir a Ficha da Unidade.',
+  'No topo da ficha, clique na aba "Infraestrutura".',
+  'Na seção "Prédio e Património", localize o campo "Matrícula". O número exibido ali é a matrícula imobiliária do imóvel da escola.',
+  'Se o campo estiver vazio ou o número estiver desatualizado, entre em contato com a URE — Serviço de Obras e Manutenção Escolar (SEOM) para regularização.',
+];
+
 interface SchoolIndicators {
   openTickets: number;
   waterAlert: boolean;
@@ -74,6 +87,7 @@ export function Escola() {
   const [isFiscalModalOpen, setIsFiscalModalOpen] = useState(false);
   const [editingSchool, setEditingSchool] = useState<School | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('identificacao');
+  const [showMatriculaHelp, setShowMatriculaHelp] = useState(true);
   
   const [formData, setFormData] = useState<Partial<School>>({
     teaching_types: [],
@@ -263,7 +277,51 @@ export function Escola() {
     setFormData({ ...formData, [field]: updated });
   };
 
-  const filteredEscolas = escolas.filter(e => 
+  function baixarTutorialMatriculaPDF() {
+    const doc = new jsPDF();
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const marginX = 16;
+    const maxW = pageW - marginX * 2;
+    let y = TIMBRADO_HEADER_H + 12;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.text('Como localizar a Matrícula Imobiliária da sua escola', marginX, y);
+    y += 9;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    const intro =
+      'A matrícula imobiliária é o número de registro do imóvel da unidade escolar. Ela já está cadastrada no próprio sistema SGE-GSU e pode ser consultada a qualquer momento pela escola, seguindo os passos abaixo.';
+    const introLines = doc.splitTextToSize(intro, maxW);
+    doc.text(introLines, marginX, y);
+    y += introLines.length * 5 + 5;
+
+    MATRICULA_TUTORIAL_STEPS.forEach((step, i) => {
+      const lines = doc.splitTextToSize(`${i + 1}.  ${step}`, maxW - 2);
+      if (y + lines.length * 5 > pageH - 20) {
+        doc.addPage();
+        y = TIMBRADO_HEADER_H + 12;
+      }
+      doc.text(lines, marginX, y);
+      y += lines.length * 5 + 3;
+    });
+
+    y += 5;
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
+    doc.text(
+      `Documento gerado pelo SGE-GSU em ${new Date().toLocaleDateString('pt-BR')}.`,
+      marginX,
+      y,
+    );
+
+    addTimbradoAllPages(doc);
+    doc.save('tutorial-matricula-imobiliaria.pdf');
+  }
+
+  const filteredEscolas = escolas.filter(e =>
     e.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     e.cie_code?.includes(searchTerm) ||
     e.fde_code?.includes(searchTerm) ||
@@ -561,6 +619,46 @@ export function Escola() {
 
               {activeTab === 'infraestrutura' && (
                 <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <div className="rounded-[2rem] border-2 border-indigo-100 bg-indigo-50/40 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowMatriculaHelp(v => !v)}
+                      className="w-full flex items-center gap-3 p-5 text-left"
+                    >
+                      <div className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-100 shrink-0">
+                        <HelpCircle size={18} />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em] leading-none">Tutorial</p>
+                        <p className="text-sm font-black text-slate-800 mt-1">Como encontrar o número de Matrícula Imobiliária</p>
+                      </div>
+                      <ChevronDown size={18} className={`text-indigo-400 transition-transform ${showMatriculaHelp ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {showMatriculaHelp && (
+                      <div className="px-5 pb-5 space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <p className="text-xs text-slate-600 leading-relaxed">
+                          A <strong>matrícula imobiliária</strong> é o número de registro do imóvel da unidade escolar. Ela já está cadastrada no próprio sistema e pode ser consultada a qualquer momento seguindo os passos abaixo.
+                        </p>
+                        <ol className="space-y-2.5">
+                          {MATRICULA_TUTORIAL_STEPS.map((step, i) => (
+                            <li key={i} className="flex gap-3 text-xs text-slate-700 leading-relaxed">
+                              <span className="shrink-0 w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[10px] flex items-center justify-center mt-0.5">{i + 1}</span>
+                              <span>{step}</span>
+                            </li>
+                          ))}
+                        </ol>
+                        <button
+                          type="button"
+                          onClick={baixarTutorialMatriculaPDF}
+                          className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-indigo-600 text-white rounded-xl font-black text-[11px] uppercase tracking-wider transition-all active:scale-95"
+                        >
+                          <FileDown size={14} /> Baixar tutorial em PDF
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
                   <section className="space-y-6">
                     <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">Prédio e Património</h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
