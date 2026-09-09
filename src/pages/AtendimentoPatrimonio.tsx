@@ -9,7 +9,7 @@ import {
   Plus, Search, X, Loader2, CalendarDays, Video,
   MapPin, BarChart3, TrendingUp, RefreshCw, ExternalLink,
   ClipboardList, ArrowRightLeft, Package, Check, Mail, History, Pencil, Ticket, Link2, FileDown,
-  AlertTriangle, ListOrdered, Eye, Trash2,
+  AlertTriangle, ListOrdered, Eye, Trash2, Link, Unlink,
 } from 'lucide-react';
 
 // Mesma chave usada por Chamados.tsx para ler a referência pré-preenchida ao
@@ -49,6 +49,22 @@ function getDriveEmbedUrl(raw: string): string {
   if (match) return `https://drive.google.com/file/d/${match[1]}/preview`;
   return url;
 }
+
+// Rótulos amigáveis para os tipos de processo de asset_processes (a coluna `type` é
+// só a constante crua). Usado no seletor "Vincular a processo".
+const PROCESSO_TIPO_LABELS: Record<string, string> = {
+  DOACAO_MAT_PERMANENTE: 'Doação de Material Permanente',
+  DOACAO_PDDE: 'Doação PDDE',
+  DOACAO_APM: 'Doação APM',
+  DOACAO_TERCEIROS: 'Doação Terceiros',
+  INSERVIVEIS: 'Inservíveis',
+  BANDEIRAS: 'Bandeiras',
+  FURTOS: 'Sinistros',
+};
+
+// Tipo de processo SEI que formaliza a incorporação de itens recebidos por doação —
+// é a esse tipo que os itens da aba "Itens a Incorporar" são vinculados.
+const TIPO_PROCESSO_INCORPORACAO = 'DOACAO_MAT_PERMANENTE';
 
 const PAUTAS = [
   'Orientação Educação Patrimonial',
@@ -175,6 +191,10 @@ interface Incorporacao {
   // com múltiplos itens) — cada item mantém status/nº patrimonial totalmente
   // independentes; o lote_id serve só para agrupamento visual na tabela.
   lote_id: string;
+  // Processo SEI de "Doação de Material Permanente" (asset_processes.id) que formaliza
+  // a incorporação. Vazio = escola ainda deve a documentação/abertura do processo.
+  processo_incorporacao_id: string;
+  processo_sei: string;
 }
 
 // Linha unificada da aba "Itens a Incorporar": mescla itens cadastrados diretamente
@@ -198,6 +218,8 @@ interface IncorporacaoRow {
   valor_item: string;
   ano_verba: string;
   lote_id: string;
+  processo_incorporacao_id: string;
+  processo_sei: string;
 }
 
 interface ProcessoOption {
@@ -205,6 +227,9 @@ interface ProcessoOption {
   id: string;
   identificador: string;
   tipoLabel: string;
+  // Constante crua do tipo (só para asset_process) — usada para filtrar o seletor
+  // ao vincular itens a um processo de "Doação de Material Permanente".
+  tipoId?: string;
   escolaId: string;
   escolaNome: string;
   situacaoLabel: string;
@@ -290,10 +315,15 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
   >(null);
   const [numerosPatrimoniaisIncorporar, setNumerosPatrimoniaisIncorporar] = useState<string[]>(['']);
   const [chapasModal, setChapasModal] = useState<{ descricao: string; numeros: string[] } | null>(null);
+  // Seleção em lote da aba "Itens a Incorporar" para vincular a um processo SEI de
+  // "Doação de Material Permanente" (só itens diretos, não remanejamentos).
+  const [itensSelecionadosVinculo, setItensSelecionadosVinculo] = useState<string[]>([]);
+  const [filterSemProcesso, setFilterSemProcesso] = useState(false);
+  const [vinculandoProcesso, setVinculandoProcesso] = useState(false);
 
   const [processos, setProcessos] = useState<ProcessoOption[]>([]);
   const [loadingProcessos, setLoadingProcessos] = useState(false);
-  const [pickerContext, setPickerContext] = useState<null | 'atendimento' | 'observacao'>(null);
+  const [pickerContext, setPickerContext] = useState<null | 'atendimento' | 'observacao' | 'incorporacao_vinculo'>(null);
   const [pickerSearch, setPickerSearch] = useState('');
   // Só usado quando pickerContext === 'observacao': permite escolher entre vincular a
   // ação a um processo cadastrado, a um atendimento (Teams) ou a um remanejamento já
@@ -441,7 +471,8 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         origem: 'asset_process' as const,
         id: p.id,
         identificador: p.sei_number || '(sem SEI)',
-        tipoLabel: p.type,
+        tipoLabel: PROCESSO_TIPO_LABELS[p.type] || p.type,
+        tipoId: p.type,
         escolaId: p.school_id,
         escolaNome: p.schools?.name || '-',
         situacaoLabel: p.current_step || p.status || '',
@@ -463,7 +494,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     }
   };
 
-  const openPicker = (ctx: 'atendimento' | 'observacao') => {
+  const openPicker = (ctx: 'atendimento' | 'observacao' | 'incorporacao_vinculo') => {
     setPickerSearch('');
     setPickerTab('processos');
     setPickerContext(ctx);
@@ -493,10 +524,14 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
   const handlePickerSelect = (p: ProcessoOption) => {
     if (pickerContext === 'atendimento') {
       setProcessoVinculado(p);
+      setPickerContext(null);
     } else if (pickerContext === 'observacao') {
       openDetail(p);
+      setPickerContext(null);
+    } else if (pickerContext === 'incorporacao_vinculo') {
+      // não fecha aqui — vincularItensAoProcesso fecha o picker no sucesso
+      vincularItensAoProcesso(p);
     }
-    setPickerContext(null);
   };
 
   // Abre o modal de detalhe (linha do tempo de ações + formulário de nova ação para
@@ -780,6 +815,73 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     }
   };
 
+  // ── Vínculo item ↔ processo "Doação de Material Permanente" ────────────
+  // O vínculo mora no lado do item (planilha): 1 processo : N itens. Só itens
+  // diretos (origem 'incorporacao') — remanejamento tem documento próprio.
+  const toggleItemVinculo = (id: string) => {
+    setItensSelecionadosVinculo(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  // Escola dos itens selecionados: um processo SEI pertence a uma única unidade,
+  // então só dá pra vincular em lote itens de uma mesma escola.
+  const escolaDosSelecionados = useMemo(() => {
+    const ids = new Set(
+      itensSelecionadosVinculo
+        .map(id => incorporacoes.find(i => i.id === id)?.escola_id)
+        .filter(Boolean) as string[],
+    );
+    if (ids.size === 0) return '';
+    if (ids.size > 1) return 'MULTIPLAS';
+    return [...ids][0];
+  }, [itensSelecionadosVinculo, incorporacoes]);
+
+  const vincularItensAoProcesso = async (processo: ProcessoOption) => {
+    if (itensSelecionadosVinculo.length === 0) return;
+    setVinculandoProcesso(true);
+    try {
+      await invoke('vincular_incorporacao_processo', {
+        ids: itensSelecionadosVinculo,
+        processo_id: processo.id,
+        processo_sei: processo.identificador,
+      });
+      setPickerContext(null);
+      setItensSelecionadosVinculo([]);
+      setTimeout(fetchAll, 1500);
+    } catch (e) {
+      console.error(e);
+      alert(e instanceof Error ? e.message : 'Erro ao vincular itens ao processo.');
+    } finally {
+      setVinculandoProcesso(false);
+    }
+  };
+
+  const desvincularItens = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    if (!window.confirm(`Remover o vínculo com o processo de ${ids.length} item(ns)?`)) return;
+    setVinculandoProcesso(true);
+    try {
+      await invoke('vincular_incorporacao_processo', { ids, processo_id: '' });
+      setItensSelecionadosVinculo(prev => prev.filter(x => !ids.includes(x)));
+      setTimeout(fetchAll, 1500);
+    } catch (e) {
+      console.error(e);
+      alert(e instanceof Error ? e.message : 'Erro ao remover vínculo.');
+    } finally {
+      setVinculandoProcesso(false);
+    }
+  };
+
+  const cobrarDocumentacaoEscola = async (escolaId: string, escolaNome: string) => {
+    if (!escolaId) return;
+    if (!window.confirm(`Notificar ${escolaNome} para providenciar a documentação e abrir o processo de "Doação de Material Permanente" dos itens ainda sem processo?`)) return;
+    await notificarEscola(
+      escolaId,
+      '📄 Há itens recebidos pela unidade ainda não vinculados a um processo SEI de "Doação de Material Permanente". Providencie a documentação e a abertura do processo para regularizar a incorporação ao patrimônio.',
+    );
+    alert('Notificação enviada à escola.');
+  };
+
   // "Lixeira": exclusão fica registrada na planilha (quem excluiu e quando) em vez de
   // apagar a linha — o item só some da listagem, seguindo o mesmo padrão de auditoria
   // usado em "marcar como incorporado" (incorporado_por/data_incorporacao).
@@ -913,6 +1015,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       origem_aquisicao: i.origem_aquisicao || 'Entrega FDE/SEDUC', orgao_entrega: i.orgao_entrega || '',
       data_aquisicao: i.data_aquisicao || '', valor_item: i.valor_item || '', ano_verba: i.ano_verba || '',
       lote_id: i.lote_id || '',
+      processo_incorporacao_id: i.processo_incorporacao_id || '', processo_sei: i.processo_sei || '',
     }));
     const deRemanejamento: IncorporacaoRow[] = remanejamentos
       .filter(r => r.pendente_incorporacao === 'TRUE')
@@ -923,6 +1026,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         quantidade: '-', nota_fiscal_link: r.nota_fiscal_link, status: 'Pendente',
         numero_patrimonial: '', autor_nome: r.autor_nome, data_registro: r.data_registro,
         origem_aquisicao: '', orgao_entrega: '', data_aquisicao: '', valor_item: '', ano_verba: '', lote_id: '',
+        processo_incorporacao_id: '', processo_sei: '',
       }));
     return [...diretos, ...deRemanejamento].sort((a, b) => (a.data_registro < b.data_registro ? 1 : -1));
   }, [incorporacoes, remanejamentos]);
@@ -1024,18 +1128,37 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
           : filterOrigemIncorporacao === 'sem-orgao' ? (i.origem === 'incorporacao' && !isOrigemPdde(i.origem_aquisicao) && !i.orgao_entrega)
             : (ORGAOS_ENTREGA_FDE as readonly string[]).includes(filterOrigemIncorporacao) ? i.orgao_entrega === filterOrigemIncorporacao
               : i.origem_aquisicao === filterOrigemIncorporacao);
-      return matchSearch && matchOrigem;
+      // "Sem processo": só itens diretos pendentes que ainda não têm processo vinculado.
+      const matchProcesso = !filterSemProcesso ||
+        (i.origem === 'incorporacao' && i.status !== 'Incorporado' && !i.processo_incorporacao_id);
+      return matchSearch && matchOrigem && matchProcesso;
     });
-  }, [itensIncorporacaoUnificados, searchTerm, filterOrigemIncorporacao]);
+  }, [itensIncorporacaoUnificados, searchTerm, filterOrigemIncorporacao, filterSemProcesso]);
+
+  const semProcessoCount = useMemo(
+    () => itensIncorporacaoUnificados.filter(
+      i => i.origem === 'incorporacao' && i.status !== 'Incorporado' && !i.processo_incorporacao_id,
+    ).length,
+    [itensIncorporacaoUnificados],
+  );
 
   const filteredProcessos = useMemo(() => {
+    let base = processos;
+    // No contexto de vincular item a processo, só processos SEI de "Doação de
+    // Material Permanente" da mesma escola dos itens selecionados.
+    if (pickerContext === 'incorporacao_vinculo') {
+      base = base.filter(p =>
+        p.origem === 'asset_process' &&
+        p.tipoId === TIPO_PROCESSO_INCORPORACAO &&
+        (!escolaDosSelecionados || escolaDosSelecionados === 'MULTIPLAS' || p.escolaId === escolaDosSelecionados));
+    }
     const q = pickerSearch.toLowerCase();
-    if (!q) return processos;
-    return processos.filter(p =>
+    if (!q) return base;
+    return base.filter(p =>
       p.identificador?.toLowerCase().includes(q) ||
       p.escolaNome?.toLowerCase().includes(q) ||
       p.tipoLabel?.toLowerCase().includes(q));
-  }, [processos, pickerSearch]);
+  }, [processos, pickerSearch, pickerContext, escolaDosSelecionados]);
 
   const filteredAtendimentosPicker = useMemo(() => {
     const q = pickerSearch.toLowerCase();
@@ -1189,12 +1312,16 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       const status = i.status === 'Incorporado'
         ? `Incorporado${i.numero_patrimonial ? ` (${i.numero_patrimonial})` : ''}`
         : 'Pendente';
+      const processo = i.processo_incorporacao_id
+        ? (i.processo_sei || 'vinculado')
+        : (i.origem === 'incorporacao' && i.status !== 'Incorporado' ? 'SEM PROCESSO' : '-');
       return [
         labelOrigemItem(i),
         `${i.escola_nome}${codigosEscola(escolas.find(e => e.id === i.escola_id))}`,
         i.descricao,
         i.quantidade,
         aquisicao || '-',
+        processo,
         status,
         i.autor_nome,
         formatDateTime(i.data_registro),
@@ -1203,7 +1330,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
 
     autoTable(doc, {
       startY: 48,
-      head: [['Origem', 'Escola', 'Descrição', 'Qtd.', 'Aquisição', 'Status', 'Registrado por', 'Data']],
+      head: [['Origem', 'Escola', 'Descrição', 'Qtd.', 'Aquisição', 'Processo', 'Status', 'Registrado por', 'Data']],
       body,
       theme: 'grid',
       headStyles: { fillColor: [13, 148, 136], textColor: 255, fontStyle: 'bold' },
@@ -1898,10 +2025,11 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
             )}
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
               { label: 'Total de Itens', value: itensIncorporacaoUnificados.length, icon: <Package size={20} className="text-teal-600" />, bg: 'bg-teal-50' },
               { label: 'Pendentes de Incorporação', value: incorporacoesPendentes, icon: <AlertTriangle size={20} className="text-amber-600" />, bg: 'bg-amber-50' },
+              { label: 'Sem Processo Vinculado', value: semProcessoCount, icon: <Unlink size={20} className="text-rose-600" />, bg: 'bg-rose-50' },
               { label: 'Incorporados', value: itensIncorporacaoUnificados.length - incorporacoesPendentes, icon: <Check size={20} className="text-emerald-600" />, bg: 'bg-emerald-50' },
             ].map(card => (
               <div key={card.label} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
@@ -1937,6 +2065,17 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 {ORGAOS_ENTREGA_FDE.map(o => <option key={o} value={o}>{o}</option>)}
                 {ORIGENS_AQUISICAO.filter(o => isOrigemPdde(o)).map(o => <option key={o} value={o}>{o}</option>)}
               </select>
+              <button
+                onClick={() => setFilterSemProcesso(v => !v)}
+                title="Mostrar só itens diretos pendentes que ainda não têm um processo de Doação de Material Permanente vinculado"
+                className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border transition-colors ${
+                  filterSemProcesso
+                    ? 'bg-rose-50 border-rose-300 text-rose-700 font-medium'
+                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <Unlink size={15} /> Sem processo{semProcessoCount > 0 ? ` (${semProcessoCount})` : ''}
+              </button>
               <span className="text-xs text-slate-400">{filteredIncorporacoes.length} registro(s)</span>
               <div className="flex items-center gap-2 ml-auto">
                 <button
@@ -1956,6 +2095,33 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 )}
               </div>
             </div>
+
+            {isAdmin && itensSelecionadosVinculo.length > 0 && (
+              <div className="px-4 py-2.5 bg-teal-50 border-b border-teal-100 flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium text-teal-800">{itensSelecionadosVinculo.length} item(ns) selecionado(s)</span>
+                {escolaDosSelecionados === 'MULTIPLAS' && (
+                  <span className="text-xs text-rose-600 font-medium">Selecione itens de uma só escola para vincular a um processo</span>
+                )}
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    onClick={() => openPicker('incorporacao_vinculo')}
+                    disabled={vinculandoProcesso || escolaDosSelecionados === 'MULTIPLAS'}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
+                  >
+                    <Link size={14} /> Vincular a processo
+                  </button>
+                  <button
+                    onClick={() => desvincularItens(itensSelecionadosVinculo)}
+                    disabled={vinculandoProcesso}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors"
+                  >
+                    <Unlink size={14} /> Desvincular
+                  </button>
+                  <button onClick={() => setItensSelecionadosVinculo([])} className="text-xs text-slate-500 hover:text-slate-700 px-2">Limpar</button>
+                </div>
+              </div>
+            )}
+
             <div className="overflow-x-auto">
               {loading ? (
                 <div className="flex justify-center items-center py-16"><Loader2 size={32} className="animate-spin text-teal-500" /></div>
@@ -1968,7 +2134,8 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50">
-                      {['Origem', 'Escola', 'Descrição', 'Qtd.', 'Aquisição', 'Status', 'Registrado por', 'Data'].map(h => (
+                      {isAdmin && <th className="w-10 px-4 py-3" />}
+                      {['Origem', 'Escola', 'Descrição', 'Qtd.', 'Aquisição', 'Processo', 'Status', 'Registrado por', 'Data'].map(h => (
                         <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                       <th className="sticky right-0 z-10 bg-slate-50 text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)]" />
@@ -1978,8 +2145,21 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                     {filteredIncorporacoes.map((i, idx) => {
                       const incorporacaoOrigem = i.origem === 'incorporacao' ? incorporacoes.find(x => x.id === i.id) : undefined;
                       const remanejamentoOrigem = i.origem === 'remanejamento' ? remanejamentos.find(x => x.id === i.id) : undefined;
+                      const vinculavel = i.origem === 'incorporacao' && i.status !== 'Incorporado';
                       return (
                         <tr key={`${i.origem}-${i.id || idx}`} className="group hover:bg-slate-50 transition-colors">
+                          {isAdmin && (
+                            <td className="px-4 py-3">
+                              {vinculavel && (
+                                <input
+                                  type="checkbox"
+                                  checked={itensSelecionadosVinculo.includes(i.id)}
+                                  onChange={() => toggleItemVinculo(i.id)}
+                                  className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                                />
+                              )}
+                            </td>
+                          )}
                           <td className="px-4 py-3 whitespace-nowrap">
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
                               i.origem === 'remanejamento' ? 'bg-violet-50 text-violet-700'
@@ -2007,6 +2187,27 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                             <span className="block font-medium text-slate-700">{formatDate(i.data_aquisicao)}</span>
                             {isOrigemPdde(i.origem_aquisicao) && (
                               <span className="block">{formatarMoeda(i.valor_item)}{i.ano_verba ? ` • ${i.ano_verba}` : ''}</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            {i.processo_incorporacao_id ? (
+                              <button
+                                onClick={() => onNavigate?.('patrimonio')}
+                                title={processos.some(p => p.id === i.processo_incorporacao_id)
+                                  ? 'Abrir Processos de Patrimônio'
+                                  : 'Processo não encontrado na lista atual (pode ter sido removido)'}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                                  processos.length === 0 || processos.some(p => p.id === i.processo_incorporacao_id)
+                                    ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                                    : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+                                } transition-colors`}
+                              >
+                                <Link2 size={11} /> {i.processo_sei || 'vinculado'}
+                              </button>
+                            ) : vinculavel ? (
+                              <span className="text-xs text-slate-400">—</span>
+                            ) : (
+                              <span className="text-xs text-slate-300">n/a</span>
                             )}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
@@ -2071,6 +2272,25 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                                   className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
                                 >
                                   <Pencil size={16} />
+                                </button>
+                              )}
+                              {isAdmin && vinculavel && !i.processo_incorporacao_id && (
+                                <button
+                                  onClick={() => cobrarDocumentacaoEscola(i.escola_id, i.escola_nome)}
+                                  title="Cobrar da escola a documentação / abertura do processo de Doação de Material Permanente"
+                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                >
+                                  <Mail size={16} />
+                                </button>
+                              )}
+                              {isAdmin && vinculavel && i.processo_incorporacao_id && (
+                                <button
+                                  onClick={() => desvincularItens([i.id])}
+                                  disabled={vinculandoProcesso}
+                                  title="Remover vínculo com o processo"
+                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-60"
+                                >
+                                  <Unlink size={16} />
                                 </button>
                               )}
                               {isAdmin && i.origem === 'incorporacao' && incorporacaoOrigem && (
@@ -2535,9 +2755,15 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         <div className="fixed inset-0 z-[120] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between p-5 border-b border-slate-100">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Package size={20} className="text-teal-600" /> {pickerTab === 'atendimentos' ? 'Selecionar Atendimento' : pickerTab === 'remanejamentos' ? 'Selecionar Remanejamento' : 'Selecionar Processo'}</h2>
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Package size={20} className="text-teal-600" /> {pickerContext === 'incorporacao_vinculo' ? 'Vincular a Processo de Doação de Material Permanente' : pickerTab === 'atendimentos' ? 'Selecionar Atendimento' : pickerTab === 'remanejamentos' ? 'Selecionar Remanejamento' : 'Selecionar Processo'}</h2>
               <button onClick={() => setPickerContext(null)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors"><X size={18} className="text-slate-500" /></button>
             </div>
+
+            {pickerContext === 'incorporacao_vinculo' && (
+              <div className="px-5 py-2.5 bg-teal-50 border-b border-teal-100 text-xs text-teal-800">
+                {itensSelecionadosVinculo.length} item(ns) serão vinculados. Só aparecem processos SEI de "Doação de Material Permanente" da mesma escola dos itens.
+              </div>
+            )}
 
             {pickerContext === 'observacao' && (
               <div className="flex gap-1 px-4 pt-3 border-b border-slate-100">
@@ -2623,7 +2849,11 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
               ) : loadingProcessos ? (
                 <div className="flex justify-center items-center py-16"><Loader2 size={32} className="animate-spin text-teal-500" /></div>
               ) : filteredProcessos.length === 0 ? (
-                <div className="text-center py-16 text-slate-400 text-sm">Nenhum processo encontrado</div>
+                <div className="text-center py-16 text-slate-400 text-sm px-6">
+                  {pickerContext === 'incorporacao_vinculo'
+                    ? 'Nenhum processo de "Doação de Material Permanente" cadastrado para esta escola. Cadastre o processo em Processos de Patrimônio antes de vincular os itens.'
+                    : 'Nenhum processo encontrado'}
+                </div>
               ) : (
                 <ul className="divide-y divide-slate-50">
                   {filteredProcessos.map(p => (

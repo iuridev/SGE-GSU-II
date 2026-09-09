@@ -55,6 +55,13 @@ const INCORPORACOES_COLUMNS = [
   // status "Excluído" e some da listagem — mantém o registro de quem excluiu
   // e quando, para auditoria (mesmo padrão de incorporado_por/data_incorporacao).
   'excluido_por', 'data_exclusao',
+  // Vínculo com o processo SEI de "Doação de Material Permanente"
+  // (asset_processes.id no Postgres) que formaliza a incorporação deste item. Um
+  // processo atende vários itens; item sem vínculo = a escola ainda deve a
+  // documentação/abertura do processo. processo_sei é o nº SEI copiado só para
+  // exibição resiliente (mesmo padrão de processo_id + processo_identificador da
+  // aba de Atendimentos).
+  'processo_incorporacao_id', 'processo_sei',
 ]
 const ORIGENS_AQUISICAO_VALIDAS = ['Entrega FDE/SEDUC', 'Aquisição PDDE Federal', 'Aquisição PDDE Paulista']
 const ORGAOS_ENTREGA_VALIDOS = ['FDE', 'CEQUI', 'CITEM', 'COINTEC']
@@ -472,6 +479,61 @@ Deno.serve(async (req) => {
         row.set('data_exclusao', new Date().toISOString())
         await row.save()
         return ok(corsHeaders, { success: true })
+      }
+
+      // Vincula/desvincula itens a incorporar a um processo SEI de "Doação de
+      // Material Permanente". Um processo atende vários itens.
+      //  - { ids: [...], processo_id, processo_sei }  → vincula os itens ao processo
+      //  - { ids: [...], processo_id: '' }            → desvincula os itens
+      //  - { clear_processo_id }                      → desvincula TODOS os itens de
+      //                                                 um processo (usado ao excluir
+      //                                                 o processo em PatrimonioProcessos)
+      case 'vincular_incorporacao_processo': {
+        exigirRegionalAdmin(p)
+        const sheet = await getOrCreateSheet(doc, INCORPORACOES_SHEET, INCORPORACOES_COLUMNS)
+        const processoId = String(body.processo_id || '')
+        const processoSei = String(body.processo_sei || '')
+        const ids: string[] = Array.isArray(body.ids) ? body.ids.map((x: unknown) => String(x)) : []
+        const clearProcessoId = String(body.clear_processo_id || '')
+        if (ids.length === 0 && !clearProcessoId) throw new Error('Nenhum item informado para vincular.')
+
+        // Ao vincular (não ao desvincular) confere no Postgres que o processo existe,
+        // é do tipo certo e pertence à mesma escola dos itens.
+        let escolaProcesso = ''
+        if (processoId) {
+          const { data: proc } = await supabase
+            .from('asset_processes')
+            .select('school_id, type')
+            .eq('id', processoId)
+            .maybeSingle()
+          if (!proc) throw new Error('Processo não encontrado.')
+          if ((proc as any).type !== 'DOACAO_MAT_PERMANENTE') {
+            throw new Error('Somente processos de "Doação de Material Permanente" podem receber itens a incorporar.')
+          }
+          escolaProcesso = (proc as any).school_id || ''
+        }
+
+        const rows = await sheet.getRows()
+        let count = 0
+        for (const row of rows) {
+          const match = clearProcessoId
+            ? row.get('processo_incorporacao_id') === clearProcessoId
+            : ids.includes(row.get('id'))
+          if (!match) continue
+          if (processoId) {
+            if (escolaProcesso && row.get('escola_id') !== escolaProcesso) {
+              throw new Error(`O item "${row.get('descricao')}" é de outra escola e não pode ser vinculado a este processo.`)
+            }
+            row.set('processo_incorporacao_id', processoId)
+            row.set('processo_sei', processoSei)
+          } else {
+            row.set('processo_incorporacao_id', '')
+            row.set('processo_sei', '')
+          }
+          await row.save()
+          count++
+        }
+        return ok(corsHeaders, { success: true, count })
       }
 
       default:

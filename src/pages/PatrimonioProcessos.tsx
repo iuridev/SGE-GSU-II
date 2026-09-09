@@ -24,6 +24,18 @@ interface PatrimonioItem {
   unit_value: number;
 }
 
+// Linha da aba "Itens a Incorporar" (planilha, via edge function patrimonio-atendimento).
+interface ItemIncorporar {
+  id: string;
+  escola_id: string;
+  descricao: string;
+  quantidade: string;
+  status: string;
+  numero_patrimonial: string;
+  processo_incorporacao_id: string;
+  processo_sei: string;
+}
+
 interface PatrimonioProcess {
   id: string;
   school_id: string;
@@ -49,6 +61,7 @@ interface School {
 }
 
 const PROCESS_TYPES = [
+  { id: 'DOACAO_MAT_PERMANENTE', label: 'Doação de Material Permanente', category: 'doacao', color: 'text-emerald-600 bg-emerald-50' },
   { id: 'DOACAO_PDDE', label: 'Doação PDDE', category: 'doacao', color: 'text-emerald-600 bg-emerald-50' },
   { id: 'DOACAO_APM', label: 'Doação APM', category: 'doacao', color: 'text-emerald-600 bg-emerald-50' },
   { id: 'DOACAO_TERCEIROS', label: 'Doação Terceiros', category: 'doacao', color: 'text-emerald-600 bg-emerald-50' },
@@ -58,6 +71,7 @@ const PROCESS_TYPES = [
 ];
 
 const WORKFLOWS: Record<string, string[]> = {
+  'DOACAO_MAT_PERMANENTE': ["RECEBIDO NO SEI", "ANÁLISE DO SEFISC", "DEVOLVIDO PARA CORREÇÃO", "DOE", "REGISTRO NO SAM", "REGISTRO NÚMERO PATRIMÔNIO"],
   'DOACAO_PDDE': ["RECEBIDO NO SEI", "ANÁLISE DO SEFISC", "DEVOLVIDO PARA CORREÇÃO", "DOE", "REGISTRO NO SAM", "REGISTRO NÚMERO PATRIMÔNIO"],
   'DOACAO_APM': ["RECEBIDO NO SEI", "ANÁLISE DO SEFISC", "DEVOLVIDO PARA CORREÇÃO", "DOE", "REGISTRO NO SAM", "REGISTRO NÚMERO PATRIMÔNIO"],
   'DOACAO_TERCEIROS': ["RECEBIDO NO SEI", "ANÁLISE DO SEFISC", "DEVOLVIDO PARA CORREÇÃO", "DOE", "REGISTRO NO SAM", "REGISTRO NÚMERO PATRIMÔNIO"],
@@ -89,6 +103,15 @@ export function PatrimonioProcessos() {
   const [editingProcess, setEditingProcess] = useState<PatrimonioProcess | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [sinistroItems, setSinistroItems] = useState<PatrimonioItem[]>([]);
+
+  // Itens a incorporar (planilha, via edge function patrimonio-atendimento) ligados a
+  // um processo de "Doação de Material Permanente" — carregados só quando o modal abre
+  // para um processo desse tipo. Um processo atende vários itens.
+  const [incVinculados, setIncVinculados] = useState<ItemIncorporar[]>([]);
+  const [incPendentesEscola, setIncPendentesEscola] = useState<ItemIncorporar[]>([]);
+  const [incLoading, setIncLoading] = useState(false);
+  const [incSaving, setIncSaving] = useState(false);
+  const [incSelecionados, setIncSelecionados] = useState<string[]>([]);
 
   const [formData, setFormData] = useState({
     school_id: '',
@@ -150,6 +173,60 @@ export function PatrimonioProcessos() {
 
     const { data, error } = await query.order('process_date', { ascending: false });
     if (!error) setProcesses(data || []);
+  }
+
+  // Chama a edge function patrimonio-atendimento e desembrulha a mensagem de erro
+  // real (que a supabase-js esconde num FunctionsHttpError genérico).
+  async function invokePatrimonio(action: string, payload: Record<string, unknown> = {}) {
+    const { data, error } = await supabase.functions.invoke('patrimonio-atendimento', {
+      body: { action, ...payload },
+    });
+    if (error) {
+      let message = error.message;
+      const context = (error as { context?: { clone: () => { json: () => Promise<{ error?: string }> } } }).context;
+      if (context && typeof context.clone === 'function') {
+        try {
+          const b = await context.clone().json();
+          if (b?.error) message = b.error;
+        } catch { /* corpo não é JSON */ }
+      }
+      throw new Error(message);
+    }
+    if (data?.error) throw new Error(data.error);
+    return data;
+  }
+
+  async function carregarIncorporacoesDoProcesso(proc: PatrimonioProcess) {
+    setIncLoading(true);
+    setIncSelecionados([]);
+    try {
+      const data = await invokePatrimonio('listar_incorporacoes');
+      const lista: ItemIncorporar[] = Array.isArray(data) ? data : [];
+      setIncVinculados(lista.filter(i => i.processo_incorporacao_id === proc.id));
+      setIncPendentesEscola(lista.filter(i =>
+        i.escola_id === proc.school_id && !i.processo_incorporacao_id && i.status !== 'Incorporado'));
+    } catch (e) {
+      console.error('Erro ao carregar itens a incorporar do processo:', e);
+      setIncVinculados([]);
+      setIncPendentesEscola([]);
+    } finally {
+      setIncLoading(false);
+    }
+  }
+
+  async function vincularIncorporacoes(ids: string[], processoId: string, sei: string) {
+    if (ids.length === 0) return;
+    setIncSaving(true);
+    try {
+      await invokePatrimonio('vincular_incorporacao_processo', {
+        ids, processo_id: processoId, processo_sei: sei,
+      });
+      if (editingProcess) await carregarIncorporacoesDoProcesso(editingProcess);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao vincular itens ao processo.');
+    } finally {
+      setIncSaving(false);
+    }
   }
 
   const isAdmin = userRole === 'regional_admin';
@@ -373,7 +450,17 @@ export function PatrimonioProcessos() {
       return;
     }
     if (!confirm("Remover este processo?")) return;
+    const proc = processes.find(p => p.id === id);
     await (supabase as any).from('asset_processes').delete().eq('id', id);
+    // Sem FK entre a planilha de itens a incorporar e o Postgres: ao excluir um
+    // processo de doação, limpa o vínculo dos itens que apontavam pra ele.
+    if (proc?.type === 'DOACAO_MAT_PERMANENTE') {
+      try {
+        await invokePatrimonio('vincular_incorporacao_processo', { clear_processo_id: id });
+      } catch (e) {
+        console.error('Falha ao limpar vínculos do processo excluído:', e);
+      }
+    }
     fetchProcesses();
   }
 
@@ -396,8 +483,15 @@ export function PatrimonioProcessos() {
         subtype: process.subtype || 'Furto'
       });
       setSinistroItems(process.items_json ? JSON.parse(process.items_json) : []);
+      setIncVinculados([]);
+      setIncPendentesEscola([]);
+      setIncSelecionados([]);
+      if (process.type === 'DOACAO_MAT_PERMANENTE') carregarIncorporacoesDoProcesso(process);
     } else {
       setEditingProcess(null);
+      setIncVinculados([]);
+      setIncPendentesEscola([]);
+      setIncSelecionados([]);
       setFormData({
         school_id: isAdmin ? '' : (userSchoolId || ''),
         type: 'DOACAO_PDDE',
@@ -1081,6 +1175,75 @@ export function PatrimonioProcessos() {
                         </select>
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {/* Itens a incorporar atendidos por este processo (só Doação de Material Permanente) */}
+                {editingProcess && formData.type === 'DOACAO_MAT_PERMANENTE' && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-1 h-5 bg-indigo-600 rounded-full" />
+                      <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Itens a Incorporar Atendidos</h3>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      Um processo pode atender vários itens. Itens da escola que não estiverem vinculados a nenhum processo aparecem como pendência de documentação em <strong>Atendimento Patrimônio › Itens a Incorporar</strong>.
+                    </p>
+
+                    {incLoading ? (
+                      <div className="flex justify-center py-6"><Loader2 className="animate-spin text-indigo-500" size={22} /></div>
+                    ) : (
+                      <>
+                        <div className="space-y-2">
+                          {incVinculados.length === 0 ? (
+                            <p className="text-xs text-slate-400 italic">Nenhum item vinculado a este processo ainda.</p>
+                          ) : incVinculados.map(i => (
+                            <div key={i.id} className="flex items-center gap-3 p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                              <CheckCircle2 size={15} className="text-emerald-600 shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-semibold text-slate-700 truncate">{i.descricao}</p>
+                                <p className="text-[11px] text-slate-400">Qtd {i.quantidade} · {i.status}{i.numero_patrimonial ? ` · nº ${i.numero_patrimonial}` : ''}</p>
+                              </div>
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  disabled={incSaving}
+                                  onClick={() => vincularIncorporacoes([i.id], '', '')}
+                                  className="text-[11px] font-semibold text-red-600 hover:underline disabled:opacity-50 shrink-0"
+                                >
+                                  desvincular
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+
+                        {isAdmin && incPendentesEscola.length > 0 && (
+                          <div className="border border-slate-100 rounded-xl p-3 bg-slate-50 space-y-2">
+                            <p className="text-xs font-semibold text-slate-500">Itens pendentes desta escola sem processo</p>
+                            {incPendentesEscola.map(i => (
+                              <label key={i.id} className="flex items-center gap-2.5 text-xs text-slate-600 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={incSelecionados.includes(i.id)}
+                                  onChange={() => setIncSelecionados(s => s.includes(i.id) ? s.filter(x => x !== i.id) : [...s, i.id])}
+                                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                />
+                                <span className="truncate">{i.descricao} <span className="text-slate-400">(qtd {i.quantidade})</span></span>
+                              </label>
+                            ))}
+                            <button
+                              type="button"
+                              disabled={incSelecionados.length === 0 || incSaving}
+                              onClick={() => vincularIncorporacoes(incSelecionados, editingProcess.id, editingProcess.sei_number)}
+                              className="mt-1 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-indigo-600 text-white rounded-lg disabled:opacity-50 hover:bg-indigo-700 transition-all"
+                            >
+                              {incSaving ? <Loader2 size={13} className="animate-spin" /> : <Package size={13} />}
+                              Vincular a este processo{incSelecionados.length > 0 ? ` (${incSelecionados.length})` : ''}
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
 
