@@ -13,8 +13,12 @@ const ITENS_SHEET = 'Itens'
 const SALAS_SHEET = 'Salas'
 const ALOCACOES_SHEET = 'Alocacoes'
 const HISTORICO_SHEET = 'Historico'
+const COMODATO_SHEET = 'Comodato'
 
 const SALAS_COLUMNS = ['id', 'nome', 'descricao', 'ativa', 'criado_por', 'criado_em']
+// Itens de empresas terceirizadas sob nossa guarda — não constam no inventário
+// oficial (aba "Itens"). "codigo" é a identificação autoincremental (COM-0001...).
+const COMODATO_COLUMNS = ['id', 'seq', 'codigo', 'descricao', 'empresa', 'patrimonio_empresa', 'observacao', 'ativo', 'criado_por_id', 'criado_por_nome', 'criado_em']
 const ALOCACOES_COLUMNS = ['chapa', 'descricao_item', 'sala_id', 'sala_nome', 'alocado_por_id', 'alocado_por_nome', 'alocado_em']
 const HISTORICO_COLUMNS = ['id', 'chapa', 'descricao_item', 'tipo_evento', 'sala_id', 'sala_nome', 'usuario_id', 'usuario_nome', 'data_evento', 'observacao']
 
@@ -52,6 +56,7 @@ async function getDoc() {
   // Doc novo/recarregado invalida os caches de linhas abaixo.
   itensRowsCache = null
   salasRowsCache = null
+  comodatoRowsCache = null
   return doc
 }
 
@@ -62,6 +67,7 @@ async function getDoc() {
 // não permitir alocar o mesmo item duas vezes.
 let itensRowsCache: { rows: any[]; loadedAt: number } | null = null
 let salasRowsCache: { rows: any[]; loadedAt: number } | null = null
+let comodatoRowsCache: { rows: any[]; loadedAt: number } | null = null
 const ROWS_CACHE_TTL_MS = 20_000
 
 async function getItensRows(itensSheet: any) {
@@ -77,6 +83,14 @@ async function getSalasRows(salasSheet: any) {
   if (salasRowsCache && (now - salasRowsCache.loadedAt) < ROWS_CACHE_TTL_MS) return salasRowsCache.rows
   const rows = await salasSheet.getRows()
   salasRowsCache = { rows, loadedAt: now }
+  return rows
+}
+
+async function getComodatoRows(comodatoSheet: any) {
+  const now = Date.now()
+  if (comodatoRowsCache && (now - comodatoRowsCache.loadedAt) < ROWS_CACHE_TTL_MS) return comodatoRowsCache.rows
+  const rows = await comodatoSheet.getRows()
+  comodatoRowsCache = { rows, loadedAt: now }
   return rows
 }
 
@@ -120,6 +134,7 @@ Deno.serve(async (req) => {
     const salasSheet = await getOrCreateSheet(doc, SALAS_SHEET, SALAS_COLUMNS)
     const alocacoesSheet = await getOrCreateSheet(doc, ALOCACOES_SHEET, ALOCACOES_COLUMNS)
     const historicoSheet = await getOrCreateSheet(doc, HISTORICO_SHEET, HISTORICO_COLUMNS)
+    const comodatoSheet = await getOrCreateSheet(doc, COMODATO_SHEET, COMODATO_COLUMNS)
 
     switch (action) {
       case 'listar_itens': {
@@ -149,6 +164,31 @@ Deno.serve(async (req) => {
               alocadoEm: aloc?.get('alocado_em') || null,
             }
           })
+
+        // Itens em comodato (empresas terceirizadas sob nossa guarda) — não estão no
+        // inventário oficial, mas alocam em sala como qualquer outro item. A "chapa"
+        // usada como chave em todo o fluxo é o código gerado no cadastro (COM-0001).
+        const comodatoRows = await getComodatoRows(comodatoSheet)
+        for (const r of comodatoRows as any[]) {
+          const codigo = String(r.get('codigo') ?? '').trim()
+          if (!codigo || r.get('ativo') === 'FALSE') continue
+          const aloc = alocMap.get(codigo)
+          const empresa = r.get('empresa') || ''
+          itens.push({
+            chapa: codigo,
+            descricao: r.get('descricao') || '-',
+            grupo: empresa ? `Comodato — ${empresa}` : 'Comodato',
+            estadoConservacao: '',
+            alocado: !!aloc,
+            salaId: aloc?.get('sala_id') || null,
+            salaNome: aloc?.get('sala_nome') || null,
+            alocadoPorNome: aloc?.get('alocado_por_nome') || null,
+            alocadoEm: aloc?.get('alocado_em') || null,
+            comodato: true,
+            empresa,
+            patrimonioEmpresa: r.get('patrimonio_empresa') || '',
+          } as any)
+        }
 
         const chapasConhecidas = new Set(itens.map((i) => i.chapa))
         for (const r of alocRows as any[]) {
@@ -241,6 +281,107 @@ Deno.serve(async (req) => {
         return ok(corsHeaders, { success: true })
       }
 
+      case 'listar_comodato': {
+        const [rows, alocRows] = await Promise.all([getComodatoRows(comodatoSheet), alocacoesSheet.getRows()])
+        const alocMap = new Map(alocRows.map((r: any) => [String(r.get('chapa') ?? '').trim(), r]))
+        const itens = rows
+          .filter((r: any) => String(r.get('codigo') ?? '').trim() !== '' && r.get('ativo') !== 'FALSE')
+          .map((r: any) => {
+            const codigo = String(r.get('codigo')).trim()
+            const aloc = alocMap.get(codigo)
+            return {
+              id: r.get('id'),
+              codigo,
+              descricao: r.get('descricao') || '',
+              empresa: r.get('empresa') || '',
+              patrimonioEmpresa: r.get('patrimonio_empresa') || '',
+              observacao: r.get('observacao') || '',
+              criadoPorNome: r.get('criado_por_nome') || '',
+              criadoEm: r.get('criado_em') || '',
+              alocado: !!aloc,
+              salaId: aloc?.get('sala_id') || null,
+              salaNome: aloc?.get('sala_nome') || null,
+            }
+          })
+          .sort((a: any, b: any) => (a.codigo < b.codigo ? 1 : -1))
+        return ok(corsHeaders, { itens })
+      }
+
+      case 'criar_comodato': {
+        exigirRegionalAdmin(profile as Profile)
+        const descricao = String(body.descricao || '').trim()
+        const empresa = String(body.empresa || '').trim()
+        if (!descricao) throw new Error('Informe a descrição do item.')
+        if (!empresa) throw new Error('Informe a empresa proprietária do item.')
+
+        const rows = await getComodatoRows(comodatoSheet)
+        const maxSeq = rows.reduce((m: number, r: any) => Math.max(m, Number(r.get('seq')) || 0), 0)
+        const seq = maxSeq + 1
+        const codigo = `COM-${String(seq).padStart(4, '0')}`
+        const id = crypto.randomUUID()
+        const agora = new Date().toISOString()
+
+        await comodatoSheet.addRow({
+          id,
+          seq,
+          codigo,
+          descricao,
+          empresa,
+          patrimonio_empresa: String(body.patrimonio_empresa || ''),
+          observacao: String(body.observacao || ''),
+          ativo: 'TRUE',
+          criado_por_id: user.id,
+          criado_por_nome: usuarioNome,
+          criado_em: agora,
+        })
+        comodatoRowsCache = null
+        return ok(corsHeaders, { success: true, item: { id, codigo, descricao, empresa } })
+      }
+
+      case 'editar_comodato': {
+        exigirRegionalAdmin(profile as Profile)
+        const id = String(body.id || '')
+        if (!id) throw new Error('Item não informado.')
+        const rows = await getComodatoRows(comodatoSheet)
+        const row = rows.find((r: any) => r.get('id') === id)
+        if (!row) throw new Error('Item de comodato não encontrado.')
+
+        if (body.descricao !== undefined) {
+          const d = String(body.descricao).trim()
+          if (!d) throw new Error('A descrição não pode ficar em branco.')
+          row.set('descricao', d)
+        }
+        if (body.empresa !== undefined) {
+          const e = String(body.empresa).trim()
+          if (!e) throw new Error('A empresa não pode ficar em branco.')
+          row.set('empresa', e)
+        }
+        if (body.patrimonio_empresa !== undefined) row.set('patrimonio_empresa', String(body.patrimonio_empresa))
+        if (body.observacao !== undefined) row.set('observacao', String(body.observacao))
+        await row.save()
+        comodatoRowsCache = null
+        return ok(corsHeaders, { success: true })
+      }
+
+      case 'remover_comodato': {
+        exigirRegionalAdmin(profile as Profile)
+        const id = String(body.id || '')
+        if (!id) throw new Error('Item não informado.')
+        const rows = await getComodatoRows(comodatoSheet)
+        const row = rows.find((r: any) => r.get('id') === id)
+        if (!row) throw new Error('Item de comodato não encontrado.')
+
+        const codigo = String(row.get('codigo') ?? '').trim()
+        const alocRows = await alocacoesSheet.getRows()
+        if (alocRows.some((r: any) => String(r.get('chapa') ?? '').trim() === codigo)) {
+          throw new Error('Este item está alocado em uma sala. Devolva-o antes de remover.')
+        }
+        row.set('ativo', 'FALSE')
+        await row.save()
+        comodatoRowsCache = null
+        return ok(corsHeaders, { success: true })
+      }
+
       case 'alocar_item': {
         const chapa = String(body.chapa || '').trim()
         if (!chapa) throw new Error('Item não informado.')
@@ -272,13 +413,23 @@ Deno.serve(async (req) => {
         }
         const itemRows = await getItensRows(itensSheet)
         const itemRow = itemRows.find((r: any) => String(r.get('Chapa') ?? '').trim() === chapa)
-        if (!itemRow) throw new Error('Item não encontrado no inventário.')
+
+        let descricaoItem: string
+        if (itemRow) {
+          descricaoItem = itemRow.get('Descrição do Item') || '-'
+        } else {
+          // Não está no inventário oficial — pode ser um item em comodato (COM-0001...).
+          const comodatoRows = await getComodatoRows(comodatoSheet)
+          const comodatoRow = comodatoRows.find(
+            (r: any) => String(r.get('codigo') ?? '').trim() === chapa && r.get('ativo') !== 'FALSE',
+          )
+          if (!comodatoRow) throw new Error('Item não encontrado no inventário.')
+          descricaoItem = comodatoRow.get('descricao') || '-'
+        }
 
         const alocRows = await alocacoesSheet.getRows()
         const jaAlocado = alocRows.find((r: any) => String(r.get('chapa') ?? '').trim() === chapa)
         if (jaAlocado) throw new Error(`Item já alocado na sala "${jaAlocado.get('sala_nome')}".`)
-
-        const descricaoItem = itemRow.get('Descrição do Item') || '-'
         const agora = new Date().toISOString()
 
         await alocacoesSheet.addRow({

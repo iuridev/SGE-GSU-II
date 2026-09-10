@@ -5,7 +5,7 @@ import { DefesoEleitoralBanner } from '../components/DefesoEleitoralBanner';
 import {
   Package, Search, DoorOpen, ArrowRightLeft, History, Plus, X,
   Loader2, RefreshCw, ExternalLink, CheckCircle2, Undo2, AlertCircle,
-  Building2, Trash2, HelpCircle, Info, FileDown,
+  Building2, Trash2, HelpCircle, Info, FileDown, Handshake, Pencil,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -24,6 +24,23 @@ interface ItemPatrimonio {
   alocadoPorNome: string | null;
   alocadoEm: string | null;
   naoEncontrado?: boolean;
+  comodato?: boolean;
+  empresa?: string;
+  patrimonioEmpresa?: string;
+}
+
+interface ItemComodato {
+  id: string;
+  codigo: string;
+  descricao: string;
+  empresa: string;
+  patrimonioEmpresa: string;
+  observacao: string;
+  criadoPorNome: string;
+  criadoEm: string;
+  alocado: boolean;
+  salaId: string | null;
+  salaNome: string | null;
 }
 
 interface Sala {
@@ -45,7 +62,9 @@ interface HistoricoEntry {
   observacao?: string;
 }
 
-type TabId = 'minha-sala' | 'disponiveis' | 'salas' | 'historico';
+type TabId = 'minha-sala' | 'disponiveis' | 'salas' | 'comodato' | 'historico';
+
+const COMODATO_FORM_VAZIO = { descricao: '', empresa: '', patrimonio_empresa: '', observacao: '' };
 
 export default function PatrimonioSalas() {
   const [userRole, setUserRole] = useState('');
@@ -54,6 +73,7 @@ export default function PatrimonioSalas() {
   const [itens, setItens] = useState<ItemPatrimonio[]>([]);
   const [salas, setSalas] = useState<Sala[]>([]);
   const [historico, setHistorico] = useState<HistoricoEntry[]>([]);
+  const [comodatoItens, setComodatoItens] = useState<ItemComodato[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [historicoLoading, setHistoricoLoading] = useState(false);
@@ -67,6 +87,12 @@ export default function PatrimonioSalas() {
   const [showSalaModal, setShowSalaModal] = useState(false);
   const [salaForm, setSalaForm] = useState({ nome: '', descricao: '' });
   const [savingSala, setSavingSala] = useState(false);
+
+  const [showComodatoModal, setShowComodatoModal] = useState(false);
+  const [comodatoForm, setComodatoForm] = useState(COMODATO_FORM_VAZIO);
+  const [editingComodato, setEditingComodato] = useState<ItemComodato | null>(null);
+  const [savingComodato, setSavingComodato] = useState(false);
+  const [comodatoLoading, setComodatoLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showTutorialModal, setShowTutorialModal] = useState(false);
   const [gerandoPdf, setGerandoPdf] = useState(false);
@@ -143,6 +169,18 @@ export default function PatrimonioSalas() {
     }
   }
 
+  async function fetchComodato() {
+    setComodatoLoading(true);
+    try {
+      const data = await invoke('listar_comodato');
+      setComodatoItens(data.itens || []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setComodatoLoading(false);
+    }
+  }
+
   const salasAtivas = useMemo(() => salas.filter(s => s.ativa), [salas]);
   const allowedSalas = useMemo(
     () => isAdmin ? salasAtivas : salasAtivas.filter(s => userSalasTrabalho.includes(s.id)),
@@ -153,6 +191,7 @@ export default function PatrimonioSalas() {
 
   useEffect(() => {
     if (activeTab === 'historico') fetchHistorico(salaEfetiva || undefined);
+    if (activeTab === 'comodato') fetchComodato();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
@@ -238,6 +277,45 @@ export default function PatrimonioSalas() {
     }
   }
 
+  function openComodatoModal(item: ItemComodato | null = null) {
+    setEditingComodato(item);
+    setComodatoForm(item
+      ? { descricao: item.descricao, empresa: item.empresa, patrimonio_empresa: item.patrimonioEmpresa, observacao: item.observacao }
+      : COMODATO_FORM_VAZIO);
+    setShowComodatoModal(true);
+  }
+
+  async function handleSalvarComodato(e: React.FormEvent) {
+    e.preventDefault();
+    if (!comodatoForm.descricao.trim() || !comodatoForm.empresa.trim()) return;
+    setSavingComodato(true);
+    try {
+      if (editingComodato) {
+        await invoke('editar_comodato', { id: editingComodato.id, ...comodatoForm });
+      } else {
+        await invoke('criar_comodato', comodatoForm);
+      }
+      setShowComodatoModal(false);
+      setComodatoForm(COMODATO_FORM_VAZIO);
+      setEditingComodato(null);
+      await Promise.all([fetchComodato(), fetchItens()]);
+    } catch (e: any) {
+      alert(e.message || 'Erro ao salvar item em comodato.');
+    } finally {
+      setSavingComodato(false);
+    }
+  }
+
+  async function handleRemoverComodato(item: ItemComodato) {
+    if (!confirm(`Remover o item em comodato ${item.codigo} — "${item.descricao}"?`)) return;
+    try {
+      await invoke('remover_comodato', { id: item.id });
+      await Promise.all([fetchComodato(), fetchItens()]);
+    } catch (e: any) {
+      alert(e.message || 'Erro ao remover item em comodato.');
+    }
+  }
+
   const formatDate = (d?: string | null) => {
     if (!d) return '-';
     try { return new Date(d).toLocaleString('pt-BR'); } catch { return d; }
@@ -298,7 +376,10 @@ export default function PatrimonioSalas() {
   const tabs: { id: TabId; label: string; icon: ReactNode }[] = [
     { id: 'minha-sala', label: isAdmin ? 'Sala Selecionada' : (allowedSalas.length > 1 ? 'Minhas Salas' : 'Minha Sala'), icon: <DoorOpen size={15} /> },
     { id: 'disponiveis', label: 'Itens Disponíveis', icon: <Package size={15} /> },
-    ...(isAdmin ? [{ id: 'salas' as TabId, label: 'Salas', icon: <Building2 size={15} /> }] : []),
+    ...(isAdmin ? [
+      { id: 'salas' as TabId, label: 'Salas', icon: <Building2 size={15} /> },
+      { id: 'comodato' as TabId, label: 'Comodato', icon: <Handshake size={15} /> },
+    ] : []),
     { id: 'historico', label: 'Histórico', icon: <History size={15} /> },
   ];
 
@@ -442,7 +523,14 @@ export default function PatrimonioSalas() {
                   <div key={item.chapa} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-mono font-bold text-xs text-slate-500">Chapa {item.chapa}</span>
+                        <span className="font-mono font-bold text-xs text-slate-500">
+                          {item.comodato ? item.chapa : `Chapa ${item.chapa}`}
+                        </span>
+                        {item.comodato && (
+                          <span className="text-[9px] font-bold uppercase bg-violet-50 text-violet-700 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                            <Handshake size={10} /> Comodato{item.empresa ? ` · ${item.empresa}` : ''}
+                          </span>
+                        )}
                         {item.naoEncontrado && (
                           <span className="text-[9px] font-bold uppercase bg-red-50 text-red-600 px-2 py-0.5 rounded-full">
                             Não encontrado no inventário
@@ -495,7 +583,16 @@ export default function PatrimonioSalas() {
               {itensDisponiveis.map(item => (
                 <div key={item.chapa} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors">
                   <div className="min-w-0">
-                    <span className="font-mono font-bold text-xs text-slate-500">Chapa {item.chapa}</span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono font-bold text-xs text-slate-500">
+                        {item.comodato ? item.chapa : `Chapa ${item.chapa}`}
+                      </span>
+                      {item.comodato && (
+                        <span className="text-[9px] font-bold uppercase bg-violet-50 text-violet-700 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                          <Handshake size={10} /> Comodato{item.empresa ? ` · ${item.empresa}` : ''}
+                        </span>
+                      )}
+                    </div>
                     <p className="font-medium text-slate-800 break-words">{item.descricao}</p>
                     {item.estadoConservacao && (
                       <span className="text-[10px] font-bold uppercase text-emerald-600">{item.estadoConservacao}</span>
@@ -566,6 +663,91 @@ export default function PatrimonioSalas() {
               <div className="text-center py-16 text-slate-400">
                 <Building2 size={40} className="mx-auto mb-3 opacity-30" />
                 <p className="text-sm">Nenhuma sala cadastrada ainda.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'comodato' && isAdmin && (
+        <div className="space-y-4">
+          <div className="bg-violet-50 border border-violet-100 rounded-2xl p-4 flex items-start gap-3">
+            <Info size={16} className="text-violet-500 shrink-0 mt-0.5" />
+            <p className="text-xs text-violet-700 leading-relaxed">
+              Itens em <strong>comodato</strong> são equipamentos de empresas terceirizadas sob a guarda da URE.
+              Não constam no inventário patrimonial oficial. Ao cadastrar, o sistema gera uma identificação
+              própria (<strong>COM-0001</strong>, <strong>COM-0002</strong>...). Esses itens aparecem em
+              <strong> "Itens Disponíveis"</strong> e podem ser alocados em salas como qualquer outro item.
+            </p>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between gap-3">
+              <span className="text-sm font-bold text-slate-700">
+                {comodatoItens.length} item(ns) em comodato
+              </span>
+              <button
+                onClick={() => openComodatoModal()}
+                className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors text-sm font-medium shrink-0"
+              >
+                <Plus size={16} /> Novo Item em Comodato
+              </button>
+            </div>
+
+            {comodatoLoading ? (
+              <div className="flex justify-center items-center py-16">
+                <Loader2 size={32} className="animate-spin text-violet-500" />
+              </div>
+            ) : comodatoItens.length === 0 ? (
+              <div className="text-center py-16 text-slate-400">
+                <Handshake size={40} className="mx-auto mb-3 opacity-30" />
+                <p className="text-sm">Nenhum item em comodato cadastrado ainda.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-50">
+                {comodatoItens.map(item => (
+                  <div key={item.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono font-bold text-xs text-violet-700">{item.codigo}</span>
+                        {item.alocado ? (
+                          <span className="text-[9px] font-bold uppercase bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">
+                            Alocado · {item.salaNome}
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-bold uppercase bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">
+                            Disponível
+                          </span>
+                        )}
+                      </div>
+                      <p className="font-medium text-slate-800 break-words">{item.descricao}</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Empresa: {item.empresa}
+                        {item.patrimonioEmpresa ? ` · Patrimônio da empresa: ${item.patrimonioEmpresa}` : ''}
+                      </p>
+                      {item.observacao && (
+                        <p className="text-[11px] text-slate-400 mt-0.5">Obs.: {item.observacao}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => openComodatoModal(item)}
+                        className="p-2.5 hover:bg-violet-50 text-slate-400 hover:text-violet-600 rounded-lg transition-colors"
+                        title="Editar item"
+                      >
+                        <Pencil size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleRemoverComodato(item)}
+                        disabled={item.alocado}
+                        className="p-2.5 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-lg transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                        title={item.alocado ? 'Devolva o item da sala antes de remover' : 'Remover item'}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -687,6 +869,78 @@ export default function PatrimonioSalas() {
         </div>
       )}
 
+      {showComodatoModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <Handshake size={20} className="text-violet-600" />
+                {editingComodato ? `Editar ${editingComodato.codigo}` : 'Novo Item em Comodato'}
+              </h2>
+              <button onClick={() => setShowComodatoModal(false)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+                <X size={18} className="text-slate-500" />
+              </button>
+            </div>
+            <form onSubmit={handleSalvarComodato} className="p-5 space-y-4">
+              {!editingComodato && (
+                <div className="bg-violet-50 border border-violet-100 rounded-lg p-3 flex items-start gap-2">
+                  <Info size={14} className="text-violet-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-violet-700">
+                    A identificação de comodato (COM-0000) é gerada automaticamente ao salvar.
+                  </p>
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Descrição do Item *</label>
+                <input
+                  required
+                  value={comodatoForm.descricao}
+                  onChange={e => setComodatoForm(prev => ({ ...prev, descricao: e.target.value }))}
+                  placeholder="Ex: Notebook Dell Latitude 5420"
+                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Empresa Proprietária *</label>
+                <input
+                  required
+                  value={comodatoForm.empresa}
+                  onChange={e => setComodatoForm(prev => ({ ...prev, empresa: e.target.value }))}
+                  placeholder="Ex: Empresa Terceirizada X Ltda."
+                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Nº de Patrimônio da Empresa</label>
+                <input
+                  value={comodatoForm.patrimonio_empresa}
+                  onChange={e => setComodatoForm(prev => ({ ...prev, patrimonio_empresa: e.target.value }))}
+                  placeholder="Identificação/etiqueta da empresa (opcional)"
+                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Observação</label>
+                <textarea
+                  rows={2}
+                  value={comodatoForm.observacao}
+                  onChange={e => setComodatoForm(prev => ({ ...prev, observacao: e.target.value }))}
+                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setShowComodatoModal(false)} className="flex-1 px-4 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={savingComodato} className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-violet-600 rounded-lg hover:bg-violet-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2">
+                  {savingComodato ? (<><Loader2 size={16} className="animate-spin" /> Salvando...</>) : (<><CheckCircle2 size={16} /> {editingComodato ? 'Salvar' : 'Cadastrar'}</>)}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {showTutorialModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
@@ -720,7 +974,8 @@ export default function PatrimonioSalas() {
                 <h3 className="font-bold text-slate-800 mb-1.5">Conhecendo as abas</h3>
                 <ul className="list-disc pl-5 space-y-1 text-slate-600">
                   <li><strong>Minha Sala</strong> (ou "Minhas Salas", se você tiver mais de uma) — itens já alocados na sua sala.</li>
-                  <li><strong>Itens Disponíveis</strong> — itens do inventário que ainda não estão em nenhuma sala.</li>
+                  <li><strong>Itens Disponíveis</strong> — itens do inventário que ainda não estão em nenhuma sala. Inclui itens em <strong>comodato</strong> (marcados com etiqueta roxa).</li>
+                  {isAdmin && <li><strong>Comodato</strong> — cadastro de equipamentos de empresas terceirizadas sob nossa guarda; cada item ganha uma identificação própria (COM-0001...) e pode ser alocado em sala.</li>}
                   <li><strong>Histórico</strong> — todas as alocações e devoluções feitas na sua sala.</li>
                 </ul>
                 <p className="text-xs text-slate-400 mt-2">
