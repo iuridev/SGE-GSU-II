@@ -1,17 +1,45 @@
 import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
-import { resolveViewRole } from '../lib/roles';
+import { resolveViewRole, isReadOnlyRole } from '../lib/roles';
 import { DefesoEleitoralBanner } from '../components/DefesoEleitoralBanner';
 import {
   Package, Search, DoorOpen, ArrowRightLeft, History, Plus, X,
   Loader2, RefreshCw, ExternalLink, CheckCircle2, Undo2, AlertCircle,
   Building2, Trash2, HelpCircle, Info, FileDown, Handshake, Pencil,
+  Camera, ImagePlus,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { addTimbradoAllPages, TIMBRADO_HEADER_H, TIMBRADO_FOOTER_H } from '../lib/pdfTimbrado';
 
 const SHEET_URL = import.meta.env.VITE_VISITAS_SHEET_URL as string;
+const SALAS_FOTOS_BUCKET = 'salas-fotos';
+const MAX_FOTOS_SALA = 4;
+
+// Baixa uma imagem (URL pública do storage) e devolve data URL + dimensões,
+// para embutir no PDF. Retorna null se falhar (não trava a geração do PDF).
+async function carregarImagemParaPdf(url: string): Promise<{ data: string; w: number; h: number } | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    const data = await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result as string);
+      fr.onerror = reject;
+      fr.readAsDataURL(blob);
+    });
+    const dims = await new Promise<{ w: number; h: number }>((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+      img.onerror = () => resolve({ w: 0, h: 0 });
+      img.src = data;
+    });
+    return { data, w: dims.w, h: dims.h };
+  } catch {
+    return null;
+  }
+}
 
 interface ItemPatrimonio {
   chapa: string;
@@ -48,6 +76,7 @@ interface Sala {
   nome: string;
   descricao?: string;
   ativa: boolean;
+  fotos?: string[];
 }
 
 interface HistoricoEntry {
@@ -97,6 +126,10 @@ export default function PatrimonioSalas() {
   const [showTutorialModal, setShowTutorialModal] = useState(false);
   const [gerandoPdf, setGerandoPdf] = useState(false);
 
+  const [readOnly, setReadOnly] = useState(false);
+  const [uploadingFoto, setUploadingFoto] = useState(false);
+  const [fotoError, setFotoError] = useState<string | null>(null);
+
   const isAdmin = userRole === 'regional_admin';
 
   useEffect(() => {
@@ -116,6 +149,7 @@ export default function PatrimonioSalas() {
           .single();
         setUserRole(resolveViewRole(profile?.role || ''));
         setUserSalasTrabalho(profile?.salas_trabalho || []);
+        setReadOnly(isReadOnlyRole(profile?.role || ''));
       }
       await Promise.all([fetchItens(), fetchSalas()]);
     } catch (e) {
@@ -188,6 +222,11 @@ export default function PatrimonioSalas() {
   );
   // Se o usuário só tem acesso a uma sala, ela é usada automaticamente (sem precisar escolher).
   const salaEfetiva = salaFiltro || (allowedSalas.length === 1 ? allowedSalas[0].id : '');
+  const salaEfetivaObj = useMemo(() => salas.find(s => s.id === salaEfetiva) || null, [salas, salaEfetiva]);
+  const fotosSalaEfetiva = salaEfetivaObj?.fotos || [];
+  // Pode gerenciar fotos: admin de verdade (não o perfil somente-leitura) ou o
+  // usuário da URE dono desta sala de trabalho.
+  const podeGerenciarFotos = !readOnly && !!salaEfetiva && (isAdmin || userSalasTrabalho.includes(salaEfetiva));
 
   useEffect(() => {
     if (activeTab === 'historico') fetchHistorico(salaEfetiva || undefined);
@@ -363,6 +402,48 @@ export default function PatrimonioSalas() {
         margin: { top: TIMBRADO_HEADER_H + 6, bottom: TIMBRADO_FOOTER_H + 6 },
       });
 
+      // Fotos da sala (ajudam na identificação) — 2 por linha, abaixo da tabela.
+      const fotos = salas.find(s => s.id === salaEfetiva)?.fotos || [];
+      if (fotos.length > 0) {
+        const pageH = doc.internal.pageSize.getHeight();
+        const pageW = doc.internal.pageSize.getWidth();
+        const usableW = pageW - margin * 2;
+        const gap = 8;
+        const colW = (usableW - gap) / 2;
+        const maxImgH = 62;
+        let y = ((doc as any).lastAutoTable?.finalY || currentY) + 12;
+
+        const ensureSpace = (h: number) => {
+          if (y + h > pageH - (TIMBRADO_FOOTER_H + 8)) {
+            doc.addPage();
+            y = TIMBRADO_HEADER_H + 10;
+          }
+        };
+
+        ensureSpace(10);
+        doc.setFontSize(12);
+        doc.setTextColor(37, 99, 235);
+        doc.text('Fotos da Sala', margin, y);
+        y += 6;
+
+        const imagens = await Promise.all(fotos.map(carregarImagemParaPdf));
+        let col = 0;
+        let rowMaxH = 0;
+        for (const im of imagens) {
+          if (!im || !im.w || !im.h) continue;
+          let w = colW;
+          let h = (im.h * w) / im.w;
+          if (h > maxImgH) { h = maxImgH; w = (im.w * h) / im.h; }
+          if (col === 0) { ensureSpace(maxImgH + 4); rowMaxH = 0; }
+          const x = margin + col * (colW + gap);
+          const fmt = im.data.includes('image/png') ? 'PNG' : 'JPEG';
+          doc.addImage(im.data, fmt, x, y, w, h);
+          rowMaxH = Math.max(rowMaxH, h);
+          col++;
+          if (col === 2) { y += rowMaxH + gap; col = 0; }
+        }
+      }
+
       addTimbradoAllPages(doc);
       doc.save(`Patrimonio_${salaNome.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`);
     } catch (e) {
@@ -370,6 +451,64 @@ export default function PatrimonioSalas() {
       alert('Erro ao gerar o PDF.');
     } finally {
       setGerandoPdf(false);
+    }
+  }
+
+  async function persistirFotosSala(salaId: string, fotos: string[]) {
+    const data = await invoke('atualizar_fotos_sala', { id: salaId, fotos });
+    const novas: string[] = data?.fotos || fotos;
+    setSalas(prev => prev.map(s => (s.id === salaId ? { ...s, fotos: novas } : s)));
+  }
+
+  async function handleAdicionarFotos(files: FileList | null) {
+    if (!files || !salaEfetiva) return;
+    setFotoError(null);
+    const atuais = salas.find(s => s.id === salaEfetiva)?.fotos || [];
+    const espacoLivre = MAX_FOTOS_SALA - atuais.length;
+    if (espacoLivre <= 0) {
+      setFotoError(`Máximo de ${MAX_FOTOS_SALA} fotos por sala.`);
+      return;
+    }
+    setUploadingFoto(true);
+    try {
+      const novasUrls: string[] = [];
+      for (const file of Array.from(files).slice(0, espacoLivre)) {
+        if (!file.type.startsWith('image/')) {
+          setFotoError('Só é possível enviar imagens.');
+          continue;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+          setFotoError('Cada foto deve ter no máximo 5 MB.');
+          continue;
+        }
+        const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+        const path = `${salaEfetiva}/${Date.now()}_${Math.round(Math.random() * 1e6)}.${ext}`;
+        const { error: upErr } = await supabase.storage.from(SALAS_FOTOS_BUCKET).upload(path, file, { contentType: file.type });
+        if (upErr) throw upErr;
+        const { data: { publicUrl } } = supabase.storage.from(SALAS_FOTOS_BUCKET).getPublicUrl(path);
+        novasUrls.push(publicUrl);
+      }
+      if (novasUrls.length > 0) {
+        await persistirFotosSala(salaEfetiva, [...atuais, ...novasUrls]);
+      }
+    } catch (e: any) {
+      console.error(e);
+      setFotoError(e.message || 'Erro ao enviar a foto.');
+    } finally {
+      setUploadingFoto(false);
+    }
+  }
+
+  async function handleRemoverFoto(url: string) {
+    if (!salaEfetiva || !confirm('Remover esta foto da sala?')) return;
+    const atuais = salas.find(s => s.id === salaEfetiva)?.fotos || [];
+    try {
+      await persistirFotosSala(salaEfetiva, atuais.filter(f => f !== url));
+      const path = url.split(`/object/public/${SALAS_FOTOS_BUCKET}/`)[1];
+      if (path) await supabase.storage.from(SALAS_FOTOS_BUCKET).remove([path]);
+    } catch (e: any) {
+      console.error(e);
+      alert(e.message || 'Erro ao remover a foto.');
     }
   }
 
@@ -500,6 +639,60 @@ export default function PatrimonioSalas() {
             <p className="text-sm">Selecione uma sala acima para ver os itens alocados.</p>
           </div>
         ) : (
+          <div className="space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Camera size={16} className="text-slate-400" />
+                <span className="text-sm font-bold text-slate-700">Fotos da Sala</span>
+                <span className="text-xs text-slate-400">({fotosSalaEfetiva.length}/{MAX_FOTOS_SALA})</span>
+              </div>
+              {podeGerenciarFotos && fotosSalaEfetiva.length < MAX_FOTOS_SALA && (
+                <label className={`flex items-center gap-2 px-3 py-2 rounded-lg font-bold text-[11px] uppercase transition-colors shrink-0 cursor-pointer ${uploadingFoto ? 'bg-slate-100 text-slate-400' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
+                  {uploadingFoto ? <Loader2 size={14} className="animate-spin" /> : <ImagePlus size={14} />}
+                  {uploadingFoto ? 'Enviando...' : 'Adicionar foto'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    disabled={uploadingFoto}
+                    className="hidden"
+                    onChange={e => { handleAdicionarFotos(e.target.files); e.target.value = ''; }}
+                  />
+                </label>
+              )}
+            </div>
+            <div className="p-4">
+              {fotoError && <p className="text-xs text-red-600 mb-3">{fotoError}</p>}
+              {fotosSalaEfetiva.length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-6">
+                  {podeGerenciarFotos
+                    ? 'Nenhuma foto ainda. Adicione até 4 fotos para ajudar a identificar a sala — elas também saem no PDF.'
+                    : 'Nenhuma foto cadastrada para esta sala.'}
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {fotosSalaEfetiva.map(url => (
+                    <div key={url} className="relative group aspect-square rounded-xl overflow-hidden border border-slate-100 bg-slate-50">
+                      <a href={url} target="_blank" rel="noopener noreferrer">
+                        <img src={url} alt="Foto da sala" className="w-full h-full object-cover" />
+                      </a>
+                      {podeGerenciarFotos && (
+                        <button
+                          onClick={() => handleRemoverFoto(url)}
+                          className="absolute top-1.5 right-1.5 p-1.5 bg-black/60 hover:bg-red-600 text-white rounded-lg transition-colors"
+                          title="Remover foto"
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-100 flex items-center justify-between gap-3">
               <span className="text-sm font-bold text-slate-700">{itensDaSala.length} item(ns) nesta sala</span>
@@ -554,6 +747,7 @@ export default function PatrimonioSalas() {
                 ))}
               </div>
             )}
+          </div>
           </div>
         )
       )}

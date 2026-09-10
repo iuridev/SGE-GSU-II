@@ -15,7 +15,9 @@ const ALOCACOES_SHEET = 'Alocacoes'
 const HISTORICO_SHEET = 'Historico'
 const COMODATO_SHEET = 'Comodato'
 
-const SALAS_COLUMNS = ['id', 'nome', 'descricao', 'ativa', 'criado_por', 'criado_em']
+// "fotos": JSON array (máx. 4) de URLs públicas do bucket "salas-fotos" — ajudam
+// a identificar a sala e saem no PDF da lista de itens.
+const SALAS_COLUMNS = ['id', 'nome', 'descricao', 'ativa', 'criado_por', 'criado_em', 'fotos']
 // Itens de empresas terceirizadas sob nossa guarda — não constam no inventário
 // oficial (aba "Itens"). "codigo" é a identificação autoincremental (COM-0001...).
 const COMODATO_COLUMNS = ['id', 'seq', 'codigo', 'descricao', 'empresa', 'patrimonio_empresa', 'observacao', 'ativo', 'criado_por_id', 'criado_por_nome', 'criado_em']
@@ -219,8 +221,31 @@ Deno.serve(async (req) => {
           nome: r.get('nome'),
           descricao: r.get('descricao') || '',
           ativa: r.get('ativa') === 'TRUE',
+          fotos: parseFotos(r.get('fotos')),
         }))
         return ok(corsHeaders, { salas })
+      }
+
+      case 'atualizar_fotos_sala': {
+        const id = String(body.id || '')
+        if (!id) throw new Error('Sala não informada.')
+        const role = (profile as Profile).role
+        if (role !== 'regional_admin') {
+          if (role !== 'ure_servico' || !((profile as Profile).salas_trabalho || []).includes(id)) {
+            throw new Error('Você só pode editar as fotos de uma das suas salas.')
+          }
+        }
+        const fotos = Array.isArray(body.fotos)
+          ? body.fotos.map((f: unknown) => String(f)).filter(Boolean).slice(0, 4)
+          : []
+
+        const rows = await getSalasRows(salasSheet)
+        const row = rows.find((r: any) => r.get('id') === id)
+        if (!row) throw new Error('Sala não encontrada.')
+        row.set('fotos', JSON.stringify(fotos))
+        await row.save()
+        salasRowsCache = null
+        return ok(corsHeaders, { success: true, fotos })
       }
 
       case 'criar_sala': {
@@ -555,6 +580,16 @@ Deno.serve(async (req) => {
   }
 })
 
+function parseFotos(raw: unknown): string[] {
+  if (!raw) return []
+  try {
+    const arr = JSON.parse(String(raw))
+    return Array.isArray(arr) ? arr.map((f) => String(f)).filter(Boolean).slice(0, 4) : []
+  } catch {
+    return []
+  }
+}
+
 function exigirRegionalAdmin(profile: Profile) {
   if (profile.role !== 'regional_admin') {
     throw new Error('Apenas administradores regionais podem executar esta ação.')
@@ -576,7 +611,14 @@ async function getOrCreateSheet(doc: any, title: string, columns: string[]) {
   } catch { /* ainda não carregado */ }
 
   const headers = await sheet.loadHeaderRow().then(() => sheet.headerValues).catch(() => [])
-  if (!headers || headers.length === 0) await sheet.setHeaderRow(columns)
+  if (!headers || headers.length === 0) {
+    await sheet.setHeaderRow(columns)
+  } else {
+    // Aba já existe mas pode ter sido criada antes de alguma coluna nova (ex.: "fotos").
+    // Acrescenta as que faltam ao final, preservando as existentes e os dados.
+    const missing = columns.filter((c) => !headers.includes(c))
+    if (missing.length > 0) await sheet.setHeaderRow([...headers, ...missing])
+  }
   return sheet
 }
 
