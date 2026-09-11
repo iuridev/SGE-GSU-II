@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import { HelpCircle, Loader2, Search, Cloud, List } from 'lucide-react';
+import { HelpCircle, Loader2, Search, Cloud, List, Link2, Check } from 'lucide-react';
 
 interface Duvida {
   id: string;
@@ -64,6 +64,15 @@ export default function DuvidasEscolas() {
   const [aba, setAba] = useState<'lista' | 'nuvem'>('lista');
   const [filtroCategoria, setFiltroCategoria] = useState('Todas');
   const [filtroBusca, setFiltroBusca] = useState('');
+  const [linkCopiado, setLinkCopiado] = useState(false);
+
+  const linkFormulario = `${window.location.origin}/?duvidas=1`;
+
+  function copiarLink() {
+    navigator.clipboard.writeText(linkFormulario);
+    setLinkCopiado(true);
+    setTimeout(() => setLinkCopiado(false), 2000);
+  }
 
   useEffect(() => {
     supabase.functions.invoke('duvidas-escolas-listar', { body: { action: 'listar' } })
@@ -106,14 +115,24 @@ export default function DuvidasEscolas() {
 
   return (
     <div className="max-w-5xl mx-auto">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-11 h-11 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200 shrink-0">
-          <HelpCircle size={22} className="text-white" />
+      <div className="flex items-start justify-between gap-3 mb-6 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200 shrink-0">
+            <HelpCircle size={22} className="text-white" />
+          </div>
+          <div>
+            <h1 className="text-xl font-black text-slate-800">Dúvidas das Escolas</h1>
+            <p className="text-sm text-slate-500">Respostas do formulário público — Obras, Manutenções, Patrimônio e Zeladoria</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-xl font-black text-slate-800">Dúvidas das Escolas</h1>
-          <p className="text-sm text-slate-500">Respostas do formulário público — Obras, Manutenções, Patrimônio e Zeladoria</p>
-        </div>
+        <button
+          onClick={copiarLink}
+          title={linkFormulario}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-colors shrink-0 ${linkCopiado ? 'bg-green-100 text-green-700' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}
+        >
+          {linkCopiado ? <Check size={14} /> : <Link2 size={14} />}
+          {linkCopiado ? 'Link copiado!' : 'Copiar link do formulário'}
+        </button>
       </div>
 
       {erro && <p className="text-sm font-semibold text-red-600 bg-red-50 rounded-xl px-4 py-3 mb-4">{erro}</p>}
