@@ -13,7 +13,7 @@ import {
   School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown,
   Bell, MessageSquare, CheckCircle, ClipboardList,
   Wrench, Search, CalendarCheck, BarChart2, Megaphone, DoorOpen, ClipboardCheck, Target,
-  CalendarDays, FileSignature, Bot
+  CalendarDays, FileSignature, Bot, HelpCircle
 } from 'lucide-react';
 import { AgendaUnificadaModal } from './components/AgendaUnificadaModal';
 import { AlertaEscolaModal } from './components/AlertaEscolaModal';
@@ -67,6 +67,8 @@ import { PainelGerencial } from './pages/PainelGerencial';
 import EstacionamentoCarros from './pages/EstacionamentoCarros';
 import Comunicados from './pages/Comunicados';
 import { AgendaPublica } from './pages/AgendaPublica';
+import { FormularioDuvidas } from './pages/FormularioDuvidas';
+import DuvidasEscolas from './pages/DuvidasEscolas';
 import VisitasEscolares from './pages/VisitasEscolares';
 import PatrimonioSalas from './pages/PatrimonioSalas';
 import AtendimentoPatrimonio from './pages/AtendimentoPatrimonio';
@@ -152,6 +154,7 @@ const MENU_GROUPS: MenuGroup[] = [
       //{ id: 'fiscalizacaoURE', label: 'Limpeza URE', icon: <ClipboardCheck size={20} className="text-teal-500" />, roles: ['regional_admin'] },
       { id: 'zeladoria', label: 'Zeladoria', icon: <ShieldCheck size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'visitas-escolares', label: 'Visitas às Escolas', icon: <School size={20} className="text-teal-500" />, roles: ['regional_admin'] },
+      { id: 'duvidas-escolas', label: 'Dúvidas das Escolas', icon: <HelpCircle size={20} className="text-indigo-500" />, roles: ['regional_admin'] },
     ]
   },
   {
@@ -712,6 +715,7 @@ export default function App() {
       case 'painel-gerencial': return <PainelGerencial />;
       case 'comunicados': return <Comunicados />;
       case 'visitas-escolares': return <VisitasEscolares />;
+      case 'duvidas-escolas': return <DuvidasEscolas />;
       case 'acompanhamento-obras': return <AcompanhamentoObras />;
       case 'patrimonio-salas': return <PatrimonioSalas />;
       case 'atendimento-patrimonio': return <AtendimentoPatrimonio onNavigate={setCurrentPage} />;
@@ -727,6 +731,9 @@ export default function App() {
 
   const publicAgendaId = new URLSearchParams(window.location.search).get('agenda');
   if (publicAgendaId) return <AgendaPublica ambienteId={publicAgendaId} />;
+
+  const isDuvidasPublicas = new URLSearchParams(window.location.search).get('duvidas') === '1';
+  if (isDuvidasPublicas) return <FormularioDuvidas />;
 
   if (loading) {
     return (
