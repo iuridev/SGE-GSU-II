@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import { HelpCircle, Loader2, Search, Cloud, List } from 'lucide-react';
+import { HelpCircle, Loader2, Search, Cloud, List, Link2, Check } from 'lucide-react';
 
 interface Duvida {
   id: string;
@@ -12,15 +12,30 @@ interface Duvida {
   criadoEm: string;
 }
 
-const CATEGORIAS = ['Obras', 'Manutenções', 'Patrimônio', 'Zeladoria', 'Outro'];
+// Mesma lista (value = o que fica gravado / label = texto curto de exibição)
+// usada em src/pages/FormularioDuvidas.tsx. Fiscalização hoje cobre só
+// contratos de elevador, por isso o value já vem descritivo.
+const CATEGORIAS = [
+  { value: 'Obras', label: 'Obras' },
+  { value: 'Manutenções', label: 'Manutenções' },
+  { value: 'Patrimônio', label: 'Patrimônio' },
+  { value: 'Zeladoria', label: 'Zeladoria' },
+  { value: 'Fiscalização de Contrato de Manutenção de Elevadores', label: 'Fiscalização' },
+  { value: 'Outro', label: 'Outro' },
+];
 
 const CATEGORIA_COR: Record<string, string> = {
   'Obras': 'bg-orange-100 text-orange-700',
   'Manutenções': 'bg-blue-100 text-blue-700',
   'Patrimônio': 'bg-purple-100 text-purple-700',
   'Zeladoria': 'bg-teal-100 text-teal-700',
+  'Fiscalização de Contrato de Manutenção de Elevadores': 'bg-indigo-100 text-indigo-700',
   'Outro': 'bg-slate-100 text-slate-600',
 };
+
+function categoriaLabel(categoria: string) {
+  return CATEGORIAS.find(c => c.value === categoria)?.label || categoria;
+}
 
 // Palavras comuns do português que não ajudam a identificar o tema de uma
 // dúvida — removidas antes de contar frequência para a nuvem de palavras.
@@ -64,6 +79,15 @@ export default function DuvidasEscolas() {
   const [aba, setAba] = useState<'lista' | 'nuvem'>('lista');
   const [filtroCategoria, setFiltroCategoria] = useState('Todas');
   const [filtroBusca, setFiltroBusca] = useState('');
+  const [linkCopiado, setLinkCopiado] = useState(false);
+
+  const linkFormulario = `${window.location.origin}/?duvidas=1`;
+
+  function copiarLink() {
+    navigator.clipboard.writeText(linkFormulario);
+    setLinkCopiado(true);
+    setTimeout(() => setLinkCopiado(false), 2000);
+  }
 
   useEffect(() => {
     supabase.functions.invoke('duvidas-escolas-listar', { body: { action: 'listar' } })
@@ -106,14 +130,24 @@ export default function DuvidasEscolas() {
 
   return (
     <div className="max-w-5xl mx-auto">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-11 h-11 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200 shrink-0">
-          <HelpCircle size={22} className="text-white" />
+      <div className="flex items-start justify-between gap-3 mb-6 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200 shrink-0">
+            <HelpCircle size={22} className="text-white" />
+          </div>
+          <div>
+            <h1 className="text-xl font-black text-slate-800">Dúvidas das Escolas</h1>
+            <p className="text-sm text-slate-500">Respostas do formulário público — Obras, Manutenções, Patrimônio e Zeladoria</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-xl font-black text-slate-800">Dúvidas das Escolas</h1>
-          <p className="text-sm text-slate-500">Respostas do formulário público — Obras, Manutenções, Patrimônio e Zeladoria</p>
-        </div>
+        <button
+          onClick={copiarLink}
+          title={linkFormulario}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-colors shrink-0 ${linkCopiado ? 'bg-green-100 text-green-700' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}
+        >
+          {linkCopiado ? <Check size={14} /> : <Link2 size={14} />}
+          {linkCopiado ? 'Link copiado!' : 'Copiar link do formulário'}
+        </button>
       </div>
 
       {erro && <p className="text-sm font-semibold text-red-600 bg-red-50 rounded-xl px-4 py-3 mb-4">{erro}</p>}
@@ -150,7 +184,7 @@ export default function DuvidasEscolas() {
           className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
         >
           <option value="Todas">Todas as categorias</option>
-          {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
+          {CATEGORIAS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
         </select>
       </div>
 
@@ -166,8 +200,8 @@ export default function DuvidasEscolas() {
               <div key={d.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
                 <div className="flex items-start justify-between gap-3 mb-2">
                   <p className="font-black text-slate-800 text-sm">{d.escolaNome}</p>
-                  <span className={`text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-wide shrink-0 ${CATEGORIA_COR[d.categoria] || CATEGORIA_COR['Outro']}`}>
-                    {d.categoria}
+                  <span title={d.categoria} className={`text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-wide shrink-0 ${CATEGORIA_COR[d.categoria] || CATEGORIA_COR['Outro']}`}>
+                    {categoriaLabel(d.categoria)}
                   </span>
                 </div>
                 <p className="text-sm text-slate-600 whitespace-pre-wrap">{d.duvida}</p>

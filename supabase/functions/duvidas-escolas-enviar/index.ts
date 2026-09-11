@@ -14,7 +14,10 @@ const SHEET_ID = Deno.env.get('DUVIDAS_ESCOLAS_SHEET_ID') ?? ''
 const DUVIDAS_SHEET = 'Duvidas'
 const DUVIDAS_COLUMNS = ['id', 'escola_id', 'escola_nome', 'categoria', 'duvida', 'contato', 'criado_em']
 
-const CATEGORIAS = ['Obras', 'Manutenções', 'Patrimônio', 'Zeladoria', 'Outro']
+// "Fiscalização de Contrato de Manutenção de Elevadores" é o único tipo de
+// fiscalização de contrato ativo por enquanto — por isso o value já vem
+// descritivo (ver mesma lista em src/pages/FormularioDuvidas.tsx).
+const CATEGORIAS = ['Obras', 'Manutenções', 'Patrimônio', 'Zeladoria', 'Fiscalização de Contrato de Manutenção de Elevadores', 'Outro']
 
 let cachedAuth: any = null
 let cachedDoc: any = null

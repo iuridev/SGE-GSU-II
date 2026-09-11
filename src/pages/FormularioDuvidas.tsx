@@ -7,7 +7,18 @@ interface EscolaOpcao {
   nome: string;
 }
 
-const CATEGORIAS = ['Obras', 'Manutenções', 'Patrimônio', 'Zeladoria', 'Outro'] as const;
+// "value" é o que fica gravado na planilha e aparece no painel admin; "label"
+// é o texto curto do botão. Fiscalização hoje cobre só contratos de elevador
+// — por isso o value já vem descritivo, sem depender de conhecimento tácito
+// de quem lê a planilha depois.
+const CATEGORIAS = [
+  { value: 'Obras', label: 'Obras' },
+  { value: 'Manutenções', label: 'Manutenções' },
+  { value: 'Patrimônio', label: 'Patrimônio' },
+  { value: 'Zeladoria', label: 'Zeladoria' },
+  { value: 'Fiscalização de Contrato de Manutenção de Elevadores', label: 'Fiscalização' },
+  { value: 'Outro', label: 'Outro' },
+] as const;
 
 export function FormularioDuvidas() {
   const [escolas, setEscolas] = useState<EscolaOpcao[]>([]);
@@ -119,14 +130,17 @@ export function FormularioDuvidas() {
                 {CATEGORIAS.map(cat => (
                   <button
                     type="button"
-                    key={cat}
-                    onClick={() => setCategoria(cat)}
-                    className={`px-3 py-2.5 rounded-xl text-xs font-black uppercase tracking-wide border transition-colors ${categoria === cat ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300'}`}
+                    key={cat.value}
+                    onClick={() => setCategoria(cat.value)}
+                    className={`px-3 py-2.5 rounded-xl text-xs font-black uppercase tracking-wide border transition-colors ${categoria === cat.value ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300'}`}
                   >
-                    {cat}
+                    {cat.label}
                   </button>
                 ))}
               </div>
+              {categoria && categoria !== CATEGORIAS.find(c => c.value === categoria)?.label && (
+                <p className="text-xs text-slate-500 font-semibold mt-2 px-1">{categoria}</p>
+              )}
             </div>
 
             <div>
