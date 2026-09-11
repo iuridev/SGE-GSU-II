@@ -445,3 +445,19 @@ entrypoint = "./functions/salvar-agendamento-planilha/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/salvar-agendamento-planilha/*.html" ]
+
+[functions.duvidas-escolas-enviar]
+enabled = true
+# Formulário público de dúvidas das escolas, sem login (link enviado
+# diretamente às escolas) — por isso não há JWT de usuário para verificar.
+# A função só sabe listar nomes de escola e gravar uma dúvida nova; nunca
+# lê dúvidas de terceiros (isso fica em duvidas-escolas-listar, que exige
+# login de regional_admin). Proteção contra abuso: honeypot + rate-limit
+# por IP dentro do próprio código da função.
+verify_jwt = false
+entrypoint = "./functions/duvidas-escolas-enviar/index.ts"
+
+[functions.duvidas-escolas-listar]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/duvidas-escolas-listar/index.ts"
