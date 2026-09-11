@@ -12,15 +12,30 @@ interface Duvida {
   criadoEm: string;
 }
 
-const CATEGORIAS = ['Obras', 'Manutenções', 'Patrimônio', 'Zeladoria', 'Outro'];
+// Mesma lista (value = o que fica gravado / label = texto curto de exibição)
+// usada em src/pages/FormularioDuvidas.tsx. Fiscalização hoje cobre só
+// contratos de elevador, por isso o value já vem descritivo.
+const CATEGORIAS = [
+  { value: 'Obras', label: 'Obras' },
+  { value: 'Manutenções', label: 'Manutenções' },
+  { value: 'Patrimônio', label: 'Patrimônio' },
+  { value: 'Zeladoria', label: 'Zeladoria' },
+  { value: 'Fiscalização de Contrato de Manutenção de Elevadores', label: 'Fiscalização' },
+  { value: 'Outro', label: 'Outro' },
+];
 
 const CATEGORIA_COR: Record<string, string> = {
   'Obras': 'bg-orange-100 text-orange-700',
   'Manutenções': 'bg-blue-100 text-blue-700',
   'Patrimônio': 'bg-purple-100 text-purple-700',
   'Zeladoria': 'bg-teal-100 text-teal-700',
+  'Fiscalização de Contrato de Manutenção de Elevadores': 'bg-indigo-100 text-indigo-700',
   'Outro': 'bg-slate-100 text-slate-600',
 };
+
+function categoriaLabel(categoria: string) {
+  return CATEGORIAS.find(c => c.value === categoria)?.label || categoria;
+}
 
 // Palavras comuns do português que não ajudam a identificar o tema de uma
 // dúvida — removidas antes de contar frequência para a nuvem de palavras.
@@ -169,7 +184,7 @@ export default function DuvidasEscolas() {
           className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
         >
           <option value="Todas">Todas as categorias</option>
-          {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
+          {CATEGORIAS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
         </select>
       </div>
 
@@ -185,8 +200,8 @@ export default function DuvidasEscolas() {
               <div key={d.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
                 <div className="flex items-start justify-between gap-3 mb-2">
                   <p className="font-black text-slate-800 text-sm">{d.escolaNome}</p>
-                  <span className={`text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-wide shrink-0 ${CATEGORIA_COR[d.categoria] || CATEGORIA_COR['Outro']}`}>
-                    {d.categoria}
+                  <span title={d.categoria} className={`text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-wide shrink-0 ${CATEGORIA_COR[d.categoria] || CATEGORIA_COR['Outro']}`}>
+                    {categoriaLabel(d.categoria)}
                   </span>
                 </div>
                 <p className="text-sm text-slate-600 whitespace-pre-wrap">{d.duvida}</p>
