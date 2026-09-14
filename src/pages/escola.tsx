@@ -574,6 +574,12 @@ export function Escola() {
               </div>
               
               <h3 className="font-black text-slate-900 text-xl mb-1 line-clamp-1 pr-10 uppercase tracking-tight relative z-10" title={escola.name}>{escola.name}</h3>
+              <div className={`flex items-center gap-2 mb-3 px-3 py-2 rounded-xl border-2 relative z-10 ${escola.property_registration ? 'bg-orange-50 border-orange-200' : 'bg-red-50 border-red-200'}`}>
+                <Hash size={16} className={escola.property_registration ? 'text-orange-500 shrink-0' : 'text-red-500 shrink-0'} />
+                <span className={`text-[11px] font-black uppercase tracking-wide ${escola.property_registration ? 'text-orange-700' : 'text-red-600'}`}>
+                  Matrícula Imobiliária: {escola.property_registration || 'NÃO CADASTRADA'}
+                </span>
+              </div>
               <div className="flex flex-wrap gap-1.5 mb-6 relative z-10">
                 <span className="bg-slate-100 px-2 py-0.5 rounded-lg text-[9px] font-black text-slate-500 uppercase tracking-widest border border-slate-200">CIE: {escola.cie_code || '---'}</span>
                 <span className="bg-blue-50 px-2 py-0.5 rounded-lg text-[9px] font-black text-blue-600 uppercase tracking-widest border border-blue-100">SGI: {escola.sgi_code || '---'}</span>
