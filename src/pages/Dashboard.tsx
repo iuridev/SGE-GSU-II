@@ -5,7 +5,8 @@ import {
   Calendar, CheckCircle2, Waves, ZapOff, History, ChevronRight,
   ArrowRightLeft, Map as MapIcon, Loader2, Info, X,
   HardHat, Bell, ClipboardList, Truck, Clock,
-  Megaphone, User as UserIcon, ChevronDown, ChevronUp, ChevronLeft
+  Megaphone, User as UserIcon, ChevronDown, ChevronUp, ChevronLeft,
+  Hash, MapPin, Phone, GraduationCap, Users, DoorOpen
 } from 'lucide-react';
 import { WaterTruckModal } from '../components/WaterTruckModal';
 import { PowerOutageModal } from '../components/PowerOutageModal';
@@ -47,6 +48,22 @@ interface UpcomingEvent {
   time: string;
   event_type: string;
   schools?: { name: string };
+}
+
+interface SchoolInfo {
+  director_name: string | null;
+  address: string | null;
+  phone: string | null;
+  cie_code: string | null;
+  fde_code: string | null;
+  sgi_code: string | null;
+  ua_code: string | null;
+  periods: string[] | null;
+  has_elevator: boolean;
+  property_registration: string | null;
+  student_count: number | null;
+  teacher_count: number | null;
+  room_count: number | null;
 }
 
 const MONTHS_SHORT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -140,6 +157,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   const [sabespCode, setSabespCode] = useState('');
   const [edpCode, setEdpCode] = useState('');
   const [schoolId, setSchoolId] = useState<string | null>(null);
+  const [schoolInfo, setSchoolInfo] = useState<SchoolInfo | null>(null);
 
   const [supervisorSchoolsList, setSupervisorSchoolsList] = useState<{id: string, name: string}[]>([]);
   const [selectedSupervisorSchool, setSelectedSupervisorSchool] = useState<string>('all');
@@ -380,13 +398,20 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         } else if (profile.school_id) {
           const { data: school } = await (supabase as any)
             .from('schools')
-            .select('name, sabesp_supply_id, edp_installation_id')
+            .select(`
+              name, sabesp_supply_id, edp_installation_id,
+              director_name, address, phone,
+              cie_code, fde_code, sgi_code, ua_code,
+              periods, has_elevator, property_registration,
+              student_count, teacher_count, room_count
+            `)
             .eq('id', profile.school_id)
             .single();
           if (school) {
             setSchoolName(school.name);
             setSabespCode(school.sabesp_supply_id || 'N/A');
             setEdpCode(school.edp_installation_id || 'N/A');
+            setSchoolInfo(school);
           }
           await fetchStats(effectiveRole, profile.school_id);
           await fetchMapData(profile.school_id);
@@ -677,88 +702,83 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         </button>
       </div>
 
-      {/* ── PENDÊNCIAS DE CONSUMO DE ÁGUA ── */}
-      {(loadingPendingWater || pendingWaterSchools.length > 0) && (
-        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="p-2 bg-red-50 rounded-xl text-red-600 shrink-0">
-                <Droplets size={18} />
-              </div>
-              <div className="min-w-0">
-                <h2 className="text-base font-extrabold text-slate-800 leading-none">Pendências no Registro de Água</h2>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
-                  Desde Maio/2026 · últimos 6 meses
-                  {!loadingPendingWater && pendingWaterSchools.length > 0 && (
-                    <> · <span className="text-red-500">{pendingWaterSchools.length} escola{pendingWaterSchools.length !== 1 ? 's' : ''}</span></>
-                  )}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => onNavigate?.('consumo')}
-              className="flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-white bg-blue-50 hover:bg-blue-600 px-4 py-2.5 rounded-xl transition-all shrink-0"
-            >
-              Registrar <ChevronRight size={14} />
-            </button>
-          </div>
-
-          {loadingPendingWater ? (
-            <div className="flex gap-3 overflow-x-auto px-6 py-4">
-              {[1, 2, 3].map(i => (
-                <div key={i} className="flex-shrink-0 w-64 h-16 rounded-2xl bg-slate-100 animate-pulse" />
-              ))}
-            </div>
-          ) : (
-            <div
-              className="relative"
-              onMouseEnter={() => { pendingWaterPausedRef.current = true; }}
-              onMouseLeave={() => { pendingWaterPausedRef.current = false; }}
-            >
-              <div ref={pendingWaterScrollRef} className="overflow-x-hidden flex px-6 py-4">
-                {[...pendingWaterSchools, ...pendingWaterSchools].map((s, idx) => (
-                  <div
-                    key={`${s.id}-${idx}`}
-                    className="flex-shrink-0 flex items-center gap-3 bg-red-50/70 border border-red-100 rounded-2xl px-4 py-3 mr-3 min-w-[270px]"
-                  >
-                    <div className="p-2 bg-red-100 rounded-lg text-red-600 shrink-0">
-                      <AlertTriangle size={16} />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-slate-800 truncate">{s.name}</p>
-                      <p className="text-[11px] text-red-600 font-semibold mt-0.5 truncate">
-                        {s.months.map(m => MONTHS_SHORT[m.month - 1]).join(', ')} · {s.totalMissingDays} dia{s.totalMissingDays !== 1 ? 's' : ''} sem registro
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── CARD ESCOLA (school_manager) ── */}
+      {/* ── CARD ESCOLA (school_manager) — informações principais cadastradas ── */}
       {isSchoolManager && schoolName && (
-        <div className="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-100 p-5 rounded-2xl">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-            <div className="p-3 bg-indigo-100/70 rounded-xl text-indigo-600 shrink-0">
-              <Building2 size={26} />
-            </div>
-            <div className="flex-1">
-              <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-1">Sua Unidade Escolar</p>
-              <h3 className="text-lg font-extrabold text-slate-800 leading-tight">{schoolName}</h3>
-            </div>
-            <div className="flex gap-8">
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">SABESP</p>
-                <p className="text-sm font-bold text-slate-700">{sabespCode}</p>
+        <div className="relative overflow-hidden rounded-3xl border border-indigo-100 shadow-sm bg-gradient-to-br from-indigo-50 via-white to-blue-50/60">
+          <div className="absolute -top-12 -right-12 w-64 h-64 bg-indigo-200/25 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-16 -left-10 w-48 h-48 bg-blue-200/20 rounded-full blur-3xl pointer-events-none" />
+
+          <div className="relative p-6 sm:p-7">
+            <div className="flex flex-col lg:flex-row lg:items-start gap-6">
+
+              {/* Identidade da escola */}
+              <div className="flex items-start gap-4 flex-1 min-w-0">
+                <div className="w-14 h-14 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-lg shadow-indigo-200 shrink-0">
+                  <Building2 size={26} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-1">Sua Unidade Escolar</p>
+                  <h2 className="text-xl sm:text-2xl font-black text-slate-800 leading-tight uppercase tracking-tight">{schoolName}</h2>
+                  {schoolInfo?.director_name && (
+                    <p className="text-xs font-semibold text-slate-500 mt-1.5 flex items-center gap-1.5">
+                      <UserIcon size={12} className="text-slate-400 shrink-0" /> {schoolInfo.director_name}
+                    </p>
+                  )}
+
+                  <div className={`inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 rounded-xl border ${schoolInfo?.property_registration ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-red-50 border-red-200 text-red-600'}`}>
+                    <Hash size={13} className="shrink-0" />
+                    <span className="text-[11px] font-black uppercase tracking-wide">
+                      Matrícula Imobiliária: {schoolInfo?.property_registration || 'Não cadastrada'}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {schoolInfo?.cie_code && <InfoBadge label={`CIE ${schoolInfo.cie_code}`} color="slate" />}
+                    {schoolInfo?.fde_code && <InfoBadge label={`FDE ${schoolInfo.fde_code}`} color="blue" />}
+                    {schoolInfo?.sgi_code && <InfoBadge label={`SGI ${schoolInfo.sgi_code}`} color="emerald" />}
+                    {schoolInfo?.ua_code && <InfoBadge label={`UA ${schoolInfo.ua_code}`} color="purple" />}
+                  </div>
+                </div>
               </div>
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">EDP</p>
-                <p className="text-sm font-bold text-slate-700">{edpCode}</p>
+
+              {/* Contato e localização */}
+              <div className="flex-1 min-w-0 space-y-2 lg:border-l lg:border-indigo-100 lg:pl-6">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Contato & Localização</p>
+                <div className="flex items-start gap-2 text-xs font-semibold text-slate-600">
+                  <MapPin size={13} className="text-slate-400 mt-0.5 shrink-0" />
+                  <span className="leading-relaxed">{schoolInfo?.address || 'Endereço não cadastrado'}</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                  <Phone size={13} className="text-slate-400 shrink-0" />
+                  <span>{schoolInfo?.phone || 'Telefone não cadastrado'}</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {(schoolInfo?.periods || []).map(p => <InfoBadge key={p} label={p} color="orange" />)}
+                  {schoolInfo?.has_elevator && <InfoBadge label="Elevador" color="indigo" />}
+                </div>
+              </div>
+
+              {/* Códigos de utilidades */}
+              <div className="flex sm:flex-row lg:flex-col gap-3 lg:w-44 shrink-0">
+                <div className="flex-1 bg-white/80 rounded-2xl border border-slate-100 p-3 text-center shadow-sm">
+                  <p className="text-[9px] font-bold text-blue-400 uppercase tracking-widest mb-0.5">SABESP</p>
+                  <p className="text-sm font-black text-slate-700 truncate">{sabespCode}</p>
+                </div>
+                <div className="flex-1 bg-white/80 rounded-2xl border border-slate-100 p-3 text-center shadow-sm">
+                  <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest mb-0.5">EDP</p>
+                  <p className="text-sm font-black text-slate-700 truncate">{edpCode}</p>
+                </div>
               </div>
             </div>
+
+            {/* Indicadores rápidos da unidade */}
+            {schoolInfo && (schoolInfo.student_count || schoolInfo.teacher_count || schoolInfo.room_count) && (
+              <div className="grid grid-cols-3 gap-3 mt-5 pt-5 border-t border-indigo-100/70">
+                <MiniStat icon={<GraduationCap size={15} />} label="Alunos" value={schoolInfo.student_count} />
+                <MiniStat icon={<Users size={15} />} label="Professores" value={schoolInfo.teacher_count} />
+                <MiniStat icon={<DoorOpen size={15} />} label="Salas" value={schoolInfo.room_count} />
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1215,6 +1235,67 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         </div>
       </div>
 
+      {/* ── PENDÊNCIAS DE CONSUMO DE ÁGUA ── */}
+      {(loadingPendingWater || pendingWaterSchools.length > 0) && (
+        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2 bg-red-50 rounded-xl text-red-600 shrink-0">
+                <Droplets size={18} />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-base font-extrabold text-slate-800 leading-none">Pendências no Registro de Água</h2>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                  Desde Maio/2026 · últimos 6 meses
+                  {!loadingPendingWater && pendingWaterSchools.length > 0 && (
+                    <> · <span className="text-red-500">{pendingWaterSchools.length} escola{pendingWaterSchools.length !== 1 ? 's' : ''}</span></>
+                  )}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => onNavigate?.('consumo')}
+              className="flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-white bg-blue-50 hover:bg-blue-600 px-4 py-2.5 rounded-xl transition-all shrink-0"
+            >
+              Registrar <ChevronRight size={14} />
+            </button>
+          </div>
+
+          {loadingPendingWater ? (
+            <div className="flex gap-3 overflow-x-auto px-6 py-4">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="flex-shrink-0 w-64 h-16 rounded-2xl bg-slate-100 animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            <div
+              className="relative"
+              onMouseEnter={() => { pendingWaterPausedRef.current = true; }}
+              onMouseLeave={() => { pendingWaterPausedRef.current = false; }}
+            >
+              <div ref={pendingWaterScrollRef} className="overflow-x-hidden flex px-6 py-4">
+                {[...pendingWaterSchools, ...pendingWaterSchools].map((s, idx) => (
+                  <div
+                    key={`${s.id}-${idx}`}
+                    className="flex-shrink-0 flex items-center gap-3 bg-red-50/70 border border-red-100 rounded-2xl px-4 py-3 mr-3 min-w-[270px]"
+                  >
+                    <div className="p-2 bg-red-100 rounded-lg text-red-600 shrink-0">
+                      <AlertTriangle size={16} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-slate-800 truncate">{s.name}</p>
+                      <p className="text-[11px] text-red-600 font-semibold mt-0.5 truncate">
+                        {s.months.map(m => MONTHS_SHORT[m.month - 1]).join(', ')} · {s.totalMissingDays} dia{s.totalMissingDays !== 1 ? 's' : ''} sem registro
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── MODAIS ── */}
       {isWaterTruckModalOpen && (
         <WaterTruckModal
@@ -1329,6 +1410,36 @@ function formatEventDate(dateStr: string) {
   const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
   const [, month, day] = dateStr.split('-');
   return `${parseInt(day)} ${months[parseInt(month) - 1]}`;
+}
+
+// ── InfoBadge ─────────────────────────────────────────────
+function InfoBadge({ label, color }: { label: string; color: 'slate' | 'blue' | 'emerald' | 'purple' | 'orange' | 'indigo' }) {
+  const colorMap: Record<string, string> = {
+    slate: 'bg-slate-100 text-slate-500 border-slate-200',
+    blue: 'bg-blue-50 text-blue-600 border-blue-100',
+    emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+    purple: 'bg-purple-50 text-purple-600 border-purple-100',
+    orange: 'bg-orange-50 text-orange-600 border-orange-100',
+    indigo: 'bg-indigo-50 text-indigo-600 border-indigo-100',
+  };
+  return (
+    <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest border ${colorMap[color]}`}>
+      {label}
+    </span>
+  );
+}
+
+// ── MiniStat ──────────────────────────────────────────────
+function MiniStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: number | null }) {
+  return (
+    <div className="flex items-center gap-2.5 bg-white/70 rounded-2xl border border-slate-100 px-3 py-2.5">
+      <div className="p-1.5 bg-indigo-50 rounded-lg text-indigo-500 shrink-0">{icon}</div>
+      <div className="min-w-0">
+        <p className="text-sm font-black text-slate-800 leading-none">{value ?? '—'}</p>
+        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{label}</p>
+      </div>
+    </div>
+  );
 }
 
 // ── StatCard ──────────────────────────────────────────────
