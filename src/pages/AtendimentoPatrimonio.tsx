@@ -22,6 +22,8 @@ import {
 
 const SHEET_URL = import.meta.env.VITE_VISITAS_SHEET_URL as string;
 
+const ITENS_POR_PAGINA = 50;
+
 const CHART_COLORS = [
   '#0d9488', '#3b82f6', '#10b981', '#f59e0b', '#ef4444',
   '#8b5cf6', '#ec4899', '#06b6d4',
@@ -320,6 +322,9 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
   const [itensSelecionadosVinculo, setItensSelecionadosVinculo] = useState<string[]>([]);
   const [filterSemProcesso, setFilterSemProcesso] = useState(false);
   const [vinculandoProcesso, setVinculandoProcesso] = useState(false);
+  // Paginação client-side: com 5000+ itens cadastrados, renderizar a tabela inteira de
+  // uma vez trava o navegador — mostra só ITENS_POR_PAGINA por vez.
+  const [incorporacaoPage, setIncorporacaoPage] = useState(1);
 
   const [processos, setProcessos] = useState<ProcessoOption[]>([]);
   const [loadingProcessos, setLoadingProcessos] = useState(false);
@@ -1006,6 +1011,12 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     });
   }, [remanejamentos, searchTerm, filterPendenteIncorporacao]);
 
+  // Lookups O(1) por id — com 5000+ itens em Incorporações, usar .find() dentro do
+  // render de cada linha da tabela (O(n) por linha) virava O(n²) e travava a aba.
+  const incorporacoesById = useMemo(() => new Map(incorporacoes.map(i => [i.id, i])), [incorporacoes]);
+  const remanejamentosById = useMemo(() => new Map(remanejamentos.map(r => [r.id, r])), [remanejamentos]);
+  const escolasById = useMemo(() => new Map(escolas.map(e => [e.id, e])), [escolas]);
+
   const itensIncorporacaoUnificados = useMemo<IncorporacaoRow[]>(() => {
     const diretos: IncorporacaoRow[] = incorporacoes.map(i => ({
       origem: 'incorporacao', id: i.id, escola_id: i.escola_id, escola_nome: i.escola_nome,
@@ -1134,6 +1145,19 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       return matchSearch && matchOrigem && matchProcesso;
     });
   }, [itensIncorporacaoUnificados, searchTerm, filterOrigemIncorporacao, filterSemProcesso]);
+
+  // Volta pra página 1 sempre que o filtro/busca muda o conjunto de resultados —
+  // senão o usuário pode ficar numa página que não existe mais.
+  useEffect(() => {
+    setIncorporacaoPage(1);
+  }, [searchTerm, filterOrigemIncorporacao, filterSemProcesso]);
+
+  const totalPaginasIncorporacao = Math.max(1, Math.ceil(filteredIncorporacoes.length / ITENS_POR_PAGINA));
+  const incorporacoesPaginaAtual = useMemo(() => {
+    const pagina = Math.min(incorporacaoPage, totalPaginasIncorporacao);
+    const inicio = (pagina - 1) * ITENS_POR_PAGINA;
+    return filteredIncorporacoes.slice(inicio, inicio + ITENS_POR_PAGINA);
+  }, [filteredIncorporacoes, incorporacaoPage, totalPaginasIncorporacao]);
 
   const semProcessoCount = useMemo(
     () => itensIncorporacaoUnificados.filter(
@@ -1322,7 +1346,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         : (i.origem === 'incorporacao' && i.status !== 'Incorporado' ? 'SEM PROCESSO' : '-');
       return [
         labelOrigemItem(i),
-        `${i.escola_nome}${codigosEscola(escolas.find(e => e.id === i.escola_id))}`,
+        `${i.escola_nome}${codigosEscola(escolasById.get(i.escola_id))}`,
         i.descricao,
         i.quantidade,
         aquisicao || '-',
@@ -1470,15 +1494,15 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {filaIncorporacao.map((i, idx) => {
-                      const incorporacaoOrigem = i.origem === 'incorporacao' ? incorporacoes.find(x => x.id === i.id) : undefined;
-                      const remanejamentoOrigem = i.origem === 'remanejamento' ? remanejamentos.find(x => x.id === i.id) : undefined;
+                      const incorporacaoOrigem = i.origem === 'incorporacao' ? incorporacoesById.get(i.id) : undefined;
+                      const remanejamentoOrigem = i.origem === 'remanejamento' ? remanejamentosById.get(i.id) : undefined;
                       const dias = diasEmEspera(i.data_registro);
                       return (
                         <tr key={`${i.origem}-${i.id || idx}`} className="group hover:bg-slate-50 transition-colors">
                           <td className="px-4 py-3 font-bold text-slate-400 whitespace-nowrap">{idx + 1}º</td>
                           <td className="px-4 py-3 font-medium text-slate-800">
                             {i.escola_nome}
-                            <span className="block text-[10px] font-normal text-slate-400">{codigosEscola(escolas.find(e => e.id === i.escola_id)).trim()}</span>
+                            <span className="block text-[10px] font-normal text-slate-400">{codigosEscola(escolasById.get(i.escola_id)).trim()}</span>
                           </td>
                           <td className="px-4 py-3 text-slate-600 max-w-xs truncate">{i.descricao}</td>
                           <td className="px-4 py-3 whitespace-nowrap">
@@ -2147,9 +2171,9 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {filteredIncorporacoes.map((i, idx) => {
-                      const incorporacaoOrigem = i.origem === 'incorporacao' ? incorporacoes.find(x => x.id === i.id) : undefined;
-                      const remanejamentoOrigem = i.origem === 'remanejamento' ? remanejamentos.find(x => x.id === i.id) : undefined;
+                    {incorporacoesPaginaAtual.map((i, idx) => {
+                      const incorporacaoOrigem = i.origem === 'incorporacao' ? incorporacoesById.get(i.id) : undefined;
+                      const remanejamentoOrigem = i.origem === 'remanejamento' ? remanejamentosById.get(i.id) : undefined;
                       const vinculavel = i.origem === 'incorporacao' && i.status !== 'Incorporado';
                       return (
                         <tr key={`${i.origem}-${i.id || idx}`} className="group hover:bg-slate-50 transition-colors">
@@ -2176,7 +2200,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                           </td>
                           <td className="px-4 py-3 font-medium text-slate-800">
                             {i.escola_nome}
-                            <span className="block text-[10px] font-normal text-slate-400">{codigosEscola(escolas.find(e => e.id === i.escola_id)).trim()}</span>
+                            <span className="block text-[10px] font-normal text-slate-400">{codigosEscola(escolasById.get(i.escola_id)).trim()}</span>
                           </td>
                           <td className="px-4 py-3 text-slate-600 max-w-xs">
                             <p className="truncate">{i.descricao}</p>
@@ -2243,7 +2267,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                             <div className="flex items-center gap-1">
                               {isDocLinkValido(i.nota_fiscal_link) && (
                                 <button
-                                  onClick={() => setDocModal({ url: i.nota_fiscal_link, title: `Nota Fiscal — ${i.escola_nome}${codigosEscola(escolas.find(e => e.id === i.escola_id))}` })}
+                                  onClick={() => setDocModal({ url: i.nota_fiscal_link, title: `Nota Fiscal — ${i.escola_nome}${codigosEscola(escolasById.get(i.escola_id))}` })}
                                   title="Visualizar Nota Fiscal do item"
                                   className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 hover:border-amber-300 transition-colors whitespace-nowrap"
                                 >
@@ -2317,6 +2341,32 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 </table>
               )}
             </div>
+            {filteredIncorporacoes.length > ITENS_POR_PAGINA && (
+              <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-100">
+                <span className="text-xs text-slate-400">
+                  Mostrando {(incorporacaoPage - 1) * ITENS_POR_PAGINA + 1}–{Math.min(incorporacaoPage * ITENS_POR_PAGINA, filteredIncorporacoes.length)} de {filteredIncorporacoes.length}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIncorporacaoPage(p => Math.max(1, p - 1))}
+                    disabled={incorporacaoPage <= 1}
+                    className="px-3 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Anterior
+                  </button>
+                  <span className="text-xs text-slate-500 font-medium">Página {incorporacaoPage} de {totalPaginasIncorporacao}</span>
+                  <button
+                    type="button"
+                    onClick={() => setIncorporacaoPage(p => Math.min(totalPaginasIncorporacao, p + 1))}
+                    disabled={incorporacaoPage >= totalPaginasIncorporacao}
+                    className="px-3 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Próxima
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
