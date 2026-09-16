@@ -306,6 +306,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
   const [docModal, setDocModal] = useState<{ url: string; title: string } | null>(null);
   const [filterPendenteIncorporacao, setFilterPendenteIncorporacao] = useState(false);
   const [filterOrigemIncorporacao, setFilterOrigemIncorporacao] = useState('');
+  const [filterEscolaIncorporacao, setFilterEscolaIncorporacao] = useState('');
 
   const [incorporacoes, setIncorporacoes] = useState<Incorporacao[]>([]);
   const [showIncorporacaoForm, setShowIncorporacaoForm] = useState(false);
@@ -1128,6 +1129,16 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     };
   }, [incorporacoes, escolas]);
 
+  // Escolas com pelo menos um item na lista — usadas para popular a caixa suspensa de
+  // filtro por escola (só mostra quem realmente tem item, em vez de todas as escolas).
+  const escolasComItemIncorporacao = useMemo(() => {
+    const map = new Map<string, string>();
+    itensIncorporacaoUnificados.forEach(i => {
+      if (i.escola_id && !map.has(i.escola_id)) map.set(i.escola_id, i.escola_nome);
+    });
+    return Array.from(map, ([id, nome]) => ({ id, nome })).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  }, [itensIncorporacaoUnificados]);
+
   const filteredIncorporacoes = useMemo(() => {
     const q = searchTerm.toLowerCase();
     return itensIncorporacaoUnificados.filter(i => {
@@ -1139,18 +1150,19 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
           : filterOrigemIncorporacao === 'sem-orgao' ? (i.origem === 'incorporacao' && !isOrigemPdde(i.origem_aquisicao) && !i.orgao_entrega)
             : (ORGAOS_ENTREGA_FDE as readonly string[]).includes(filterOrigemIncorporacao) ? i.orgao_entrega === filterOrigemIncorporacao
               : i.origem_aquisicao === filterOrigemIncorporacao);
+      const matchEscola = !filterEscolaIncorporacao || i.escola_id === filterEscolaIncorporacao;
       // "Sem processo": só itens diretos pendentes que ainda não têm processo vinculado.
       const matchProcesso = !filterSemProcesso ||
         (i.origem === 'incorporacao' && i.status !== 'Incorporado' && !i.processo_incorporacao_id);
-      return matchSearch && matchOrigem && matchProcesso;
+      return matchSearch && matchOrigem && matchEscola && matchProcesso;
     });
-  }, [itensIncorporacaoUnificados, searchTerm, filterOrigemIncorporacao, filterSemProcesso]);
+  }, [itensIncorporacaoUnificados, searchTerm, filterOrigemIncorporacao, filterEscolaIncorporacao, filterSemProcesso]);
 
   // Volta pra página 1 sempre que o filtro/busca muda o conjunto de resultados —
   // senão o usuário pode ficar numa página que não existe mais.
   useEffect(() => {
     setIncorporacaoPage(1);
-  }, [searchTerm, filterOrigemIncorporacao, filterSemProcesso]);
+  }, [searchTerm, filterOrigemIncorporacao, filterEscolaIncorporacao, filterSemProcesso]);
 
   const totalPaginasIncorporacao = Math.max(1, Math.ceil(filteredIncorporacoes.length / ITENS_POR_PAGINA));
   const incorporacoesPaginaAtual = useMemo(() => {
@@ -2093,6 +2105,14 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 <option value="sem-orgao">⚠️ FDE/SEDUC sem órgão ({itensIncorporacaoUnificados.filter(i => i.origem === 'incorporacao' && !isOrigemPdde(i.origem_aquisicao) && !i.orgao_entrega).length})</option>
                 {ORGAOS_ENTREGA_FDE.map(o => <option key={o} value={o}>{o}</option>)}
                 {ORIGENS_AQUISICAO.filter(o => isOrigemPdde(o)).map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+              <select
+                value={filterEscolaIncorporacao}
+                onChange={e => setFilterEscolaIncorporacao(e.target.value)}
+                className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-600 max-w-[220px]"
+              >
+                <option value="">Todas as escolas</option>
+                {escolasComItemIncorporacao.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
               </select>
               <button
                 onClick={() => setFilterSemProcesso(v => !v)}
