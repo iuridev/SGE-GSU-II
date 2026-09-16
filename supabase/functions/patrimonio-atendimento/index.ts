@@ -26,6 +26,14 @@ const OBSERVACOES_COLUMNS = [
   'escola_id', 'escola_nome', 'etapa_atual', 'observacao',
   'autor_id', 'autor_nome', 'data_registro',
 ]
+// ATENÇÃO ao adicionar um campo novo: getOrCreateSheet() só sabe ACRESCENTAR cabeçalhos
+// que faltam no FINAL da planilha real — nunca insere na posição do meio do array. Se o
+// campo novo for inserido aqui no meio (como gr_link/tipo_documento/cadastrado_sam/
+// pendente_incorporacao/nota_fiscal_link foram, em commits separados), o rótulo do
+// cabeçalho fica descolado da coluna física onde o valor realmente é gravado nas linhas
+// já existentes — foi exatamente isso que corrompeu autor_id/autor_nome/data_registro em
+// quase todas as linhas históricas (corrigido em 2026-09-16). Sempre adicione campos
+// novos no FINAL desta lista, nunca no meio.
 const REMANEJAMENTOS_COLUMNS = [
   'id', 'escola_origem_id', 'escola_origem_nome', 'escola_destino_id', 'escola_destino_nome',
   'numero_patrimonial', 'descricao', 'numero_documento', 'gr_link', 'tipo_documento', 'cadastrado_sam',
@@ -123,7 +131,10 @@ async function getOrCreateSheet(doc: any, title: string, columns: string[]) {
   // Evolução de schema: se a aba já existia com colunas antigas (ex.: campo novo
   // adicionado depois em COLUMNS), estende o cabeçalho com as colunas que faltam no
   // final, sem mexer nas colunas/dados já existentes — addRow() falha se mandarmos
-  // uma chave que não é um header da planilha.
+  // uma chave que não é um header da planilha. IMPORTANTE: isso só funciona
+  // corretamente se o campo novo também foi adicionado no FINAL do array COLUMNS (ver
+  // aviso em REMANEJAMENTOS_COLUMNS) — inserir no meio do array desalinha o rótulo do
+  // cabeçalho da coluna física onde o valor é de fato gravado.
   const missing = columns.filter(c => !headers.includes(c))
   if (missing.length > 0) {
     await sheet.setHeaderRow([...headers, ...missing])
