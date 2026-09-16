@@ -24,6 +24,15 @@ const SHEET_URL = import.meta.env.VITE_VISITAS_SHEET_URL as string;
 
 const ITENS_POR_PAGINA = 50;
 
+// Unidades que não entram na meta de mapeamento PDDE (não são escola com prestação de
+// contas própria): a Unidade Regional de Ensino em si e os campi "Unidade II" que
+// compartilham a verba/prestação de contas da unidade principal.
+const ESCOLAS_EXCLUIDAS_META_PDDE = new Set([
+  'd8ecccff-8d26-4f5c-ab1b-b30bf7ed052f', // UNIDADE REGIONAL DE ENSINO
+  '08719aa7-2a22-4fc8-819a-efcb2ec9339e', // JOÃO CAVALHEIRO SALEM - UNIDADE II
+  '400df660-ddf2-4f81-94a8-c82e0dd2aa23', // ZILDA ROMEIRO PINTO MOREIRA DA SILVA PROF - UNIDADE II
+]);
+
 const CHART_COLORS = [
   '#0d9488', '#3b82f6', '#10b981', '#f59e0b', '#ef4444',
   '#8b5cf6', '#ec4899', '#06b6d4',
@@ -1086,14 +1095,14 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
   // recebeu um item PDDE cadastrado na aba de incorporações — marca que ela já foi
   // revisada, mesmo que depois ganhe outros itens no mesmo dia ou depois.
   const mapeamentoPddeEvolucao = useMemo(() => {
-    const totalEscolas = escolas.length;
+    const totalEscolas = escolas.filter(e => !ESCOLAS_EXCLUIDAS_META_PDDE.has(e.id)).length;
     if (totalEscolas === 0) {
       return { pontos: [] as { data: string; dataLabel: string; escolasMapeadas: number; pct: number }[], totalEscolas: 0, escolasMapeadas: 0, pctAtual: 0 };
     }
 
     const primeiraDataPorEscola = new Map<string, string>();
     incorporacoes
-      .filter(i => isOrigemPdde(i.origem_aquisicao) && i.escola_id && i.data_registro)
+      .filter(i => isOrigemPdde(i.origem_aquisicao) && i.escola_id && i.data_registro && !ESCOLAS_EXCLUIDAS_META_PDDE.has(i.escola_id))
       .forEach(i => {
         const dia = i.data_registro.slice(0, 10);
         const atual = primeiraDataPorEscola.get(i.escola_id);
