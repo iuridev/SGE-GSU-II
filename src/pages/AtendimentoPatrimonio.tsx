@@ -1203,17 +1203,22 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     }
     return null;
   };
+  // Quando o valor não é uma data reconhecível, cai no texto bruto — mas se esse
+  // valor bruto for muito longo (ex.: um link colado por engano nessa coluna), exibir
+  // tudo sem limite estica a coluna e empurra as demais para fora da tela na tabela
+  // inteira (colunas de <table> compartilham largura entre todas as linhas).
+  const truncarBruto = (d: string) => (d.length > 20 ? `${d.slice(0, 20)}…` : d);
   const formatDate = (d: string) => {
     if (!d) return '-';
     const p = d.split('-');
     if (p.length === 3 && p[0].length === 4) return `${p[2].slice(0, 2)}/${p[1]}/${p[0]}`;
     const dt = parseDataFlexivel(d);
-    return dt ? dt.toLocaleDateString('pt-BR') : d;
+    return dt ? dt.toLocaleDateString('pt-BR') : truncarBruto(d);
   };
   const formatDateTime = (d: string) => {
     if (!d) return '-';
     const dt = parseDataFlexivel(d);
-    return dt ? dt.toLocaleString('pt-BR') : d;
+    return dt ? dt.toLocaleString('pt-BR') : truncarBruto(d);
   };
   // Dias corridos desde o registro — usado na Fila de Atendimento para mostrar
   // há quanto tempo cada item está aguardando.
