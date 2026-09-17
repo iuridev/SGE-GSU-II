@@ -32,6 +32,7 @@ interface ItemIncorporar {
   quantidade: string;
   status: string;
   numero_patrimonial: string;
+  valor_item: string;
   processo_incorporacao_id: string;
   processo_sei: string;
 }
@@ -59,6 +60,12 @@ interface School {
   id: string;
   name: string;
 }
+
+const formatarMoeda = (v: string) => {
+  const n = Number(v);
+  if (!v || Number.isNaN(n)) return '';
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n);
+};
 
 const PROCESS_TYPES = [
   { id: 'DOACAO_MAT_PERMANENTE', label: 'Doação de Material Permanente', category: 'doacao', color: 'text-emerald-600 bg-emerald-50' },
@@ -1226,7 +1233,7 @@ export function PatrimonioProcessos() {
                               <CheckCircle2 size={15} className="text-emerald-600 shrink-0" />
                               <div className="flex-1 min-w-0">
                                 <p className="text-xs font-semibold text-slate-700 truncate">{i.descricao}</p>
-                                <p className="text-[11px] text-slate-400">Qtd {i.quantidade} · {i.status}{i.numero_patrimonial ? ` · nº ${i.numero_patrimonial}` : ''}</p>
+                                <p className="text-[11px] text-slate-400">Qtd {i.quantidade}{formatarMoeda(i.valor_item) ? ` · ${formatarMoeda(i.valor_item)}/un` : ''} · {i.status}{i.numero_patrimonial ? ` · nº ${i.numero_patrimonial}` : ''}</p>
                               </div>
                               {isAdmin && (
                                 <button
@@ -1254,7 +1261,7 @@ export function PatrimonioProcessos() {
                                   className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                                 />
                                 <span className="truncate">
-                                  {i.descricao} <span className="text-slate-400">(qtd {i.quantidade}{i.status === 'Incorporado' ? ` · nº ${i.numero_patrimonial}` : ''})</span>
+                                  {i.descricao} <span className="text-slate-400">(qtd {i.quantidade}{formatarMoeda(i.valor_item) ? ` · ${formatarMoeda(i.valor_item)}/un` : ''}{i.status === 'Incorporado' ? ` · nº ${i.numero_patrimonial}` : ''})</span>
                                 </span>
                               </label>
                             ))}
