@@ -135,7 +135,7 @@ const MENU_GROUPS: MenuGroup[] = [
       //{ id: 'vistorias-prediais-dashboard', label: 'BI Predial', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec', 'school_manager'] },
       { id: 'obras', label: 'Obras e Reformas', icon: <HardHat size={20} className="text-orange-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'school_manager'] },
       { id: 'acompanhamento-obras', label: 'Acompanhamento Semanal de Obras', icon: <ClipboardCheck size={20} className="text-orange-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'school_manager'] },
-      { id: 'previsao-obras-fde', label: 'Previsão de Obras FDE', icon: <HardHat size={20} className="text-amber-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico'] },
+      //{ id: 'previsao-obras-fde', label: 'Previsão de Obras FDE', icon: <HardHat size={20} className="text-amber-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico'] },
       { id: 'servicos', label: 'Intervenção URE', icon: <Wrench size={20} className="text-slate-400" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
       { id: 'manejo', label: 'Manejo Arbóreo', icon: <TreeDeciduous size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'elevadores', label: 'Gestão de Elevadores', icon: <ArrowUpCircle size={20} className="text-blue-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
