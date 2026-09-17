@@ -212,11 +212,8 @@ export function PatrimonioProcessos() {
       const porDescricao = (a: ItemIncorporar, b: ItemIncorporar) =>
         a.descricao.localeCompare(b.descricao, 'pt-BR', { sensitivity: 'base' });
       setIncVinculados(lista.filter(i => i.processo_incorporacao_id === proc.id).sort(porDescricao));
-      // Não filtra por status: um item já "Incorporado" (nº patrimonial confirmado)
-      // pode ainda não ter processo SEI vinculado — é justamente essa pendência de
-      // documentação que esta lista deve mostrar. Só exclui quem já tem processo.
       setIncPendentesEscola(lista.filter(i =>
-        i.escola_id === proc.school_id && !i.processo_incorporacao_id).sort(porDescricao));
+        i.escola_id === proc.school_id && !i.processo_incorporacao_id && i.status !== 'Incorporado').sort(porDescricao));
     } catch (e) {
       console.error('Erro ao carregar itens a incorporar do processo:', e);
       setIncVinculados([]);
@@ -1261,7 +1258,7 @@ export function PatrimonioProcessos() {
                                   className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                                 />
                                 <span className="truncate">
-                                  {i.descricao} <span className="text-slate-400">(qtd {i.quantidade}{formatarMoeda(i.valor_item) ? ` · ${formatarMoeda(i.valor_item)}/un` : ''}{i.status === 'Incorporado' ? ` · nº ${i.numero_patrimonial}` : ''})</span>
+                                  {i.descricao} <span className="text-slate-400">(qtd {i.quantidade}{formatarMoeda(i.valor_item) ? ` · ${formatarMoeda(i.valor_item)}/un` : ''})</span>
                                 </span>
                               </label>
                             ))}
