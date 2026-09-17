@@ -32,6 +32,9 @@ interface ItemIncorporar {
   quantidade: string;
   status: string;
   numero_patrimonial: string;
+  origem_aquisicao: string;
+  orgao_entrega: string;
+  data_aquisicao: string;
   valor_item: string;
   processo_incorporacao_id: string;
   processo_sei: string;
@@ -96,6 +99,11 @@ export function PatrimonioProcessos() {
   const [isExporting, setIsExporting] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportTargetSchool, setExportTargetSchool] = useState('');
+
+  const [showItensPdfModal, setShowItensPdfModal] = useState(false);
+  const [itensPdfSei, setItensPdfSei] = useState('');
+  const [itensPdfLoading, setItensPdfLoading] = useState(false);
+  const [itensPdfError, setItensPdfError] = useState<string | null>(null);
 
   const [userRole, setUserRole] = useState('');
   const [userSchoolId, setUserSchoolId] = useState<string | null>(null);
@@ -235,6 +243,80 @@ export function PatrimonioProcessos() {
       alert(e instanceof Error ? e.message : 'Erro ao vincular itens ao processo.');
     } finally {
       setIncSaving(false);
+    }
+  }
+
+  async function gerarPdfItensProcesso() {
+    const sei = itensPdfSei.trim();
+    if (!sei) {
+      setItensPdfError('Informe o número do processo SEI.');
+      return;
+    }
+
+    const proc = processes.find(p => p.sei_number.trim() === sei && p.type === 'DOACAO_MAT_PERMANENTE');
+    if (!proc) {
+      setItensPdfError('Nenhum processo de Doação de Material Permanente encontrado com esse nº SEI.');
+      return;
+    }
+
+    setItensPdfError(null);
+    setItensPdfLoading(true);
+    try {
+      const data = await invokePatrimonio('listar_incorporacoes');
+      const lista: ItemIncorporar[] = Array.isArray(data) ? data : [];
+      const itens = lista
+        .filter(i => i.processo_incorporacao_id === proc.id)
+        .sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR', { sensitivity: 'base' }));
+
+      if (itens.length === 0) {
+        setItensPdfError('Nenhum item vinculado a este processo.');
+        return;
+      }
+
+      const doc = new jsPDF('portrait');
+      const margin = 14;
+      let currentY = 36;
+
+      doc.setFontSize(14);
+      doc.setTextColor(79, 70, 229);
+      doc.text('Itens Vinculados ao Processo — Doação de Material Permanente', margin, currentY);
+
+      currentY += 8;
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text(`Nº SEI: ${proc.sei_number}`, margin, currentY);
+      currentY += 6;
+      doc.text(`Unidade Escolar: ${proc.schools?.name || 'Não informada'}`, margin, currentY);
+      currentY += 6;
+      doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`, margin, currentY);
+      currentY += 10;
+
+      const tableData = itens.map(i => [
+        i.orgao_entrega ? `${i.origem_aquisicao} (${i.orgao_entrega})` : (i.origem_aquisicao || '-'),
+        i.descricao,
+        i.quantidade,
+        i.data_aquisicao ? new Date(i.data_aquisicao + 'T12:00:00').toLocaleDateString('pt-BR') : '-',
+        formatarMoeda(i.valor_item) || '-',
+      ]);
+
+      autoTable(doc, {
+        startY: currentY,
+        head: [['Origem', 'Descrição', 'Qtd', 'Data Aquisição', 'Valor Unitário']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
+        styles: { fontSize: 8, cellPadding: 3 },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+      });
+
+      addTimbradoAllPages(doc);
+      doc.save(`Itens_Processo_SEI_${sei.replace(/[^\w-]+/g, '_')}.pdf`);
+      setShowItensPdfModal(false);
+      setItensPdfSei('');
+    } catch (e) {
+      setItensPdfError(e instanceof Error ? e.message : 'Erro ao gerar o PDF.');
+    } finally {
+      setItensPdfLoading(false);
     }
   }
 
@@ -585,6 +667,14 @@ export function PatrimonioProcessos() {
               {isExporting ? <Loader2 size={15} className="animate-spin" /> : <FileDown size={15} />}
               {isExporting ? 'Gerando PDF...' : 'Exportar PDF'}
             </button>
+            {isAdmin && (
+              <button
+                onClick={() => { setItensPdfError(null); setItensPdfSei(''); setShowItensPdfModal(true); }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm active:scale-[0.98]"
+              >
+                <ClipboardList size={15} /> Itens por Processo SEI
+              </button>
+            )}
             {isAdmin && (
               <button
                 onClick={() => openModal()}
@@ -1020,6 +1110,79 @@ export function PatrimonioProcessos() {
                 className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl shadow-md shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-[0.98]"
               >
                 <Download size={15} /> Gerar PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── ITENS POR PROCESSO SEI (PDF) MODAL ────────────────────── */}
+      {showItensPdfModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200 overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-md shadow-indigo-200">
+                  <ClipboardList size={18} className="text-white" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-800">Itens do Processo (PDF)</h2>
+                  <p className="text-xs text-slate-400 font-medium mt-0.5">Doação de Material Permanente</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowItensPdfModal(false)}
+                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 transition-all"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                  <FileText size={13} /> Nº do Processo SEI
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={itensPdfSei}
+                  onChange={(e) => { setItensPdfSei(e.target.value); setItensPdfError(null); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !itensPdfLoading) gerarPdfItensProcesso(); }}
+                  placeholder="Ex: 1234567/2026"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/10 transition-all"
+                />
+              </div>
+
+              <div className="bg-indigo-50 rounded-xl p-3 flex items-start gap-2.5 border border-indigo-100">
+                <Info size={14} className="text-indigo-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-indigo-700 font-medium leading-relaxed">
+                  Gera um PDF com todos os itens vinculados a este processo: Origem, Descrição, Qtd, Data de Aquisição e Valor Unitário.
+                </p>
+              </div>
+
+              {itensPdfError && (
+                <div className="bg-red-50 rounded-xl p-3 flex items-start gap-2.5 border border-red-100">
+                  <AlertCircle size={14} className="text-red-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-red-700 font-medium leading-relaxed">{itensPdfError}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t border-slate-100 flex justify-end gap-3">
+              <button
+                onClick={() => setShowItensPdfModal(false)}
+                className="px-4 py-2.5 text-sm font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded-xl transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => gerarPdfItensProcesso()}
+                disabled={itensPdfLoading}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl shadow-md shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-[0.98] disabled:opacity-60"
+              >
+                {itensPdfLoading ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+                {itensPdfLoading ? 'Gerando PDF...' : 'Gerar PDF'}
               </button>
             </div>
           </div>
