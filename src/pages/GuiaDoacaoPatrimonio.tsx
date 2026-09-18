@@ -105,7 +105,7 @@ const DOCS: DocSection[] = [
 ];
 
 const FLOW_STEPS = [
-  { title: 'Escola reúne', desc: 'Ofício, Ata da APM, Termo de Recebimento e Notas Fiscais (+ conferência da FDE, se for verba de convênio).' },
+  { title: 'Escola reúne', desc: 'Ofício, Ata da APM, Termo de Recebimento e Notas Fiscais (+ conferência da Prestação de Contas, se for verba de convênio).' },
   { title: 'No SEI', desc: 'Expediente criado no SEI para o SEFISC.' },
   { title: 'SEFISC', desc: 'SEFISC analisa e monta proposta ao SEOM.' },
   { title: 'Despacho', desc: 'Coordenador Geral - Dirigente Regional autoriza o recebimento com fundamento na Resolução SE 45/2012.' },
