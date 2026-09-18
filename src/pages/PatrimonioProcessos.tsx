@@ -55,6 +55,7 @@ interface PatrimonioProcess {
   conclusion?: string;
   subtype?: string;
   items_json?: string;
+  doe_date?: string;
   created_at: string;
   schools?: { name: string };
 }
@@ -81,7 +82,7 @@ const PROCESS_TYPES = [
 ];
 
 const WORKFLOWS: Record<string, string[]> = {
-  'DOACAO_MAT_PERMANENTE': ["RECEBIDO NO SEI", "ANÁLISE DO SEFISC", "DEVOLVIDO PARA CORREÇÃO", "DOE", "REGISTRO NO SAM", "REGISTRO NÚMERO PATRIMÔNIO"],
+  'DOACAO_MAT_PERMANENTE': ["FILA DE ATENDIMENTO", "ANÁLISE SEFISC", "AUTORIZAÇÃO SEOM", "DESPACHO DO COORDENADOR GERAL - DIRIGENTE", "SIAFEM CONTÁBIL", "INCORPORAÇÃO SAM PATRIMÔNIO", "CONCLUÍDO"],
   'DOACAO_PDDE': ["RECEBIDO NO SEI", "ANÁLISE DO SEFISC", "DEVOLVIDO PARA CORREÇÃO", "DOE", "REGISTRO NO SAM", "REGISTRO NÚMERO PATRIMÔNIO"],
   'DOACAO_APM': ["RECEBIDO NO SEI", "ANÁLISE DO SEFISC", "DEVOLVIDO PARA CORREÇÃO", "DOE", "REGISTRO NO SAM", "REGISTRO NÚMERO PATRIMÔNIO"],
   'DOACAO_TERCEIROS': ["RECEBIDO NO SEI", "ANÁLISE DO SEFISC", "DEVOLVIDO PARA CORREÇÃO", "DOE", "REGISTRO NO SAM", "REGISTRO NÚMERO PATRIMÔNIO"],
@@ -140,7 +141,8 @@ export function PatrimonioProcessos() {
     is_nl_low: false,
     authorship: 'Não conhecida',
     conclusion: 'EM ANDAMENTO',
-    subtype: 'Furto'
+    subtype: 'Furto',
+    doe_date: ''
   });
 
   useEffect(() => {
@@ -519,6 +521,7 @@ export function PatrimonioProcessos() {
     const payload = {
       ...formData,
       occurrence_date: formData.occurrence_date ? formData.occurrence_date : null,
+      doe_date: formData.doe_date ? formData.doe_date : null,
       items_json: formData.type === 'FURTOS' ? JSON.stringify(sinistroItems) : null
     };
 
@@ -583,7 +586,8 @@ export function PatrimonioProcessos() {
         is_nl_low: process.is_nl_low || false,
         authorship: process.authorship || 'Não conhecida',
         conclusion: process.conclusion || 'EM ANDAMENTO',
-        subtype: process.subtype || 'Furto'
+        subtype: process.subtype || 'Furto',
+        doe_date: process.doe_date || ''
       });
       setSinistroItems(process.items_json ? JSON.parse(process.items_json) : []);
       setIncVinculados([]);
@@ -607,7 +611,8 @@ export function PatrimonioProcessos() {
         is_nl_low: false,
         authorship: 'Não conhecida',
         conclusion: 'EM ANDAMENTO',
-        subtype: 'Furto'
+        subtype: 'Furto',
+        doe_date: ''
       });
       setSinistroItems([]);
     }
@@ -1475,6 +1480,22 @@ export function PatrimonioProcessos() {
                       );
                     })}
                   </div>
+
+                  {formData.type === 'DOACAO_MAT_PERMANENTE' &&
+                    WORKFLOWS[formData.type].indexOf(formData.current_step) >= WORKFLOWS[formData.type].indexOf('DESPACHO DO COORDENADOR GERAL - DIRIGENTE') && (
+                    <div className="space-y-1.5 p-4 bg-indigo-50 border border-indigo-100 rounded-xl max-w-xs">
+                      <label className="text-xs font-semibold text-indigo-500 uppercase tracking-wider flex items-center gap-1.5">
+                        <Calendar size={12} /> Data de Publicação no DOE
+                      </label>
+                      <input
+                        disabled={isReadOnly}
+                        type="date"
+                        className="w-full p-3 bg-white border border-indigo-200 rounded-xl text-sm font-medium outline-none focus:border-indigo-400 disabled:opacity-50 transition-all"
+                        value={formData.doe_date}
+                        onChange={e => setFormData({ ...formData, doe_date: e.target.value })}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Final status */}
