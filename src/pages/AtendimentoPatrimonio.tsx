@@ -1951,7 +1951,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50">
-                      {['Data', 'Escola Origem', 'Escola Destino', 'Nº Patrimonial', 'Descrição', 'Nº Documento', 'Cadastrado no SAM?', 'Incorporação', 'Autor'].map(h => (
+                      {['Data', 'Cadastrado no SAM?', 'Escola Origem', 'Escola Destino', 'Nº Patrimonial', 'Descrição', 'Nº Documento', 'Incorporação', 'Autor'].map(h => (
                         <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                       <th className="sticky right-0 z-10 bg-slate-50 text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)]" />
@@ -1961,11 +1961,6 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                     {filteredRemanejamentos.map((r, i) => (
                       <tr key={r.id || i} className="group hover:bg-slate-50 transition-colors">
                         <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{formatDateTime(r.data_registro)}</td>
-                        <td className="px-4 py-3 font-medium text-slate-800">{r.escola_origem_nome}</td>
-                        <td className="px-4 py-3 font-medium text-slate-800">{r.escola_destino_nome}</td>
-                        <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{r.numero_patrimonial || '-'}</td>
-                        <td className="px-4 py-3 text-slate-500 max-w-xs truncate">{r.descricao || '-'}</td>
-                        <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{r.numero_documento}</td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           {r.cadastrado_sam === 'TRUE' ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
@@ -1977,6 +1972,11 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                             </span>
                           )}
                         </td>
+                        <td className="px-4 py-3 font-medium text-slate-800">{r.escola_origem_nome}</td>
+                        <td className="px-4 py-3 font-medium text-slate-800">{r.escola_destino_nome}</td>
+                        <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{r.numero_patrimonial || '-'}</td>
+                        <td className="px-4 py-3 text-slate-500 max-w-xs truncate">{r.descricao || '-'}</td>
+                        <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{r.numero_documento}</td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           {r.pendente_incorporacao === 'TRUE' ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700">
