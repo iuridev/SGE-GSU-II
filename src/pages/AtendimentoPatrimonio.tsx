@@ -314,6 +314,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
   const [editingRemanejamentoId, setEditingRemanejamentoId] = useState<string | null>(null);
   const [docModal, setDocModal] = useState<{ url: string; title: string } | null>(null);
   const [filterPendenteIncorporacao, setFilterPendenteIncorporacao] = useState(false);
+  const [filterSemSam, setFilterSemSam] = useState(false);
   const [filterOrigemIncorporacao, setFilterOrigemIncorporacao] = useState('');
   const [filterEscolaIncorporacao, setFilterEscolaIncorporacao] = useState('');
 
@@ -1012,14 +1013,15 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     const q = searchTerm.toLowerCase();
     return remanejamentos.filter(r => {
       const matchPendente = !filterPendenteIncorporacao || r.pendente_incorporacao === 'TRUE';
+      const matchSemSam = !filterSemSam || r.cadastrado_sam !== 'TRUE';
       const matchSearch = !q ||
         r.escola_origem_nome?.toLowerCase().includes(q) ||
         r.escola_destino_nome?.toLowerCase().includes(q) ||
         r.numero_patrimonial?.toLowerCase().includes(q) ||
         r.numero_documento?.toLowerCase().includes(q);
-      return matchPendente && matchSearch;
+      return matchPendente && matchSemSam && matchSearch;
     });
-  }, [remanejamentos, searchTerm, filterPendenteIncorporacao]);
+  }, [remanejamentos, searchTerm, filterPendenteIncorporacao, filterSemSam]);
 
   // Lookups O(1) por id — com 5000+ itens em Incorporações, usar .find() dentro do
   // render de cada linha da tabela (O(n) por linha) virava O(n²) e travava a aba.
@@ -1914,6 +1916,18 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 }`}
               >
                 <AlertTriangle size={14} /> Pendentes de Incorporação ({remanejamentosPendentesIncorporacao})
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterSemSam(v => !v)}
+                title="Mostrar apenas remanejamentos ainda não cadastrados no SAM"
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border transition-colors whitespace-nowrap ${
+                  filterSemSam
+                    ? 'bg-red-600 border-red-600 text-white'
+                    : 'bg-white border-slate-200 text-slate-600 hover:border-red-300'
+                }`}
+              >
+                <X size={14} /> Sem Cadastro no SAM ({remanejamentosPendentesSam})
               </button>
               <span className="text-xs text-slate-400">{filteredRemanejamentos.length} registro(s)</span>
               {isAdmin && (
