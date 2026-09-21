@@ -24,8 +24,8 @@ const OBJETIVOS_VISITA = [
 
 const SHEET_URL = import.meta.env.VITE_VISITAS_SHEET_URL as string;
 const LEGADO_CSV_URL = import.meta.env.VITE_VISITAS_LEGADO_CSV_URL as string;
-const VISITANTE_LEGADO = 'Registro manual (planilha)';
 const NOME_URE = 'unidade regional de ensino';
+const TOP_SERVIDORES_LIMIT = 5;
 const OVERDUE_THRESHOLD_DAYS = 60;
 
 const CHART_COLORS = [
@@ -50,6 +50,7 @@ interface Visita {
   objetivo: string;
   observacoes: string;
   data_registro: string;
+  origem?: 'sistema' | 'legado';
 }
 
 interface EscolaComVisita extends EscolaOption {
@@ -224,7 +225,7 @@ export default function VisitasEscolares() {
   };
 
   // Planilha antiga (servidores que ainda registram manualmente, fora do sistema).
-  // Colunas: DATA, ESCOLA, MOTIVO — sem vínculo com escola_id nem visitante identificado.
+  // Colunas: DATA, ESCOLA, MOTIVO, RESPONSÁVEL, TOTAL DE VISITAS:, ...
   const fetchVisitasLegado = async (): Promise<Visita[]> => {
     if (!LEGADO_CSV_URL) {
       console.warn('VITE_VISITAS_LEGADO_CSV_URL não configurada — planilha legada de visitas não será exibida.');
@@ -242,9 +243,9 @@ export default function VisitasEscolares() {
     return csvText
       .split('\n')
       .filter(l => l.trim())
-      .slice(1) // pula o cabeçalho (DATA, ESCOLA, MOTIVO, TOTAL DE VISITAS:, ...)
+      .slice(1) // pula o cabeçalho (DATA, ESCOLA, MOTIVO, RESPONSÁVEL, TOTAL DE VISITAS:, ...)
       .map((line, i): Visita | null => {
-        const [dataRaw, escolaNome, motivo] = parseLine(line);
+        const [dataRaw, escolaNome, motivo, responsavel] = parseLine(line);
         if (!dataRaw || !escolaNome) return null;
 
         const [d, m, y] = dataRaw.split('/');
@@ -257,10 +258,11 @@ export default function VisitasEscolares() {
           data_visita: dataVisita,
           escola_nome: escolaNome,
           fde_code: '',
-          visitante: VISITANTE_LEGADO,
+          visitante: responsavel || '',
           objetivo: motivo || '',
           observacoes: '',
           data_registro: '',
+          origem: 'legado',
         };
       })
       .filter((v): v is Visita => v !== null);
@@ -278,7 +280,7 @@ export default function VisitasEscolares() {
       if (oficialResult.status === 'fulfilled') {
         const { data, error } = oficialResult.value;
         if (error) console.error('Erro ao buscar visitas (sistema):', error);
-        else if (Array.isArray(data)) oficial = data;
+        else if (Array.isArray(data)) oficial = data.map((v: Visita) => ({ ...v, origem: 'sistema' }));
       } else {
         console.error('Erro ao buscar visitas (sistema):', oficialResult.reason);
       }
@@ -432,6 +434,22 @@ export default function VisitasEscolares() {
     return months;
   }, [visitas, now]);
 
+  // Top servidores por quantidade de visitas técnicas (sistema + planilha legada)
+  const chartByVisitante = useMemo(() => {
+    const map = new Map<string, { nome: string; total: number }>();
+    visitas.forEach(v => {
+      const nome = v.visitante?.trim();
+      if (!nome) return;
+      const key = normalizeEscolaNome(nome);
+      const atual = map.get(key);
+      if (atual) atual.total += 1;
+      else map.set(key, { nome, total: 1 });
+    });
+    return Array.from(map.values())
+      .sort((a, b) => b.total - a.total)
+      .slice(0, TOP_SERVIDORES_LIMIT);
+  }, [visitas]);
+
   const avgPerMonth = useMemo(() => {
     const active = chartByMonth.filter(m => m.total > 0);
     if (!active.length) return 0;
@@ -520,6 +538,7 @@ export default function VisitasEscolares() {
   );
 
   const Charts = (
+    <div className="space-y-4">
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
         <h2 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
@@ -562,6 +581,37 @@ export default function VisitasEscolares() {
           </BarChart>
         </ResponsiveContainer>
       </div>
+    </div>
+
+    <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+      <h2 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
+        <Users size={16} className="text-violet-500" />
+        Top 5 Servidores — Visitas Técnicas
+      </h2>
+      {loading || chartByVisitante.length === 0 ? (
+        <div className="flex items-center justify-center h-[180px] text-slate-400 text-sm">
+          {loading ? <Loader2 size={24} className="animate-spin" /> : 'Nenhum dado disponível'}
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={180 + chartByVisitante.length * 10}>
+          <BarChart
+            data={chartByVisitante}
+            layout="vertical"
+            margin={{ top: 0, right: 24, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+            <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+            <YAxis dataKey="nome" type="category" tick={{ fontSize: 12 }} width={140} />
+            <Tooltip formatter={(v) => [v, 'Visitas']} />
+            <Bar dataKey="total" fill="#8b5cf6" radius={[0, 4, 4, 0]}>
+              {chartByVisitante.map((_, i) => (
+                <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </div>
     </div>
   );
 
@@ -783,7 +833,7 @@ export default function VisitasEscolares() {
                           <tr key={v.id || i} className="hover:bg-slate-50 transition-colors">
                             <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{formatDate(v.data_visita)}</td>
                             <td className="px-4 py-3 font-medium text-slate-800">{v.escola_nome}</td>
-                            <td className="px-4 py-3 text-slate-600">{v.visitante}</td>
+                            <td className="px-4 py-3 text-slate-600">{v.visitante || 'Visitante não identificado'}</td>
                             <td className="px-4 py-3 whitespace-nowrap">
                               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-50 text-teal-700">
                                 {v.objetivo}
@@ -985,14 +1035,14 @@ export default function VisitasEscolares() {
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-teal-50 text-teal-700">
                                   {v.objetivo || 'Sem objetivo'}
                                 </span>
-                                {v.visitante === VISITANTE_LEGADO && (
+                                {v.origem === 'legado' && (
                                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700">
                                     planilha legada
                                   </span>
                                 )}
                               </div>
                               <p className="text-xs text-slate-500 mt-0.5">
-                                {v.visitante !== VISITANTE_LEGADO ? v.visitante : 'Visitante não identificado'}
+                                {v.visitante || 'Visitante não identificado'}
                               </p>
                               {v.observacoes && (
                                 <p className="text-xs text-slate-600 mt-1 bg-slate-50 rounded-lg px-2.5 py-1.5">
