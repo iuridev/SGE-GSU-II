@@ -354,3 +354,114 @@ export function rowsToCsv(rows: (string | number | null | undefined)[][]): strin
   };
   return rows.map(r => r.map(esc).join(';')).join('\r\n');
 }
+
+// ---------------------------------------------------------------------------
+// Conversão de/para as abas do Google Sheets (ElevatorInspections e
+// ElevatorInspectionItems). A planilha só guarda texto: booleanos viram
+// "sim"/"nao", listas e mapas viram JSON.
+// ---------------------------------------------------------------------------
+
+export type LinhaPlanilha = Record<string, string>;
+
+const RESPOSTA_LEGIVEL: Record<Resposta, string> = { ok: 'Conforme', nok: 'Problema', na: 'N/A' };
+const simNao = (v: boolean) => (v ? 'sim' : 'nao');
+
+function blocoDaPergunta(id: string): string {
+  if (id === PERGUNTA_AVISO_MANUTENCAO.id) return 'Elevador parado';
+  if (BLOCO_VISITA.perguntas.some(p => p.id === id)) return BLOCO_VISITA.titulo;
+  return BLOCOS_ESCOLA.find(b => b.perguntas.some(p => p.id === id))?.titulo ?? '';
+}
+
+export interface DadosEnvio {
+  escola: EscolaRef;
+  quinzena: Quinzena;
+  fiscal: { id: string; nome: string };
+  funcionando: boolean;
+  paradoDesde: string | null;
+  houveVisita: boolean;
+  chamado: { houve: boolean; tipo: string | null; abertoEmISO: string | null; atendidoEmISO: string | null; pessoaPresa: boolean };
+  respostas: Record<string, Resposta>;
+  observacoes: Record<string, string>;
+  observacoesGerais: string;
+  avaliacao: Avaliacao;
+}
+
+export function montarLinhasPlanilha(d: DadosEnvio): { data: LinhaPlanilha; items: LinhaPlanilha[] } {
+  const id = `${d.escola.id}_${d.quinzena.inicio}`;
+  const naoConformidades = d.avaliacao.naoConformes
+    .map(i => `${textoDaPergunta(i)}${d.observacoes[i]?.trim() ? ` (${d.observacoes[i].trim()})` : ''}`)
+    .join('; ');
+  const data: LinhaPlanilha = {
+    id,
+    escolaId: d.escola.id,
+    escolaNome: d.escola.name,
+    periodoInicio: d.quinzena.inicio,
+    periodoFim: d.quinzena.fim,
+    fiscalId: d.fiscal.id,
+    fiscalNome: d.fiscal.nome,
+    elevadorFuncionando: simNao(d.funcionando),
+    paradoDesde: d.funcionando ? '' : d.paradoDesde ?? '',
+    houveVisita: simNao(d.houveVisita),
+    houveChamado: simNao(d.chamado.houve),
+    tipoChamado: d.chamado.houve ? d.chamado.tipo ?? '' : '',
+    chamadoAbertoEm: d.chamado.houve ? d.chamado.abertoEmISO ?? '' : '',
+    chamadoAtendidoEm: d.chamado.houve ? d.chamado.atendidoEmISO ?? '' : '',
+    minutosAtendimento: d.chamado.houve && d.avaliacao.minutosAtendimento !== null ? String(d.avaliacao.minutosAtendimento) : '',
+    pessoaPresa: simNao(d.chamado.houve && d.chamado.pessoaPresa),
+    conformidade: d.avaliacao.score === null ? '' : String(d.avaliacao.score),
+    situacao: d.avaliacao.status,
+    naoConformidades,
+    observacoesGerais: d.observacoesGerais.trim(),
+    respostas: JSON.stringify(d.respostas),
+    observacoes: JSON.stringify(d.observacoes),
+    naoConformidadesIds: JSON.stringify(d.avaliacao.naoConformes),
+  };
+  const items: LinhaPlanilha[] = Object.entries(d.respostas).map(([itemId, r]) => ({
+    inspecaoId: id,
+    escolaId: d.escola.id,
+    escolaNome: d.escola.name,
+    periodoInicio: d.quinzena.inicio,
+    periodoFim: d.quinzena.fim,
+    bloco: blocoDaPergunta(itemId),
+    itemId,
+    item: textoDaPergunta(itemId),
+    resposta: RESPOSTA_LEGIVEL[r],
+    observacao: r === 'nok' ? d.observacoes[itemId]?.trim() ?? '' : '',
+  }));
+  return { data, items };
+}
+
+function jsonOu<T>(s: string | undefined, vazio: T): T {
+  if (!s) return vazio;
+  try { return JSON.parse(s) as T; } catch { return vazio; }
+}
+
+export function linhaParaRegistro(l: LinhaPlanilha): FiscalizacaoRegistro {
+  const minutos = l.minutosAtendimento ? Number(l.minutosAtendimento) : NaN;
+  const score = l.conformidade ? Number(l.conformidade) : NaN;
+  const status: StatusFiscalizacao = l.situacao === 'critico' || l.situacao === 'atencao' ? l.situacao : 'conforme';
+  return {
+    id: l.id,
+    school_id: l.escolaId,
+    period_start: l.periodoInicio,
+    period_end: l.periodoFim,
+    inspector_name: l.fiscalNome || null,
+    created_at: l.criadoEm || '',
+    updated_at: l.atualizadoEm || null,
+    is_operational: l.elevadorFuncionando !== 'nao',
+    down_since: l.paradoDesde || null,
+    had_visit: l.houveVisita === 'sim',
+    answers: jsonOu<Record<string, Resposta>>(l.respostas, {}),
+    observations: jsonOu<Record<string, string>>(l.observacoes, {}),
+    had_call: l.houveChamado === 'sim',
+    call_type: l.tipoChamado === 'emergencial' || l.tipoChamado === 'corretivo' ? l.tipoChamado : null,
+    call_opened_at: l.chamadoAbertoEm || null,
+    call_attended_at: l.chamadoAtendidoEm || null,
+    call_response_minutes: Number.isFinite(minutos) ? minutos : null,
+    person_trapped: l.pessoaPresa === 'sim',
+    general_notes: l.observacoesGerais || null,
+    score: Number.isFinite(score) ? score : null,
+    status,
+    nonconformities: jsonOu<string[]>(l.naoConformidadesIds, []),
+  };
+}
