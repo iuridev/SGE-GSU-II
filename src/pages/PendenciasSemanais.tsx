@@ -14,7 +14,7 @@ import {
 } from 'recharts';
 import {
   Lock, Loader2, RefreshCw, FileDown, TrendingDown, TrendingUp, Minus,
-  Droplets, TreeDeciduous, AlertTriangle, CheckCircle2, ClipboardCheck, Table as TableIcon,
+  Droplets, TreeDeciduous, AlertTriangle, CheckCircle2, ClipboardCheck, Table as TableIcon, Target, Search,
 } from 'lucide-react';
 
 const ALLOWED_ROLES = ['regional_admin', 'school_manager', 'supervisor', 'dirigente'];
@@ -55,6 +55,19 @@ const NOME_URE = 'UNIDADE REGIONAL DE ENSINO';
 // pendência a partir do 3º dia. Aplicada tanto ao gerar o snapshot quanto na
 // leitura do histórico (para que snapshots antigos também respeitem a regra).
 const TOLERANCIA_DIAS_AGUA = 2;
+
+// Escola pendente de água na última semana + contexto de recorrência.
+interface OfensoraAgua {
+  escolaId: string;
+  nome: string;
+  dias: number;
+  diasAnterior: number | null;
+  sequencia: number;              // semanas seguidas pendente (incluindo a atual)
+  historico: (boolean | null)[];  // últimas semanas: true=pendente, false=ok, null=sem dado/dispensada
+}
+
+const HIST_SEMANAS = 8;   // semanas mostradas na minilinha do tempo
+const SEQ_CRONICA = 3;    // ≥ 3 semanas seguidas pendente = pendência crônica
 
 function formatDateToYMD(date: Date): string {
   const year = date.getFullYear();
@@ -98,6 +111,9 @@ export default function PendenciasSemanais() {
   const [schools, setSchools] = useState<SchoolLite[]>([]);
   const [selectedSchoolId, setSelectedSchoolId] = useState<string>('');
   const [snapshots, setSnapshots] = useState<SnapshotRow[]>([]);
+
+  const [filtroOfensora, setFiltroOfensora] = useState<'todas' | 'cronicas' | 'novas'>('todas');
+  const [buscaOfensora, setBuscaOfensora] = useState('');
 
   const [snapshotting, setSnapshotting] = useState(false);
   const [snapshotMsg, setSnapshotMsg] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null);
@@ -315,6 +331,64 @@ export default function PendenciasSemanais() {
       }));
   }, [snapshots, escolaFocoId]);
 
+  // ── Escolas que seguram o índice (água) ─────────────────────────────────
+  // Para cada escola pendente na última semana, calcula há quantas semanas
+  // seguidas ela está pendente (sequência) e o histórico recente, para separar
+  // as crônicas (o que trava o índice) das que acabaram de cair na pendência.
+  const ofensoras = useMemo(() => {
+    const semanas = Array.from(new Set(snapshots.map(s => s.semana))).sort();
+    if (semanas.length === 0) return { lista: [] as OfensoraAgua[], base: 0, semanasHist: [] as string[] };
+    const ultima = semanas[semanas.length - 1];
+    const semanasHist = semanas.slice(-HIST_SEMANAS);
+
+    const porEscola = new Map<string, Map<string, SnapshotRow>>();
+    for (const s of snapshots) {
+      if (userRole === 'supervisor' && !supervisorSchoolIds.includes(s.escola_id)) continue;
+      if (!porEscola.has(s.escola_id)) porEscola.set(s.escola_id, new Map());
+      porEscola.get(s.escola_id)!.set(s.semana, s);
+    }
+
+    let base = 0;
+    const lista: OfensoraAgua[] = [];
+    for (const [escolaId, mapa] of porEscola) {
+      const atual = mapa.get(ultima);
+      if (!atual || isTrue(atual.agua_dispensada)) continue;
+      base++;
+      if (!aguaPendente(atual)) continue;
+
+      let sequencia = 0;
+      for (let i = semanas.length - 1; i >= 0; i--) {
+        const r = mapa.get(semanas[i]);
+        if (r && !isTrue(r.agua_dispensada) && aguaPendente(r)) sequencia++;
+        else break;
+      }
+      const anterior = mapa.get(semanas[semanas.length - 2]);
+      lista.push({
+        escolaId,
+        nome: atual.escola_nome,
+        dias: Number(atual.dias_agua_pendentes) || 0,
+        diasAnterior: anterior ? (Number(anterior.dias_agua_pendentes) || 0) : null,
+        sequencia,
+        historico: semanasHist.map(sem => {
+          const r = mapa.get(sem);
+          return !r || isTrue(r.agua_dispensada) ? null : aguaPendente(r);
+        }),
+      });
+    }
+    lista.sort((a, b) => b.sequencia - a.sequencia || b.dias - a.dias || a.nome.localeCompare(b.nome));
+    return { lista, base, semanasHist };
+  }, [snapshots, userRole, supervisorSchoolIds]);
+
+  const ofensorasFiltradas = useMemo(() => {
+    const termo = normalizeName(buscaOfensora);
+    return ofensoras.lista.filter(o => {
+      if (filtroOfensora === 'cronicas' && o.sequencia < SEQ_CRONICA) return false;
+      if (filtroOfensora === 'novas' && o.sequencia !== 1) return false;
+      if (termo && !normalizeName(o.nome).includes(termo)) return false;
+      return true;
+    });
+  }, [ofensoras, filtroOfensora, buscaOfensora]);
+
   const semanaAtual = weeklyData[weeklyData.length - 1];
   const semanaAnterior = weeklyData[weeklyData.length - 2];
   const delta = semanaAtual && semanaAnterior ? Math.round((semanaAtual.pctQualquer - semanaAnterior.pctQualquer) * 10) / 10 : null;
@@ -461,6 +535,150 @@ export default function PendenciasSemanais() {
               </p>
             </div>
           </div>
+
+          {/* ── Escolas que seguram o índice ── */}
+          {(() => {
+            const { lista, base, semanasHist } = ofensoras;
+            const cronicas = lista.filter(o => o.sequencia >= SEQ_CRONICA);
+            const novas = lista.filter(o => o.sequencia === 1);
+            const pctPorEscola = base > 0 ? 100 / base : 0;
+            const pctSemCronicas = base > 0 ? Math.round(((lista.length - cronicas.length) / base) * 1000) / 10 : 0;
+            const maxSeq = Math.max(1, ...lista.map(o => o.sequencia));
+            return (
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="px-6 pt-5 pb-4 border-b border-slate-100">
+                  <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+                    <div>
+                      <h2 className="text-base font-black text-slate-800 flex items-center gap-2">
+                        <Target size={18} className="text-rose-500" /> Escolas que seguram o índice
+                      </h2>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Pendências de água na semana de {semanaAtual ? formatWeekLabel(semanaAtual.semana) : '—'}, das mais antigas para as mais recentes.
+                        Cada escola pesa <strong>{pctPorEscola.toFixed(1).replace('.', ',')} p.p.</strong> no índice.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+                    <div className="rounded-xl bg-slate-50 border border-slate-100 px-4 py-3">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pendentes agora</p>
+                      <p className="text-2xl font-black text-slate-700">{lista.length}<span className="text-sm font-bold text-slate-400"> / {base}</span></p>
+                    </div>
+                    <div className="rounded-xl bg-rose-50 border border-rose-100 px-4 py-3">
+                      <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest">Crônicas (≥ {SEQ_CRONICA} sem.)</p>
+                      <p className="text-2xl font-black text-rose-600">{cronicas.length}</p>
+                    </div>
+                    <div className="rounded-xl bg-amber-50 border border-amber-100 px-4 py-3">
+                      <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Novas na semana</p>
+                      <p className="text-2xl font-black text-amber-600">{novas.length}</p>
+                    </div>
+                    <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-3">
+                      <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Índice sem as crônicas</p>
+                      <p className="text-2xl font-black text-emerald-600">{pctSemCronicas}%</p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3 mt-4">
+                    <div className="flex gap-1.5">
+                      {([['todas', `Todas (${lista.length})`], ['cronicas', `Crônicas (${cronicas.length})`], ['novas', `Novas (${novas.length})`]] as const).map(([k, label]) => (
+                        <button
+                          key={k}
+                          onClick={() => setFiltroOfensora(k)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${filtroOfensora === k ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-500 border-slate-200 hover:border-rose-300'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="relative sm:ml-auto sm:w-64">
+                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        value={buscaOfensora}
+                        onChange={(e) => setBuscaOfensora(e.target.value)}
+                        placeholder="Buscar escola…"
+                        className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100 transition-all"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {lista.length === 0 ? (
+                  <div className="p-10 text-center text-sm font-semibold text-emerald-600 flex items-center justify-center gap-2">
+                    <CheckCircle2 size={18} /> Nenhuma escola com pendência de água na última semana.
+                  </div>
+                ) : ofensorasFiltradas.length === 0 ? (
+                  <div className="p-10 text-center text-sm text-slate-400">Nenhuma escola encontrada para este filtro.</div>
+                ) : (
+                  <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-slate-50 z-10">
+                        <tr className="border-b border-slate-100">
+                          <th className="text-left py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest w-10">#</th>
+                          <th className="text-left py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Escola</th>
+                          <th className="text-left py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Situação</th>
+                          <th className="text-center py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Dias sem lançar</th>
+                          <th className="text-left py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Últimas {semanasHist.length} semanas</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {ofensorasFiltradas.map((o, i) => {
+                          const cronica = o.sequencia >= SEQ_CRONICA;
+                          const variacao = o.diasAnterior === null ? null : o.dias - o.diasAnterior;
+                          return (
+                            <tr
+                              key={o.escolaId}
+                              onClick={podeFiltrarEscola ? () => { setSelectedSchoolId(o.escolaId); window.scrollTo({ top: 0, behavior: 'smooth' }); } : undefined}
+                              className={`${podeFiltrarEscola ? 'cursor-pointer hover:bg-rose-50/40' : ''} transition-colors`}
+                            >
+                              <td className="py-2.5 px-4 text-xs font-black text-slate-300">{i + 1}</td>
+                              <td className="py-2.5 px-4 font-bold text-slate-700">{o.nome}</td>
+                              <td className="py-2.5 px-4">
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-[11px] font-black px-2 py-0.5 rounded-full border whitespace-nowrap ${cronica ? 'bg-rose-50 text-rose-600 border-rose-200' : o.sequencia === 1 ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-orange-50 text-orange-600 border-orange-200'}`}>
+                                    {o.sequencia === 1 ? 'Nova' : `${o.sequencia} sem. seguidas`}
+                                  </span>
+                                  <div className="hidden md:block w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                    <div className="h-full rounded-full" style={{ width: `${(o.sequencia / maxSeq) * 100}%`, background: cronica ? '#e11d48' : '#f59e0b' }} />
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-4 text-center">
+                                <span className="font-black text-slate-700">{o.dias}</span>
+                                {variacao !== null && variacao !== 0 && (
+                                  <span className={`ml-1.5 text-[11px] font-bold ${variacao > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                                    {variacao > 0 ? '▲' : '▼'}{Math.abs(variacao)}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-4">
+                                <div className="flex items-center gap-1">
+                                  {o.historico.map((p, idx) => (
+                                    <span
+                                      key={idx}
+                                      title={`${formatWeekLabel(semanasHist[idx])}: ${p === null ? 'sem dado' : p ? 'pendente' : 'ok'}`}
+                                      className="w-3 h-3 rounded-sm"
+                                      style={{ background: p === null ? '#e2e8f0' : p ? '#ef4444' : '#10b981' }}
+                                    />
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <div className="px-6 py-3 border-t border-slate-100 bg-slate-50/60 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400">
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-red-500" /> pendente</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /> em dia</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-slate-200" /> sem dado</span>
+                  <span>Pendência = mais de {TOLERANCIA_DIAS_AGUA} dias úteis sem lançamento. Escolas dispensadas não entram.</span>
+                  {podeFiltrarEscola && <span className="sm:ml-auto">Clique na escola para ver a evolução dela.</span>}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ── Filtro por escola (regional_admin/dirigente) ── */}
           {podeFiltrarEscola && (
