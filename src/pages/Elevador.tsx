@@ -1,7 +1,11 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import html2canvas from 'html2canvas';
 import { addTimbradoAllPages } from '../lib/pdfTimbrado';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend,
+} from 'recharts';
 import {
   ArrowUpCircle,
   CheckCircle2,
@@ -20,6 +24,8 @@ import {
   ClipboardList,
   ShieldCheck,
   FileDown,
+  CalendarDays,
+  X,
 } from 'lucide-react';
 
 // Colunas da aba "Elevadores":
@@ -86,6 +92,32 @@ async function fetchElevadoresFromSheet(): Promise<ElevadorRow[]> {
     })
     .filter((r) => r.escola);
 }
+
+// dd/mm/yyyy (formato devolvido por parseGvizDate) -> yyyy-mm-dd, para dar pra
+// agrupar por mês. Retorna '' quando não reconhece o formato.
+function parseDataBR(raw: string | null): string {
+  if (!raw) return '';
+  const m = raw.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (!m) return '';
+  const [, d, mo, y] = m;
+  return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+}
+
+// Agrupa o texto livre da coluna STATUS em poucas categorias (mesmas usadas pelas
+// cores de statusStyle) — sem isso o gráfico teria uma barra por variação de texto.
+function statusBucket(status: string): string {
+  const s = status.toLowerCase();
+  if (s.includes('conclu')) return 'Concluído';
+  if (s.includes('aguard')) return 'Aguardando';
+  if (s.includes('reparo') || s.includes('revis')) return 'Reparo/Revisão';
+  if (s.includes('verific') || s.includes('pdde')) return 'Verificação/PDDE';
+  if (!s) return 'Sem Status';
+  return 'Outro';
+}
+const STATUS_BUCKET_COLORS: Record<string, string> = {
+  'Concluído': '#10b981', 'Aguardando': '#f59e0b', 'Reparo/Revisão': '#f97316',
+  'Verificação/PDDE': '#3b82f6', 'Outro': '#94a3b8', 'Sem Status': '#cbd5e1',
+};
 
 function statusStyle(status: string): string {
   const s = status.toLowerCase();
@@ -224,6 +256,15 @@ export function Elevador() {
   const [filter, setFilter] = useState<'all' | 'sim' | 'nao'>('all');
   const [contratoFilter, setContratoFilter] = useState('all');
 
+  // ── Relatório Mensal (PDF) ────────────────────────────────────────────
+  const [showRelatorioModal, setShowRelatorioModal] = useState(false);
+  const [relatorioMes, setRelatorioMes] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [gerandoRelatorioPdf, setGerandoRelatorioPdf] = useState(false);
+  const relatorioRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     loadData();
   }, []);
@@ -334,6 +375,110 @@ export function Elevador() {
     return { total, funcionando, parados, totalOrcamento };
   }, [elevadores]);
 
+  // ── Relatório Mensal ────────────────────────────────────────────────────
+  // A planilha não tem data de cadastro/conclusão por elevador — só um status
+  // textual e uma data de orçamento (nem sempre preenchida). Por isso o corte
+  // "no mês" só vale para orçamentos datados; o resto do relatório é sempre uma
+  // fotografia da situação atual.
+  const statusChartData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    elevadores.forEach((e) => {
+      const b = statusBucket(e.status);
+      counts[b] = (counts[b] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, quantidade]) => ({ name, quantidade, color: STATUS_BUCKET_COLORS[name] || '#94a3b8' }))
+      .sort((a, b) => b.quantidade - a.quantidade);
+  }, [elevadores]);
+
+  const contratoChartData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    elevadores.forEach((e) => {
+      const c = e.contrato || 'Sem Contrato';
+      counts[c] = (counts[c] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, quantidade]) => ({ name, quantidade }))
+      .sort((a, b) => b.quantidade - a.quantidade)
+      .slice(0, 8);
+  }, [elevadores]);
+
+  const opcoesMesRelatorio = useMemo(() => {
+    const opts: { key: string; label: string }[] = [];
+    const base = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(base.getFullYear(), base.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      opts.push({ key, label: d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) });
+    }
+    return opts;
+  }, []);
+
+  const mesLabel = (mesStr: string) => {
+    const [ano, mesNum] = mesStr.split('-').map(Number);
+    if (!ano || !mesNum) return mesStr;
+    return new Date(ano, mesNum - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  };
+
+  const relatorioMetrics = useMemo(() => {
+    const mes = relatorioMes;
+    const orcamentosDoMes = elevadores.filter((e) => parseDataBR(e.dataOrcamento).startsWith(mes));
+    const valorOrcadoNoMes = orcamentosDoMes.reduce((s, e) => s + (e.orcamento ?? 0), 0);
+
+    const [anoSel, mesSelNum] = mes.split('-').map(Number);
+    const tendencia = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(anoSel, (mesSelNum - 1) - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+      const qtd = elevadores.filter((e) => parseDataBR(e.dataOrcamento).startsWith(key)).length;
+      tendencia.push({ mes: label, 'Orçamentos Datados': qtd });
+    }
+
+    return { orcamentosNoMesCount: orcamentosDoMes.length, valorOrcadoNoMes, tendencia };
+  }, [relatorioMes, elevadores]);
+
+  // Relatório Mensal em PDF: mesma técnica já usada nas demais páginas
+  // (html2canvas do bloco de cards + gráficos Recharts renderizado no modal + addImage).
+  const gerarRelatorioMensalPdf = async () => {
+    if (!relatorioRef.current) return;
+    setGerandoRelatorioPdf(true);
+    try {
+      await new Promise((r) => setTimeout(r, 400));
+      const canvas = await html2canvas(relatorioRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+      });
+      const imgData = canvas.toDataURL('image/png');
+
+      const doc = new jsPDF();
+      const pdfWidth = doc.internal.pageSize.getWidth();
+      const pdfHeight = doc.internal.pageSize.getHeight();
+      const margin = 14;
+      const currentY = 40;
+
+      let printWidth = pdfWidth - margin * 2;
+      let printHeight = (canvas.height * printWidth) / canvas.width;
+      const maxHeight = pdfHeight - currentY - margin;
+      if (printHeight > maxHeight) {
+        const ratio = maxHeight / printHeight;
+        printHeight = maxHeight;
+        printWidth *= ratio;
+      }
+      doc.addImage(imgData, 'PNG', margin, currentY, printWidth, printHeight);
+
+      addTimbradoAllPages(doc);
+      doc.save(`Relatorio_Mensal_Elevadores_${relatorioMes}.pdf`);
+      setShowRelatorioModal(false);
+    } catch (err) {
+      console.error(err);
+      alert('Houve um erro ao gerar o PDF. Tente novamente.');
+    } finally {
+      setGerandoRelatorioPdf(false);
+    }
+  };
+
   const filtered = useMemo(
     () =>
       elevadores.filter((e) => {
@@ -393,6 +538,13 @@ export function Elevador() {
             </div>
           </div>
           <div className="flex gap-3 self-start md:self-auto">
+            <button
+              onClick={() => setShowRelatorioModal(true)}
+              className="flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/10 px-5 py-3 rounded-2xl text-white text-xs font-black uppercase tracking-widest transition-all active:scale-95"
+            >
+              <ClipboardList size={15} />
+              Relatório Mensal
+            </button>
             <button
               onClick={exportPDF}
               disabled={filtered.length === 0}
@@ -550,6 +702,124 @@ export function Elevador() {
           </div>
         </div>
       </div>
+
+      {/* Modal: Relatório Mensal (PDF) */}
+      {showRelatorioModal && (
+        <div className="fixed inset-0 z-[110] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <ClipboardList size={20} className="text-amber-600" /> Relatório Mensal
+              </h2>
+              <button onClick={() => setShowRelatorioModal(false)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+                <X size={18} className="text-slate-500" />
+              </button>
+            </div>
+
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-3">
+              <label className="text-sm font-medium text-slate-600 flex items-center gap-1.5"><CalendarDays size={15} /> Mês de referência:</label>
+              <select
+                value={relatorioMes}
+                onChange={(e) => setRelatorioMes(e.target.value)}
+                className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              >
+                {opcoesMesRelatorio.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-5">
+              <div ref={relatorioRef} className="space-y-5 bg-white p-1">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">Relatório Mensal — Gestão de Elevadores</h3>
+                  <p className="text-xs text-slate-500">Referência: {mesLabel(relatorioMes)} • Gerado em {new Date().toLocaleString('pt-BR')}</p>
+                  <p className="text-[11px] text-amber-600 mt-1">
+                    A planilha não guarda data de cadastro/conclusão por elevador — só a data do orçamento (nem sempre preenchida). Os demais indicadores são a situação atual, não recortada por mês.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="border border-slate-100 rounded-xl p-3">
+                    <p className="text-xs text-slate-500 font-medium">Orçamentos Datados no Mês</p>
+                    <p className="text-2xl font-bold text-slate-800 mt-1">{relatorioMetrics.orcamentosNoMesCount}</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">{fmtCurrency(relatorioMetrics.valorOrcadoNoMes)}</p>
+                  </div>
+                  <div className="border border-slate-100 rounded-xl p-3">
+                    <p className="text-xs text-slate-500 font-medium">Funcionando (hoje)</p>
+                    <p className="text-2xl font-bold text-emerald-600 mt-1">{stats.funcionando}</p>
+                  </div>
+                  <div className="border border-slate-100 rounded-xl p-3">
+                    <p className="text-xs text-slate-500 font-medium">Parados (hoje)</p>
+                    <p className="text-2xl font-bold text-red-600 mt-1">{stats.parados}</p>
+                  </div>
+                  <div className="border border-slate-100 rounded-xl p-3 bg-slate-50">
+                    <p className="text-xs text-slate-500 font-medium">Orçamento Total</p>
+                    <p className="text-lg font-bold text-slate-800 mt-1">{fmtCurrency(stats.totalOrcamento)}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-500 mb-2">Orçamentos Datados por Mês (últimos 6 meses)</h4>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={relatorioMetrics.tendencia} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="mes" tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                      <Tooltip />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Bar dataKey="Orçamentos Datados" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-500 mb-2">Situação Atual por Status</h4>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={statusChartData} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal vertical={false} stroke="#f1f5f9" />
+                      <XAxis type="number" hide allowDecimals={false} />
+                      <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 11, fontWeight: 600, fill: '#64748b' }} width={130} />
+                      <Tooltip />
+                      <Bar dataKey="quantidade" radius={[0, 6, 6, 0]} barSize={18}>
+                        {statusChartData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-500 mb-2">Elevadores por Contrato</h4>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={contratoChartData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="name" tick={{ fontSize: 9 }} interval={0} angle={-20} textAnchor="end" />
+                      <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                      <Tooltip />
+                      <Bar dataKey="quantidade" fill="#0ea5e9" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 flex justify-end gap-2">
+              <button
+                onClick={() => setShowRelatorioModal(false)}
+                className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={gerarRelatorioMensalPdf}
+                disabled={gerandoRelatorioPdf}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 disabled:opacity-60 transition-colors"
+              >
+                {gerandoRelatorioPdf ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
+                {gerandoRelatorioPdf ? 'Gerando PDF...' : 'Baixar PDF'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

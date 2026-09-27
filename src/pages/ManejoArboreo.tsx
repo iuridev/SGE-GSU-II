@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
 import {
@@ -10,6 +10,9 @@ import {
   fetchManejoFromSheet,
   determinarStatus,
 } from '../lib/manejoArboreo';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 import {
   TreePine,
   TreeDeciduous,
@@ -23,7 +26,14 @@ import {
   Star,
   Search,
   FileSpreadsheet,
+  ClipboardList,
+  CalendarDays,
+  FileDown,
+  Loader2,
 } from 'lucide-react';
+import {
+  BarChart, Bar, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend,
+} from 'recharts';
 // Importações do Mapa Real (Leaflet)
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -141,6 +151,15 @@ export default function ManejoArboreo() {
   
   const [userRole, setUserRole] = useState<string | null>(null);
   const [userSchoolId, setUserSchoolId] = useState<string | null>(null);
+
+  // ── Relatório Mensal (PDF) ────────────────────────────────────────────
+  const [showRelatorioModal, setShowRelatorioModal] = useState(false);
+  const [relatorioMes, setRelatorioMes] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [gerandoRelatorioPdf, setGerandoRelatorioPdf] = useState(false);
+  const relatorioRef = useRef<HTMLDivElement>(null);
 
   const carregarContextoEDados = async () => {
     setLoading(true);
@@ -286,6 +305,105 @@ export default function ManejoArboreo() {
     remocoesAutorizadas: escolas.reduce((s, e) => s + (e.naoSeAplica ? 0 : e.qtdRemocaoAutorizada), 0),
   }), [escolas]);
 
+  // ── Relatório Mensal ────────────────────────────────────────────────────
+  // A planilha guarda só a resposta MAIS RECENTE de cada escola (respostas antigas
+  // são descartadas no merge de carregarContextoEDados) — por isso "no mês" aqui
+  // mede escolas cuja ÚLTIMA resposta caiu naquele mês, não o total de respostas
+  // já enviadas historicamente. "Vencendo no mês" usa a validade da autorização
+  // atual, que é sempre a mais recente e por isso não tem essa limitação.
+  const STATUS_ORDER: StatusManejo[] = ['VALIDO', 'VENCIDO', 'PENDENTE', 'NAO_RESPONDIDO', 'NAO_SE_APLICA'];
+  const STATUS_LABELS: Record<StatusManejo, string> = {
+    VALIDO: 'Válido', VENCIDO: 'Vencido', PENDENTE: 'Aguard. Validade', NAO_RESPONDIDO: 'Sem Resposta', NAO_SE_APLICA: 'Não se Aplica',
+  };
+  const STATUS_COLORS: Record<StatusManejo, string> = {
+    VALIDO: '#10b981', VENCIDO: '#ef4444', PENDENTE: '#f59e0b', NAO_RESPONDIDO: '#94a3b8', NAO_SE_APLICA: '#f97316',
+  };
+  // Snapshot da situação atual — usa TODAS as escolas, não só as filtradas pela busca da tela.
+  const statusChartData = useMemo(() => {
+    const contagem: Record<StatusManejo, number> = { VALIDO: 0, VENCIDO: 0, PENDENTE: 0, NAO_RESPONDIDO: 0, NAO_SE_APLICA: 0 };
+    escolas.forEach(e => { contagem[determinarStatus(e)]++; });
+    return STATUS_ORDER.map(s => ({ name: STATUS_LABELS[s], quantidade: contagem[s], color: STATUS_COLORS[s] })).filter(d => d.quantidade > 0);
+  }, [escolas]);
+
+  const opcoesMesRelatorio = useMemo(() => {
+    const opts: { key: string; label: string }[] = [];
+    const base = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(base.getFullYear(), base.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      opts.push({ key, label: d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) });
+    }
+    return opts;
+  }, []);
+
+  const mesLabel = (mesStr: string) => {
+    const [ano, mesNum] = mesStr.split('-').map(Number);
+    if (!ano || !mesNum) return mesStr;
+    return new Date(ano, mesNum - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  };
+
+  const mesDaResposta = (d: Date | null) => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : '';
+
+  const relatorioMetrics = useMemo(() => {
+    const mes = relatorioMes;
+    const respostasNoMes = escolas.filter(e => mesDaResposta(e.timestampResposta) === mes).length;
+    const vencendoNoMes = escolas.filter(e => !e.naoSeAplica && e.validadeAutorizacao?.startsWith(mes)).length;
+
+    const [anoSel, mesSelNum] = mes.split('-').map(Number);
+    const tendencia = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(anoSel, (mesSelNum - 1) - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+      const respostas = escolas.filter(e => mesDaResposta(e.timestampResposta) === key).length;
+      const vencendo = escolas.filter(e => !e.naoSeAplica && e.validadeAutorizacao?.startsWith(key)).length;
+      tendencia.push({ mes: label, 'Últimas Respostas': respostas, 'Vencendo': vencendo });
+    }
+
+    return { respostasNoMes, vencendoNoMes, tendencia };
+  }, [relatorioMes, escolas]);
+
+  // Relatório Mensal em PDF: mesma técnica já usada nas demais páginas
+  // (html2canvas do bloco de cards + gráficos Recharts renderizado no modal + addImage).
+  const gerarRelatorioMensalPdf = async () => {
+    if (!relatorioRef.current) return;
+    setGerandoRelatorioPdf(true);
+    try {
+      await new Promise(r => setTimeout(r, 400));
+      const canvas = await html2canvas(relatorioRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+      });
+      const imgData = canvas.toDataURL('image/png');
+
+      const doc = new jsPDF();
+      const pdfWidth = doc.internal.pageSize.getWidth();
+      const pdfHeight = doc.internal.pageSize.getHeight();
+      const margin = 14;
+      const currentY = 40;
+
+      let printWidth = pdfWidth - margin * 2;
+      let printHeight = (canvas.height * printWidth) / canvas.width;
+      const maxHeight = pdfHeight - currentY - margin;
+      if (printHeight > maxHeight) {
+        const ratio = maxHeight / printHeight;
+        printHeight = maxHeight;
+        printWidth *= ratio;
+      }
+      doc.addImage(imgData, 'PNG', margin, currentY, printWidth, printHeight);
+
+      addTimbradoAllPages(doc);
+      doc.save(`Relatorio_Mensal_Manejo_Arboreo_${relatorioMes}.pdf`);
+      setShowRelatorioModal(false);
+    } catch (err) {
+      console.error(err);
+      alert('Houve um erro ao gerar o PDF. Tente novamente.');
+    } finally {
+      setGerandoRelatorioPdf(false);
+    }
+  };
+
   if (loading && escolas.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[500px] gap-5">
@@ -344,6 +462,12 @@ export default function ManejoArboreo() {
 
             {/* Toggle Mapa / Lista */}
             <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowRelatorioModal(true)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-emerald-200 bg-white/10 border border-white/10 hover:bg-white/20 transition-all"
+              >
+                <ClipboardList size={16} /> Relatório Mensal
+              </button>
               {userRole === 'regional_admin' && MANEJO_SHEET_ID && (
                 <a
                   href={`https://docs.google.com/spreadsheets/d/${MANEJO_SHEET_ID}/edit`}
@@ -652,6 +776,109 @@ export default function ManejoArboreo() {
           </div>
         )}
       </div>
+
+      {/* Modal: Relatório Mensal (PDF) */}
+      {showRelatorioModal && (
+        <div className="fixed inset-0 z-[110] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <ClipboardList size={20} className="text-emerald-600" /> Relatório Mensal
+              </h2>
+              <button onClick={() => setShowRelatorioModal(false)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+                <X size={18} className="text-slate-500" />
+              </button>
+            </div>
+
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-3">
+              <label className="text-sm font-medium text-slate-600 flex items-center gap-1.5"><CalendarDays size={15} /> Mês de referência:</label>
+              <select
+                value={relatorioMes}
+                onChange={e => setRelatorioMes(e.target.value)}
+                className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                {opcoesMesRelatorio.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-5">
+              <div ref={relatorioRef} className="space-y-5 bg-white p-1">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">Relatório Mensal — Manejo Arbóreo</h3>
+                  <p className="text-xs text-slate-500">Referência: {mesLabel(relatorioMes)} • Gerado em {new Date().toLocaleString('pt-BR')}</p>
+                  <p className="text-[11px] text-amber-600 mt-1">
+                    A planilha guarda só a resposta mais recente de cada escola — "últimas respostas no mês" reflete escolas cuja resposta mais atual caiu nesse mês, não o total histórico de respostas.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="border border-slate-100 rounded-xl p-3">
+                    <p className="text-xs text-slate-500 font-medium">Últimas Respostas no Mês</p>
+                    <p className="text-2xl font-bold text-slate-800 mt-1">{relatorioMetrics.respostasNoMes}</p>
+                  </div>
+                  <div className="border border-slate-100 rounded-xl p-3">
+                    <p className="text-xs text-slate-500 font-medium">Autorizações Vencendo no Mês</p>
+                    <p className="text-2xl font-bold text-red-600 mt-1">{relatorioMetrics.vencendoNoMes}</p>
+                  </div>
+                  <div className="border border-slate-100 rounded-xl p-3">
+                    <p className="text-xs text-slate-500 font-medium">Autorizações Válidas (hoje)</p>
+                    <p className="text-2xl font-bold text-emerald-600 mt-1">{estatisticas.validos}</p>
+                  </div>
+                  <div className="border border-slate-100 rounded-xl p-3 bg-slate-50">
+                    <p className="text-xs text-slate-500 font-medium">Escolas Cadastradas</p>
+                    <p className="text-2xl font-bold text-slate-800 mt-1">{escolas.length}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-500 mb-2">Últimas Respostas x Autorizações Vencendo (últimos 6 meses)</h4>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={relatorioMetrics.tendencia} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="mes" tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                      <Tooltip />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Bar dataKey="Últimas Respostas" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Vencendo" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-500 mb-2">Situação Atual das Autorizações</h4>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <PieChart>
+                      <Pie data={statusChartData} dataKey="quantidade" nameKey="name" innerRadius={50} outerRadius={80} paddingAngle={3} stroke="#fff" strokeWidth={2}>
+                        {statusChartData.map(entry => <Cell key={entry.name} fill={entry.color} />)}
+                      </Pie>
+                      <Tooltip formatter={(v, n) => [v, n]} />
+                      <Legend verticalAlign="bottom" height={36} iconType="circle" formatter={(value: string) => <span className="text-[11px] font-medium text-slate-600">{value}</span>} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 flex justify-end gap-2">
+              <button
+                onClick={() => setShowRelatorioModal(false)}
+                className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={gerarRelatorioMensalPdf}
+                disabled={gerandoRelatorioPdf}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-60 transition-colors"
+              >
+                {gerandoRelatorioPdf ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
+                {gerandoRelatorioPdf ? 'Gerando PDF...' : 'Baixar PDF'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
