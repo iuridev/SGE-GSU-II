@@ -226,10 +226,11 @@ export default function MetricasAcesso() {
         }),
         fetchAllPages<ProfileLite>((from, to) =>
           (supabase as any).from('profiles').select('id, full_name, role').order('id').range(from, to)),
-        (supabase as any).rpc('get_user_last_access').range(0, 9999),
+        (supabase as any).rpc('get_user_last_access'),
       ]);
       setLogs(logsData);
       setProfiles(profilesData);
+      if (lastAccessRes?.error) console.error('Erro ao carregar último acesso:', lastAccessRes.error);
       setLastAccess((lastAccessRes?.data || []) as LastAccessRow[]);
     } catch (e) {
       console.error('Erro ao carregar métricas de acesso:', e);
