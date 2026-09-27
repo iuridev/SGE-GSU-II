@@ -204,8 +204,10 @@ export default function PendenciasSemanais() {
       const hoje = new Date();
 
       // ── Água: reaproveita a mesma RPC e janela do Dashboard ──────────────
-      const seisMesesAtras = new Date(hoje.getFullYear(), hoje.getMonth() - 5, 1);
-      const windowStart = seisMesesAtras > WATER_REPORTING_HARD_START ? seisMesesAtras : WATER_REPORTING_HARD_START;
+      // Janela de 3 meses (mês atual + 2 anteriores): lacunas mais antigas que isso
+      // não entram no índice.
+      const tresMesesAtras = new Date(hoje.getFullYear(), hoje.getMonth() - 2, 1);
+      const windowStart = tresMesesAtras > WATER_REPORTING_HARD_START ? tresMesesAtras : WATER_REPORTING_HARD_START;
       const { data: pendenciasAgua, error: aguaError } = await supabase.rpc('get_pending_water_schools', {
         p_window_start: formatDateToYMD(windowStart),
         p_today: formatDateToYMD(hoje),
