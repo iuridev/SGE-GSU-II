@@ -4,9 +4,10 @@ import {
   CheckCircle2, AlertTriangle, Minus, Loader2, Send, Wrench, Phone, Timer, UserX, Sparkles,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { FUNCTION_NAME } from '../lib/fiscalizacaoElevadoresApi';
 import {
   BLOCOS_ESCOLA, BLOCO_VISITA, PERGUNTA_AVISO_MANUTENCAO, PRAZO_EMERGENCIAL_MIN,
-  avaliarFiscalizacao, validarFiscalizacao, perguntasAplicaveis, minutosEntre,
+  avaliarFiscalizacao, validarFiscalizacao, perguntasAplicaveis, minutosEntre, montarLinhasPlanilha,
   type ChecklistBloco, type ChecklistPergunta, type EntradaFiscalizacao,
   type FiscalizacaoRegistro, type Quinzena, type Resposta,
 } from '../lib/fiscalizacaoElevadores';
@@ -222,32 +223,27 @@ export function FormularioFiscalizacaoElevador({ escola, quinzena, inspector, ex
         Object.entries(observacoes).filter(([id, t]) => ids.has(id) && respostas[id] === 'nok' && t.trim()),
       );
       const chamado = houveChamado === true;
-      const payload = {
-        school_id: escola.id,
-        period_start: quinzena.inicio,
-        period_end: quinzena.fim,
-        inspector_id: inspector.id,
-        inspector_name: inspector.name,
-        is_operational: funcionando !== false,
-        down_since: funcionando === false ? desde || null : null,
-        had_visit: houveVisita === true,
-        answers,
-        observations,
-        had_call: chamado,
-        call_type: chamado ? tipoChamado || null : null,
-        call_opened_at: chamado ? toISOOrNull(abertoEm) : null,
-        call_attended_at: chamado ? toISOOrNull(atendidoEm) : null,
-        call_response_minutes: chamado ? avaliacao.minutosAtendimento : null,
-        person_trapped: chamado && pessoaPresa,
-        general_notes: notas.trim() || null,
-        score: avaliacao.score,
-        status: avaliacao.status,
-        nonconformities: avaliacao.naoConformes,
-        updated_at: new Date().toISOString(),
-      };
-      const { error } = await (supabase as any)
-        .from('elevator_inspections')
-        .upsert(payload, { onConflict: 'school_id,period_start' });
+      const { data, items } = montarLinhasPlanilha({
+        escola,
+        quinzena,
+        fiscal: { id: inspector.id, nome: inspector.name },
+        funcionando: funcionando !== false,
+        paradoDesde: desde || null,
+        houveVisita: houveVisita === true,
+        chamado: {
+          houve: chamado,
+          tipo: tipoChamado || null,
+          abertoEmISO: toISOOrNull(abertoEm),
+          atendidoEmISO: toISOOrNull(atendidoEm),
+          pessoaPresa,
+        },
+        respostas: answers,
+        observacoes: observations,
+        observacoesGerais: notas,
+        avaliacao,
+      });
+      const { data: resp, error } = await supabase.functions.invoke(FUNCTION_NAME, { method: 'POST', body: { data, items } });
+      if (resp?.error) throw new Error(resp.error);
       if (error) throw error;
       toast.success(existente ? 'Fiscalização atualizada!' : 'Fiscalização enviada. Obrigado!');
       onSaved();

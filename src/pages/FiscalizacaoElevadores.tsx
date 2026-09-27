@@ -5,7 +5,7 @@ import autoTable from 'jspdf-autotable';
 import {
   ArrowUpCircle, ClipboardCheck, Loader2, Lock, CalendarClock, CheckCircle2, AlertTriangle,
   ShieldAlert, Phone, ChevronDown, FileDown, FileText, Search, Megaphone, TrendingUp,
-  History, LayoutDashboard, School as SchoolIcon, Timer, UserX, Pencil, Building2,
+  History, LayoutDashboard, School as SchoolIcon, Timer, UserX, Pencil, Building2, Table2, ExternalLink,
 } from 'lucide-react';
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, BarChart, Bar, Legend,
@@ -15,10 +15,11 @@ import { resolveViewRole, isReadOnlyRole } from '../lib/roles';
 import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 import { EnviarAlertaModal } from '../components/EnviarAlertaModal';
 import { FormularioFiscalizacaoElevador } from '../components/FormularioFiscalizacaoElevador';
+import { FUNCTION_NAME } from '../lib/fiscalizacaoElevadoresApi';
 import {
   EMPRESAS_CONTATO, PRAZO_EMERGENCIAL_MIN, getQuinzena, ultimasQuinzenas, diasRestantes,
   resumirQuinzena, topNaoConformidades, escolasPendentes, textoDaPergunta, rowsToCsv,
-  type EscolaRef, type FiscalizacaoRegistro, type Quinzena, type StatusFiscalizacao,
+  linhaParaRegistro, type LinhaPlanilha, type EscolaRef, type FiscalizacaoRegistro, type Quinzena, type StatusFiscalizacao,
 } from '../lib/fiscalizacaoElevadores';
 
 const ADMIN_LIKE_ROLES = ['regional_admin', 'supervisor', 'dirigente', 'ure_servico'];
@@ -134,6 +135,7 @@ export function FiscalizacaoElevadores() {
   const [escolas, setEscolas] = useState<EscolaRef[]>([]);
   const [regs, setRegs] = useState<FiscalizacaoRegistro[]>([]);
   const [semEscolaVinculada, setSemEscolaVinculada] = useState(false);
+  const [sheetUrl, setSheetUrl] = useState<string | null>(null);
 
   const [adminTab, setAdminTab] = useState<AdminTab>('painel');
   const [schoolTab, setSchoolTab] = useState<SchoolTab>('fiscalizar');
@@ -182,14 +184,16 @@ export function FiscalizacaoElevadores() {
       }
       setEscolas(listaEscolas);
 
-      let query = (supabase as any)
-        .from('elevator_inspections').select('*')
-        .gte('period_start', quinzenas[0].inicio)
-        .order('period_start', { ascending: false });
-      if (!admin && u.school_id) query = query.eq('school_id', u.school_id);
-      const { data: rows, error } = await query;
+      const { data: resp, error } = await supabase.functions.invoke(FUNCTION_NAME, { method: 'GET' });
       if (error) throw error;
-      setRegs((rows ?? []) as FiscalizacaoRegistro[]);
+      const linhas: LinhaPlanilha[] = Array.isArray(resp?.inspections) ? resp.inspections : [];
+      setSheetUrl(typeof resp?.sheetUrl === 'string' ? resp.sheetUrl : null);
+      setRegs(
+        linhas
+          .map(linhaParaRegistro)
+          .filter(r => r.id && r.period_start >= quinzenas[0].inicio)
+          .sort((a, b) => b.period_start.localeCompare(a.period_start)),
+      );
     } catch (err: any) {
       console.error(err);
       toast.error('Erro ao carregar as fiscalizações de elevadores.');
@@ -422,11 +426,19 @@ export function FiscalizacaoElevadores() {
                 </button>
               ))}
             </div>
+            <div className="flex flex-wrap gap-2">
+            {sheetUrl && (
+              <a href={sheetUrl} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-md">
+                <Table2 size={14} /> Abrir planilha de dados <ExternalLink size={12} />
+              </a>
+            )}
             {!user?.readOnly && pendentes.length > 0 && (
               <button onClick={() => setShowAlerta(true)} className="flex items-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black shadow-md">
                 <Megaphone size={14} /> Cobrar {pendentes.length} pendente{pendentes.length > 1 ? 's' : ''}
               </button>
             )}
+            </div>
           </div>
 
           {escolas.length === 0 && (

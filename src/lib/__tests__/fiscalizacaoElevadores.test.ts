@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   getQuinzena, quinzenaAnterior, ultimasQuinzenas, avaliarFiscalizacao, validarFiscalizacao,
-  perguntasAplicaveis, escolasPendentes, resumirQuinzena, minutosEntre,
+  perguntasAplicaveis, escolasPendentes, resumirQuinzena, minutosEntre, montarLinhasPlanilha, linhaParaRegistro,
   type EntradaFiscalizacao, type FiscalizacaoRegistro, type Resposta,
 } from '../fiscalizacaoElevadores';
 
@@ -151,5 +151,53 @@ describe('painel', () => {
     expect(p.map(x => x.escola.id)).toEqual(['c', 'b']);
     expect(p[0].quinzenasSemResposta).toBe(2);
     expect(p[1].quinzenasSemResposta).toBe(0);
+  });
+});
+
+describe('conversão para a planilha', () => {
+  const escola = { id: 'esc1', name: 'EE Teste' };
+  const quinzena = getQuinzena(new Date(2026, 8, 3));
+
+  function envio() {
+    const e = entrada({ chamado: { houve: true, tipo: 'emergencial', abertoEm: '2026-09-02T08:00', atendidoEm: '2026-09-02T08:20' } });
+    e.respostas.portas = 'nok';
+    return {
+      escola, quinzena, fiscal: { id: 'u1', nome: 'Maria' }, funcionando: true, paradoDesde: null, houveVisita: true,
+      chamado: { houve: true, tipo: 'emergencial', abertoEmISO: '2026-09-02T11:00:00.000Z', atendidoEmISO: '2026-09-02T11:20:00.000Z', pessoaPresa: false },
+      respostas: e.respostas, observacoes: { portas: 'porta 2 emperra' }, observacoesGerais: ' ok ', avaliacao: avaliarFiscalizacao(e),
+    };
+  }
+
+  it('gera id determinístico e uma linha por item respondido', () => {
+    const { data, items } = montarLinhasPlanilha(envio());
+    expect(data.id).toBe('esc1_2026-09-01');
+    expect(items.every(i => i.inspecaoId === data.id)).toBe(true);
+    const portas = items.find(i => i.itemId === 'portas')!;
+    expect(portas.resposta).toBe('Problema');
+    expect(portas.observacao).toBe('porta 2 emperra');
+    expect(portas.bloco).toBe('Funcionamento');
+    expect(data.naoConformidades).toContain('porta 2 emperra');
+    expect(data.observacoesGerais).toBe('ok');
+  });
+
+  it('ida e volta preserva os dados usados pelo painel', () => {
+    const { data } = montarLinhasPlanilha(envio());
+    const r = linhaParaRegistro({ ...data, criadoEm: 'x', atualizadoEm: 'y' });
+    expect(r.school_id).toBe('esc1');
+    expect(r.is_operational).toBe(true);
+    expect(r.had_call).toBe(true);
+    expect(r.call_type).toBe('emergencial');
+    expect(r.call_response_minutes).toBe(20);
+    expect(r.nonconformities).toEqual(['portas']);
+    expect(r.observations.portas).toBe('porta 2 emperra');
+    expect(r.status).toBe('atencao');
+    expect(typeof r.score).toBe('number');
+  });
+
+  it('linha vazia/corrompida não quebra', () => {
+    const r = linhaParaRegistro({ id: 'a', escolaId: 'b', periodoInicio: '2026-09-01', periodoFim: '2026-09-15', respostas: '{quebrado' });
+    expect(r.answers).toEqual({});
+    expect(r.score).toBeNull();
+    expect(r.call_response_minutes).toBeNull();
   });
 });
