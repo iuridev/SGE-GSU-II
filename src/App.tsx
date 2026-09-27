@@ -111,6 +111,25 @@ interface AppNotification {
   allMsgIds: string[];
 }
 
+const AVISOS_DISPENSADOS_KEY = 'sge_avisos_dispensados';
+
+function lerAvisosDispensados(): string[] {
+  try {
+    const raw = localStorage.getItem(AVISOS_DISPENSADOS_KEY);
+    const lista = raw ? JSON.parse(raw) : [];
+    return Array.isArray(lista) ? lista : [];
+  } catch {
+    return [];
+  }
+}
+
+function salvarAvisosDispensados(ids: string[]) {
+  try {
+    // Limita o tamanho para o storage não crescer indefinidamente.
+    localStorage.setItem(AVISOS_DISPENSADOS_KEY, JSON.stringify(Array.from(new Set(ids)).slice(-500)));
+  } catch { /* storage indisponível: o aviso apenas volta no próximo refresh */ }
+}
+
 const MENU_GROUPS: MenuGroup[] = [
   {
     title: 'PRINCIPAL',
@@ -557,7 +576,12 @@ export default function App() {
           });
         }
 
-        setNotifications(groupedNotifs);
+        // Avisos derivados de estado (chamado aberto / assinatura pendente) não têm
+        // "lido" no banco; os dispensados via "Limpar" ficam guardados localmente.
+        const dispensados = lerAvisosDispensados();
+        setNotifications(groupedNotifs.filter(n =>
+          !((n.type === 'chamado' || n.type === 'assinatura_pendente') && dispensados.includes(n.id))
+        ));
 
       } catch (err) {
         console.error("❌ ERRO FATAL no Sino:", err);
@@ -626,6 +650,37 @@ export default function App() {
       }
     } catch (err) {
       console.error("Erro fatal ao limpar a notificação", err);
+    }
+  };
+
+  const limparTodasNotificacoes = async () => {
+    const atuais = notifications;
+    setNotifications([]);
+    setShowDropdown(false);
+
+    try {
+      const msgIds = atuais
+        .filter(n => n.type === 'chat' || n.type === 'conclusion')
+        .flatMap(n => n.allMsgIds);
+      const ticketMsgIds = atuais
+        .filter(n => n.type === 'chamado_update')
+        .flatMap(n => n.allMsgIds);
+
+      if (msgIds.length > 0) {
+        await (supabase as any).from('messages').update({ is_read: true }).in('id', msgIds);
+      }
+      if (ticketMsgIds.length > 0) {
+        await (supabase as any).from('ticket_messages').update({ is_read: true }).in('id', ticketMsgIds);
+      }
+
+      const derivados = atuais
+        .filter(n => n.type === 'chamado' || n.type === 'assinatura_pendente')
+        .map(n => n.id);
+      if (derivados.length > 0) {
+        salvarAvisosDispensados([...lerAvisosDispensados(), ...derivados]);
+      }
+    } catch (err) {
+      console.error("Erro ao limpar notificações", err);
     }
   };
 
@@ -933,8 +988,16 @@ export default function App() {
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setShowDropdown(false)}></div>
                   <div className="absolute right-0 mt-3 w-80 bg-white rounded-2xl shadow-2xl border border-slate-100 py-3 z-20 animate-in fade-in zoom-in-95 duration-200">
-                    <div className="px-4 pb-2 border-b border-slate-50 mb-2">
+                    <div className="px-4 pb-2 border-b border-slate-50 mb-2 flex items-center justify-between">
                       <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Central de Avisos</p>
+                      {unreadCount > 0 && (
+                        <button
+                          onClick={limparTodasNotificacoes}
+                          className="text-[10px] font-bold text-slate-400 hover:text-red-500 uppercase tracking-widest transition-colors"
+                        >
+                          Limpar
+                        </button>
+                      )}
                     </div>
 
                     {unreadCount > 0 ? (
