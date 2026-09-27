@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+import { addTimbradoAllPages } from '../lib/pdfTimbrado';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
+  ResponsiveContainer, Cell, Legend,
+} from 'recharts';
 
 import {
   Ticket, Plus, X, Clock,
@@ -8,7 +15,7 @@ import {
   FileText, Activity,
   Flame, UserPlus, ShieldAlert,
   Search, LayoutDashboard, Settings, FolderTree, Tag, Loader2,
-  Trash2, Link2
+  Trash2, Link2, BarChart3, CalendarDays, FileDown
 } from 'lucide-react';
 
 // Chave usada para "passar" a referência de um atendimento/remanejamento de
@@ -81,9 +88,18 @@ export function Chamados() {
   const [selectedTicket, setSelectedTicket] = useState<TicketData | null>(null);
   const [messages, setMessages] = useState<TicketMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
-  
+
   // Referência para o container de chat (para fazer o auto-scroll)
   const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // ── Relatório Mensal (PDF) ────────────────────────────────────────────
+  const [showRelatorioModal, setShowRelatorioModal] = useState(false);
+  const [relatorioMes, setRelatorioMes] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [gerandoRelatorioPdf, setGerandoRelatorioPdf] = useState(false);
+  const relatorioRef = useRef<HTMLDivElement>(null);
 
   const isAdminOrDirigente = userRole === 'regional_admin' || userRole === 'dirigente';
 
@@ -280,6 +296,104 @@ export function Chamados() {
     });
   }, [tickets, departmentFilter, statusFilter, priorityFilter, searchTerm]);
 
+  // ── Relatório Mensal (PDF) ─────────────────────────────────────────────
+  // "Aberto no mês" usa created_at. "Concluído no mês" usa updated_at, que só é
+  // gravado quando o chamado é finalizado (handleSendMessage/CONCLUSION) — nenhuma
+  // outra transição de status toca updated_at, então ele já serve como "data de
+  // conclusão" sem precisar de coluna nova.
+  const STATUS_LABELS: Record<TicketData['status'], string> = {
+    ABERTO: 'Aberto', EM_ANDAMENTO: 'Em Andamento', AGUARDANDO_ESCOLA: 'Aguardando Escola', CONCLUIDO: 'Concluído',
+  };
+  const STATUS_COLORS: Record<TicketData['status'], string> = {
+    ABERTO: '#3b82f6', EM_ANDAMENTO: '#f59e0b', AGUARDANDO_ESCOLA: '#8b5cf6', CONCLUIDO: '#10b981',
+  };
+
+  // Distribuição atual por status — situação presente, não depende do mês selecionado.
+  const statusChartData = useMemo(() => (['ABERTO', 'EM_ANDAMENTO', 'AGUARDANDO_ESCOLA', 'CONCLUIDO'] as const).map(s => ({
+    name: STATUS_LABELS[s],
+    quantidade: tickets.filter(t => t.status === s).length,
+    color: STATUS_COLORS[s],
+  })), [tickets]);
+
+  const opcoesMesRelatorio = useMemo(() => {
+    const opts: { key: string; label: string }[] = [];
+    const base = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(base.getFullYear(), base.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      opts.push({ key, label: d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) });
+    }
+    return opts;
+  }, []);
+
+  const mesLabel = (mesStr: string) => {
+    const [ano, mesNum] = mesStr.split('-').map(Number);
+    if (!ano || !mesNum) return mesStr;
+    return new Date(ano, mesNum - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  };
+
+  const relatorioMetrics = useMemo(() => {
+    const mes = relatorioMes;
+    const inMes = (d?: string) => !!d && d.startsWith(mes);
+
+    const abertosNoMes = tickets.filter(t => inMes(t.created_at)).length;
+    const concluidosNoMes = tickets.filter(t => t.status === 'CONCLUIDO' && inMes(t.updated_at)).length;
+
+    const [anoSel, mesSelNum] = mes.split('-').map(Number);
+    const tendencia = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(anoSel, (mesSelNum - 1) - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+      const abertos = tickets.filter(t => t.created_at?.startsWith(key)).length;
+      const concluidos = tickets.filter(t => t.status === 'CONCLUIDO' && t.updated_at?.startsWith(key)).length;
+      tendencia.push({ mes: label, Abertos: abertos, Concluídos: concluidos });
+    }
+
+    return { abertosNoMes, concluidosNoMes, tendencia };
+  }, [relatorioMes, tickets]);
+
+  // Relatório Mensal em PDF: mesma técnica já usada em Atendimento Patrimônio/Furtos
+  // (html2canvas do bloco de cards + gráficos Recharts renderizado no modal + addImage).
+  const gerarRelatorioMensalPdf = async () => {
+    if (!relatorioRef.current) return;
+    setGerandoRelatorioPdf(true);
+    try {
+      await new Promise(r => setTimeout(r, 400));
+      const canvas = await html2canvas(relatorioRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+      });
+      const imgData = canvas.toDataURL('image/png');
+
+      const doc = new jsPDF();
+      const pdfWidth = doc.internal.pageSize.getWidth();
+      const pdfHeight = doc.internal.pageSize.getHeight();
+      const margin = 14;
+      const currentY = 40;
+
+      let printWidth = pdfWidth - margin * 2;
+      let printHeight = (canvas.height * printWidth) / canvas.width;
+      const maxHeight = pdfHeight - currentY - margin;
+      if (printHeight > maxHeight) {
+        const ratio = maxHeight / printHeight;
+        printHeight = maxHeight;
+        printWidth *= ratio;
+      }
+      doc.addImage(imgData, 'PNG', margin, currentY, printWidth, printHeight);
+
+      addTimbradoAllPages(doc);
+      doc.save(`Relatorio_Mensal_Chamados_${relatorioMes}.pdf`);
+      setShowRelatorioModal(false);
+    } catch (err) {
+      console.error(err);
+      alert('Houve um erro ao gerar o PDF. Tente novamente.');
+    } finally {
+      setGerandoRelatorioPdf(false);
+    }
+  };
+
   // --- TEMPO DE VIDA DO TICKET (SLA) ---
   const getTimeElapsed = (ticket: TicketData) => {
     const start = new Date(ticket.created_at).getTime();
@@ -404,6 +518,11 @@ export function Chamados() {
         </div>
         
         <div className="flex items-center gap-3 flex-wrap">
+          {isAdminOrDirigente && (
+             <button onClick={() => setShowRelatorioModal(true)} className="bg-white text-slate-600 border border-slate-200 hover:border-indigo-400 hover:text-indigo-600 px-4 py-3.5 rounded-2xl font-black flex items-center gap-2 shadow-sm transition-all active:scale-95 uppercase text-[10px] tracking-widest">
+                <BarChart3 size={16} /> Relatório Mensal
+             </button>
+          )}
           {isAdminOrDirigente && (
              <button onClick={() => setIsConfigOpen(true)} className="bg-white text-slate-600 border border-slate-200 hover:border-indigo-400 hover:text-indigo-600 px-4 py-3.5 rounded-2xl font-black flex items-center gap-2 shadow-sm transition-all active:scale-95 uppercase text-[10px] tracking-widest">
                 <Settings size={16} /> Assuntos
@@ -570,6 +689,118 @@ export function Chamados() {
           })
         )}
       </div>
+
+      {/* --- MODAL RELATÓRIO MENSAL --- */}
+      {showRelatorioModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-[3rem] w-full max-w-3xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+            <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg"><BarChart3 size={24} /></div>
+                <div>
+                  <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Relatório Mensal</h2>
+                  <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mt-1">Helpdesk Pro</p>
+                </div>
+              </div>
+              <button onClick={() => setShowRelatorioModal(false)} className="p-3 bg-white hover:bg-slate-200 rounded-full transition-all text-slate-400"><X size={20} /></button>
+            </div>
+
+            <div className="px-8 py-4 border-b border-slate-100 flex items-center gap-3 shrink-0">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><CalendarDays size={14} /> Mês de referência</label>
+              <select
+                value={relatorioMes}
+                onChange={e => setRelatorioMes(e.target.value)}
+                className="px-3 py-2 text-sm font-bold border-2 border-slate-100 rounded-xl focus:outline-none focus:border-indigo-400 bg-slate-50"
+              >
+                {opcoesMesRelatorio.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className="overflow-y-auto custom-scrollbar flex-1 p-8">
+              <div ref={relatorioRef} className="space-y-6 bg-white p-1">
+                <div>
+                  <h3 className="text-lg font-black text-slate-800 uppercase">Relatório Mensal — Helpdesk</h3>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                    Referência: {mesLabel(relatorioMes)} · Gerado em {new Date().toLocaleString('pt-BR')}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="bg-blue-50 border-2 border-blue-100 rounded-2xl p-4">
+                    <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Abertos no Mês</p>
+                    <p className="text-3xl font-black text-blue-700 mt-1">{relatorioMetrics.abertosNoMes}</p>
+                  </div>
+                  <div className="bg-emerald-50 border-2 border-emerald-100 rounded-2xl p-4">
+                    <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Concluídos no Mês</p>
+                    <p className="text-3xl font-black text-emerald-700 mt-1">{relatorioMetrics.concluidosNoMes}</p>
+                  </div>
+                  <div className="bg-red-50 border-2 border-red-100 rounded-2xl p-4">
+                    <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Urgentes em Aberto</p>
+                    <p className="text-3xl font-black text-red-700 mt-1">{tickets.filter(t => t.priority === 'URGENTE' && t.status !== 'CONCLUIDO').length}</p>
+                  </div>
+                  <div className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-4">
+                    <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Total de Chamados</p>
+                    <p className="text-3xl font-black text-slate-700 mt-1">{tickets.length}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Situação Atual dos Chamados</h4>
+                  <div className="h-[220px] w-full bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={statusChartData} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" horizontal vertical={false} stroke="#e2e8f0" />
+                        <XAxis type="number" hide allowDecimals={false} />
+                        <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 800, fill: '#64748b' }} width={110} />
+                        <RechartsTooltip cursor={{ fill: '#f1f5f9' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px rgba(0,0,0,0.1)' }} />
+                        <Bar dataKey="quantidade" radius={[0, 6, 6, 0]} barSize={18}>
+                          {statusChartData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Abertos x Concluídos (últimos 6 meses)</h4>
+                  <div className="h-[240px] w-full bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={relatorioMetrics.tendencia} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis dataKey="mes" tick={{ fontSize: 10, fontWeight: 700 }} />
+                        <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                        <RechartsTooltip />
+                        <Legend wrapperStyle={{ fontSize: 11, fontWeight: 700 }} />
+                        <Bar dataKey="Abertos" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="Concluídos" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-slate-100 flex justify-end gap-3 shrink-0">
+              <button
+                onClick={() => setShowRelatorioModal(false)}
+                className="px-6 py-3 text-slate-500 font-black hover:text-slate-800 transition-all uppercase tracking-widest text-[11px]"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={gerarRelatorioMensalPdf}
+                disabled={gerandoRelatorioPdf}
+                className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black shadow-lg shadow-indigo-200 hover:bg-indigo-700 flex items-center gap-2 active:scale-95 disabled:opacity-50 transition-all uppercase tracking-widest text-[11px]"
+              >
+                {gerandoRelatorioPdf ? <Loader2 className="animate-spin" size={16} /> : <FileDown size={16} />}
+                {gerandoRelatorioPdf ? 'Gerando...' : 'Baixar PDF'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* --- MODAL NOVO CHAMADO SIMPLIFICADO --- */}
       {isCreateOpen && (
