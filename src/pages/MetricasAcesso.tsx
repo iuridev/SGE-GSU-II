@@ -3,8 +3,9 @@ import { supabase } from '../lib/supabase';
 import { pageLabel } from '../lib/pageLabels';
 import {
   BarChart3, Loader2, LogIn, Users, Clock, Eye, RefreshCw, Info, History, Timer,
-  TrendingUp, TrendingDown, Minus, Activity, UserX, Layers,
+  TrendingUp, TrendingDown, Minus, Activity, UserX, Layers, FileDown,
 } from 'lucide-react';
+import { gerarPdfMetricasAcesso } from '../lib/pdfMetricasAcesso';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, AreaChart, Area,
@@ -421,6 +422,45 @@ export default function MetricasAcesso() {
     },
   ];
 
+  const exportarPdf = () => {
+    const pctTexto = (a: number, b: number | null) => {
+      if (b === null || b === 0) return '';
+      const pct = Math.round(((a - b) / b) * 100);
+      return pct > 0 ? `+${pct}%` : `${pct}%`;
+    };
+    const deltas = [
+      pctTexto(atual.logins.length, anterior ? anterior.logins.length : null),
+      pctTexto(atual.visits.length, anterior ? anterior.visits.length : null),
+      pctTexto(atual.users.size, anterior ? anterior.users.size : null),
+      pctTexto(atual.navs.length, anterior ? anterior.navs.length : null),
+      tempoMedioVisita !== null ? pctTexto(tempoMedioVisita, tempoMedioAnterior) : '',
+      '',
+    ];
+    const problemas = ultimoAcessoLista.filter(a => a.status !== 'ativos');
+    gerarPdfMetricasAcesso({
+      periodoLabel: PERIODOS.find(p => p.id === periodo)?.label || periodo,
+      comparaAnterior: !!anterior,
+      totalEventos: atualLogs.length,
+      kpis: kpis.map((k, i) => ({ label: k.label, value: String(k.value), hint: k.hint, delta: deltas[i] })),
+      diario: diario.map(d => ({ label: d.label, ativos: d['Usuários ativos'], visitas: d.Visitas, logins: d.Logins })),
+      porHora: porHora.map(h => ({ label: h.hora, value: h.total })),
+      porDiaSemana: porDiaSemana.map(d => ({ label: d.dia, value: d.total })),
+      adesao: adesaoPorPerfil.map(r => ({ label: r.label, ativos: r.ativos, total: r.total, pct: r.pct })),
+      topUsuarios: topUsuarios.map(u => ({
+        nome: u.nome, perfil: ROLE_LABELS[u.role] || u.role || '-', visitas: u.visitas,
+        tempo: formatDuracao(u.minutos), navegacoes: u.navegacoes,
+      })),
+      topPaginas: topPaginas.map(p => ({ label: p.label, total: p.total, usuarios: p.usuarios })),
+      semAcesso: problemas.slice(0, 60).map(a => ({
+        nome: a.nome, perfil: ROLE_LABELS[a.role] || a.role || '-',
+        situacao: a.status === 'nunca' ? 'Nunca acessou' : `Inativo +${INATIVO_DIAS}d`,
+        ultimo: a.last_sign_in_at ? formatDateTime(a.last_sign_in_at) : '-',
+      })),
+      semAcessoTotal: problemas.length,
+      inativoDias: INATIVO_DIAS,
+    });
+  };
+
   const statusBadge = (s: 'ativos' | 'inativos' | 'nunca') => {
     if (s === 'ativos') return <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700">Ativo</span>;
     if (s === 'inativos') return <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700">Inativo +{INATIVO_DIAS}d</span>;
@@ -453,6 +493,14 @@ export default function MetricasAcesso() {
           >
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             Atualizar
+          </button>
+          <button
+            onClick={exportarPdf}
+            disabled={loading}
+            className="flex items-center gap-2 px-3 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm disabled:opacity-50"
+          >
+            <FileDown size={16} />
+            Exportar PDF
           </button>
         </div>
       </div>
