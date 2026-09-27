@@ -571,6 +571,28 @@ Deno.serve(async (req) => {
         return ok(corsHeaders, { success: true, count })
       }
 
+      // Migração pontual: remanejamentos que já foram cadastrados no SAM ANTES da
+      // coluna data_cadastro_sam existir ficaram com ela vazia (só passou a ser
+      // preenchida a partir da transição em editar_remanejamento, ver acima). Preenche
+      // com a data de hoje só quem está com cadastrado_sam=TRUE e data_cadastro_sam
+      // ainda vazia — idempotente, pode ser chamado de novo sem duplicar/sobrescrever
+      // nada em quem já tem data.
+      case 'backfill_datas_remanejamento': {
+        exigirRegionalAdmin(p)
+        const sheet = await getOrCreateSheet(doc, REMANEJAMENTOS_SHEET, REMANEJAMENTOS_COLUMNS)
+        const rows = await sheet.getRows()
+        const hoje = new Date().toISOString()
+        let count = 0
+        for (const row of rows) {
+          if (row.get('cadastrado_sam') === 'TRUE' && !row.get('data_cadastro_sam')) {
+            row.set('data_cadastro_sam', hoje)
+            await row.save()
+            count++
+          }
+        }
+        return ok(corsHeaders, { success: true, count })
+      }
+
       default:
         throw new Error(`Ação "${action}" desconhecida.`)
     }
