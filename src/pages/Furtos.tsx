@@ -1,12 +1,17 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Plus, Trash2, Save, FileText, AlertTriangle, ShieldAlert, Building2,
   Calculator, BarChart3, TrendingUp, Clock, CheckCircle, Search, Pencil, X, CalendarClock,
-  Package, Loader2, Download, FileDown
+  Package, Loader2, Download, FileDown, CalendarDays, ClipboardList
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import html2canvas from 'html2canvas';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
+  ResponsiveContainer, Cell, Legend,
+} from 'recharts';
 import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 import { supabase } from '../lib/supabase';
 
@@ -55,7 +60,12 @@ interface ProcessoHistorico {
   numero_baixa_sam?: string;
   itens?: Item[];
   valor_total: number;
-  updated_at?: string; 
+  updated_at?: string;
+  created_at?: string;
+  // Data em que `situacao` virou "Concluído" — diferente de updated_at, que é
+  // tocado em QUALQUER edição do processo. Preenchida só na transição (ver
+  // handleSubmit), usada pelo Relatório Mensal para contar conclusões por mês.
+  data_conclusao?: string | null;
 }
 
 const FORM_INITIAL_STATE = {
@@ -94,6 +104,15 @@ export default function CadastroFurtos() {
 
   // ================= ESTADO DO MODAL DE BAIXA PATRIMONIAL =================
   const [baixaModal, setBaixaModal] = useState({ isOpen: false, processoId: '', nlBaixa: '', numeroBaixaSam: '' });
+
+  // ================= RELATÓRIO MENSAL (PDF) =================
+  const [showRelatorioModal, setShowRelatorioModal] = useState(false);
+  const [relatorioMes, setRelatorioMes] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [gerandoRelatorioPdf, setGerandoRelatorioPdf] = useState(false);
+  const relatorioRef = useRef<HTMLDivElement>(null);
 
   // Efeito para buscar utilizador logado, lista de escolas e histórico real do banco
   useEffect(() => {
@@ -138,6 +157,7 @@ export default function CadastroFurtos() {
             valor_total,
             updated_at,
             created_at,
+            data_conclusao,
             schools ( name, cie_code )
           `)
           .order('updated_at', { ascending: false });
@@ -161,7 +181,9 @@ export default function CadastroFurtos() {
             numero_baixa_sam: proc.numero_baixa_sam,
             itens: proc.itens,
             valor_total: Number(proc.valor_total) || 0,
-            updated_at: proc.updated_at || proc.created_at
+            updated_at: proc.updated_at || proc.created_at,
+            created_at: proc.created_at,
+            data_conclusao: proc.data_conclusao || null,
           }));
           setHistorico(historicoFormatado);
         }
@@ -342,11 +364,133 @@ export default function CadastroFurtos() {
         return dataA - dataB;
       });
 
-    return { 
+    return {
       stats: { totalOcorrencias, prejuizoTotal, emApuracao, concluidos, top5 },
       processosDesatualizados: desatualizados
     };
   }, [historico]);
+
+  // Distribuição atual por situação (Em Análise / Em Apuração / Concluído) — usada
+  // tanto pelo card "Em Análise" quanto pelo gráfico de barras do Relatório Mensal.
+  const situacaoChartData = useMemo(() => SITUACOES.map(sit => ({
+    name: sit,
+    quantidade: historico.filter(h => h.situacao === sit).length,
+    color: sit === 'Concluído' ? '#10b981' : sit === 'Em Apuração' ? '#f59e0b' : '#3b82f6',
+  })), [historico]);
+
+  const emAnalise = situacaoChartData.find(s => s.name === 'Em Análise')?.quantidade ?? 0;
+
+  // Opções do seletor de mês do Relatório Mensal — últimos 12 meses, mais recente primeiro.
+  const opcoesMesRelatorio = useMemo(() => {
+    const opts: { key: string; label: string }[] = [];
+    const base = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(base.getFullYear(), base.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      opts.push({ key, label: d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) });
+    }
+    return opts;
+  }, []);
+
+  const mesLabel = (mesStr: string) => {
+    const [ano, mesNum] = mesStr.split('-').map(Number);
+    if (!ano || !mesNum) return mesStr;
+    return new Date(ano, mesNum - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  };
+
+  // ── Métricas do Relatório Mensal ───────────────────────────────────────
+  // "Cadastrados" usa created_at (data de criação do registo); "concluídos" usa
+  // data_conclusao (preenchida só na transição de situação em handleSubmit,
+  // diferente de updated_at que muda em qualquer edição); "em análise"/"em
+  // apuração"/"concluídos" (situação atual) vêm do situacaoChartData acima —
+  // são uma fotografia do momento, não dependem do mês selecionado.
+  const relatorioMetrics = useMemo(() => {
+    const mes = relatorioMes;
+    const inMes = (d?: string | null) => !!d && d.startsWith(mes);
+
+    const cadastradosNoMes = historico.filter(h => inMes(h.created_at)).length;
+    const concluidosNoMes = historico.filter(h => inMes(h.data_conclusao)).length;
+
+    const [anoSel, mesSelNum] = mes.split('-').map(Number);
+    const tendencia = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(anoSel, (mesSelNum - 1) - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+      const cadastrados = historico.filter(h => h.created_at?.startsWith(key)).length;
+      const concluidos = historico.filter(h => h.data_conclusao?.startsWith(key)).length;
+      tendencia.push({ mes: label, Cadastrados: cadastrados, Concluídos: concluidos });
+    }
+
+    return { cadastradosNoMes, concluidosNoMes, tendencia };
+  }, [relatorioMes, historico]);
+
+  // Correção pontual: processos já marcados "Concluído" antes de a coluna
+  // data_conclusao existir ficaram sem essa data. Preenche com a data de hoje só
+  // quem está sem data — idempotente, seguro para rodar mais de uma vez.
+  const handleBackfillDataConclusao = async () => {
+    const idsSemData = historico.filter(h => h.situacao === 'Concluído' && !h.data_conclusao).map(h => h.id);
+    if (idsSemData.length === 0) {
+      alert('Nenhum processo concluído está sem a data de conclusão.');
+      return;
+    }
+    if (!window.confirm(`Preencher com a data de hoje ${idsSemData.length} processo(s) concluído(s) sem data de conclusão?`)) return;
+    setIsSaving(true);
+    try {
+      const agoraIso = new Date().toISOString();
+      const { error } = await (supabase as any).from('processos_furtos').update({ data_conclusao: agoraIso }).in('id', idsSemData);
+      if (error) throw error;
+      setHistorico(prev => prev.map(h => idsSemData.includes(h.id) ? { ...h, data_conclusao: agoraIso } : h));
+      alert(`${idsSemData.length} processo(s) atualizado(s) com a data de hoje.`);
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao preencher as datas de conclusão.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Relatório Mensal em PDF: mesmo técnica de gerarPdfOcorrencia (jsPDF estático),
+  // mas capturando via html2canvas o bloco de cards + gráfico Recharts renderizado
+  // no modal, igual ao Relatório Mensal de Atendimento Patrimônio.
+  const gerarRelatorioMensalPdf = async () => {
+    if (!relatorioRef.current) return;
+    setGerandoRelatorioPdf(true);
+    try {
+      await new Promise(r => setTimeout(r, 400));
+      const canvas = await html2canvas(relatorioRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+      });
+      const imgData = canvas.toDataURL('image/png');
+
+      const doc = new jsPDF();
+      const pdfWidth = doc.internal.pageSize.getWidth();
+      const pdfHeight = doc.internal.pageSize.getHeight();
+      const margin = 14;
+      const currentY = 40;
+
+      let printWidth = pdfWidth - margin * 2;
+      let printHeight = (canvas.height * printWidth) / canvas.width;
+      const maxHeight = pdfHeight - currentY - margin;
+      if (printHeight > maxHeight) {
+        const ratio = maxHeight / printHeight;
+        printHeight = maxHeight;
+        printWidth *= ratio;
+      }
+      doc.addImage(imgData, 'PNG', margin, currentY, printWidth, printHeight);
+
+      addTimbradoAllPages(doc);
+      doc.save(`Relatorio_Mensal_Furtos_${relatorioMes}.pdf`);
+      setShowRelatorioModal(false);
+    } catch (err) {
+      console.error(err);
+      alert('Houve um erro ao gerar o PDF. Tente novamente.');
+    } finally {
+      setGerandoRelatorioPdf(false);
+    }
+  };
 
   // Filtro Lógico da Tabela
   const historicoFiltrado = useMemo(() => {
@@ -495,9 +639,9 @@ export default function CadastroFurtos() {
 
     setIsSaving(true);
     const agoraIso = new Date().toISOString();
-    
+
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         numero_sei: formData.numeroSEI,
         escola_id: formData.escola,
         data_ocorrencia: formData.dataOcorrencia,
@@ -510,8 +654,17 @@ export default function CadastroFurtos() {
         numero_baixa_sam: formData.numeroBaixaSam || null,
         valor_total: valorTotal,
         itens: itens,
-        updated_at: agoraIso 
+        updated_at: agoraIso
       };
+
+      // data_conclusao só é gravada na transição de situação (diferente de
+      // updated_at, tocado em toda edição) — sem isso o Relatório Mensal não
+      // consegue saber QUANDO um processo foi de fato concluído.
+      const situacaoAnterior = editingId ? historico.find(p => p.id === editingId)?.situacao : undefined;
+      const eraConcluido = situacaoAnterior === 'Concluído';
+      const ficaConcluido = formData.situacao === 'Concluído';
+      if (!eraConcluido && ficaConcluido) payload.data_conclusao = agoraIso;
+      else if (eraConcluido && !ficaConcluido) payload.data_conclusao = null;
 
       let query;
 
@@ -542,6 +695,8 @@ export default function CadastroFurtos() {
           situacao,
           valor_total,
           updated_at,
+          created_at,
+          data_conclusao,
           schools ( name, cie_code )
         `)
         .single();
@@ -565,7 +720,9 @@ export default function CadastroFurtos() {
           numero_baixa_sam: registroSalvo.numero_baixa_sam,
           itens: registroSalvo.itens,
           valor_total: Number(registroSalvo.valor_total) || 0,
-          updated_at: registroSalvo.updated_at
+          updated_at: registroSalvo.updated_at,
+          created_at: registroSalvo.created_at,
+          data_conclusao: registroSalvo.data_conclusao || null,
         };
 
         if (editingId) {
@@ -649,11 +806,30 @@ export default function CadastroFurtos() {
 
         {/* DASHBOARD SECTION */}
         <section>
-          <div className="mb-4">
+          <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
               <BarChart3 className="w-6 h-6 text-blue-600" />
               Painel de Ocorrências (Últimos 12 meses)
             </h2>
+            <div className="flex flex-wrap gap-2">
+              {userProfile?.role === 'regional_admin' && (
+                <button
+                  type="button"
+                  onClick={handleBackfillDataConclusao}
+                  title="Correção pontual: preenche com a data de hoje os processos já concluídos que ficaram sem data de conclusão"
+                  className="flex items-center gap-2 px-4 py-2 text-amber-700 bg-amber-50 border border-amber-200 rounded-lg text-sm font-medium hover:bg-amber-100 transition-colors"
+                >
+                  <CheckCircle className="w-4 h-4" /> Corrigir Datas de Conclusão
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowRelatorioModal(true)}
+                className="flex items-center gap-2 px-4 py-2 text-white bg-blue-600 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+              >
+                <ClipboardList className="w-4 h-4" /> Relatório Mensal
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -1007,6 +1183,119 @@ export default function CadastroFurtos() {
         </section>
 
       </main>
+
+      {/* ================= MODAL RELATÓRIO MENSAL ================= */}
+      {showRelatorioModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-slate-50">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <ClipboardList className="w-5 h-5 text-blue-600" />
+                Relatório Mensal
+              </h3>
+              <button onClick={() => setShowRelatorioModal(false)} className="text-gray-400 hover:text-gray-600 p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-3">
+              <label className="text-xs font-bold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+                <CalendarDays className="w-4 h-4" /> Mês de referência
+              </label>
+              <select
+                value={relatorioMes}
+                onChange={e => setRelatorioMes(e.target.value)}
+                className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+              >
+                {opcoesMesRelatorio.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-6">
+              <div ref={relatorioRef} className="space-y-6 bg-white p-1">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-800">Relatório Mensal — Furtos, Roubos e Extravios</h3>
+                  <p className="text-xs text-gray-400 font-medium mt-1">
+                    Referência: {mesLabel(relatorioMes)} · Gerado em {new Date().toLocaleString('pt-BR')}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+                    <p className="text-xs font-semibold text-gray-500">Cadastrados no Mês</p>
+                    <p className="text-3xl font-bold text-blue-700 mt-1">{relatorioMetrics.cadastradosNoMes}</p>
+                  </div>
+                  <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
+                    <p className="text-xs font-semibold text-gray-500">Concluídos no Mês</p>
+                    <p className="text-3xl font-bold text-emerald-700 mt-1">{relatorioMetrics.concluidosNoMes}</p>
+                  </div>
+                  <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
+                    <p className="text-xs font-semibold text-gray-500">Em Análise (hoje)</p>
+                    <p className="text-3xl font-bold text-amber-700 mt-1">{emAnalise}</p>
+                  </div>
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                    <p className="text-xs font-semibold text-gray-500">Total de Ocorrências</p>
+                    <p className="text-3xl font-bold text-gray-700 mt-1">{stats.totalOcorrencias}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Situação Atual dos Processos</h4>
+                  <div className="h-[200px] w-full bg-gray-50 rounded-xl p-4 border border-gray-100">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={situacaoChartData} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" horizontal vertical={false} stroke="#e5e7eb" />
+                        <XAxis type="number" hide allowDecimals={false} />
+                        <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 11, fontWeight: 600, fill: '#4b5563' }} width={100} />
+                        <RechartsTooltip cursor={{ fill: '#f3f4f6' }} contentStyle={{ borderRadius: '10px', border: 'none', boxShadow: '0 10px 15px rgba(0,0,0,0.1)' }} />
+                        <Bar dataKey="quantidade" radius={[0, 6, 6, 0]} barSize={22}>
+                          {situacaoChartData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Cadastrados x Concluídos (últimos 6 meses)</h4>
+                  <div className="h-[220px] w-full bg-gray-50 rounded-xl p-4 border border-gray-100">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={relatorioMetrics.tendencia} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <XAxis dataKey="mes" tick={{ fontSize: 11, fontWeight: 600 }} />
+                        <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                        <RechartsTooltip />
+                        <Legend wrapperStyle={{ fontSize: 11, fontWeight: 600 }} />
+                        <Bar dataKey="Cadastrados" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="Concluídos" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-5 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+              <button
+                onClick={() => setShowRelatorioModal(false)}
+                className="px-5 py-2.5 text-gray-600 font-bold hover:bg-gray-200 rounded-xl transition-colors text-sm"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={gerarRelatorioMensalPdf}
+                disabled={gerandoRelatorioPdf}
+                className="px-6 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2 shadow-md text-sm active:scale-95"
+              >
+                {gerandoRelatorioPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+                {gerandoRelatorioPdf ? 'Gerando...' : 'Baixar PDF'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ================= MODAL REGISTRAR BAIXA ================= */}
       {baixaModal.isOpen && (
