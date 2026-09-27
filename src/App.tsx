@@ -296,7 +296,11 @@ export default function App() {
   const [session, setSession] = useState<any>(null);
   const [userRole, setUserRole] = useState<string>('');
   const [isReadOnlyUser, setIsReadOnlyUser] = useState(false);
-  const [currentPage, setCurrentPage] = useState(() => localStorage.getItem('sge_page') || 'dashboard');
+  const [currentPage, setCurrentPage] = useState(() => {
+    const h = window.location.hash;
+    if (h.startsWith('#/')) return decodeURIComponent(h.slice(2)) || 'dashboard';
+    return localStorage.getItem('sge_page') || 'dashboard';
+  });
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -323,7 +327,10 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('sge_page', currentPage);
-  }, [currentPage]);
+    if (session && window.location.hash !== `#/${currentPage}`) {
+      window.history.replaceState(null, '', `#/${currentPage}`);
+    }
+  }, [currentPage, session]);
 
   useEffect(() => {
     if (!session?.user?.id) return;
@@ -712,8 +719,17 @@ export default function App() {
     setExpandedGroups(prev => prev.includes(title) ? prev.filter(g => g !== title) : [...prev, title]);
   };
 
+  const navLinkClick = (id: string, after?: () => void) => (e: React.MouseEvent) => {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return; // deixa o navegador abrir em nova aba
+    e.preventDefault();
+    setCurrentPage(id);
+    after?.();
+    if (window.innerWidth < 1024) setIsSidebarOpen(false);
+  };
+
   const toggleFavorite = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    e.preventDefault();
     const previous = favorites;
     const updated = previous.includes(id) ? previous.filter(f => f !== id) : [...previous, id];
     setFavorites(updated);
@@ -865,9 +881,10 @@ export default function App() {
           {searchQuery.trim() ? (
             <div className="flex flex-col gap-1 mt-1">
               {searchResults.length > 0 ? searchResults.map(item => (
-                <button
+                <a
                   key={item.id}
-                  onClick={() => { setCurrentPage(item.id); setSearchQuery(''); if (window.innerWidth < 1024) setIsSidebarOpen(false); }}
+                  href={`#/${item.id}`}
+                  onClick={navLinkClick(item.id, () => setSearchQuery(''))}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group ${currentPage === item.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}
                 >
                   <div className={`${currentPage === item.id ? 'text-white' : 'text-slate-400 group-hover:text-blue-400'} transition-colors flex-shrink-0`}>{item.icon}</div>
@@ -877,7 +894,7 @@ export default function App() {
                     onClick={(e) => toggleFavorite(item.id, e)}
                     className={`flex-shrink-0 transition-all ${favorites.includes(item.id) ? 'fill-amber-400 text-amber-400' : 'text-slate-600 opacity-0 group-hover:opacity-100 hover:text-amber-400'}`}
                   />
-                </button>
+                </a>
               )) : (
                 <p className="text-xs text-slate-500 text-center py-6">Nenhum resultado encontrado.</p>
               )}
@@ -886,10 +903,10 @@ export default function App() {
             <>
               {dashboardItem && (
                 <div className="flex flex-col gap-1 mb-1">
-                  <button onClick={() => { setCurrentPage(dashboardItem.id); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} title={isCollapsed ? dashboardItem.label : undefined} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg transition-all duration-200 group ${currentPage === dashboardItem.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}>
+                  <a href={`#/${dashboardItem.id}`} onClick={navLinkClick(dashboardItem.id)} title={isCollapsed ? dashboardItem.label : undefined} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg transition-all duration-200 group ${currentPage === dashboardItem.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}>
                     <div className={`${currentPage === dashboardItem.id ? 'text-white' : 'text-slate-400 group-hover:text-blue-400'} transition-colors flex-shrink-0`}>{dashboardItem.icon}</div>
                     {!isCollapsed && <span className="font-medium whitespace-nowrap text-sm text-left truncate flex-1">{dashboardItem.label}</span>}
-                  </button>
+                  </a>
                 </div>
               )}
 
@@ -905,7 +922,7 @@ export default function App() {
 
                   <div className="flex flex-col gap-1 mt-1">
                     {favoriteItems.map((item) => (
-                      <button key={`fav-${item.id}`} onClick={() => { setCurrentPage(item.id); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} title={isCollapsed ? item.label : undefined} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg transition-all duration-200 group ${currentPage === item.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}>
+                      <a key={`fav-${item.id}`} href={`#/${item.id}`} onClick={navLinkClick(item.id)} title={isCollapsed ? item.label : undefined} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg transition-all duration-200 group ${currentPage === item.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}>
                         <div className={`${currentPage === item.id ? 'text-white' : 'text-slate-400 group-hover:text-blue-400'} transition-colors flex-shrink-0`}>{item.icon}</div>
                         {!isCollapsed && <span className="font-medium whitespace-nowrap text-sm text-left truncate flex-1">{item.label}</span>}
                         {!isCollapsed && (
@@ -915,7 +932,7 @@ export default function App() {
                             className="flex-shrink-0 fill-amber-400 text-amber-400 hover:scale-110 transition-transform"
                           />
                         )}
-                      </button>
+                      </a>
                     ))}
                   </div>
                 </div>
@@ -938,7 +955,7 @@ export default function App() {
 
                     <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ease-in-out ${!isCollapsed && !isOpen ? 'max-h-0 opacity-0' : 'max-h-[1000px] opacity-100 mt-1'}`}>
                       {visibleItems.map((item) => (
-                        <button key={item.id} onClick={() => { setCurrentPage(item.id); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} title={isCollapsed ? item.label : undefined} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg transition-all duration-200 group ${currentPage === item.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}>
+                        <a key={item.id} href={`#/${item.id}`} onClick={navLinkClick(item.id)} title={isCollapsed ? item.label : undefined} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg transition-all duration-200 group ${currentPage === item.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}>
                           <div className={`${currentPage === item.id ? 'text-white' : 'text-slate-400 group-hover:text-blue-400'} transition-colors flex-shrink-0`}>{item.icon}</div>
                           {!isCollapsed && <span className="font-medium whitespace-nowrap text-sm text-left truncate flex-1">{item.label}</span>}
                           {!isCollapsed && (
@@ -948,7 +965,7 @@ export default function App() {
                               className={`flex-shrink-0 transition-all ${favorites.includes(item.id) ? 'fill-amber-400 text-amber-400' : 'text-slate-600 opacity-0 group-hover:opacity-100 hover:text-amber-400'}`}
                             />
                           )}
-                        </button>
+                        </a>
                       ))}
                     </div>
                   </div>
