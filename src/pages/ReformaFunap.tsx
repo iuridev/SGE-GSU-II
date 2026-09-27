@@ -1,15 +1,19 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import html2canvas from 'html2canvas';
 import * as XLSX from 'xlsx';
 import { addTimbradoAllPages, TIMBRADO_HEADER_H, TIMBRADO_FOOTER_H } from '../lib/pdfTimbrado';
 import {
   Wrench, Clock, RefreshCw, Save, CheckCircle2, AlertTriangle, History,
   FileDown, FileSpreadsheet, Image as ImageIcon, Upload, Truck, Calendar,
-  Users, X, Loader2, Search, ExternalLink, FileCheck,
+  Users, X, Loader2, Search, ExternalLink, FileCheck, ClipboardList, Send,
 } from 'lucide-react';
+import {
+  BarChart, Bar, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend,
+} from 'recharts';
 
 // A URE deste sistema atende só a diretoria de Guarulhos Sul (não há campo
 // "diretoria" na tabela schools) — mesmo valor fixo usado no timbrado (ver
@@ -243,6 +247,15 @@ export default function ReformaFunap() {
   const [planilhaUrl, setPlanilhaUrl] = useState<string | null>(null);
   const [showTermoModal, setShowTermoModal] = useState(false);
   const [confirming, setConfirming] = useState(false);
+
+  // ── Relatório Mensal (PDF) ────────────────────────────────────────────
+  const [showRelatorioModal, setShowRelatorioModal] = useState(false);
+  const [relatorioMes, setRelatorioMes] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [gerandoRelatorioPdf, setGerandoRelatorioPdf] = useState(false);
+  const relatorioRef = useRef<HTMLDivElement>(null);
 
   const isAdmin = userRole === 'regional_admin';
   const isSchoolManager = userRole === 'school_manager';
@@ -598,6 +611,104 @@ export default function ReformaFunap() {
     });
     return linhas.sort((a, b) => a.escola.localeCompare(b.escola));
   }, [respostas, escolaById]);
+
+  // ── Relatório Mensal ────────────────────────────────────────────────────
+  // Formulário de levantamento (não é um processo com etapas): "no mês" mede
+  // quando a escola respondeu (data_resposta) e quando confirmou o Termo de
+  // Conferência (confirmado_em — a resposta vira definitiva/travada nesse
+  // momento, o equivalente mais próximo de uma "conclusão"). O restante é
+  // sempre a fotografia atual (respondido/confirmado/pendente).
+  const opcoesMesRelatorio = useMemo(() => {
+    const opts: { key: string; label: string }[] = [];
+    const base = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(base.getFullYear(), base.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      opts.push({ key, label: d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) });
+    }
+    return opts;
+  }, []);
+
+  const mesLabelRelatorio = (mesStr: string) => {
+    const [ano, mesNum] = mesStr.split('-').map(Number);
+    if (!ano || !mesNum) return mesStr;
+    return new Date(ano, mesNum - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  };
+
+  const totalConfirmado = useMemo(() => respostas.filter(r => r.confirmado === 'TRUE').length, [respostas]);
+  const totalRespondidoNaoConfirmado = totalRespondido - totalConfirmado;
+
+  const situacaoChartData = useMemo(() => [
+    { name: 'Confirmado', quantidade: totalConfirmado, color: '#10b981' },
+    { name: 'Respondido (não confirmado)', quantidade: totalRespondidoNaoConfirmado, color: '#3b82f6' },
+    { name: 'Pendente', quantidade: totalPendente, color: '#f59e0b' },
+  ].filter(d => d.quantidade > 0), [totalConfirmado, totalRespondidoNaoConfirmado, totalPendente]);
+
+  const totaisMobiliario = useMemo(() => respostas.reduce((acc, r) => {
+    acc.carteiras += Number(r.cja05_carteiras || 0) + Number(r.cja06_carteiras || 0);
+    acc.cadeiras += Number(r.cja05_cadeiras || 0) + Number(r.cja06_cadeiras || 0);
+    return acc;
+  }, { carteiras: 0, cadeiras: 0 }), [respostas]);
+
+  const relatorioMetrics = useMemo(() => {
+    const mes = relatorioMes;
+    const respostasNoMes = respostas.filter(r => r.data_resposta?.startsWith(mes)).length;
+    const confirmacoesNoMes = respostas.filter(r => r.confirmado === 'TRUE' && r.confirmado_em?.startsWith(mes)).length;
+
+    const [anoSel, mesSelNum] = mes.split('-').map(Number);
+    const tendencia = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(anoSel, (mesSelNum - 1) - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+      const recebidas = respostas.filter(r => r.data_resposta?.startsWith(key)).length;
+      const confirmadas = respostas.filter(r => r.confirmado === 'TRUE' && r.confirmado_em?.startsWith(key)).length;
+      tendencia.push({ mes: label, Respostas: recebidas, Confirmações: confirmadas });
+    }
+
+    return { respostasNoMes, confirmacoesNoMes, tendencia };
+  }, [relatorioMes, respostas]);
+
+  // Relatório Mensal em PDF: mesma técnica já usada nas demais páginas
+  // (html2canvas do bloco de cards + gráficos Recharts renderizado no modal + addImage).
+  const gerarRelatorioMensalPdf = async () => {
+    if (!relatorioRef.current) return;
+    setGerandoRelatorioPdf(true);
+    try {
+      await new Promise(r => setTimeout(r, 400));
+      const canvas = await html2canvas(relatorioRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+      });
+      const imgData = canvas.toDataURL('image/png');
+
+      const doc = new jsPDF();
+      const pdfWidth = doc.internal.pageSize.getWidth();
+      const pdfHeight = doc.internal.pageSize.getHeight();
+      const margin = 14;
+      const currentY = 40;
+
+      let printWidth = pdfWidth - margin * 2;
+      let printHeight = (canvas.height * printWidth) / canvas.width;
+      const maxHeight = pdfHeight - currentY - margin;
+      if (printHeight > maxHeight) {
+        const ratio = maxHeight / printHeight;
+        printHeight = maxHeight;
+        printWidth *= ratio;
+      }
+      doc.addImage(imgData, 'PNG', margin, currentY, printWidth, printHeight);
+
+      addTimbradoAllPages(doc);
+      doc.save(`Relatorio_Mensal_Reforma_FUNAP_${relatorioMes}.pdf`);
+      setShowRelatorioModal(false);
+    } catch (err) {
+      console.error(err);
+      alert('Houve um erro ao gerar o PDF. Tente novamente.');
+    } finally {
+      setGerandoRelatorioPdf(false);
+    }
+  };
 
   const handleExportarPdf = () => {
     setExportingPdf(true);
@@ -1164,6 +1275,13 @@ export default function ReformaFunap() {
 
               <div className="flex gap-2 flex-wrap">
                 <button
+                  onClick={() => setShowRelatorioModal(true)}
+                  className="flex items-center gap-2 px-3 py-2 text-teal-700 border border-teal-200 bg-teal-50 rounded-lg hover:bg-teal-100 transition-colors text-sm font-medium"
+                >
+                  <ClipboardList size={16} />
+                  Relatório Mensal
+                </button>
+                <button
                   onClick={handleExportarPdf}
                   disabled={exportingPdf || linhasRelatorio.length === 0}
                   className="flex items-center gap-2 px-3 py-2 text-red-700 border border-red-200 bg-red-50 rounded-lg hover:bg-red-100 transition-colors text-sm font-medium disabled:opacity-50"
@@ -1179,6 +1297,14 @@ export default function ReformaFunap() {
                   <FileSpreadsheet size={16} />
                   Exportar Excel
                 </button>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700 flex items-start gap-2">
+                <Send size={16} className="shrink-0 mt-0.5" />
+                <span>
+                  As respostas coletadas neste levantamento foram encaminhadas à <strong>SECOMSE</strong> para o estudo
+                  da logística de transporte e da reforma dos conjuntos de aluno junto à <strong>FUNAP</strong>.
+                </span>
               </div>
 
               <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
@@ -1308,6 +1434,114 @@ export default function ReformaFunap() {
             </div>
           )}
         </>
+      )}
+
+      {/* Modal: Relatório Mensal (PDF) */}
+      {isAdmin && showRelatorioModal && (
+        <div className="fixed inset-0 z-[110] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <ClipboardList size={20} className="text-teal-600" /> Relatório Mensal
+              </h2>
+              <button onClick={() => setShowRelatorioModal(false)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+                <X size={18} className="text-slate-500" />
+              </button>
+            </div>
+
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-3">
+              <label className="text-sm font-medium text-slate-600 flex items-center gap-1.5"><Calendar size={15} /> Mês de referência:</label>
+              <select
+                value={relatorioMes}
+                onChange={e => setRelatorioMes(e.target.value)}
+                className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+              >
+                {opcoesMesRelatorio.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-5">
+              <div ref={relatorioRef} className="space-y-5 bg-white p-1">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">Relatório Mensal — Reforma FUNAP (Carteiras/Cadeiras)</h3>
+                  <p className="text-xs text-slate-500">Referência: {mesLabelRelatorio(relatorioMes)} • Gerado em {new Date().toLocaleString('pt-BR')}</p>
+                </div>
+
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700 flex items-start gap-2">
+                  <Send size={16} className="shrink-0 mt-0.5" />
+                  <span>
+                    As respostas coletadas neste levantamento foram encaminhadas à <strong>SECOMSE</strong> para o estudo
+                    da logística de transporte e da reforma dos conjuntos de aluno junto à <strong>FUNAP</strong>.
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="border border-slate-100 rounded-xl p-3">
+                    <p className="text-xs text-slate-500 font-medium">Respostas Recebidas no Mês</p>
+                    <p className="text-2xl font-bold text-slate-800 mt-1">{relatorioMetrics.respostasNoMes}</p>
+                  </div>
+                  <div className="border border-slate-100 rounded-xl p-3">
+                    <p className="text-xs text-slate-500 font-medium">Confirmações no Mês</p>
+                    <p className="text-2xl font-bold text-emerald-600 mt-1">{relatorioMetrics.confirmacoesNoMes}</p>
+                  </div>
+                  <div className="border border-slate-100 rounded-xl p-3">
+                    <p className="text-xs text-slate-500 font-medium">Pendentes (hoje)</p>
+                    <p className="text-2xl font-bold text-amber-600 mt-1">{totalPendente}</p>
+                  </div>
+                  <div className="border border-slate-100 rounded-xl p-3 bg-slate-50">
+                    <p className="text-xs text-slate-500 font-medium">Carteiras / Cadeiras a Reformar</p>
+                    <p className="text-lg font-bold text-slate-800 mt-1">{totaisMobiliario.carteiras} / {totaisMobiliario.cadeiras}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-500 mb-2">Respostas x Confirmações (últimos 6 meses)</h4>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={relatorioMetrics.tendencia} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="mes" tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                      <Tooltip />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Bar dataKey="Respostas" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Confirmações" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-500 mb-2">Situação Atual das Respostas</h4>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <PieChart>
+                      <Pie data={situacaoChartData} dataKey="quantidade" nameKey="name" innerRadius={50} outerRadius={80} paddingAngle={3} stroke="#fff" strokeWidth={2}>
+                        {situacaoChartData.map(entry => <Cell key={entry.name} fill={entry.color} />)}
+                      </Pie>
+                      <Tooltip formatter={(v, n) => [v, n]} />
+                      <Legend verticalAlign="bottom" height={36} iconType="circle" formatter={(value: string) => <span className="text-[11px] font-medium text-slate-600">{value}</span>} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 flex justify-end gap-2">
+              <button
+                onClick={() => setShowRelatorioModal(false)}
+                className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={gerarRelatorioMensalPdf}
+                disabled={gerandoRelatorioPdf}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-60 transition-colors"
+              >
+                {gerandoRelatorioPdf ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
+                {gerandoRelatorioPdf ? 'Gerando PDF...' : 'Baixar PDF'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal: Termo de Conferência de Mobiliário Escolar */}
