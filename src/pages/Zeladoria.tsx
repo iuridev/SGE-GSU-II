@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
 import { addTimbradoAllPages } from '../lib/pdfTimbrado';
@@ -437,6 +437,17 @@ export function Zeladoria() {
   const [sefrepTargetItem, setSefrepTargetItem] = useState<Zeladoria | null>(null);
   const [sefrepValorInput, setSefrepValorInput] = useState('');
 
+  // ── Relatório Mensal (PDF) ────────────────────────────────────────────
+  const [showRelatorioModal, setShowRelatorioModal] = useState(false);
+  const [relatorioMes, setRelatorioMes] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [timelineTodos, setTimelineTodos] = useState<TimelineEntry[]>([]);
+  const [loadingTimeline, setLoadingTimeline] = useState(false);
+  const [gerandoRelatorioPdf, setGerandoRelatorioPdf] = useState(false);
+  const relatorioRef = useRef<HTMLDivElement>(null);
+
   // Formulário
   // testando nova função de zeladoria
   const [formData, setFormData] = useState<Partial<Zeladoria>>({
@@ -578,6 +589,131 @@ export function Zeladoria() {
       quantidade: activeData.filter(z => z.ocupada === etapa).length
     }));
   }, [activeData]);
+
+  // Opções do seletor de mês do Relatório Mensal — últimos 12 meses, mais recente primeiro.
+  const opcoesMesRelatorio = useMemo(() => {
+    const opts: { key: string; label: string }[] = [];
+    const base = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(base.getFullYear(), base.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      opts.push({ key, label: d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) });
+    }
+    return opts;
+  }, []);
+
+  const mesLabel = (mesStr: string) => {
+    const [ano, mesNum] = mesStr.split('-').map(Number);
+    if (!ano || !mesNum) return mesStr;
+    return new Date(ano, mesNum - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  };
+
+  // ── Métricas do Relatório Mensal ───────────────────────────────────────
+  // "Atualizado" e "concluído" vêm da zeladoria_timeline (changed_at), que já
+  // registra CADA mudança de etapa com data — inclusive quando um processo vira
+  // CONCLUÍDO. "Quantos em cada etapa" é o statusChartData acima (situação atual,
+  // não depende do mês selecionado).
+  const relatorioMetrics = useMemo(() => {
+    const mes = relatorioMes;
+    const inMes = (d?: string) => !!d && d.startsWith(mes);
+
+    const eventosNoMes = timelineTodos.filter(t => inMes(t.changed_at));
+    const processosAtualizados = new Set(eventosNoMes.map(t => String(t.zeladoria_id))).size;
+    const processosConcluidos = eventosNoMes.filter(t => t.new_status === 'CONCLUÍDO').length;
+
+    // Tendência dos últimos 6 meses terminando no mês selecionado.
+    const [anoSel, mesSelNum] = mes.split('-').map(Number);
+    const tendencia = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(anoSel, (mesSelNum - 1) - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+      const eventosMes = timelineTodos.filter(t => t.changed_at?.startsWith(key));
+      const atualizadosMes = new Set(eventosMes.map(t => String(t.zeladoria_id))).size;
+      const concluidosMes = eventosMes.filter(t => t.new_status === 'CONCLUÍDO').length;
+      tendencia.push({ mes: label, Atualizados: atualizadosMes, Concluídos: concluidosMes });
+    }
+
+    return {
+      processosAtualizados,
+      processosConcluidos,
+      totalEventosMes: eventosNoMes.length,
+      tendencia,
+    };
+  }, [relatorioMes, timelineTodos]);
+
+  // Carrega o histórico de TODOS os processos (não só de um item) na primeira vez
+  // que o Relatório Mensal é aberto — fetchHistory() existente só busca por zeladoria_id.
+  const abrirRelatorioMensal = async () => {
+    setShowRelatorioModal(true);
+    setLoadingTimeline(true);
+    try {
+      const { data: tl } = await (supabase as any)
+        .from('zeladoria_timeline')
+        .select('id, zeladoria_id, previous_status, new_status, changed_at')
+        .order('changed_at', { ascending: true });
+      setTimelineTodos(tl || []);
+    } catch (err) {
+      console.error('Erro ao carregar histórico para o relatório mensal:', err);
+    } finally {
+      setLoadingTimeline(false);
+    }
+  };
+
+  // Relatório Mensal em PDF: mesmo técnica de handleExportPDF (carrega html2canvas/
+  // jsPDF via CDN e tira um "print" do bloco renderizado), mas aqui capturando o
+  // conteúdo do modal (cards + gráficos Recharts já na tela) em vez de montar uma
+  // string HTML à parte.
+  const gerarRelatorioMensalPdf = async () => {
+    if (!relatorioRef.current) return;
+    setGerandoRelatorioPdf(true);
+    try {
+      const loadScript = (src: string) => new Promise((resolve, reject) => {
+        if (document.querySelector(`script[src="${src}"]`)) return resolve(true);
+        const s = document.createElement('script');
+        s.src = src; s.onload = resolve; s.onerror = reject;
+        document.head.appendChild(s);
+      });
+      await Promise.all([
+        loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'),
+        loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'),
+      ]);
+      // Dá tempo dos gráficos Recharts terminarem de renderizar antes da captura.
+      await new Promise(r => setTimeout(r, 400));
+
+      const canvas = await (window as any).html2canvas(relatorioRef.current, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+      });
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const { jsPDF } = (window as any).jspdf;
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pw = pdf.internal.pageSize.getWidth();
+      const ph = pdf.internal.pageSize.getHeight();
+      const imgH = (canvas.height * pw) / canvas.width;
+      const topMargin = 14;
+      const botMargin = 12;
+      const usableH = ph - topMargin - botMargin;
+
+      let yOffset = 0;
+      while (yOffset < imgH) {
+        if (yOffset > 0) pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 0, topMargin - yOffset, pw, imgH);
+        yOffset += usableH;
+      }
+
+      addTimbradoAllPages(pdf);
+      pdf.save(`Relatorio_Mensal_Zeladoria_${relatorioMes}.pdf`);
+      setShowRelatorioModal(false);
+    } catch (err) {
+      console.error(err);
+      alert('Houve um erro ao gerar o PDF. Tente novamente.');
+    } finally {
+      setGerandoRelatorioPdf(false);
+    }
+  };
 
   const dareChartData = useMemo(() => {
     const isentos = activeData.filter(z => z.dare?.toLowerCase().includes('isento')).length;
@@ -1089,7 +1225,14 @@ export function Zeladoria() {
       {/* ========================= VISÃO: INDICADORES ========================= */}
       {currentView === 'indicadores' && (
       <div className="space-y-6">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-3">
+        <button
+          onClick={abrirRelatorioMensal}
+          className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95"
+        >
+          <BarChart3 size={18} />
+          RELATÓRIO MENSAL
+        </button>
         <button
           onClick={handleExportPDF}
           disabled={exporting}
@@ -2154,6 +2297,126 @@ export function Zeladoria() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL RELATÓRIO MENSAL — processos atualizados/concluídos no mês, quantos
+          ainda estão em cada etapa e gráficos de tendência, exportável em PDF. */}
+      {showRelatorioModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-3xl max-h-[90vh] shadow-2xl border border-slate-100 overflow-hidden flex flex-col animate-in zoom-in-95 duration-300">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-11 h-11 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-200 flex-shrink-0">
+                  <BarChart3 size={20} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black text-slate-800 uppercase leading-none">Relatório Mensal</h2>
+                  <p className="text-[10px] text-blue-500 font-bold uppercase tracking-widest mt-1">Zeladoria e Ocupação</p>
+                </div>
+              </div>
+              <button onClick={() => setShowRelatorioModal(false)} className="p-3 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={22} /></button>
+            </div>
+
+            <div className="px-6 py-3 border-b border-slate-100 flex items-center gap-3">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5"><Calendar size={13} /> Mês de referência</label>
+              <select
+                value={relatorioMes}
+                onChange={e => setRelatorioMes(e.target.value)}
+                className="px-3 py-2 text-xs font-bold border-2 border-slate-100 rounded-xl focus:outline-none focus:border-blue-400 bg-slate-50"
+              >
+                {opcoesMesRelatorio.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className="overflow-y-auto custom-scrollbar flex-1 p-6">
+              {loadingTimeline ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-4">
+                  <Loader2 className="animate-spin text-blue-600" size={32} />
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Carregando histórico...</span>
+                </div>
+              ) : (
+                <div ref={relatorioRef} className="space-y-6 bg-white p-1">
+                  <div>
+                    <h3 className="text-base font-black text-slate-800 uppercase">Relatório Mensal — Zeladoria e Ocupação</h3>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                      Referência: {mesLabel(relatorioMes)} · Gerado em {new Date().toLocaleString('pt-BR')}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <div className="bg-blue-50 border-2 border-blue-100 rounded-2xl p-4">
+                      <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Processos Atualizados no Mês</p>
+                      <p className="text-3xl font-black text-blue-700 mt-1">{relatorioMetrics.processosAtualizados}</p>
+                      <p className="text-[9px] font-bold text-slate-400 mt-0.5">{relatorioMetrics.totalEventosMes} mudança(s) de etapa</p>
+                    </div>
+                    <div className="bg-emerald-50 border-2 border-emerald-100 rounded-2xl p-4">
+                      <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Processos Concluídos no Mês</p>
+                      <p className="text-3xl font-black text-emerald-700 mt-1">{relatorioMetrics.processosConcluidos}</p>
+                    </div>
+                    <div className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-4">
+                      <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Ativos na Fila (hoje)</p>
+                      <p className="text-3xl font-black text-slate-700 mt-1">{stats.totalValidas - stats.concluidos}</p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Quantos Processos em Cada Etapa (situação atual)</h4>
+                    <div className="h-[320px] w-full bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={statusChartData} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" horizontal vertical={false} stroke="#e2e8f0" />
+                          <XAxis type="number" hide allowDecimals={false} />
+                          <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 8, fontWeight: 800, fill: '#64748b' }} width={150} />
+                          <RechartsTooltip cursor={{ fill: '#f1f5f9' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px rgba(0,0,0,0.1)' }} />
+                          <Bar dataKey="quantidade" radius={[0, 6, 6, 0]} barSize={14}>
+                            {statusChartData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.name === 'CONCLUÍDO' ? '#10b981' : '#3b82f6'} />
+                            ))}
+                            <LabelList dataKey="quantidade" position="right" style={{ fontSize: '10px', fontWeight: 900, fill: '#334155' }} />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Atualizados x Concluídos (últimos 6 meses)</h4>
+                    <div className="h-[240px] w-full bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={relatorioMetrics.tendencia} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                          <XAxis dataKey="mes" tick={{ fontSize: 10, fontWeight: 700 }} />
+                          <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                          <RechartsTooltip />
+                          <Legend wrapperStyle={{ fontSize: 11, fontWeight: 700 }} />
+                          <Bar dataKey="Atualizados" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="Concluídos" fill="#10b981" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 pt-4 border-t border-slate-100 flex justify-end gap-3">
+              <button
+                onClick={() => setShowRelatorioModal(false)}
+                className="px-6 py-3 text-slate-500 font-black hover:text-slate-800 transition-all uppercase tracking-widest text-[11px]"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={gerarRelatorioMensalPdf}
+                disabled={gerandoRelatorioPdf || loadingTimeline}
+                className="px-8 py-3 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-200 hover:bg-blue-700 flex items-center gap-2 active:scale-95 disabled:opacity-50 transition-all uppercase tracking-widest text-[11px]"
+              >
+                {gerandoRelatorioPdf ? <Loader2 className="animate-spin" size={16} /> : <FileDown size={16} />}
+                {gerandoRelatorioPdf ? 'Gerando...' : 'Baixar PDF'}
+              </button>
             </div>
           </div>
         </div>
