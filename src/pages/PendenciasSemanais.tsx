@@ -62,7 +62,8 @@ interface OfensoraAgua {
   nome: string;
   dias: number;
   diasAnterior: number | null;
-  sequencia: number;              // semanas seguidas pendente (incluindo a atual)
+  sequencia: number;              // semanas seguidas com pendência aberta (incluindo a atual)
+  acumulando: boolean;            // true = os dias em aberto cresceram desde o início da sequência (continua deixando de lançar); false = lacuna antiga não regularizada
   historico: (boolean | null)[];  // últimas semanas: true=pendente, false=ok, null=sem dado/dispensada
 }
 
@@ -356,12 +357,20 @@ export default function PendenciasSemanais() {
       base++;
       if (!aguaPendente(atual)) continue;
 
+      // Os dias pendentes são o acumulado da janela (não da semana). Por isso a
+      // sequência sozinha engana: 3 dias antigos em aberto ficam "pendentes"
+      // todas as semanas. Compara com o início da sequência para distinguir
+      // quem segue faltando (dias crescendo) de uma lacuna antiga parada.
       let sequencia = 0;
+      let diasInicio = 0;
       for (let i = semanas.length - 1; i >= 0; i--) {
         const r = mapa.get(semanas[i]);
-        if (r && !isTrue(r.agua_dispensada) && aguaPendente(r)) sequencia++;
-        else break;
+        if (r && !isTrue(r.agua_dispensada) && aguaPendente(r)) {
+          sequencia++;
+          diasInicio = Number(r.dias_agua_pendentes) || 0;
+        } else break;
       }
+      const diasAtual = Number(atual.dias_agua_pendentes) || 0;
       const anterior = mapa.get(semanas[semanas.length - 2]);
       lista.push({
         escolaId,
@@ -369,6 +378,7 @@ export default function PendenciasSemanais() {
         dias: Number(atual.dias_agua_pendentes) || 0,
         diasAnterior: anterior ? (Number(anterior.dias_agua_pendentes) || 0) : null,
         sequencia,
+        acumulando: sequencia > 1 && diasAtual > diasInicio,
         historico: semanasHist.map(sem => {
           const r = mapa.get(sem);
           return !r || isTrue(r.agua_dispensada) ? null : aguaPendente(r);
@@ -634,8 +644,11 @@ export default function PendenciasSemanais() {
                               <td className="py-2.5 px-4 font-bold text-slate-700">{o.nome}</td>
                               <td className="py-2.5 px-4">
                                 <div className="flex items-center gap-2">
-                                  <span className={`text-[11px] font-black px-2 py-0.5 rounded-full border whitespace-nowrap ${cronica ? 'bg-rose-50 text-rose-600 border-rose-200' : o.sequencia === 1 ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-orange-50 text-orange-600 border-orange-200'}`}>
-                                    {o.sequencia === 1 ? 'Nova' : `${o.sequencia} sem. seguidas`}
+                                  <span
+                                    title={o.sequencia === 1 ? 'Pendência surgiu nesta semana' : o.acumulando ? `Segue deixando de lançar: pendente há ${o.sequencia} semanas e os dias em aberto aumentaram` : `Lacuna antiga: ${o.dias} dia(s) em aberto que ainda não foram regularizados (pendente há ${o.sequencia} semanas, sem novas faltas)`}
+                                    className={`text-[11px] font-black px-2 py-0.5 rounded-full border whitespace-nowrap ${o.sequencia === 1 ? 'bg-amber-50 text-amber-600 border-amber-200' : o.acumulando ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}
+                                  >
+                                    {o.sequencia === 1 ? 'Nova' : o.acumulando ? `Acumulando · ${o.sequencia} sem.` : `Lacuna de ${o.dias} dia${o.dias === 1 ? '' : 's'}`}
                                   </span>
                                   <div className="hidden md:block w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                                     <div className="h-full rounded-full" style={{ width: `${(o.sequencia / maxSeq) * 100}%`, background: cronica ? '#e11d48' : '#f59e0b' }} />
