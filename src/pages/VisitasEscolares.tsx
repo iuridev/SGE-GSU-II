@@ -1,11 +1,14 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 import {
   Plus, Search, X, Loader2, School, CalendarDays, Target,
   MapPin, BarChart3, TrendingUp, Users, RefreshCw, ExternalLink,
   AlertTriangle, Navigation, Route, History, Check, ChevronDown,
-  Clock, ListChecks,
+  Clock, ListChecks, ClipboardList, FileDown,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -154,6 +157,15 @@ export default function VisitasEscolares() {
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState(FORM_INITIAL);
   const [recommendFor, setRecommendFor] = useState<EscolaComVisita | null>(null);
+
+  // ── Relatório Mensal (PDF) ────────────────────────────────────────────
+  const [showRelatorioModal, setShowRelatorioModal] = useState(false);
+  const [relatorioMes, setRelatorioMes] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [gerandoRelatorioPdf, setGerandoRelatorioPdf] = useState(false);
+  const relatorioRef = useRef<HTMLDivElement>(null);
 
   const [viewMode, setViewMode] = useState<ViewMode>('registros');
 
@@ -456,6 +468,102 @@ export default function VisitasEscolares() {
     return Math.round(active.reduce((s, m) => s + m.total, 0) / active.length);
   }, [chartByMonth]);
 
+  // ── Relatório Mensal ────────────────────────────────────────────────────
+  // Visitas são eventos pontuais (não têm "aberto"/"concluído"), então o
+  // relatório mede o que de fato existe: visitas e escolas visitadas no mês
+  // escolhido, mais o total de escolas atrasadas hoje (fotografia do momento,
+  // igual à lista "Escolas Prioritárias" já existente).
+  const escolasAtrasadasHoje = useMemo(
+    () => escolasSemVisita.filter(e => isOverdue(e.dias)).length,
+    [escolasSemVisita],
+  );
+
+  const opcoesMesRelatorio = useMemo(() => {
+    const opts: { key: string; label: string }[] = [];
+    const base = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(base.getFullYear(), base.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      opts.push({ key, label: d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) });
+    }
+    return opts;
+  }, []);
+
+  const mesLabelRelatorio = (mesStr: string) => {
+    const [ano, mesNum] = mesStr.split('-').map(Number);
+    if (!ano || !mesNum) return mesStr;
+    return new Date(ano, mesNum - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  };
+
+  const relatorioMetrics = useMemo(() => {
+    const mes = relatorioMes;
+    const visitasDoMes = visitas.filter(v => v.data_visita?.startsWith(mes));
+    const escolasVisitadasNoMes = new Set(visitasDoMes.map(v => normalizeEscolaNome(v.escola_nome)).filter(Boolean)).size;
+
+    const porObjetivoMes = new Map<string, number>();
+    visitasDoMes.forEach(v => {
+      if (!v.objetivo) return;
+      const key = OBJETIVOS_SET.has(v.objetivo) ? v.objetivo : OUTROS_LABEL;
+      porObjetivoMes.set(key, (porObjetivoMes.get(key) || 0) + 1);
+    });
+    const objetivoChartMes = Array.from(porObjetivoMes.entries())
+      .map(([objetivo, total]) => ({ objetivo, total }))
+      .sort((a, b) => b.total - a.total);
+
+    const [anoSel, mesSelNum] = mes.split('-').map(Number);
+    const tendencia = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(anoSel, (mesSelNum - 1) - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+      const total = visitas.filter(v => v.data_visita?.startsWith(key)).length;
+      tendencia.push({ mes: label, total });
+    }
+
+    return { visitasNoMes: visitasDoMes.length, escolasVisitadasNoMes, objetivoChartMes, tendencia };
+  }, [relatorioMes, visitas, OBJETIVOS_SET]);
+
+  // Relatório Mensal em PDF: mesma técnica já usada nas demais páginas
+  // (html2canvas do bloco de cards + gráficos Recharts renderizado no modal + addImage).
+  const gerarRelatorioMensalPdf = async () => {
+    if (!relatorioRef.current) return;
+    setGerandoRelatorioPdf(true);
+    try {
+      await new Promise(r => setTimeout(r, 400));
+      const canvas = await html2canvas(relatorioRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+      });
+      const imgData = canvas.toDataURL('image/png');
+
+      const doc = new jsPDF();
+      const pdfWidth = doc.internal.pageSize.getWidth();
+      const pdfHeight = doc.internal.pageSize.getHeight();
+      const margin = 14;
+      const currentY = 40;
+
+      let printWidth = pdfWidth - margin * 2;
+      let printHeight = (canvas.height * printWidth) / canvas.width;
+      const maxHeight = pdfHeight - currentY - margin;
+      if (printHeight > maxHeight) {
+        const ratio = maxHeight / printHeight;
+        printHeight = maxHeight;
+        printWidth *= ratio;
+      }
+      doc.addImage(imgData, 'PNG', margin, currentY, printWidth, printHeight);
+
+      addTimbradoAllPages(doc);
+      doc.save(`Relatorio_Mensal_Visitas_Escolares_${relatorioMes}.pdf`);
+      setShowRelatorioModal(false);
+    } catch (err) {
+      console.error(err);
+      alert('Houve um erro ao gerar o PDF. Tente novamente.');
+    } finally {
+      setGerandoRelatorioPdf(false);
+    }
+  };
+
   const filtered = useMemo(() => {
     return visitas.filter(v => {
       const q = searchTerm.toLowerCase();
@@ -688,6 +796,13 @@ export default function VisitasEscolares() {
           </button>
           {isAdmin && (
             <>
+              <button
+                onClick={() => setShowRelatorioModal(true)}
+                className="flex items-center gap-2 px-3 py-2 text-teal-700 border border-teal-200 bg-teal-50 rounded-lg hover:bg-teal-100 transition-colors text-sm font-medium"
+              >
+                <ClipboardList size={16} />
+                Relatório Mensal
+              </button>
               <a
                 href={SHEET_URL}
                 target="_blank"
@@ -1258,6 +1373,112 @@ export default function VisitasEscolares() {
                 className="w-full px-4 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
               >
                 Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Relatório Mensal (PDF) */}
+      {isAdmin && showRelatorioModal && (
+        <div className="fixed inset-0 z-[110] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <ClipboardList size={20} className="text-teal-600" /> Relatório Mensal
+              </h2>
+              <button onClick={() => setShowRelatorioModal(false)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+                <X size={18} className="text-slate-500" />
+              </button>
+            </div>
+
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-3">
+              <label className="text-sm font-medium text-slate-600 flex items-center gap-1.5"><CalendarDays size={15} /> Mês de referência:</label>
+              <select
+                value={relatorioMes}
+                onChange={e => setRelatorioMes(e.target.value)}
+                className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+              >
+                {opcoesMesRelatorio.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-5">
+              <div ref={relatorioRef} className="space-y-5 bg-white p-1">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">Relatório Mensal — Visitas às Unidades Escolares</h3>
+                  <p className="text-xs text-slate-500">Referência: {mesLabelRelatorio(relatorioMes)} • Gerado em {new Date().toLocaleString('pt-BR')}</p>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="border border-slate-100 rounded-xl p-3">
+                    <p className="text-xs text-slate-500 font-medium">Visitas no Mês</p>
+                    <p className="text-2xl font-bold text-slate-800 mt-1">{relatorioMetrics.visitasNoMes}</p>
+                  </div>
+                  <div className="border border-slate-100 rounded-xl p-3">
+                    <p className="text-xs text-slate-500 font-medium">Escolas Visitadas no Mês</p>
+                    <p className="text-2xl font-bold text-teal-600 mt-1">{relatorioMetrics.escolasVisitadasNoMes}</p>
+                  </div>
+                  <div className="border border-slate-100 rounded-xl p-3">
+                    <p className="text-xs text-slate-500 font-medium">Escolas Atrasadas (hoje)</p>
+                    <p className="text-2xl font-bold text-red-600 mt-1">{escolasAtrasadasHoje}</p>
+                  </div>
+                  <div className="border border-slate-100 rounded-xl p-3 bg-slate-50">
+                    <p className="text-xs text-slate-500 font-medium">Total Histórico</p>
+                    <p className="text-2xl font-bold text-slate-800 mt-1">{visitas.length}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-500 mb-2">Visitas por Mês (últimos 6 meses)</h4>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={relatorioMetrics.tendencia} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="mes" tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                      <Tooltip formatter={(v) => [v, 'Visitas']} />
+                      <Bar dataKey="total" fill="#0d9488" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-500 mb-2">Visitas por Objetivo no Mês</h4>
+                  {relatorioMetrics.objetivoChartMes.length === 0 ? (
+                    <p className="text-sm text-slate-400 text-center py-8 border border-slate-100 rounded-xl">Nenhuma visita no mês selecionado.</p>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={relatorioMetrics.objetivoChartMes} margin={{ top: 0, right: 10, left: -20, bottom: 70 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis dataKey="objetivo" tick={{ fontSize: 10 }} angle={-40} textAnchor="end" interval={0} />
+                        <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                        <Tooltip formatter={(v) => [v, 'Visitas']} />
+                        <Bar dataKey="total" radius={[4, 4, 0, 0]}>
+                          {relatorioMetrics.objetivoChartMes.map((_, i) => (
+                            <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 flex justify-end gap-2">
+              <button
+                onClick={() => setShowRelatorioModal(false)}
+                className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={gerarRelatorioMensalPdf}
+                disabled={gerandoRelatorioPdf}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-60 transition-colors"
+              >
+                {gerandoRelatorioPdf ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
+                {gerandoRelatorioPdf ? 'Gerando PDF...' : 'Baixar PDF'}
               </button>
             </div>
           </div>
