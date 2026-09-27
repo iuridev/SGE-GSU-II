@@ -815,7 +815,8 @@ export default function App() {
     : [];
   const favoriteItems = favorites
     .map(id => allVisibleItems.find(item => item.id === id))
-    .filter((item): item is MenuItem => !!item);
+    .filter((item): item is MenuItem => !!item && item.id !== 'dashboard');
+  const dashboardItem = allVisibleItems.find(item => item.id === 'dashboard');
 
   return (
     <div className={`h-screen overflow-hidden bg-[#f8fafc] flex font-sans text-slate-900 print:bg-white print:block print:h-auto print:overflow-visible ${isHomolog ? 'pt-7' : ''}`}>
@@ -883,6 +884,15 @@ export default function App() {
             </div>
           ) : (
             <>
+              {dashboardItem && (
+                <div className="flex flex-col gap-1 mb-1">
+                  <button onClick={() => { setCurrentPage(dashboardItem.id); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} title={isCollapsed ? dashboardItem.label : undefined} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg transition-all duration-200 group ${currentPage === dashboardItem.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}>
+                    <div className={`${currentPage === dashboardItem.id ? 'text-white' : 'text-slate-400 group-hover:text-blue-400'} transition-colors flex-shrink-0`}>{dashboardItem.icon}</div>
+                    {!isCollapsed && <span className="font-medium whitespace-nowrap text-sm text-left truncate flex-1">{dashboardItem.label}</span>}
+                  </button>
+                </div>
+              )}
+
               {favoriteItems.length > 0 && (
                 <div className="mb-1">
                   {!isCollapsed ? (
@@ -912,7 +922,7 @@ export default function App() {
               )}
 
               {MENU_GROUPS.map((group, groupIndex) => {
-                const visibleItems = group.items.filter(item => item.roles.includes(userRole));
+                const visibleItems = group.items.filter(item => item.roles.includes(userRole) && item.id !== 'dashboard');
                 if (visibleItems.length === 0) return null;
 
                 const isOpen = expandedGroups.includes(group.title);
