@@ -39,6 +39,12 @@ const REMANEJAMENTOS_COLUMNS = [
   'numero_patrimonial', 'descricao', 'numero_documento', 'gr_link', 'tipo_documento', 'cadastrado_sam',
   'pendente_incorporacao', 'nota_fiscal_link',
   'autor_id', 'autor_nome', 'data_registro',
+  // Data em que cadastrado_sam/pendente_incorporacao viraram TRUE→FALSE (ou seja, em
+  // que o remanejamento foi de fato concluído) — usadas pelo relatório mensal para
+  // saber QUANDO cada conclusão aconteceu, já que cadastrado_sam/pendente_incorporacao
+  // sozinhos só dizem o estado atual. Preenchidas só na transição (ver
+  // editar_remanejamento), nunca sobrescritas por uma edição comum.
+  'data_cadastro_sam', 'data_incorporacao',
 ]
 // Itens recebidos por uma escola (ex.: compra direta, doação) que ainda não têm nº
 // patrimonial e não passaram por remanejamento entre escolas — ficam "Pendente" até
@@ -342,6 +348,10 @@ Deno.serve(async (req) => {
           autor_id: user.id,
           autor_nome: autorNome,
           data_registro: new Date().toISOString(),
+          // Já nasce concluído (raro, ex.: cadastro retroativo) → registra a conclusão
+          // na data de criação; senão fica vazio até a transição em editar_remanejamento.
+          data_cadastro_sam: body.cadastrado_sam ? new Date().toISOString() : '',
+          data_incorporacao: '',
         })
         return ok(corsHeaders, { success: true })
       }
@@ -362,6 +372,13 @@ Deno.serve(async (req) => {
         const rows = await sheet.getRows()
         const row = rows.find((r: any) => r.get('id') === String(body.id))
         if (!row) throw new Error('Remanejamento não encontrado.')
+        // Captura o estado ANTES de sobrescrever — é a única forma de saber se
+        // cadastrado_sam/pendente_incorporacao estão realmente mudando de valor (uma
+        // transição) ou se é só uma edição comum que reenvia o mesmo valor de sempre.
+        const prevCadastradoSam = row.get('cadastrado_sam') === 'TRUE'
+        const prevPendenteIncorporacao = row.get('pendente_incorporacao') === 'TRUE'
+        const novoCadastradoSam = !!body.cadastrado_sam
+        const novoPendenteIncorporacao = !!body.pendente_incorporacao
         row.set('escola_origem_id', String(body.escola_origem_id))
         row.set('escola_origem_nome', String(body.escola_origem_nome || ''))
         row.set('escola_destino_id', String(body.escola_destino_id))
@@ -371,9 +388,16 @@ Deno.serve(async (req) => {
         row.set('numero_documento', String(body.numero_documento))
         row.set('gr_link', normalizeDocUrl(body.gr_link))
         row.set('tipo_documento', body.tipo_documento === 'DOC' ? 'DOC' : 'GR')
-        row.set('cadastrado_sam', body.cadastrado_sam ? 'TRUE' : 'FALSE')
-        row.set('pendente_incorporacao', body.pendente_incorporacao ? 'TRUE' : 'FALSE')
+        row.set('cadastrado_sam', novoCadastradoSam ? 'TRUE' : 'FALSE')
+        row.set('pendente_incorporacao', novoPendenteIncorporacao ? 'TRUE' : 'FALSE')
         row.set('nota_fiscal_link', normalizeDocUrl(body.nota_fiscal_link))
+        // data_cadastro_sam/data_incorporacao só mudam na transição (FALSE→TRUE grava
+        // a data de conclusão; TRUE→FALSE limpa, pois deixou de estar concluído) — uma
+        // edição comum que mantém o mesmo valor não mexe nessas datas.
+        if (!prevCadastradoSam && novoCadastradoSam) row.set('data_cadastro_sam', new Date().toISOString())
+        else if (prevCadastradoSam && !novoCadastradoSam) row.set('data_cadastro_sam', '')
+        if (prevPendenteIncorporacao && !novoPendenteIncorporacao) row.set('data_incorporacao', new Date().toISOString())
+        else if (!prevPendenteIncorporacao && novoPendenteIncorporacao) row.set('data_incorporacao', '')
         await row.save()
         return ok(corsHeaders, { success: true })
       }

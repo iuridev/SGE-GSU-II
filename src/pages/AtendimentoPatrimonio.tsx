@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
 import { DefesoEleitoralBanner } from '../components/DefesoEleitoralBanner';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import html2canvas from 'html2canvas';
 import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 import {
   Plus, Search, X, Loader2, CalendarDays, Video,
@@ -178,6 +179,11 @@ interface Remanejamento {
   nota_fiscal_link: string;
   autor_nome: string;
   data_registro: string;
+  // Data em que cadastrado_sam/pendente_incorporacao passaram a TRUE/FALSE (ou seja,
+  // em que o remanejamento foi de fato concluído) — usadas só pelo Relatório Mensal
+  // para contar conclusões por mês; o estado atual continua vindo dos campos acima.
+  data_cadastro_sam: string;
+  data_incorporacao: string;
 }
 
 interface Incorporacao {
@@ -349,6 +355,15 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
   const [selectedProcesso, setSelectedProcesso] = useState<ProcessoOption | null>(null);
   const [showObsForm, setShowObsForm] = useState(false);
   const [obsText, setObsText] = useState('');
+
+  // ── Relatório Mensal (PDF) ────────────────────────────────────────────
+  const [showRelatorioModal, setShowRelatorioModal] = useState(false);
+  const [relatorioMes, setRelatorioMes] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [gerandoRelatorioPdf, setGerandoRelatorioPdf] = useState(false);
+  const relatorioRef = useRef<HTMLDivElement>(null);
 
   const isAdmin = userRole === 'regional_admin';
   const isSchoolManager = userRole === 'school_manager';
@@ -1091,6 +1106,103 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     [remanejamentos],
   );
 
+  // Opções do seletor de mês do Relatório Mensal — últimos 12 meses, mais recente primeiro.
+  const opcoesMesRelatorio = useMemo(() => {
+    const opts: { key: string; label: string }[] = [];
+    const base = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(base.getFullYear(), base.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      opts.push({ key, label: d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) });
+    }
+    return opts;
+  }, []);
+
+  const mesLabel = (mesStr: string) => {
+    const [ano, mesNum] = mesStr.split('-').map(Number);
+    if (!ano || !mesNum) return mesStr;
+    return new Date(ano, mesNum - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  };
+
+  // ── Métricas do Relatório Mensal ───────────────────────────────────────
+  // "Processos" aqui = as duas filas de trabalho da página (Remanejamentos e Itens a
+  // Incorporar) — os mesmos dois grupos que compõem a aba "Fila de Atendimento".
+  // "Concluído" usa data_cadastro_sam (remanejamento cadastrado no SAM) e
+  // data_incorporacao (item — direto ou vindo de remanejamento — incorporado ao
+  // patrimônio); "atualizado" usa as Observações (ações) registradas em remanejamentos,
+  // já que Itens a Incorporar não têm mecanismo de ação/linha do tempo próprio.
+  const relatorioMetrics = useMemo(() => {
+    const mes = relatorioMes;
+    const inMes = (d?: string) => !!d && d.startsWith(mes);
+
+    const remCadastrados = remanejamentos.filter(r => inMes(r.data_registro));
+    const incCadastrados = incorporacoes.filter(i => inMes(i.data_registro));
+
+    const remAtualizadosIds = new Set(
+      observacoes
+        .filter(o => o.processo_origem === 'remanejamento' && inMes(o.data_registro))
+        .map(o => o.processo_id),
+    );
+    const acoesNoMes = observacoes.filter(o => o.processo_origem === 'remanejamento' && inMes(o.data_registro)).length;
+
+    const remConcluidosSam = remanejamentos.filter(r => inMes(r.data_cadastro_sam));
+    const incConcluidosDiretos = incorporacoes.filter(i => inMes(i.data_incorporacao));
+    const remIncorporadosResolvidos = remanejamentos.filter(r => inMes(r.data_incorporacao));
+    const itensIncorporadosMes = incConcluidosDiretos.length + remIncorporadosResolvidos.length;
+
+    // Detalhamento por escola no mês selecionado — só entram escolas com ao menos 1
+    // ocorrência em alguma das quatro colunas.
+    const porEscola = new Map<string, { nome: string; remCad: number; remConc: number; incCad: number; incConc: number }>();
+    const bump = (nome: string, campo: 'remCad' | 'remConc' | 'incCad' | 'incConc') => {
+      if (!nome) return;
+      const atual = porEscola.get(nome) || { nome, remCad: 0, remConc: 0, incCad: 0, incConc: 0 };
+      atual[campo] += 1;
+      porEscola.set(nome, atual);
+    };
+    remCadastrados.forEach(r => bump(r.escola_destino_nome || r.escola_origem_nome, 'remCad'));
+    remConcluidosSam.forEach(r => bump(r.escola_destino_nome || r.escola_origem_nome, 'remConc'));
+    incCadastrados.forEach(i => bump(i.escola_nome, 'incCad'));
+    incConcluidosDiretos.forEach(i => bump(i.escola_nome, 'incConc'));
+    remIncorporadosResolvidos.forEach(r => bump(r.escola_destino_nome || r.escola_origem_nome, 'incConc'));
+    const tabelaEscolas = Array.from(porEscola.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+
+    // Tendência dos últimos 6 meses terminando no mês selecionado.
+    const [anoSel, mesSelNum] = mes.split('-').map(Number);
+    const tendencia = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(anoSel, (mesSelNum - 1) - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+      const cadastrados = remanejamentos.filter(r => r.data_registro?.startsWith(key)).length
+        + incorporacoes.filter(i => i.data_registro?.startsWith(key)).length;
+      const concluidos = remanejamentos.filter(r => r.data_cadastro_sam?.startsWith(key)).length
+        + incorporacoes.filter(i => i.data_incorporacao?.startsWith(key)).length
+        + remanejamentos.filter(r => r.data_incorporacao?.startsWith(key)).length;
+      tendencia.push({ mes: label, Cadastrados: cadastrados, Concluídos: concluidos });
+    }
+
+    return {
+      remCadastrados: remCadastrados.length,
+      incCadastrados: incCadastrados.length,
+      totalCadastrados: remCadastrados.length + incCadastrados.length,
+      remAtualizados: remAtualizadosIds.size,
+      acoesNoMes,
+      remConcluidosSam: remConcluidosSam.length,
+      itensIncorporadosMes,
+      totalConcluidos: remConcluidosSam.length + itensIncorporadosMes,
+      filaRemanejamento: filaRemanejamentosSam.length,
+      filaItens: filaIncorporacao.length,
+      filaTotal: filaRemanejamentosSam.length + filaIncorporacao.length,
+      tabelaEscolas,
+      tendencia,
+    };
+  }, [relatorioMes, remanejamentos, incorporacoes, observacoes, filaRemanejamentosSam, filaIncorporacao]);
+
+  const filaComposicaoData = useMemo(() => [
+    { name: 'Remanejamento (SAM pendente)', value: relatorioMetrics.filaRemanejamento, color: '#8b5cf6' },
+    { name: 'Itens a Incorporar', value: relatorioMetrics.filaItens, color: '#f59e0b' },
+  ], [relatorioMetrics]);
+
   // Meta do Plano de Ação: mapear até dez/2026, 100% dos itens PDDE (2021-2026) ainda
   // não incorporados ao SAM, revisando a prestação de contas escola por escola. Como
   // não há um "check" explícito por escola, usa-se como proxy o 1º dia em que a escola
@@ -1395,6 +1507,72 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
     doc.save(`itens_a_incorporar_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
+  // Relatório Mensal: captura via html2canvas o conteúdo (cards + gráficos) renderizado
+  // no modal e monta o PDF com o cabeçalho + a imagem + a tabela de detalhamento por
+  // escola (mesmo padrão de PatrimonioProcessos.tsx — dashboardRef → html2canvas → addImage).
+  const gerarRelatorioMensalPdf = async () => {
+    if (!relatorioRef.current) return;
+    setGerandoRelatorioPdf(true);
+    try {
+      // Pequena espera para garantir que os gráficos Recharts já terminaram de
+      // renderizar no DOM antes da captura.
+      await new Promise(resolve => setTimeout(resolve, 400));
+
+      const canvas = await html2canvas(relatorioRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+      });
+      const imgData = canvas.toDataURL('image/png');
+
+      const doc = new jsPDF();
+      const pdfWidth = doc.internal.pageSize.getWidth();
+      const pdfHeight = doc.internal.pageSize.getHeight();
+      const margin = 14;
+      let currentY = 40;
+
+      let printWidth = pdfWidth - margin * 2;
+      let printHeight = (canvas.height * printWidth) / canvas.width;
+      const maxHeight = pdfHeight - currentY - margin;
+      if (printHeight > maxHeight) {
+        const ratio = maxHeight / printHeight;
+        printHeight = maxHeight;
+        printWidth *= ratio;
+      }
+      doc.addImage(imgData, 'PNG', margin, currentY, printWidth, printHeight);
+      currentY += printHeight + 8;
+
+      if (relatorioMetrics.tabelaEscolas.length > 0) {
+        if (currentY > pdfHeight - 50) {
+          doc.addPage();
+          currentY = margin;
+        }
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Detalhamento por Escola no Mês', margin, currentY);
+        currentY += 4;
+        autoTable(doc, {
+          startY: currentY,
+          head: [['Escola', 'Remanej. Cadastrados', 'Remanej. Concluídos (SAM)', 'Itens Cadastrados', 'Itens Incorporados']],
+          body: relatorioMetrics.tabelaEscolas.map(e => [e.nome, e.remCad, e.remConc, e.incCad, e.incConc]),
+          theme: 'grid',
+          headStyles: { fillColor: [13, 148, 136], textColor: 255, fontStyle: 'bold' },
+          styles: { fontSize: 8, cellPadding: 2.5 },
+          alternateRowStyles: { fillColor: [248, 250, 252] },
+        });
+      }
+
+      addTimbradoAllPages(doc);
+      doc.save(`relatorio_mensal_patrimonio_${relatorioMes}.pdf`);
+      setShowRelatorioModal(false);
+    } catch (e) {
+      console.error('Erro ao gerar relatório mensal:', e);
+      alert('Erro ao gerar o relatório em PDF.');
+    } finally {
+      setGerandoRelatorioPdf(false);
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
       <DefesoEleitoralBanner />
@@ -1426,6 +1604,16 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
             >
               <ClipboardList size={16} />
               Atualizar Ação
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => setShowRelatorioModal(true)}
+              title="Gerar relatório mensal em PDF com métricas de avanço de processos e itens incorporados"
+              className="flex items-center gap-2 px-3 py-2 text-indigo-700 border border-indigo-200 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors text-sm font-medium"
+            >
+              <BarChart3 size={16} />
+              Relatório Mensal
             </button>
           )}
           {isAdmin && SHEET_URL && (
@@ -2821,6 +3009,173 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Relatório Mensal (PDF) — processos cadastrados/atualizados/concluídos,
+          fila de atendimento (remanejamento + itens a incorporar) e itens incorporados
+          no mês, com gráficos de tendência. */}
+      {showRelatorioModal && (
+        <div className="fixed inset-0 z-[110] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <BarChart3 size={20} className="text-indigo-600" /> Relatório Mensal
+              </h2>
+              <button onClick={() => setShowRelatorioModal(false)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+                <X size={18} className="text-slate-500" />
+              </button>
+            </div>
+
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-3">
+              <label className="text-sm font-medium text-slate-600 flex items-center gap-1.5"><CalendarDays size={15} /> Mês de referência:</label>
+              <select
+                value={relatorioMes}
+                onChange={e => setRelatorioMes(e.target.value)}
+                className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+              >
+                {opcoesMesRelatorio.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-5">
+              <div ref={relatorioRef} className="space-y-5 bg-white p-1">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">Relatório Mensal — Atendimento ao Patrimônio</h3>
+                  <p className="text-xs text-slate-500">Referência: {mesLabel(relatorioMes)} • Gerado em {new Date().toLocaleString('pt-BR')}</p>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Processos no Mês</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {[
+                      { label: 'Cadastrados no Mês', value: relatorioMetrics.totalCadastrados, sub: `${relatorioMetrics.remCadastrados} remanej. + ${relatorioMetrics.incCadastrados} itens`, bg: 'bg-blue-50', icon: <ClipboardList size={18} className="text-blue-600" /> },
+                      { label: 'Atualizados no Mês', value: relatorioMetrics.remAtualizados, sub: `${relatorioMetrics.acoesNoMes} ação(ões) registrada(s)`, bg: 'bg-violet-50', icon: <Pencil size={18} className="text-violet-600" /> },
+                      { label: 'Concluídos no Mês', value: relatorioMetrics.totalConcluidos, sub: `${relatorioMetrics.remConcluidosSam} SAM + ${relatorioMetrics.itensIncorporadosMes} incorporados`, bg: 'bg-emerald-50', icon: <Check size={18} className="text-emerald-600" /> },
+                      { label: 'Itens Incorporados no Mês', value: relatorioMetrics.itensIncorporadosMes, sub: 'Ao patrimônio', bg: 'bg-teal-50', icon: <Package size={18} className="text-teal-600" /> },
+                    ].map(card => (
+                      <div key={card.label} className="border border-slate-100 rounded-xl p-3">
+                        <div className="flex items-center gap-2 mb-1">
+                          <div className={`w-8 h-8 rounded-lg ${card.bg} flex items-center justify-center shrink-0`}>{card.icon}</div>
+                          <p className="text-xs text-slate-500 font-medium">{card.label}</p>
+                        </div>
+                        <p className="text-2xl font-bold text-slate-800">{card.value}</p>
+                        <p className="text-[11px] text-slate-400">{card.sub}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Fila de Atendimento (situação atual)</h4>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="border border-slate-100 rounded-xl p-3">
+                      <p className="text-xs text-slate-500 font-medium">Remanejamentos pendentes no SAM</p>
+                      <p className="text-2xl font-bold text-slate-800">{relatorioMetrics.filaRemanejamento}</p>
+                    </div>
+                    <div className="border border-slate-100 rounded-xl p-3">
+                      <p className="text-xs text-slate-500 font-medium">Itens a incorporar pendentes</p>
+                      <p className="text-2xl font-bold text-slate-800">{relatorioMetrics.filaItens}</p>
+                    </div>
+                    <div className="border border-slate-100 rounded-xl p-3 bg-slate-50">
+                      <p className="text-xs text-slate-500 font-medium">Total na fila</p>
+                      <p className="text-2xl font-bold text-slate-800">{relatorioMetrics.filaTotal}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="border border-slate-100 rounded-xl p-3">
+                    <h4 className="text-xs font-semibold text-slate-500 mb-2">Cadastrados x Concluídos (últimos 6 meses)</h4>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={relatorioMetrics.tendencia} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis dataKey="mes" tick={{ fontSize: 10 }} />
+                        <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                        <Tooltip />
+                        <Legend wrapperStyle={{ fontSize: 11 }} />
+                        <Bar dataKey="Cadastrados" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="Concluídos" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="border border-slate-100 rounded-xl p-3">
+                    <h4 className="text-xs font-semibold text-slate-500 mb-2">Composição da Fila Atual</h4>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <PieChart>
+                        <Pie
+                          data={filaComposicaoData}
+                          dataKey="value"
+                          nameKey="name"
+                          innerRadius={45}
+                          outerRadius={75}
+                          paddingAngle={3}
+                          stroke="#ffffff"
+                          strokeWidth={2}
+                        >
+                          {filaComposicaoData.map(entry => <Cell key={entry.name} fill={entry.color} />)}
+                        </Pie>
+                        <Tooltip formatter={(v, n) => [v, n]} />
+                        <Legend
+                          verticalAlign="bottom"
+                          height={36}
+                          iconType="circle"
+                          formatter={(value: string) => <span className="text-[11px] font-medium text-slate-600">{value}</span>}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {relatorioMetrics.tabelaEscolas.length > 0 && (
+                  <div>
+                    <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Detalhamento por Escola no Mês</h4>
+                    <div className="overflow-x-auto border border-slate-100 rounded-xl">
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-50 text-slate-500">
+                          <tr>
+                            <th className="text-left px-3 py-2">Escola</th>
+                            <th className="text-right px-3 py-2">Remanej. Cadastrados</th>
+                            <th className="text-right px-3 py-2">Remanej. Concluídos (SAM)</th>
+                            <th className="text-right px-3 py-2">Itens Cadastrados</th>
+                            <th className="text-right px-3 py-2">Itens Incorporados</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {relatorioMetrics.tabelaEscolas.map(e => (
+                            <tr key={e.nome}>
+                              <td className="px-3 py-1.5 text-slate-700">{e.nome}</td>
+                              <td className="px-3 py-1.5 text-right">{e.remCad}</td>
+                              <td className="px-3 py-1.5 text-right">{e.remConc}</td>
+                              <td className="px-3 py-1.5 text-right">{e.incCad}</td>
+                              <td className="px-3 py-1.5 text-right">{e.incConc}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 flex justify-end gap-2">
+              <button
+                onClick={() => setShowRelatorioModal(false)}
+                className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={gerarRelatorioMensalPdf}
+                disabled={gerandoRelatorioPdf}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-60 transition-colors"
+              >
+                {gerandoRelatorioPdf ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
+                {gerandoRelatorioPdf ? 'Gerando PDF...' : 'Baixar PDF'}
+              </button>
+            </div>
           </div>
         </div>
       )}
