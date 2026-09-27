@@ -27,6 +27,7 @@ import { Escola } from './pages/escola';
 import { Usuario } from './pages/Usuario';
 import { Login } from './pages/Login';
 import { Fiscalizacao } from './pages/fiscalizacao';
+import FiscalizacaoElevadores from './pages/FiscalizacaoElevadores';
 import { Tutoriais } from './pages/Tutoriais';
 import { Reunioes } from './pages/Reunioes';
 import { AgendamentoCarros } from './pages/AgendamentoCarros';
@@ -153,6 +154,7 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'financeiro-agua', label: 'Importação Financeiro (SABESP)', icon: <Waves size={20} />, roles: ['regional_admin'] },
       { id: 'fiscalizacao', label: 'Fiscalização de Serviços Terceirizados', icon: <ClipboardCheck size={20} className="text-blue-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente', 'ure_servico'] },
       //{ id: 'fiscalizacaoURE', label: 'Limpeza URE', icon: <ClipboardCheck size={20} className="text-teal-500" />, roles: ['regional_admin'] },
+      { id: 'fiscalizacao-elevadores', label: 'Fiscalização de Elevadores', icon: <ArrowUpCircle size={20} className="text-blue-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente', 'ure_servico'] },
       { id: 'zeladoria', label: 'Zeladoria', icon: <ShieldCheck size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'visitas-escolares', label: 'Visitas às Escolas', icon: <School size={20} className="text-teal-500" />, roles: ['regional_admin'] },
       { id: 'duvidas-escolas', label: 'Dúvidas das Escolas', icon: <HelpCircle size={20} className="text-indigo-500" />, roles: ['regional_admin'] },
@@ -686,6 +688,7 @@ export default function App() {
       case 'ambientes': return <AgendamentoAmbientes />;
       case 'tutoriais': return <Tutoriais />;
       case 'fiscalizacao': return <Fiscalizacao />;
+      case 'fiscalizacao-elevadores': return <FiscalizacaoElevadores />;
       case 'consumo': return <ConsumoAgua />;
       case 'zeladoria': return <Zeladoria />;
       case 'remanejamento': return <Remanejamento />;
