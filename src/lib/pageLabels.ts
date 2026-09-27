@@ -52,6 +52,7 @@ export const PAGE_LABELS: Record<string, string> = {
   'almoxarifado': 'Almoxarifado',
   'entrada': 'Entrada no Prédio',
   'fiscalizacao': 'Contratos Gov',
+  'fiscalizacao-elevadores': 'Fiscalização de Elevadores',
   'fiscalizacaoURE': 'Limpeza URE',
   'fluxo': 'Fluxo',
   'metricas-acesso': 'Métricas de Acesso',
