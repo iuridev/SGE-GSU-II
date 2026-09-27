@@ -11,7 +11,6 @@ export function DefesoEleitoralBanner() {
           Em cumprimento ao disposto no art. 73, § 10, da Lei nº 9.504/1997 e na Resolução TSE nº 23.610,
           durante o Período de Defeso Eleitoral estão suspensos os seguintes processos patrimoniais:
         </p>
-        <p className="font-semibold mt-2">📦 Doação de Material Permanente</p>
         <p className="font-semibold">♻️ Material Inservível</p>
         <p className="mt-2">Os processos em andamento terão continuidade após o encerramento do período eleitoral.</p>
       </div>
