@@ -364,6 +364,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
   });
   const [gerandoRelatorioPdf, setGerandoRelatorioPdf] = useState(false);
   const relatorioRef = useRef<HTMLDivElement>(null);
+  const [rodandoBackfillDatas, setRodandoBackfillDatas] = useState(false);
 
   const isAdmin = userRole === 'regional_admin';
   const isSchoolManager = userRole === 'school_manager';
@@ -927,6 +928,26 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       alert(e instanceof Error ? e.message : 'Erro ao excluir item.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Correção pontual: remanejamentos já cadastrados no SAM antes de a coluna
+  // data_cadastro_sam existir ficaram sem essa data, então o Relatório Mensal não
+  // conseguia contá-los como "concluídos" em nenhum mês. Preenche com a data de hoje
+  // só quem está sem data — idempotente, dá pra clicar de novo sem problema. Depois
+  // que rodar uma vez em produção, este botão pode ser removido.
+  const handleBackfillDatasRemanejamento = async () => {
+    if (!window.confirm('Preencher com a data de hoje os remanejamentos já cadastrados no SAM que ainda estão sem essa data? Essa ação é segura e pode ser repetida.')) return;
+    setRodandoBackfillDatas(true);
+    try {
+      const resultado = await invoke('backfill_datas_remanejamento');
+      alert(`${resultado?.count ?? 0} remanejamento(s) atualizado(s) com a data de hoje.`);
+      setTimeout(fetchAll, 1500);
+    } catch (e) {
+      console.error(e);
+      alert(e instanceof Error ? e.message : 'Erro ao preencher as datas.');
+    } finally {
+      setRodandoBackfillDatas(false);
     }
   };
 
@@ -1614,6 +1635,17 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
             >
               <BarChart3 size={16} />
               Relatório Mensal
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={handleBackfillDatasRemanejamento}
+              disabled={rodandoBackfillDatas}
+              title="Correção pontual: preenche com a data de hoje os remanejamentos já cadastrados no SAM que ficaram sem data de conclusão"
+              className="flex items-center gap-2 px-3 py-2 text-amber-700 border border-amber-200 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors text-sm font-medium disabled:opacity-60"
+            >
+              {rodandoBackfillDatas ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+              Corrigir Datas do SAM
             </button>
           )}
           {isAdmin && SHEET_URL && (
