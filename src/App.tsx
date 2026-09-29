@@ -13,7 +13,7 @@ import {
   School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown,
   Bell, MessageSquare, CheckCircle, ClipboardList,
   Wrench, Search, CalendarCheck, BarChart2, Megaphone, DoorOpen, ClipboardCheck, Target,
-  CalendarDays, FileSignature, Bot, HelpCircle, Stamp, Phone
+  CalendarDays, FileSignature, Bot, HelpCircle, Stamp, Phone, Landmark
 } from 'lucide-react';
 import { AgendaUnificadaModal } from './components/AgendaUnificadaModal';
 import { AlertaEscolaModal } from './components/AlertaEscolaModal';
@@ -83,6 +83,7 @@ import PendenciasSemanais, { MOSTRAR_MANEJO } from './pages/PendenciasSemanais';
 import Assinaturas from './pages/Assinaturas';
 import AssistenteValidacao from './pages/AssistenteValidacao';
 import AssistenteFAQ from './pages/AssistenteFAQ';
+import RegularizacaoImoveis from './pages/RegularizacaoImoveis';
 import AssistenteFlutuante from './components/AssistenteFlutuante';
 import { FunapReminderModal } from './components/FunapReminderModal';
 import { AlertaAguaPendenteModal } from './components/AlertaAguaPendenteModal';
@@ -160,11 +161,19 @@ const MENU_GROUPS: MenuGroup[] = [
       //{ id: 'previsao-obras-fde', label: 'Previsão de Obras FDE', icon: <HardHat size={20} className="text-amber-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico'] },
       { id: 'servicos', label: 'Intervenção URE', icon: <Wrench size={20} className="text-slate-400" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
       { id: 'manejo', label: 'Manejo Arbóreo', icon: <TreeDeciduous size={20} className="text-emerald-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
-      { id: 'elevadores', label: 'Gestão de Elevadores', icon: <ArrowUpCircle size={20} className="text-blue-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
       { id: 'plantas', label: 'Plantas Prediais', icon: <Map size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+      { id: 'regularizacao-imoveis', label: 'Regularização de Imóveis', icon: <Landmark size={20} className="text-amber-700" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
       { id: 'avcb', label: 'AVCB', icon: <Flame size={20} className="text-red-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
       { id: 'prioritarias', label: 'Escolas Prioritárias', icon: <Star size={20} className="text-amber-500" />, roles: ['regional_admin', 'dirigente'] },
       { id: 'ranking', label: 'Ranking de Escolas', icon: <Trophy size={20} className="text-amber-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+    ]
+  },
+  {
+    title: 'ELEVADORES',
+    items: [
+      { id: 'elevadores', label: 'Gestão de Elevadores', icon: <ArrowUpCircle size={20} className="text-blue-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
+      { id: 'fiscalizacao-elevadores', label: 'Fiscalização de Elevadores', icon: <ArrowUpCircle size={20} className="text-blue-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente', 'ure_servico'] },
+      { id: 'chamados-telefonicos', label: 'Chamado Elevador', icon: <Phone size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
     ]
   },
   {
@@ -174,8 +183,6 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'financeiro-agua', label: 'Importação Financeiro (SABESP)', icon: <Waves size={20} />, roles: ['regional_admin'] },
       { id: 'fiscalizacao', label: 'Fiscalização de Serviços Terceirizados', icon: <ClipboardCheck size={20} className="text-blue-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente', 'ure_servico'] },
       //{ id: 'fiscalizacaoURE', label: 'Limpeza URE', icon: <ClipboardCheck size={20} className="text-teal-500" />, roles: ['regional_admin'] },
-      { id: 'fiscalizacao-elevadores', label: 'Fiscalização de Elevadores', icon: <ArrowUpCircle size={20} className="text-blue-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente', 'ure_servico'] },
-      { id: 'chamados-telefonicos', label: 'Chamado Elevador', icon: <Phone size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'zeladoria', label: 'Zeladoria', icon: <ShieldCheck size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'visitas-escolares', label: 'Visitas às Escolas', icon: <School size={20} className="text-teal-500" />, roles: ['regional_admin'] },
       { id: 'duvidas-escolas', label: 'Dúvidas das Escolas', icon: <HelpCircle size={20} className="text-indigo-500" />, roles: ['regional_admin'] },
@@ -795,6 +802,7 @@ export default function App() {
       case 'comunicados': return <Comunicados />;
       case 'visitas-escolares': return <VisitasEscolares />;
       case 'duvidas-escolas': return <DuvidasEscolas />;
+      case 'regularizacao-imoveis': return <RegularizacaoImoveis />;
       case 'acompanhamento-obras': return <AcompanhamentoObras />;
       case 'patrimonio-salas': return <PatrimonioSalas />;
       case 'guia-doacao-patrimonio': return <GuiaDoacaoPatrimonio />;
