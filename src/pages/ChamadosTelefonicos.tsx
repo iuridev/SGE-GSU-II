@@ -13,10 +13,11 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend,
 } from 'recharts';
 
-// Chamados abertos por telefone direto com o órgão responsável (SEOM/SEFISC/
-// outros), sem passar pelo Helpdesk do sistema — a escola só recebe um número
-// de protocolo por telefone e repassa essa informação para a URE acompanhar.
-// A URE também pode cadastrar protocolos e atualizar o andamento. Ver
+// Chamados de ocorrências com elevadores abertos por telefone direto com a
+// empresa de manutenção (ou órgão responsável), sem passar pelo Helpdesk do
+// sistema — a escola só recebe um número de protocolo por telefone e repassa
+// essa informação para a URE acompanhar. A URE também pode cadastrar
+// protocolos e atualizar o andamento. Ver
 // supabase/migrations/20260928000000_chamados_telefonicos.sql.
 
 type Status = 'ABERTO' | 'EM_ANDAMENTO' | 'CONCLUIDO';
@@ -467,7 +468,7 @@ export default function ChamadosTelefonicos() {
       doc.addImage(imgData, 'PNG', margin, currentY, printWidth, printHeight);
 
       addTimbradoAllPages(doc);
-      doc.save(`Relatorio_Mensal_Chamados_Telefonicos_${relatorioMes}.pdf`);
+      doc.save(`Relatorio_Mensal_Chamado_Elevador_${relatorioMes}.pdf`);
       setShowRelatorioModal(false);
     } catch (err) {
       console.error(err);
@@ -495,10 +496,10 @@ export default function ChamadosTelefonicos() {
         <div>
           <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
             <Phone className="text-pink-500" size={28} />
-            Chamados por Telefone
+            Chamado Elevador
           </h1>
           <p className="text-slate-500 text-sm mt-1">
-            Protocolos abertos por ligação direta com o órgão responsável, repassados pela escola para acompanhamento da URE
+            Protocolos de ocorrências com elevadores abertos por ligação direta com a empresa de manutenção, repassados pela escola para acompanhamento da URE
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -724,7 +725,7 @@ export default function ChamadosTelefonicos() {
             <div className="flex items-center justify-between p-5 border-b border-slate-100 sticky top-0 bg-white z-10">
               <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                 <Phone size={20} className="text-pink-600" />
-                {editingId ? 'Editar Protocolo' : 'Novo Protocolo por Telefone'}
+                {editingId ? 'Editar Protocolo' : 'Novo Protocolo — Chamado Elevador'}
               </h2>
               <button onClick={() => setShowForm(false)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
                 <X size={18} className="text-slate-500" />
@@ -775,13 +776,13 @@ export default function ChamadosTelefonicos() {
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Descrição do Problema <span className="text-red-500">*</span>
+                  Descrição do Problema no Elevador <span className="text-red-500">*</span>
                 </label>
                 <textarea
                   required rows={3}
                   value={form.descricao}
                   onChange={e => setForm(prev => ({ ...prev, descricao: e.target.value }))}
-                  placeholder="Descreva o problema relatado na ligação..."
+                  placeholder="Descreva o problema do elevador relatado na ligação..."
                   className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 resize-none"
                 />
               </div>
@@ -957,7 +958,7 @@ export default function ChamadosTelefonicos() {
               ) : (
                 <div ref={relatorioRef} className="space-y-5 bg-white p-1">
                   <div>
-                    <h3 className="text-base font-bold text-slate-800">Relatório Mensal — Chamados por Telefone</h3>
+                    <h3 className="text-base font-bold text-slate-800">Relatório Mensal — Chamado Elevador</h3>
                     <p className="text-xs text-slate-500">Referência: {mesLabelRelatorio(relatorioMes)} • Gerado em {new Date().toLocaleString('pt-BR')}</p>
                   </div>
 
