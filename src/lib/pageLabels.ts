@@ -56,6 +56,8 @@ export const PAGE_LABELS: Record<string, string> = {
   'fiscalizacaoURE': 'Limpeza URE',
   'fluxo': 'Fluxo',
   'metricas-acesso': 'Métricas de Acesso',
+  'chamados-telefonicos': 'Chamado Elevador',
+  'regularizacao-imoveis': 'Regularização de Imóveis',
 };
 
 export function pageLabel(id: string): string {
