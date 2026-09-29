@@ -175,6 +175,7 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'fiscalizacao', label: 'Fiscalização de Serviços Terceirizados', icon: <ClipboardCheck size={20} className="text-blue-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente', 'ure_servico'] },
       //{ id: 'fiscalizacaoURE', label: 'Limpeza URE', icon: <ClipboardCheck size={20} className="text-teal-500" />, roles: ['regional_admin'] },
       { id: 'fiscalizacao-elevadores', label: 'Fiscalização de Elevadores', icon: <ArrowUpCircle size={20} className="text-blue-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente', 'ure_servico'] },
+      { id: 'chamados-telefonicos', label: 'Chamado Elevador', icon: <Phone size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'zeladoria', label: 'Zeladoria', icon: <ShieldCheck size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'visitas-escolares', label: 'Visitas às Escolas', icon: <School size={20} className="text-teal-500" />, roles: ['regional_admin'] },
       { id: 'duvidas-escolas', label: 'Dúvidas das Escolas', icon: <HelpCircle size={20} className="text-indigo-500" />, roles: ['regional_admin'] },
@@ -208,7 +209,6 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'assistente-validacao', label: 'Assistente IA – Validação', icon: <Bot size={20} className="text-blue-500" />, roles: ['regional_admin'] },
       { id: 'assistente-faq', label: 'Assistente IA – Base de Conhecimento', icon: <BookOpen size={20} className="text-blue-500" />, roles: ['regional_admin'] },
       { id: 'chamados', label: 'Central de Chamados', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
-      { id: 'chamados-telefonicos', label: 'Chamados por Telefone', icon: <Phone size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'demandas', label: 'Demandas / E-mails', icon: <AlertTriangle size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager', 'dirigente'] },
     ]
   },
