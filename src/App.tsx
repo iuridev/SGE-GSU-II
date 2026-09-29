@@ -13,7 +13,7 @@ import {
   School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown,
   Bell, MessageSquare, CheckCircle, ClipboardList,
   Wrench, Search, CalendarCheck, BarChart2, Megaphone, DoorOpen, ClipboardCheck, Target,
-  CalendarDays, FileSignature, Bot, HelpCircle, Stamp
+  CalendarDays, FileSignature, Bot, HelpCircle, Stamp, Phone
 } from 'lucide-react';
 import { AgendaUnificadaModal } from './components/AgendaUnificadaModal';
 import { AlertaEscolaModal } from './components/AlertaEscolaModal';
@@ -42,6 +42,7 @@ import { Elevador } from './pages/Elevador';
 import { Obras } from './pages/Obras';
 import ManejoArboreo from './pages/ManejoArboreo';
 import { Chamados } from './pages/Chamados';
+import ChamadosTelefonicos from './pages/ChamadosTelefonicos';
 import ListaEscolas from './pages/escolasbombril';
 import EducacaoPatrimonial from './pages/EducacaoPatrimonial';
 import CadastroFurtos from './pages/Furtos';
@@ -207,6 +208,7 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'assistente-validacao', label: 'Assistente IA – Validação', icon: <Bot size={20} className="text-blue-500" />, roles: ['regional_admin'] },
       { id: 'assistente-faq', label: 'Assistente IA – Base de Conhecimento', icon: <BookOpen size={20} className="text-blue-500" />, roles: ['regional_admin'] },
       { id: 'chamados', label: 'Central de Chamados', icon: <Ticket size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+      { id: 'chamados-telefonicos', label: 'Chamados por Telefone', icon: <Phone size={20} className="text-pink-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'demandas', label: 'Demandas / E-mails', icon: <AlertTriangle size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager', 'dirigente'] },
     ]
   },
@@ -768,6 +770,7 @@ export default function App() {
       case 'educacao-patrimonial': return <EducacaoPatrimonial />;
       case 'usuarios': return <Usuario />;
       case 'chamados': return <Chamados />;
+      case 'chamados-telefonicos': return <ChamadosTelefonicos />;
       case 'plantas': return <Plantas />;
       case 'servicos': return <Servicos />;
       case 'fiscalizacaoURE': return <FiscalizacaoURE />;
