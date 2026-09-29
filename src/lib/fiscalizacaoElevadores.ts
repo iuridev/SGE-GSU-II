@@ -89,9 +89,7 @@ export function textoDaPergunta(id: string): string {
 export const PRAZO_EMERGENCIAL_MIN = 30;
 
 export const EMPRESAS_CONTATO = [
-  { nome: 'Elevadores Orion Lift', regiao: 'Capital (todas as UREs)', fones: ['(11) 3868-3431', '0800 778 3431'] },
   { nome: 'Orona AMG Elevadores', regiao: 'Grande SP, litoral e Vale do Paraíba', fones: ['4007-2088 (opção 1)', '0800 607 2088'] },
-  { nome: 'Ideal Elevadores', regiao: 'Interior e demais regiões', fones: ['(16) 3322-5158'] },
 ];
 
 // ---------------------------------------------------------------------------
