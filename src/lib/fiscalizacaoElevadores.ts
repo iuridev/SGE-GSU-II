@@ -241,6 +241,11 @@ export function validarFiscalizacao(
 // Agregações para o painel do Fiscal Técnico / URE
 // ---------------------------------------------------------------------------
 
+/** Arquivo (PDF/imagem) guardado no Drive; o link é montado a partir do id. */
+export interface Anexo { id: string; nome: string; mimeType: string }
+
+export const urlAnexo = (a: Anexo) => `https://drive.google.com/file/d/${a.id}/view`;
+
 export interface FiscalizacaoRegistro {
   id: string;
   school_id: string;
@@ -264,6 +269,7 @@ export interface FiscalizacaoRegistro {
   score: number | null;
   status: StatusFiscalizacao;
   nonconformities: string[];
+  attachments: Anexo[];
 }
 
 export interface EscolaRef { id: string; name: string }
@@ -382,6 +388,7 @@ export interface DadosEnvio {
   observacoes: Record<string, string>;
   observacoesGerais: string;
   avaliacao: Avaliacao;
+  anexos: Anexo[];
 }
 
 export function montarLinhasPlanilha(d: DadosEnvio): { data: LinhaPlanilha; items: LinhaPlanilha[] } {
@@ -413,6 +420,7 @@ export function montarLinhasPlanilha(d: DadosEnvio): { data: LinhaPlanilha; item
     respostas: JSON.stringify(d.respostas),
     observacoes: JSON.stringify(d.observacoes),
     naoConformidadesIds: JSON.stringify(d.avaliacao.naoConformes),
+    anexos: JSON.stringify(d.anexos),
   };
   const items: LinhaPlanilha[] = Object.entries(d.respostas).map(([itemId, r]) => ({
     inspecaoId: id,
@@ -461,5 +469,6 @@ export function linhaParaRegistro(l: LinhaPlanilha): FiscalizacaoRegistro {
     score: Number.isFinite(score) ? score : null,
     status,
     nonconformities: jsonOu<string[]>(l.naoConformidadesIds, []),
+    attachments: jsonOu<Anexo[]>(l.anexos, []),
   };
 }

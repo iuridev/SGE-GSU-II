@@ -2,15 +2,28 @@ import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   CheckCircle2, AlertTriangle, Minus, Loader2, Send, Wrench, Phone, Timer, UserX, Sparkles,
+  Paperclip, FileText, Image as ImageIcon, X,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { FUNCTION_NAME } from '../lib/fiscalizacaoElevadoresApi';
 import {
   BLOCOS_ESCOLA, BLOCO_VISITA, PERGUNTA_AVISO_MANUTENCAO, PRAZO_EMERGENCIAL_MIN,
   avaliarFiscalizacao, validarFiscalizacao, perguntasAplicaveis, minutosEntre, montarLinhasPlanilha,
-  type ChecklistBloco, type ChecklistPergunta, type EntradaFiscalizacao,
+  urlAnexo, type Anexo, type ChecklistBloco, type ChecklistPergunta, type EntradaFiscalizacao,
   type FiscalizacaoRegistro, type Quinzena, type Resposta,
 } from '../lib/fiscalizacaoElevadores';
+
+const ANEXO_MAX_MB = 10;
+const ANEXOS_MAX = 5;
+
+function lerBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 interface Props {
   escola: { id: string; name: string };
@@ -165,6 +178,8 @@ export function FormularioFiscalizacaoElevador({ escola, quinzena, inspector, ex
   const [atendidoEm, setAtendidoEm] = useState(toLocalInput(existente?.call_attended_at));
   const [pessoaPresa, setPessoaPresa] = useState(existente?.person_trapped ?? false);
   const [notas, setNotas] = useState(existente?.general_notes ?? '');
+  const [anexos, setAnexos] = useState<Anexo[]>(existente?.attachments ?? []);
+  const [enviandoAnexo, setEnviandoAnexo] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errosVisiveis, setErrosVisiveis] = useState(false);
 
@@ -209,7 +224,47 @@ export function FormularioFiscalizacaoElevador({ escola, quinzena, inspector, ex
     });
   }
 
+  // O arquivo sobe para o Drive na hora; só o id entra na planilha ao salvar o formulário.
+  async function anexar(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    const lista = Array.from(files);
+    if (anexos.length + lista.length > ANEXOS_MAX) {
+      toast.error(`No máximo ${ANEXOS_MAX} anexos por fiscalização.`);
+      return;
+    }
+    setEnviandoAnexo(true);
+    try {
+      for (const file of lista) {
+        if (file.type !== 'application/pdf' && !file.type.startsWith('image/')) {
+          toast.error(`${file.name}: envie apenas PDF ou imagem.`);
+          continue;
+        }
+        if (file.size > ANEXO_MAX_MB * 1024 * 1024) {
+          toast.error(`${file.name}: arquivo acima de ${ANEXO_MAX_MB} MB.`);
+          continue;
+        }
+        const base64 = await lerBase64(file);
+        const { data: resp, error } = await supabase.functions.invoke(FUNCTION_NAME, {
+          method: 'POST',
+          body: { action: 'upload_anexo', escolaId: escola.id, periodoInicio: quinzena.inicio, fileName: file.name, mimeType: file.type, base64 },
+        });
+        if (resp?.error) throw new Error(resp.error);
+        if (error) throw error;
+        setAnexos(prev => [...prev, resp.anexo as Anexo]);
+      }
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.message ? `Erro ao anexar: ${err.message}` : 'Erro ao anexar o arquivo.');
+    } finally {
+      setEnviandoAnexo(false);
+    }
+  }
+
   async function enviar() {
+    if (enviandoAnexo) {
+      toast.error('Aguarde o envio dos anexos terminar.');
+      return;
+    }
     if (erros.length > 0) {
       setErrosVisiveis(true);
       toast.error('Falta completar alguns itens.');
@@ -241,6 +296,7 @@ export function FormularioFiscalizacaoElevador({ escola, quinzena, inspector, ex
         observacoes: observations,
         observacoesGerais: notas,
         avaliacao,
+        anexos,
       });
       const { data: resp, error } = await supabase.functions.invoke(FUNCTION_NAME, { method: 'POST', body: { data, items } });
       if (resp?.error) throw new Error(resp.error);
@@ -385,6 +441,33 @@ export function FormularioFiscalizacaoElevador({ escola, quinzena, inspector, ex
         />
       </Pergunta>
 
+      <Pergunta titulo="Anexos" dica={`Opcional — fotos ou PDF (ordem de serviço, laudo, relatório da empresa). Até ${ANEXOS_MAX} arquivos de ${ANEXO_MAX_MB} MB.`}>
+        {anexos.length > 0 && (
+          <div className="space-y-1.5">
+            {anexos.map(a => (
+              <div key={a.id} className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2">
+                {a.mimeType === 'application/pdf' ? <FileText size={15} className="shrink-0 text-red-500" /> : <ImageIcon size={15} className="shrink-0 text-blue-500" />}
+                <a href={urlAnexo(a)} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 truncate text-sm font-bold text-blue-700 hover:underline">{a.nome}</a>
+                <button type="button" onClick={() => setAnexos(prev => prev.filter(x => x.id !== a.id))}
+                  aria-label={`Remover ${a.nome}`} className="shrink-0 p-1 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600">
+                  <X size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {anexos.length < ANEXOS_MAX && (
+          <label className={`flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed text-sm font-black transition-all ${
+            enviandoAnexo ? 'border-slate-200 text-slate-400 cursor-wait' : 'border-blue-200 text-blue-700 hover:bg-blue-50 cursor-pointer'
+          }`}>
+            {enviandoAnexo ? <Loader2 size={16} className="animate-spin" /> : <Paperclip size={16} />}
+            {enviandoAnexo ? 'Enviando…' : 'Anexar PDF ou imagem'}
+            <input type="file" multiple accept="application/pdf,image/*" className="hidden" disabled={enviandoAnexo}
+              onChange={e => { void anexar(e.target.files); e.target.value = ''; }} />
+          </label>
+        )}
+      </Pergunta>
+
       {errosVisiveis && erros.length > 0 && (
         <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4 space-y-1">
           {erros.map(e => (
@@ -405,7 +488,7 @@ export function FormularioFiscalizacaoElevador({ escola, quinzena, inspector, ex
           <button
             type="button"
             onClick={enviar}
-            disabled={saving}
+            disabled={saving || enviandoAnexo}
             className="shrink-0 flex items-center gap-2 px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-black shadow-md"
           >
             {saving ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}

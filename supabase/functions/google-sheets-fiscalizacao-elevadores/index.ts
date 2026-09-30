@@ -13,6 +13,14 @@ const SHEET_ID =
   Deno.env.get('FISCALIZACAO_ELEVADORES_SHEET_ID') ??
   Deno.env.get('FISCALIZACAO_TERCEIRIZADOS_SHEET_ID') ?? ''
 
+// Anexos (PDF/imagem) vão para uma pasta do Drive da conta sefiscgsu via Apps
+// Script publicado por ela (ver docs/apps-script/fiscalizacao-elevadores-anexos.gs).
+const ANEXOS_SCRIPT_URL = Deno.env.get('FISCALIZACAO_ELEVADORES_ANEXOS_SCRIPT_URL') ?? ''
+const ANEXOS_TOKEN = Deno.env.get('FISCALIZACAO_ELEVADORES_ANEXOS_TOKEN') ?? ''
+const ANEXO_MAX_BYTES = 10 * 1024 * 1024
+const ANEXOS_MAX = 5
+const ANEXO_MIME_OK = /^(application\/pdf|image\/(jpeg|png|webp|gif|heic|heif))$/
+
 // Uma linha por escola/quinzena (id = "<escolaId>_<inicioDaQuinzena>"), lida pelo app.
 const INSPECTIONS = {
   name: 'ElevatorInspections',
@@ -21,7 +29,7 @@ const INSPECTIONS = {
     'elevadorFuncionando', 'paradoDesde', 'houveVisita', 'houveChamado', 'tipoChamado',
     'chamadoAbertoEm', 'chamadoAtendidoEm', 'minutosAtendimento', 'pessoaPresa',
     'conformidade', 'situacao', 'naoConformidades', 'observacoesGerais',
-    'respostas', 'observacoes', 'naoConformidadesIds', 'criadoEm', 'atualizadoEm',
+    'respostas', 'observacoes', 'naoConformidadesIds', 'criadoEm', 'atualizadoEm', 'anexos',
   ],
 }
 
@@ -57,6 +65,38 @@ serve(async (req) => {
     const isAdminLike = ADMIN_LIKE_ROLES.includes(effectiveRole)
     const mySchoolId: string | null = profile?.school_id ?? null
 
+    // ── POST action=upload_anexo: envia um arquivo ao Drive e devolve o id ───
+    // Não toca na planilha: o anexo só entra na linha quando o formulário é salvo.
+    const body = req.method === 'POST' ? await req.json() : null
+    if (body?.action === 'upload_anexo') {
+      if (rawRole !== 'school_manager' || !mySchoolId || body.escolaId !== mySchoolId) {
+        throw new Error('Apenas o Fiscal Setorial da própria escola pode anexar arquivos.')
+      }
+      if (!ANEXOS_SCRIPT_URL || !ANEXOS_TOKEN) throw new Error('Envio de anexos não configurado nos secrets.')
+      const { fileName, mimeType, base64, periodoInicio } = body
+      if (typeof base64 !== 'string' || typeof fileName !== 'string' || !ANEXO_MIME_OK.test(mimeType ?? '')) {
+        throw new Error('Envie apenas PDF ou imagem.')
+      }
+      if (Math.floor(base64.length * 3 / 4) > ANEXO_MAX_BYTES) throw new Error('Arquivo acima de 10 MB.')
+
+      const { data: escola } = await supabase.from('schools').select('name').eq('id', mySchoolId).single()
+      const nomeSeguro = fileName.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120)
+      const resp = await fetch(ANEXOS_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: ANEXOS_TOKEN,
+          pasta: escola?.name ?? mySchoolId,
+          fileName: `${String(periodoInicio ?? '').slice(0, 10)}_${nomeSeguro}`,
+          mimeType,
+          base64,
+        }),
+      })
+      const out = await resp.json().catch(() => null)
+      if (!out?.id) throw new Error(out?.error || 'Falha ao gravar o arquivo no Drive.')
+      return ok(corsHeaders, { anexo: { id: out.id, nome: fileName.slice(0, 120), mimeType } })
+    }
+
     const email = Deno.env.get('GOOGLE_SERVICE_ACCOUNT_EMAIL')
     const key = Deno.env.get('GOOGLE_PRIVATE_KEY')
     if (!email || !key) throw new Error('Credenciais Google não configuradas nos secrets.')
@@ -70,10 +110,14 @@ serve(async (req) => {
     const doc = new GoogleSpreadsheet(SHEET_ID, auth)
     await doc.loadInfo()
 
-    // Cria a aba com cabeçalho na primeira vez que for usada.
+    // Cria a aba com cabeçalho na primeira vez que for usada; se a aba já existe
+    // mas é anterior a alguma coluna nova (ex.: "anexos"), acrescenta-a ao final.
     const getSheet = async (def: { name: string; columns: string[] }) => {
       let sheet = doc.sheetsByTitle[def.name]
-      if (!sheet) sheet = await doc.addSheet({ title: def.name, headerValues: def.columns })
+      if (!sheet) return await doc.addSheet({ title: def.name, headerValues: def.columns })
+      await sheet.loadHeaderRow()
+      const missing = def.columns.filter(c => !sheet.headerValues.includes(c))
+      if (missing.length > 0) await sheet.setHeaderRow([...sheet.headerValues, ...missing])
       return sheet
     }
 
@@ -95,7 +139,7 @@ serve(async (req) => {
 
     // ── POST: grava (cria ou substitui) a fiscalização da quinzena ───────────
     if (req.method === 'POST') {
-      const { data, items } = await req.json()
+      const { data, items } = body
       if (!data?.id || !data?.escolaId || !data?.periodoInicio) {
         throw new Error('Requisição inválida: id, escolaId e periodoInicio são obrigatórios.')
       }
@@ -105,6 +149,7 @@ serve(async (req) => {
         throw new Error('Apenas o Fiscal Setorial da própria escola pode enviar esta fiscalização.')
       }
       if (data.id !== `${data.escolaId}_${data.periodoInicio}`) throw new Error('Identificador inválido.')
+      data.anexos = sanitizarAnexos(data.anexos)
 
       const now = new Date().toISOString()
       const sheet = await getSheet(INSPECTIONS)
@@ -150,6 +195,23 @@ serve(async (req) => {
     })
   }
 })
+
+// Só guarda id/nome/tipo; o link é sempre montado a partir do id, então o
+// cliente não consegue injetar URLs arbitrárias que a URE depois clicaria.
+function sanitizarAnexos(raw: unknown): string {
+  let lista: any[] = []
+  try { lista = typeof raw === 'string' ? JSON.parse(raw || '[]') : [] } catch { lista = [] }
+  if (!Array.isArray(lista)) return '[]'
+  const limpos = lista
+    .filter(a => a && typeof a.id === 'string' && /^[\w-]{10,100}$/.test(a.id))
+    .slice(0, ANEXOS_MAX)
+    .map(a => ({
+      id: a.id,
+      nome: String(a.nome ?? 'anexo').slice(0, 120),
+      mimeType: ANEXO_MIME_OK.test(a.mimeType ?? '') ? a.mimeType : 'application/octet-stream',
+    }))
+  return JSON.stringify(limpos)
+}
 
 function ok(headers: Record<string, string>, data: unknown) {
   return new Response(JSON.stringify(data), {

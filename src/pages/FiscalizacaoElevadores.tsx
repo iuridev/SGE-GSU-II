@@ -6,6 +6,7 @@ import {
   ArrowUpCircle, ClipboardCheck, Loader2, Lock, CalendarClock, CheckCircle2, AlertTriangle,
   ShieldAlert, Phone, ChevronDown, FileDown, FileText, Search, Megaphone, TrendingUp,
   History, LayoutDashboard, School as SchoolIcon, Timer, UserX, Pencil, Building2, Table2, ExternalLink,
+  Paperclip, Image as ImageIcon,
 } from 'lucide-react';
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, BarChart, Bar, Legend,
@@ -19,7 +20,7 @@ import { FUNCTION_NAME } from '../lib/fiscalizacaoElevadoresApi';
 import {
   EMPRESAS_CONTATO, PRAZO_EMERGENCIAL_MIN, getQuinzena, ultimasQuinzenas, diasRestantes,
   resumirQuinzena, topNaoConformidades, escolasPendentes, textoDaPergunta, rowsToCsv,
-  linhaParaRegistro, type LinhaPlanilha, type EscolaRef, type FiscalizacaoRegistro, type Quinzena, type StatusFiscalizacao,
+  linhaParaRegistro, urlAnexo, type LinhaPlanilha, type EscolaRef, type FiscalizacaoRegistro, type Quinzena, type StatusFiscalizacao,
 } from '../lib/fiscalizacaoElevadores';
 
 const ADMIN_LIKE_ROLES = ['regional_admin', 'supervisor', 'dirigente', 'ure_servico'];
@@ -86,6 +87,21 @@ function RegistroDetalhe({ r }: { r: FiscalizacaoRegistro }) {
         <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2">
           <p className="font-black uppercase tracking-wide text-[10px] text-slate-400 mb-0.5">Observações gerais</p>
           <p className="text-slate-700">{r.general_notes}</p>
+        </div>
+      )}
+      {r.attachments.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="flex items-center gap-1 font-black uppercase tracking-wide text-[10px] text-slate-400"><Paperclip size={11} /> Anexos</p>
+          <div className="flex flex-wrap gap-2">
+            {r.attachments.map(a => (
+              <a key={a.id} href={urlAnexo(a)} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1.5 max-w-full bg-slate-50 hover:bg-blue-50 border border-slate-100 rounded-xl px-3 py-2 font-bold text-blue-700">
+                {a.mimeType === 'application/pdf' ? <FileText size={13} className="shrink-0 text-red-500" /> : <ImageIcon size={13} className="shrink-0" />}
+                <span className="truncate">{a.nome}</span>
+                <ExternalLink size={11} className="shrink-0" />
+              </a>
+            ))}
+          </div>
         </div>
       )}
       <p className="text-[10px] text-slate-400 font-medium">Enviado por {r.inspector_name ?? '—'} em {fmtDataHora(r.updated_at ?? r.created_at)}</p>

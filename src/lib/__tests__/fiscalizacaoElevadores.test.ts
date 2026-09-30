@@ -124,7 +124,7 @@ function reg(school_id: string, period_start: string, over: Partial<Fiscalizacao
     inspector_name: null, created_at: '', is_operational: true, down_since: null, had_visit: true,
     answers: {}, observations: {}, had_call: false, call_type: null, call_opened_at: null, call_attended_at: null,
     call_response_minutes: null, person_trapped: false, general_notes: null, score: 100, status: 'conforme',
-    nonconformities: [], ...over,
+    nonconformities: [], attachments: [], ...over,
   };
 }
 
@@ -164,7 +164,7 @@ describe('conversão para a planilha', () => {
     return {
       escola, quinzena, fiscal: { id: 'u1', nome: 'Maria' }, funcionando: true, paradoDesde: null, houveVisita: true,
       chamado: { houve: true, tipo: 'emergencial', abertoEmISO: '2026-09-02T11:00:00.000Z', atendidoEmISO: '2026-09-02T11:20:00.000Z', pessoaPresa: false },
-      respostas: e.respostas, observacoes: { portas: 'porta 2 emperra' }, observacoesGerais: ' ok ', avaliacao: avaliarFiscalizacao(e),
+      respostas: e.respostas, observacoes: { portas: 'porta 2 emperra' }, observacoesGerais: ' ok ', avaliacao: avaliarFiscalizacao(e), anexos: [],
     };
   }
 
