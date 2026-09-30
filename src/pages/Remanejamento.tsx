@@ -82,40 +82,24 @@ export function Remanejamento() {
     status: 'DISPONÍVEL'
   });
 
-  const EXPIRATION_DAYS = 15;
+  const getDaysSinceCreated = (dateStr: string) => {
+    const now = new Date();
+    const created = new Date(dateStr);
+    const diff = Math.abs(now.getTime() - created.getTime());
+    return Math.floor(diff / (1000 * 60 * 60 * 24));
+  };
+
+  // Prazo para alguma escola manifestar interesse; depois disso o lote é
+  // considerado cancelado (status derivado, não gravado no banco).
+  const INTEREST_DEADLINE_DAYS = 30;
+  const CANCEL_MESSAGE = 'Cancelado pois Nenhuma Unidade Escolar se interessou, por favor fazer processo de material excedente para URE disponibilizar para o fundo Social';
+
+  const effectiveStatus = (status: string, createdAt: string) =>
+    status === 'DISPONÍVEL' && getDaysSinceCreated(createdAt) >= INTEREST_DEADLINE_DAYS ? 'CANCELADO' : status;
 
   useEffect(() => {
     fetchData();
   }, []);
-
-  async function cleanupExpiredItems(allItems: InventoryItem[]) {
-    const now = new Date();
-    const expiredItems = allItems.filter(item => {
-      if (!item.image_url) return false;
-      const createdAt = new Date(item.created_at);
-      const diffTime = Math.abs(now.getTime() - createdAt.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      return diffDays > EXPIRATION_DAYS;
-    });
-
-    if (expiredItems.length === 0) return;
-
-    for (const item of expiredItems) {
-      try {
-        const urlParts = item.image_url.split('/');
-        const fileName = urlParts[urlParts.length - 1];
-        if (fileName) {
-          await supabase.storage.from('inventory').remove([`items/${fileName}`]);
-        }
-        await (supabase as any)
-          .from('inventory_items')
-          .update({ image_url: null })
-          .eq('id', item.id);
-      } catch (err) {
-        console.error("Falha na limpeza automática:", err);
-      }
-    }
-  }
 
   async function fetchData() {
     setLoading(true);
@@ -136,11 +120,7 @@ export function Remanejamento() {
         `)
         .order('created_at', { ascending: false });
       
-      const allData = data || [];
-      if (allData.length > 0) {
-        await cleanupExpiredItems(allData);
-      }
-      setItems(allData);
+      setItems(data || []);
     } catch (error) {
       console.error(error);
     } finally {
@@ -159,7 +139,7 @@ export function Remanejamento() {
           description: item.description,
           image_url: item.image_url,
           gr_link: item.gr_link,
-          status: item.status,
+          status: effectiveStatus(item.status, item.created_at),
           status_notes: item.status_notes,
           school_id: item.school_id,
           school_name: item.schools?.name || 'Unidade Desconhecida',
@@ -180,7 +160,7 @@ export function Remanejamento() {
         if (activeTab === 'active') {
           return b.status === 'DISPONÍVEL' || b.status === 'INTERESSE_SOLICITADO';
         } else {
-          return b.status === 'REMANEJADO';
+          return b.status === 'REMANEJADO' || b.status === 'CANCELADO';
         }
       })
       .filter(b => 
@@ -196,7 +176,7 @@ export function Remanejamento() {
       const bId = item.batch_id || item.id;
       if (!batchesMap[bId]) {
         batchesMap[bId] = {
-          status: item.status,
+          status: effectiveStatus(item.status, item.created_at),
           school_name: item.schools?.name || 'Unidade Desconhecida',
           created_at: item.created_at
         };
@@ -204,7 +184,7 @@ export function Remanejamento() {
     });
     const batches = Object.values(batchesMap);
 
-    const statusCounts = { DISPONÍVEL: 0, INTERESSE_SOLICITADO: 0, REMANEJADO: 0 };
+    const statusCounts = { DISPONÍVEL: 0, INTERESSE_SOLICITADO: 0, REMANEJADO: 0, CANCELADO: 0 };
     batches.forEach(b => {
       if (b.status in statusCounts) statusCounts[b.status as keyof typeof statusCounts] += 1;
     });
@@ -212,7 +192,8 @@ export function Remanejamento() {
     const statusData = [
       { name: 'Disponível', value: statusCounts.DISPONÍVEL, color: '#10b981' },
       { name: 'Interesse Solicitado', value: statusCounts.INTERESSE_SOLICITADO, color: '#f59e0b' },
-      { name: 'Remanejado', value: statusCounts.REMANEJADO, color: '#2563eb' }
+      { name: 'Remanejado', value: statusCounts.REMANEJADO, color: '#2563eb' },
+      { name: 'Cancelado', value: statusCounts.CANCELADO, color: '#ef4444' }
     ];
 
     const now = new Date();
@@ -475,22 +456,16 @@ export function Remanejamento() {
     } catch (error) { alert("Erro ao excluir."); }
   }
 
-  const getDaysSinceCreated = (dateStr: string) => {
-    const now = new Date();
-    const created = new Date(dateStr);
-    const diff = Math.abs(now.getTime() - created.getTime());
-    return Math.floor(diff / (1000 * 60 * 60 * 24));
-  };
 
   return (
     <div className="space-y-8 pb-20">
       <div className="bg-indigo-50 border-2 border-indigo-100 p-6 rounded-[2.5rem] flex items-start gap-5 animate-in slide-in-from-top-4 duration-500 shadow-xl shadow-indigo-100/50">
         <div className="p-3 bg-white rounded-2xl text-indigo-600 shadow-sm"><Info size={28}/></div>
         <div>
-          <h2 className="text-sm font-black text-indigo-900 uppercase tracking-tight">Política de Gerenciamento de Espaço</h2>
+          <h2 className="text-sm font-black text-indigo-900 uppercase tracking-tight">Prazo para Manifestação de Interesse</h2>
           <p className="text-xs text-indigo-700/80 font-medium leading-relaxed mt-1">
-            Para otimizar o armazenamento regional, as fotos dos itens permanecem ativas por apenas <strong>{EXPIRATION_DAYS} dias</strong>. 
-            Após esse prazo, o anúncio permanece no banco de dados, porém a imagem é removida automaticamente.
+            Cada lote fica disponível por <strong>{INTEREST_DEADLINE_DAYS} dias</strong> a partir do cadastro.
+            Se nenhuma Unidade Escolar manifestar interesse nesse prazo, o lote é cancelado e deve seguir para o processo de material excedente.
           </p>
         </div>
       </div>
@@ -646,7 +621,7 @@ export function Remanejamento() {
             onClick={() => setActiveTab('history')}
             className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-black text-[11px] uppercase tracking-wider transition-all ${activeTab === 'history' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-indigo-500'}`}
           >
-            <Archive size={16} /> Histórico / Remanejados
+            <Archive size={16} /> Histórico / Encerrados
           </button>
         </div>
 
@@ -675,30 +650,31 @@ export function Remanejamento() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {groupedBatches.map((batch) => {
                 const daysActive = getDaysSinceCreated(batch.created_at);
-                const isExpired = daysActive >= EXPIRATION_DAYS;
-                
+                const isCancelled = batch.status === 'CANCELADO';
+
                 return (
-                  <div key={batch.batch_id} className={`bg-white rounded-[2.5rem] border border-slate-100 shadow-xl overflow-hidden group flex flex-col hover:border-indigo-300 transition-all ${isExpired && !batch.image_url ? 'opacity-75' : ''}`}>
+                  <div key={batch.batch_id} className={`bg-white rounded-[2.5rem] border border-slate-100 shadow-xl overflow-hidden group flex flex-col hover:border-indigo-300 transition-all ${isCancelled ? 'opacity-90' : ''}`}>
                     <div className="relative h-48 overflow-hidden bg-slate-100">
                       {batch.image_url ? (
                         <img src={batch.image_url} alt={batch.item_name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
                       ) : (
                         <div className="w-full h-full flex flex-col items-center justify-center text-slate-300 bg-slate-50 gap-2">
                           <ImageIcon size={48} />
-                          <span className="text-[9px] font-black uppercase text-slate-400">Imagem Expirada</span>
+                          <span className="text-[9px] font-black uppercase text-slate-400">Sem Foto</span>
                         </div>
                       )}
                       
                       <div className="absolute top-4 left-4 flex flex-col gap-2">
                         <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg ${
                           batch.status === 'DISPONÍVEL' ? 'bg-emerald-500 text-white' : 
-                          batch.status === 'REMANEJADO' ? 'bg-blue-600 text-white' : 'bg-amber-500 text-white'
+                          batch.status === 'REMANEJADO' ? 'bg-blue-600 text-white' :
+                          batch.status === 'CANCELADO' ? 'bg-red-500 text-white' : 'bg-amber-500 text-white'
                         }`}>
                           {batch.status.replace('_', ' ')}
                         </span>
-                        {batch.status !== 'REMANEJADO' && (
+                        {batch.status === 'DISPONÍVEL' && (
                           <div className="flex items-center gap-1 bg-slate-900/80 backdrop-blur text-white px-3 py-1 rounded-full text-[10px] font-black uppercase">
-                            <Clock size={10}/> {daysActive} Dias
+                            <Clock size={10}/> {INTEREST_DEADLINE_DAYS - daysActive} {INTEREST_DEADLINE_DAYS - daysActive === 1 ? 'Dia restante' : 'Dias restantes'}
                           </div>
                         )}
                       </div>
@@ -724,6 +700,13 @@ export function Remanejamento() {
                               ))}
                           </div>
                         </div>
+
+                        {isCancelled && (
+                          <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2">
+                            <Ban size={14} className="text-red-500 shrink-0 mt-0.5" />
+                            <p className="text-[10px] text-red-700 font-bold leading-relaxed">{CANCEL_MESSAGE}</p>
+                          </div>
+                        )}
 
                         {batch.status === 'DISPONÍVEL' && batch.status_notes && (
                           <div className="mt-3 p-3 bg-red-50 border border-red-100 rounded-xl flex items-start gap-2">
