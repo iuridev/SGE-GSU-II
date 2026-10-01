@@ -65,12 +65,17 @@ export interface SchoolRanking {
   extras: {
     water_reg_days: number; // Leituras de água lançadas na janela de Registo
     water_eff_days: number; // Leituras na janela de Eficiência Hídrica
+    water_eff_consumo: number; // Consumo total (m³) na janela de Eficiência Hídrica, somando todos os hidrômetros
+    water_eff_limite: number; // Limite total (m³) da mesma janela, pela regra da tela de Consumo de Água
     demand_total: number; // Total de demandas da escola
     demand_overdue: number; // Demandas pendentes e vencidas
     manejo_autorizado: boolean; // Tem autorização de manejo com validade (não vale "não se aplica")
     zeladoria_concluida: boolean; // Tem processo de zeladoria na etapa CONCLUÍDO
   };
 }
+
+// Limite diário de consumo por pessoa, em m³ (mesmo valor da tela de Consumo de Água)
+const LIMITE_DIARIO_POR_PESSOA = 0.009;
 
 // Define a estrutura de dados das configurações dos Pesos
 export interface WeightConfig {
@@ -197,6 +202,19 @@ export async function calcularRanking(currentWeights: WeightConfig): Promise<Sch
     const schoolWaterEff = schoolWaterAll.filter((w: any) => w.date >= effWindowStartStr);
     const exceededCount = schoolWaterEff.filter((w: any) => w.limit_exceeded).length; // Quantas vezes estourou?
     const waterEffPct = schoolWaterEff.length > 0 ? (1 - exceededCount / schoolWaterEff.length) : 1; // 100% menos os estouros
+    // Volume consumido x limite na mesma janela (não entra na nota; é usado pelo
+    // Selo de Eficiência Hídrica). Mesma regra dos cartões "Total Consumido" e
+    // "Limite de Consumo" da tela de Consumo de Água: o limite só conta nos dias
+    // com consumo registrado. Com mais de um hidrômetro, o consumo soma todos e o
+    // limite do dia entra uma vez só (as pessoas são as mesmas).
+    const waterEffConsumo = schoolWaterEff.reduce((acc: number, w: any) => acc + (w.consumption_diff || 0), 0);
+    const limitePorDia: Record<string, number> = {};
+    schoolWaterEff.forEach((w: any) => {
+      if ((w.consumption_diff || 0) <= 0) return;
+      const limiteDoDia = ((w.student_count || 0) + (w.staff_count || 0)) * LIMITE_DIARIO_POR_PESSOA;
+      limitePorDia[w.date] = Math.max(limitePorDia[w.date] || 0, limiteDoDia);
+    });
+    const waterEffLimite = Object.values(limitePorDia).reduce((acc, v) => acc + v, 0);
 
     // ---- CRITÉRIO 3: DEMANDAS E OFÍCIOS ----
     const schoolDemands = allDemands.filter((d: any) => d.school_id === school.id); // Pega ofícios dela
@@ -315,6 +333,8 @@ export async function calcularRanking(currentWeights: WeightConfig): Promise<Sch
       extras: {
         water_reg_days: schoolWaterReg.length,
         water_eff_days: schoolWaterEff.length,
+        water_eff_consumo: waterEffConsumo,
+        water_eff_limite: waterEffLimite,
         demand_total: schoolDemands.length,
         demand_overdue: overdueOpenDemands.length,
         manejo_autorizado: schoolManejo.some((m: any) => !!m.validade_autorizacao),
