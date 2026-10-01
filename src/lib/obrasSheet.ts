@@ -20,6 +20,7 @@ export interface SheetWork {
   fiscal?: string;
   status: string;
   dataInicio?: string;
+  prazoDias?: string;
   previsaoTermino?: string;
   detalhamento?: string;
   matchedSchoolId?: string;
@@ -121,6 +122,7 @@ export async function fetchObrasSheet(schools: SheetSchool[]): Promise<SheetWork
     fiscal:     headers.findIndex(h => h.includes('fiscal')),
     status:     headers.findIndex(h => h.includes('status')),
     dataInicio: headers.findIndex(h => h.includes('inicio') || (h.includes('data') && h.includes('in'))),
+    prazoDias: headers.findIndex(h => h.includes('prazo')),
     previsaoTermino: headers.findIndex(h => h.includes('termino')),
     detalhamento: headers.findIndex(h => h.includes('detalhamento')),
   };
@@ -144,6 +146,7 @@ export async function fetchObrasSheet(schools: SheetSchool[]): Promise<SheetWork
       fiscal:     idx.fiscal >= 0     ? v[idx.fiscal]     || '' : '',
       status:     idx.status >= 0     ? v[idx.status]     || '' : '',
       dataInicio: idx.dataInicio >= 0 ? v[idx.dataInicio] || '' : '',
+      prazoDias:  idx.prazoDias >= 0  ? v[idx.prazoDias]  || '' : '',
       previsaoTermino: idx.previsaoTermino >= 0 ? v[idx.previsaoTermino] || '' : '',
       detalhamento: idx.detalhamento >= 0 ? v[idx.detalhamento] || '' : '',
       matchedSchoolId:   matched?.id,

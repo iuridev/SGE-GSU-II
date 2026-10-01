@@ -13,7 +13,7 @@ import {
   School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown,
   Bell, MessageSquare, CheckCircle, ClipboardList,
   Wrench, Search, CalendarCheck, BarChart2, Megaphone, DoorOpen, ClipboardCheck, Target,
-  CalendarDays, FileSignature, Bot, HelpCircle, Stamp, Phone, Landmark
+  CalendarDays, FileSignature, Bot, HelpCircle, Stamp, Phone, Landmark, Award
 } from 'lucide-react';
 import { AgendaUnificadaModal } from './components/AgendaUnificadaModal';
 import { AlertaEscolaModal } from './components/AlertaEscolaModal';
@@ -84,6 +84,8 @@ import Assinaturas from './pages/Assinaturas';
 import AssistenteValidacao from './pages/AssistenteValidacao';
 import AssistenteFAQ from './pages/AssistenteFAQ';
 import RegularizacaoImoveis from './pages/RegularizacaoImoveis';
+import SelosExcelencia from './pages/SelosExcelencia';
+import { SelosTopo } from './components/SelosTopo';
 import AssistenteFlutuante from './components/AssistenteFlutuante';
 import { FunapReminderModal } from './components/FunapReminderModal';
 import { AlertaAguaPendenteModal } from './components/AlertaAguaPendenteModal';
@@ -142,6 +144,7 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'minhas-tarefas', label: 'Agenda Funcional', icon: <CalendarCheck size={20} />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico', 'ure_eec'] },
       //{ id: 'atividades', label: 'Atividades - SEOM/SEFISC', icon: <ClipboardList size={20} className="text-slate-400" />, roles: ['regional_admin', 'dirigente'] },
       { id: 'tutoriais', label: 'Manuais e Tutoriais', icon: <BookOpen size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+      { id: 'selos-excelencia', label: 'Selos de Excelência', icon: <Award size={20} className="text-amber-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
 
     ]
   },
@@ -813,6 +816,7 @@ export default function App() {
       case 'assinaturas': return <Assinaturas />;
       case 'assistente-validacao': return <AssistenteValidacao />;
       case 'assistente-faq': return <AssistenteFAQ />;
+      case 'selos-excelencia': return <SelosExcelencia />;
       default: return <Dashboard />;
     }
   };
@@ -1009,6 +1013,11 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4 lg:gap-6">
+
+            {/* SELOS DE EXCELÊNCIA DA ESCOLA (ano corrente) */}
+            {userRole === 'school_manager' && (
+              <SelosTopo userId={session.user.id} onAbrirGaleria={() => setCurrentPage('selos-excelencia')} />
+            )}
 
             {/* NOTIFICAÇÕES (O SINO) */}
             <div className="relative">
