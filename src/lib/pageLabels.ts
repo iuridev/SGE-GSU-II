@@ -58,6 +58,7 @@ export const PAGE_LABELS: Record<string, string> = {
   'metricas-acesso': 'Métricas de Acesso',
   'chamados-telefonicos': 'Chamado Elevador',
   'regularizacao-imoveis': 'Regularização de Imóveis',
+  'selos-excelencia': 'Selos de Excelência',
 };
 
 export function pageLabel(id: string): string {
