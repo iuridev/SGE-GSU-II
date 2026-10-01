@@ -3,7 +3,7 @@ import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole, isReadOnlyRole } from '../lib/roles';
 import {
-  METRICAS, textoCriterio, type Selo, type SeloEscola, type ResultadoMetrica,
+  METRICAS, textoCriterio, selosEmRisco, type Selo, type SeloEscola, type ResultadoMetrica,
 } from '../lib/selosMetricas';
 import { SeloBadge, SELO_ICONES, SELO_CORES, SELO_FORMATOS, SELO_ACABAMENTOS } from '../components/SeloBadge';
 import { Award, Loader2, Plus, Pencil, X, Check, Undo2, AlertTriangle } from 'lucide-react';
@@ -120,6 +120,19 @@ export default function SelosExcelencia() {
     })();
     return () => { ativo = false; };
   }, [chavesMetricas, ano, schools, visaoEscola]);
+
+  // Galeria da escola: selos do ano corrente que ela corre o risco de perder
+  // (índice abaixo do critério hoje). Selos de anos anteriores são histórico.
+  const [emRisco, setEmRisco] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    if (!visaoEscola || !minhaEscolaId) return;
+    let ativo = true;
+    const ids = new Set(concessoes.filter(c => c.school_id === minhaEscolaId && c.ano === ANO_ATUAL).map(c => c.selo_id));
+    selosEmRisco(selos.filter(s => ids.has(s.id)), minhaEscolaId, ANO_ATUAL)
+      .then(risco => { if (ativo) setEmRisco(risco); })
+      .catch(err => console.error('Erro ao avaliar risco dos selos:', err));
+    return () => { ativo = false; };
+  }, [visaoEscola, minhaEscolaId, selos, concessoes]);
 
   const nomeEscola = useMemo(() => new Map(schools.map(s => [s.id, s.name])), [schools]);
 
@@ -260,14 +273,24 @@ export default function SelosExcelencia() {
                 {doAno.map(concessao => {
                   const selo = selos.find(s => s.id === concessao.selo_id);
                   if (!selo) return null;
+                  const risco = anoGaleria === ANO_ATUAL ? emRisco.get(selo.id) : undefined;
                   return (
-                    <div key={concessao.id} className="bg-white rounded-2xl border border-slate-200 p-6 flex flex-col items-center text-center shadow-sm">
+                    <div key={concessao.id} className="relative bg-white rounded-2xl border border-slate-200 p-6 flex flex-col items-center text-center shadow-sm">
+                      {risco && <div className="absolute inset-0 rounded-2xl border-2 border-red-500 animate-pulse pointer-events-none" />}
                       <SeloBadge {...aparencia(selo)} tamanho="lg" />
                       <p className="mt-4 text-sm font-black text-slate-900 uppercase tracking-tight">{selo.nome}</p>
                       <p className="mt-1 text-xs text-slate-500 leading-snug">{selo.descricao}</p>
                       <p className="mt-3 text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
                         Concedido em {dataBR(concessao.concedido_em)}
                       </p>
+                      {risco && (
+                        <div className="mt-3 w-full flex items-start gap-2 text-left text-[11px] text-red-700 bg-red-50 border border-red-200 rounded-lg p-2.5">
+                          <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                          <span>
+                            <strong>Risco de perder o selo.</strong> Situação atual: {risco}. Critério: {textoCriterio(selo).toLowerCase()}.
+                          </span>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -280,6 +303,25 @@ export default function SelosExcelencia() {
   }
 
   // ── Visão da Regional: aptas e contempladas por selo ─────────────────
+
+  // Escolas contempladas que, pela métrica de hoje, não atingem mais o critério
+  // do selo (o índice caiu depois da concessão). Só dá para afirmar isso quando
+  // a métrica foi calculada para o ano em tela; selo manual nunca entra.
+  const foraDoCriterio = (selo: Selo): Set<string> => {
+    const fora = new Set<string>();
+    const metrica = selo.metrica ? METRICAS[selo.metrica] : undefined;
+    const resultados = selo.metrica ? metricas[selo.metrica] : undefined;
+    if (!metrica || !resultados || calculando) return fora;
+    if (metrica.somenteAnoCorrente && ano !== ANO_ATUAL) return fora;
+    const minimo = selo.criterio_minimo ?? 1;
+    concessoes.forEach(c => {
+      if (c.selo_id !== selo.id || c.ano !== ano) return;
+      if ((resultados.get(c.school_id)?.valor ?? 0) < minimo) fora.add(c.school_id);
+    });
+    return fora;
+  };
+  const totalForaDoCriterio = selos.reduce((total, s) => total + foraDoCriterio(s).size, 0);
+
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -300,6 +342,20 @@ export default function SelosExcelencia() {
         </div>
       </div>
 
+      {totalForaDoCriterio > 0 && (
+        <div className="flex items-start gap-3 bg-red-50 border border-red-200 text-red-800 rounded-2xl p-4">
+          <AlertTriangle size={18} className="shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-black">
+              {totalForaDoCriterio} selo(s) de {ano} com a escola abaixo do critério
+            </p>
+            <p className="text-xs mt-0.5">
+              O índice dessas escolas caiu depois da concessão. Elas estão destacadas em vermelho abaixo{podeGerenciar ? ', com o botão para revogar o selo' : ''}.
+            </p>
+          </div>
+        </div>
+      )}
+
       {selos.length === 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 py-16 text-center text-sm text-slate-400">
           Nenhum selo cadastrado.
@@ -319,6 +375,9 @@ export default function SelosExcelencia() {
               .sort((a, b) => (resultados.get(b.id)?.valor ?? 0) - (resultados.get(a.id)?.valor ?? 0))
           : [];
         const restantes = schools.filter(s => !contempladas.has(s.id));
+        const fora = foraDoCriterio(selo);
+        // Quem caiu abaixo do critério aparece primeiro na lista de contempladas.
+        const doSeloOrdenado = [...doSelo].sort((a, b) => Number(fora.has(b.school_id)) - Number(fora.has(a.school_id)));
 
         return (
           <div key={selo.id} className={`bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden ${selo.ativo ? '' : 'opacity-60'}`}>
@@ -328,6 +387,11 @@ export default function SelosExcelencia() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="text-base font-black text-slate-900 uppercase tracking-tight">{selo.nome}</h3>
                   {!selo.ativo && <span className="text-[9px] font-black uppercase tracking-widest bg-slate-100 text-slate-500 px-2 py-0.5 rounded">Inativo</span>}
+                  {fora.size > 0 && (
+                    <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest bg-red-100 text-red-700 px-2 py-0.5 rounded">
+                      <AlertTriangle size={10} /> {fora.size} abaixo do critério
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-slate-500 mt-1 leading-snug">{selo.descricao}</p>
                 <p className={`text-[10px] font-bold uppercase tracking-widest mt-2 ${(SELO_CORES[selo.cor] || SELO_CORES.amber).texto}`}>
@@ -411,28 +475,45 @@ export default function SelosExcelencia() {
                   <p className="text-xs text-slate-400">Nenhuma escola recebeu este selo em {ano}.</p>
                 ) : (
                   <ul className="space-y-2 max-h-80 overflow-y-auto custom-scrollbar pr-1">
-                    {doSelo.map(c => (
-                      <li key={c.id} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50">
-                        <SeloBadge {...aparencia(selo)} tamanho="sm" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-slate-800 truncate">{nomeEscola.get(c.school_id) || 'Escola removida'}</p>
-                          <p className="text-[11px] text-slate-500">
-                            {c.detalhe_metrica ? `${c.detalhe_metrica} · ` : ''}
-                            {dataBR(c.concedido_em)}{c.concedido_por_nome ? ` por ${c.concedido_por_nome}` : ''}
-                          </p>
-                        </div>
-                        {podeGerenciar && (
-                          <button
-                            onClick={() => revogar(selo, c)}
-                            disabled={processando === `${selo.id}-${c.school_id}`}
-                            title="Revogar selo"
-                            className="p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 transition-colors"
-                          >
-                            <Undo2 size={14} />
-                          </button>
-                        )}
-                      </li>
-                    ))}
+                    {doSeloOrdenado.map(c => {
+                      const caiu = fora.has(c.school_id);
+                      return (
+                        <li key={c.id} className={`flex items-center gap-3 p-3 rounded-xl ${caiu ? 'bg-red-50 border border-red-200' : 'bg-slate-50'}`}>
+                          <SeloBadge {...aparencia(selo)} tamanho="sm" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-slate-800 truncate">{nomeEscola.get(c.school_id) || 'Escola removida'}</p>
+                            <p className="text-[11px] text-slate-500">
+                              {c.detalhe_metrica ? `${c.detalhe_metrica} · ` : ''}
+                              {dataBR(c.concedido_em)}{c.concedido_por_nome ? ` por ${c.concedido_por_nome}` : ''}
+                            </p>
+                            {caiu && (
+                              <p className="flex items-start gap-1 text-[11px] font-bold text-red-700 mt-1">
+                                <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+                                <span>Abaixo do critério hoje: {resultados?.get(c.school_id)?.detalhe || 'a escola não atende mais às condições do selo'}</span>
+                              </p>
+                            )}
+                          </div>
+                          {podeGerenciar && (caiu ? (
+                            <button
+                              onClick={() => revogar(selo, c)}
+                              disabled={processando === `${selo.id}-${c.school_id}`}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors"
+                            >
+                              <Undo2 size={12} /> Revogar
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => revogar(selo, c)}
+                              disabled={processando === `${selo.id}-${c.school_id}`}
+                              title="Revogar selo"
+                              className="p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 transition-colors"
+                            >
+                              <Undo2 size={14} />
+                            </button>
+                          ))}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>

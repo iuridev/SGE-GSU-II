@@ -225,13 +225,20 @@ export const METRICAS: Record<string, MetricaSelo> = {
     },
   ),
 
-  // Dias dentro do teto de consumo (últimos 3 meses). Sem nenhuma leitura no
-  // período o ranking dá 100%, mas aí não há o que reconhecer.
+  // Dias dentro do teto de consumo (últimos 3 meses). O percentual de dias
+  // sozinho engana: a escola pode estourar muito em poucos dias, ou ter muitos
+  // registros sem consumo, e ainda marcar perto de 100%. Por isso só concorre
+  // quem também fechou o período com o consumo total dentro do limite total.
+  // Sem consumo registrado no período também não há o que reconhecer.
   ranking_agua_eficiencia: metricaDoRanking(
-    { label: 'Ranking – Eficiência Hídrica', unidade: '% dos dias dentro do teto de consumo' },
-    e => e.extras.water_eff_days === 0 ? null : {
-      valor: Math.round(e.stats.water_efficiency),
-      detalhe: `${Math.round(e.stats.water_efficiency)}% dos dias dentro do teto (${e.extras.water_eff_days} leituras em 3 meses)`,
+    { label: 'Ranking – Eficiência Hídrica', unidade: '% dos dias dentro do teto, com o consumo total do período dentro do limite' },
+    e => {
+      const { water_eff_consumo: consumo, water_eff_limite: limite } = e.extras;
+      if (limite <= 0 || consumo > limite) return null;
+      return {
+        valor: Math.round(e.stats.water_efficiency),
+        detalhe: `${Math.round(e.stats.water_efficiency)}% dos dias dentro do teto · ${consumo.toFixed(1)} m³ consumidos para limite de ${limite.toFixed(1)} m³ em 3 meses`,
+      };
     },
   ),
 
@@ -265,4 +272,31 @@ export function textoCriterio(selo: Selo): string {
   if (!metrica) return 'Atribuição pela equipe da Regional';
   if (metrica.criterioFixo) return metrica.criterioFixo;
   return `Mínimo de ${selo.criterio_minimo ?? 1} ${metrica.unidade}`;
+}
+
+// Dos selos que a escola já tem no ano, quais ela corre o risco de perder:
+// pela métrica de hoje, o índice está abaixo do critério do selo. Devolve
+// selo → situação atual da escola. Selo manual nunca entra, e uma métrica que
+// falhe ao calcular é ignorada (na dúvida, não acusa risco).
+export async function selosEmRisco(selosDaEscola: Selo[], schoolId: string, ano: number): Promise<Map<string, string>> {
+  const emRisco = new Map<string, string>();
+  const avaliaveis = selosDaEscola.filter(s => {
+    const metrica = s.metrica ? METRICAS[s.metrica] : undefined;
+    return !!metrica && !(metrica.somenteAnoCorrente && ano !== new Date().getFullYear());
+  });
+  if (avaliaveis.length === 0) return emRisco;
+
+  const { data: schools } = await (supabase as any).from('schools').select('id, name');
+  const chaves = Array.from(new Set(avaliaveis.map(s => s.metrica as string)));
+  const calculos = await Promise.allSettled(chaves.map(c => METRICAS[c].calcular(ano, schools || [])));
+
+  avaliaveis.forEach(selo => {
+    const calculo = calculos[chaves.indexOf(selo.metrica as string)];
+    if (calculo.status !== 'fulfilled') return;
+    const atual = calculo.value.get(schoolId);
+    if ((atual?.valor ?? 0) < (selo.criterio_minimo ?? 1)) {
+      emRisco.set(selo.id, atual?.detalhe || 'sua escola não atende mais às condições do selo');
+    }
+  });
+  return emRisco;
 }
