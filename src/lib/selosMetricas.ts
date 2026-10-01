@@ -273,3 +273,30 @@ export function textoCriterio(selo: Selo): string {
   if (metrica.criterioFixo) return metrica.criterioFixo;
   return `Mínimo de ${selo.criterio_minimo ?? 1} ${metrica.unidade}`;
 }
+
+// Dos selos que a escola já tem no ano, quais ela corre o risco de perder:
+// pela métrica de hoje, o índice está abaixo do critério do selo. Devolve
+// selo → situação atual da escola. Selo manual nunca entra, e uma métrica que
+// falhe ao calcular é ignorada (na dúvida, não acusa risco).
+export async function selosEmRisco(selosDaEscola: Selo[], schoolId: string, ano: number): Promise<Map<string, string>> {
+  const emRisco = new Map<string, string>();
+  const avaliaveis = selosDaEscola.filter(s => {
+    const metrica = s.metrica ? METRICAS[s.metrica] : undefined;
+    return !!metrica && !(metrica.somenteAnoCorrente && ano !== new Date().getFullYear());
+  });
+  if (avaliaveis.length === 0) return emRisco;
+
+  const { data: schools } = await (supabase as any).from('schools').select('id, name');
+  const chaves = Array.from(new Set(avaliaveis.map(s => s.metrica as string)));
+  const calculos = await Promise.allSettled(chaves.map(c => METRICAS[c].calcular(ano, schools || [])));
+
+  avaliaveis.forEach(selo => {
+    const calculo = calculos[chaves.indexOf(selo.metrica as string)];
+    if (calculo.status !== 'fulfilled') return;
+    const atual = calculo.value.get(schoolId);
+    if ((atual?.valor ?? 0) < (selo.criterio_minimo ?? 1)) {
+      emRisco.set(selo.id, atual?.detalhe || 'sua escola não atende mais às condições do selo');
+    }
+  });
+  return emRisco;
+}
