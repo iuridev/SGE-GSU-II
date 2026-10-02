@@ -40,9 +40,160 @@ function normalizeName(name: string): string {
     .join(' ');
 }
 
-export function AgendamentoCarros() {
+type StatusKind = 'aprovado' | 'reprovado' | 'pendente';
+
+interface DayData {
+  day: number;
+  aprovado: number;
+  reprovado: number;
+  pendente: number;
+}
+
+const STATUS_COLORS: Record<StatusKind, string> = {
+  aprovado: '#059669',
+  reprovado: '#dc2626',
+  pendente: '#ca8a04',
+};
+const TOTAL_COLOR = '#334155';
+
+function classifyStatus(status: string | null | undefined): StatusKind {
+  const s = (status || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  if (/REPROV|RECUS|NEGAD|INDEFER|CANCEL|NAO APROV/.test(s)) return 'reprovado';
+  if (s.includes('APROVADO') || s === 'OK') return 'aprovado';
+  return 'pendente';
+}
+
+function loadScript(src: string) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) return resolve(true);
+    const s = document.createElement('script');
+    s.src = src; s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+// Os gráficos do relatório mensal são desenhados em canvas (e não com recharts)
+// porque o template do PDF fica oculto e o ResponsiveContainer não mede um elemento sem tamanho.
+const CHART_W = 714;
+const CHART_H = 230;
+const CHART_PAD = { top: 16, right: 44, bottom: 26, left: 34 };
+
+function createChartCanvas(maxValue: number, days: DayData[]) {
+  const canvas = document.createElement('canvas');
+  canvas.width = CHART_W * 2;
+  canvas.height = CHART_H * 2;
+  const ctx = canvas.getContext('2d')!;
+  ctx.scale(2, 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, CHART_W, CHART_H);
+
+  const step = Math.max(1, Math.ceil(maxValue / 4));
+  const yMax = step * 4;
+  const plotW = CHART_W - CHART_PAD.left - CHART_PAD.right;
+  const plotH = CHART_H - CHART_PAD.top - CHART_PAD.bottom;
+  const slot = plotW / days.length;
+  const x = (i: number) => CHART_PAD.left + slot * i + slot / 2;
+  const y = (v: number) => CHART_PAD.top + plotH - (v / yMax) * plotH;
+
+  ctx.font = '600 9px system-ui, -apple-system, sans-serif';
+  ctx.textBaseline = 'middle';
+  for (let t = 0; t <= 4; t++) {
+    const yy = Math.round(y(t * step)) + 0.5;
+    ctx.strokeStyle = t === 0 ? '#cbd5e1' : '#f1f5f9';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(CHART_PAD.left, yy);
+    ctx.lineTo(CHART_PAD.left + plotW, yy);
+    ctx.stroke();
+    ctx.fillStyle = '#94a3b8';
+    ctx.textAlign = 'right';
+    ctx.fillText(String(t * step), CHART_PAD.left - 8, yy);
+  }
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#94a3b8';
+  days.forEach((d, i) => ctx.fillText(String(d.day), x(i), CHART_PAD.top + plotH + 13));
+
+  return { canvas, ctx, x, y, slot };
+}
+
+function drawDailyChart(days: DayData[]): string {
+  const maxValue = Math.max(...days.map(d => d.aprovado + d.reprovado + d.pendente), 1);
+  const { canvas, ctx, x, y, slot } = createChartCanvas(maxValue, days);
+  const barW = Math.min(14, slot - 6);
+  const order: StatusKind[] = ['aprovado', 'reprovado', 'pendente'];
+
+  days.forEach((d, i) => {
+    let acc = 0;
+    order.forEach(kind => {
+      if (!d[kind]) return;
+      const top = y(acc + d[kind]);
+      const bottom = y(acc) - (acc > 0 ? 2 : 0); // respiro de 2px entre segmentos empilhados
+      ctx.fillStyle = STATUS_COLORS[kind];
+      ctx.fillRect(x(i) - barW / 2, top, barW, Math.max(1, bottom - top));
+      acc += d[kind];
+    });
+  });
+
+  return canvas.toDataURL('image/png');
+}
+
+function drawCumulativeChart(days: DayData[]): string {
+  const series = [
+    { color: TOTAL_COLOR, value: (d: DayData) => d.aprovado + d.reprovado + d.pendente },
+    { color: STATUS_COLORS.aprovado, value: (d: DayData) => d.aprovado },
+    { color: STATUS_COLORS.reprovado, value: (d: DayData) => d.reprovado },
+  ].map(s => {
+    let acc = 0;
+    return { color: s.color, points: days.map(d => (acc += s.value(d))) };
+  });
+
+  const { canvas, ctx, x, y } = createChartCanvas(Math.max(series[0].points[days.length - 1], 1), days);
+  const last = days.length - 1;
+
+  series.forEach(s => {
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    s.points.forEach((v, i) => (i === 0 ? ctx.moveTo(x(i), y(v)) : ctx.lineTo(x(i), y(v))));
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(x(last), y(s.points[last]), 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = s.color;
+    ctx.beginPath();
+    ctx.arc(x(last), y(s.points[last]), 4, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Valor final de cada série ao lado do último ponto, afastando rótulos que colidiriam
+  ctx.font = '800 10px system-ui, -apple-system, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#1e293b';
+  let prevY = -Infinity;
+  series
+    .map(s => ({ value: s.points[last], yy: y(s.points[last]) }))
+    .sort((a, b) => a.yy - b.yy)
+    .forEach(l => {
+      const yy = Math.max(l.yy, prevY + 12);
+      ctx.fillText(String(l.value), x(last) + 10, yy);
+      prevY = yy;
+    });
+
+  return canvas.toDataURL('image/png');
+}
+
+export function AgendamentoCarros({ userRole }: { userRole?: string }) {
   const [dataLoading, setDataLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [exportingMonthly, setExportingMonthly] = useState(false);
+  const [reportMonth, setReportMonth] = useState(() =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit' }).format(new Date())
+  );
+  const isAdmin = userRole === 'regional_admin';
   const [schedules, setSchedules] = useState<CarSchedule[]>([]);
   const [selectedDate, setSelectedDate] = useState(new Date());
 
@@ -171,13 +322,6 @@ export function AgendamentoCarros() {
   const handleExportPDF = async () => {
     setExporting(true);
     try {
-      const loadScript = (src: string) => new Promise((resolve, reject) => {
-        if (document.querySelector(`script[src="${src}"]`)) return resolve(true);
-        const s = document.createElement('script');
-        s.src = src; s.onload = resolve; s.onerror = reject;
-        document.head.appendChild(s);
-      });
-
       await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
       await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
 
@@ -213,6 +357,88 @@ export function AgendamentoCarros() {
       alert("Erro ao gerar o PDF.");
     } finally {
       setExporting(false);
+    }
+  };
+
+  const monthlyReport = useMemo(() => {
+    const [year, month] = reportMonth.split('-').map(Number);
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const days: DayData[] = Array.from({ length: daysInMonth }, (_, i) => ({ day: i + 1, aprovado: 0, reprovado: 0, pendente: 0 }));
+    const totals: Record<StatusKind, number> = { aprovado: 0, reprovado: 0, pendente: 0 };
+    const drivers: Record<string, { name: string; total: number; aprovado: number; reprovado: number }> = {};
+
+    schedules
+      .filter(s => s.service_date?.startsWith(reportMonth))
+      .forEach(s => {
+        const kind = classifyStatus(s.status);
+        totals[kind]++;
+        const day = days[Number(s.service_date.substring(8, 10)) - 1];
+        if (day) day[kind]++;
+
+        const rawName = s.requester_name || 'NÃO INFORMADO';
+        const key = normalizeName(rawName);
+        const cleanName = rawName.trim().replace(/\s+/g, ' ');
+        if (!drivers[key]) {
+          drivers[key] = { name: cleanName, total: 0, aprovado: 0, reprovado: 0 };
+        } else if (cleanName.length > drivers[key].name.length) {
+          drivers[key].name = cleanName;
+        }
+        drivers[key].total++;
+        if (kind === 'aprovado') drivers[key].aprovado++;
+        if (kind === 'reprovado') drivers[key].reprovado++;
+      });
+
+    const ranking = Object.values(drivers).sort((a, b) => b.aprovado - a.aprovado || b.total - a.total);
+    const total = totals.aprovado + totals.reprovado + totals.pendente;
+    return {
+      label: `${MONTHS[month - 1]} de ${year}`,
+      fileLabel: `${MONTHS[month - 1].toUpperCase()}_${year}`,
+      total,
+      totals,
+      days,
+      uniqueDrivers: ranking.length,
+      topDrivers: ranking.slice(0, 10),
+    };
+  }, [schedules, reportMonth]);
+
+  const handleMonthlyReport = async () => {
+    if (monthlyReport.total === 0) {
+      alert(`Não há agendamentos em ${monthlyReport.label}.`);
+      return;
+    }
+    setExportingMonthly(true);
+    const element = document.getElementById('car-monthly-report-template');
+    try {
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
+      if (!element) throw new Error("Template de relatório não encontrado.");
+
+      const charts: [string, string][] = [
+        ['monthly-chart-daily', drawDailyChart(monthlyReport.days)],
+        ['monthly-chart-cumulative', drawCumulativeChart(monthlyReport.days)],
+      ];
+      await Promise.all(charts.map(([id, src]) => {
+        const img = document.getElementById(id) as HTMLImageElement | null;
+        if (!img) return Promise.resolve();
+        img.src = src;
+        return img.decode().catch(() => undefined);
+      }));
+
+      element.style.display = 'block';
+      const opt = {
+        margin: [8, 0, 8, 0],
+        filename: `Relatorio_Mensal_Frota_${monthlyReport.fileLabel}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, letterRendering: true, width: 794 },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['css', 'legacy'], avoid: '.pdf-avoid-break' }
+      };
+      await (window as any).html2pdf().set(opt).from(element).save();
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao gerar o relatório mensal.");
+    } finally {
+      if (element) element.style.display = 'none';
+      setExportingMonthly(false);
     }
   };
 
@@ -348,6 +574,92 @@ export function AgendamentoCarros() {
         </div>
       </div>
 
+      {/* PDF Template — relatório mensal (hidden) */}
+      {isAdmin && (
+        <div id="car-monthly-report-template" style={{ display: 'none', background: '#fff', width: '794px', padding: '0 40px', boxSizing: 'border-box', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#0f172a' }}>
+          <TimbradoHeader />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '16px' }}>
+            <div>
+              <h1 style={{ margin: 0, fontSize: '17px', fontWeight: 900, letterSpacing: '-0.3px' }}>RELATÓRIO MENSAL — CARROS OFICIAIS</h1>
+              <p style={{ margin: '3px 0 0', fontSize: '10px', color: '#64748b', fontWeight: 600 }}>
+                Agendamentos com data de saída em {monthlyReport.label}
+              </p>
+            </div>
+            <div style={{ background: '#0f172a', color: '#fff', padding: '7px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 900, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+              {monthlyReport.label}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
+            {[
+              { label: 'Agendamentos', value: monthlyReport.total, sub: `${monthlyReport.uniqueDrivers} condutores distintos`, accent: TOTAL_COLOR },
+              { label: 'Aprovados', value: monthlyReport.totals.aprovado, sub: `${Math.round((monthlyReport.totals.aprovado / (monthlyReport.total || 1)) * 100)}% do total`, accent: STATUS_COLORS.aprovado },
+              { label: 'Reprovados', value: monthlyReport.totals.reprovado, sub: `${Math.round((monthlyReport.totals.reprovado / (monthlyReport.total || 1)) * 100)}% do total`, accent: STATUS_COLORS.reprovado },
+              { label: 'Pendentes / outros', value: monthlyReport.totals.pendente, sub: `${Math.round((monthlyReport.totals.pendente / (monthlyReport.total || 1)) * 100)}% do total`, accent: STATUS_COLORS.pendente },
+            ].map(card => (
+              <div key={card.label} style={{ flex: 1, border: '1px solid #e2e8f0', borderTop: `3px solid ${card.accent}`, borderRadius: '8px', padding: '10px 12px' }}>
+                <p style={{ margin: 0, fontSize: '8px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.8px' }}>{card.label}</p>
+                <p style={{ margin: '3px 0 0', fontSize: '24px', fontWeight: 900, lineHeight: 1.1 }}>{card.value}</p>
+                <p style={{ margin: '2px 0 0', fontSize: '8px', color: '#94a3b8', fontWeight: 600 }}>{card.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="pdf-avoid-break" style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 0 8px', marginBottom: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 14px 6px' }}>
+              <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Agendamentos por dia do mês</p>
+              <ChartLegend items={[['Aprovados', STATUS_COLORS.aprovado], ['Reprovados', STATUS_COLORS.reprovado], ['Pendentes / outros', STATUS_COLORS.pendente]]} />
+            </div>
+            <img id="monthly-chart-daily" alt="Agendamentos por dia" style={{ width: '714px', height: '230px', display: 'block' }} />
+          </div>
+
+          <div className="pdf-avoid-break" style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 0 8px', marginBottom: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 14px 6px' }}>
+              <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Evolução acumulada no mês</p>
+              <ChartLegend items={[['Agendamentos', TOTAL_COLOR], ['Aprovados', STATUS_COLORS.aprovado], ['Reprovados', STATUS_COLORS.reprovado]]} />
+            </div>
+            <img id="monthly-chart-cumulative" alt="Evolução acumulada" style={{ width: '714px', height: '230px', display: 'block' }} />
+          </div>
+
+          <div className="pdf-avoid-break" style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ background: '#f8fafc', padding: '10px 14px', borderBottom: '1px solid #e2e8f0' }}>
+              <p style={{ margin: 0, fontSize: '10px', fontWeight: 900, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Condutores que mais utilizaram a frota</p>
+              <p style={{ margin: '2px 0 0', fontSize: '8px', color: '#94a3b8', fontWeight: 600 }}>Ordenado por agendamentos aprovados no mês{monthlyReport.uniqueDrivers > 10 ? ` — 10 primeiros de ${monthlyReport.uniqueDrivers}` : ''}</p>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['#', 'Condutor', 'Agendamentos', 'Aprovados', 'Reprovados', ''].map((h, i) => (
+                    <th key={i} style={{ padding: '7px 12px', fontSize: '8px', fontWeight: 900, textAlign: i < 2 ? 'left' : 'center', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.8px', borderBottom: '1px solid #e2e8f0' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {monthlyReport.topDrivers.map((d, i) => (
+                  <tr key={d.name} style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                    <td style={{ padding: '6px 12px', fontSize: '10px', fontWeight: 900, color: '#94a3b8', width: '20px' }}>{i + 1}</td>
+                    <td style={{ padding: '6px 12px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase' }}>{d.name}</td>
+                    <td style={{ padding: '6px 12px', fontSize: '10px', fontWeight: 700, textAlign: 'center', color: '#475569' }}>{d.total}</td>
+                    <td style={{ padding: '6px 12px', fontSize: '10px', fontWeight: 900, textAlign: 'center' }}>{d.aprovado}</td>
+                    <td style={{ padding: '6px 12px', fontSize: '10px', fontWeight: 700, textAlign: 'center', color: '#475569' }}>{d.reprovado}</td>
+                    <td style={{ padding: '6px 12px', width: '150px' }}>
+                      <div style={{ height: '6px', background: '#f1f5f9', borderRadius: '3px', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', background: STATUS_COLORS.aprovado, width: `${(d.aprovado / (monthlyReport.topDrivers[0]?.aprovado || 1)) * 100}%` }}></div>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p style={{ margin: '12px 0 0', fontSize: '8px', color: '#94a3b8', fontWeight: 600 }}>
+            Gerado em {new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })} às {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} • SGE-GSU II
+          </p>
+          <TimbradoFooter />
+        </div>
+      )}
+
       {/* ── HERO HEADER ── */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-zinc-900 p-7 shadow-2xl border border-white/5">
         {/* Racing stripes decorativas */}
@@ -390,6 +702,26 @@ export function AgendamentoCarros() {
               {exporting ? <Loader2 className="animate-spin" size={15}/> : <FileDown size={15}/>}
               {exporting ? 'Gerando...' : 'Exportar PDF'}
             </button>
+
+            {isAdmin && (
+              <div className="flex items-center gap-1 p-1.5 bg-white/5 rounded-xl border border-white/10">
+                <input
+                  type="month"
+                  value={reportMonth}
+                  onChange={e => e.target.value && setReportMonth(e.target.value)}
+                  aria-label="Mês do relatório"
+                  className="bg-transparent text-white text-[11px] font-black uppercase px-2 py-1.5 rounded-lg outline-none focus:bg-white/10 [color-scheme:dark]"
+                />
+                <button
+                  onClick={handleMonthlyReport}
+                  disabled={exportingMonthly || dataLoading}
+                  className="flex items-center gap-2 px-4 py-2 bg-white text-slate-900 hover:bg-slate-100 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50"
+                >
+                  {exportingMonthly ? <Loader2 className="animate-spin" size={13}/> : <FileDown size={13}/>}
+                  {exportingMonthly ? 'Gerando...' : 'Relatório Mensal'}
+                </button>
+              </div>
+            )}
 
             <div className="flex gap-1 p-1.5 bg-white/5 rounded-xl border border-white/10">
               <TabButton active={true} onClick={() => {}} icon={<Gauge size={13}/>} label="Painel" />
@@ -676,6 +1008,19 @@ export function AgendamentoCarros() {
         <TimbradoFooter />
       </div>
 
+    </div>
+  );
+}
+
+function ChartLegend({ items }: { items: [string, string][] }) {
+  return (
+    <div style={{ display: 'flex', gap: '12px' }}>
+      {items.map(([label, color]) => (
+        <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <div style={{ width: '8px', height: '8px', borderRadius: '2px', background: color }}></div>
+          <span style={{ fontSize: '8px', fontWeight: 700, color: '#475569' }}>{label}</span>
+        </div>
+      ))}
     </div>
   );
 }
