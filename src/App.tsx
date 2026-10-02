@@ -766,7 +766,7 @@ export default function App() {
       case 'obras': return <Obras />;
       case 'manejo': return <ManejoArboreo />;
       case 'pendencias-semanais': return <PendenciasSemanais />;
-      case 'carros': return <AgendamentoCarros />;
+      case 'carros': return <AgendamentoCarros userRole={userRole} />;
       case 'estacionamento': return <EstacionamentoCarros />;
       case 'ambientes': return <AgendamentoAmbientes />;
       case 'tutoriais': return <Tutoriais />;
