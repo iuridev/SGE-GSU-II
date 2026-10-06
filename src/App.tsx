@@ -13,7 +13,7 @@ import {
   School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown,
   Bell, MessageSquare, CheckCircle, ClipboardList,
   Wrench, Search, CalendarCheck, BarChart2, Megaphone, DoorOpen, ClipboardCheck, Target,
-  CalendarDays, FileSignature, Bot, HelpCircle, Stamp, Phone, Landmark, Award
+  CalendarDays, FileSignature, Bot, HelpCircle, Stamp, Phone, Landmark, Award, UserCheck
 } from 'lucide-react';
 import { AgendaUnificadaModal } from './components/AgendaUnificadaModal';
 import { AlertaEscolaModal } from './components/AlertaEscolaModal';
@@ -85,6 +85,7 @@ import AssistenteValidacao from './pages/AssistenteValidacao';
 import AssistenteFAQ from './pages/AssistenteFAQ';
 import RegularizacaoImoveis from './pages/RegularizacaoImoveis';
 import SelosExcelencia from './pages/SelosExcelencia';
+import GestaoSupervisores from './pages/GestaoSupervisores';
 import { SelosTopo } from './components/SelosTopo';
 import AssistenteFlutuante from './components/AssistenteFlutuante';
 import { FunapReminderModal } from './components/FunapReminderModal';
@@ -249,6 +250,7 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'escolas', label: 'Escolas (Detalhes)', icon: <Building2 size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente', 'ure_servico', 'ure_ecc'] },
       { id: 'lista-escolas', label: 'Lista de Escolas', icon: <School size={20} />, roles: ['regional_admin'] },
       { id: 'usuarios', label: 'Gestão de Usuários', icon: <UserCog size={20} />, roles: ['regional_admin'] },
+      { id: 'supervisores', label: 'Gestão de Supervisores', icon: <UserCheck size={20} className="text-indigo-500" />, roles: ['regional_admin'] },
       { id: 'chefes', label: 'Chefes', icon: <BookOpen size={20} />, roles: ['regional_admin'] },
     ]
   },
@@ -817,6 +819,7 @@ export default function App() {
       case 'assistente-validacao': return <AssistenteValidacao />;
       case 'assistente-faq': return <AssistenteFAQ />;
       case 'selos-excelencia': return <SelosExcelencia />;
+      case 'supervisores': return <GestaoSupervisores />;
       default: return <Dashboard />;
     }
   };

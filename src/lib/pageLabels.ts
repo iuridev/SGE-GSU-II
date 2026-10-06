@@ -48,6 +48,7 @@ export const PAGE_LABELS: Record<string, string> = {
   'escolas': 'Escolas (Detalhes)',
   'lista-escolas': 'Lista de Escolas',
   'usuarios': 'Gestão de Usuários',
+  'supervisores': 'Gestão de Supervisores',
   'chefes': 'Chefes',
   'almoxarifado': 'Almoxarifado',
   'entrada': 'Entrada no Prédio',
