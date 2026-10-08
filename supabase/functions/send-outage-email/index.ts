@@ -120,7 +120,16 @@ serve(async (req: Request) => {
     // --- FALLBACK PARA ALERTAS (PIPA/ENERGIA) ---
     else if (normalizedType === 'WATER_TRUCK' || normalizedType === 'POWER_OUTAGE') {
       subject = normalizedType === 'WATER_TRUCK' ? `💧 PIPA: ${schoolName}` : `⚠️ ENERGIA: ${schoolName}`;
-      htmlContent = `<div style="font-family: sans-serif; padding: 20px;"><h3>Solicitante: ${escapeHtml(userName)}</h3><pre>${escapeHtml(data?.notes)}</pre></div>`;
+      const contato = data?.contato
+      const contatoHtml = contato
+        ? `<div style="padding: 15px; background: #f1f5f9; border-radius: 10px; border: 1px solid #cbd5e1; margin-bottom: 15px;">
+            <p style="margin: 0 0 8px; font-size: 11px; font-weight: 800; color: #475569; text-transform: uppercase;">Contato do solicitante na escola</p>
+            <p style="margin: 0;"><b>Nome:</b> ${escapeHtml(contato.nome)}</p>
+            <p style="margin: 5px 0 0;"><b>Cargo/Função:</b> ${escapeHtml(contato.cargo)}</p>
+            <p style="margin: 5px 0 0;"><b>Telefone:</b> ${escapeHtml(contato.telefone)}</p>
+          </div>`
+        : ''
+      htmlContent = `<div style="font-family: sans-serif; padding: 20px;"><h3>Solicitante: ${escapeHtml(userName)}</h3>${contatoHtml}<pre>${escapeHtml(data?.notes)}</pre></div>`;
     }
 
     // --- AVALIAÇÃO DE SATISFAÇÃO BAIXA (Fiscalização de Terceirizados) ---
