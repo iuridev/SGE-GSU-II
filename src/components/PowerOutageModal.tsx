@@ -1,6 +1,11 @@
 import { useState, useEffect } from 'react';
 import { X, Zap, Send, Loader2, CheckCircle2, ClipboardCheck, Building2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { ContatoSolicitanteFields } from './ContatoSolicitanteFields';
+import {
+  type ContatoSolicitante, CONTATO_VAZIO,
+  validarContato, formatarTelefone, registrarContatoEscola,
+} from '../lib/contatosEscola';
 
 interface PowerOutageModalProps {
   isOpen: boolean;
@@ -23,6 +28,8 @@ export function PowerOutageModal({ isOpen, onClose, schoolName, schoolId, userNa
     q2_vizinhanca: '',
     q3_descricao: ''
   });
+
+  const [contato, setContato] = useState<ContatoSolicitante>(CONTATO_VAZIO);
 
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
@@ -92,6 +99,12 @@ ${formData.q3_descricao}`.trim();
       alert("Por favor, responda todas as perguntas do checklist antes de enviar.");
       return;
     }
+
+    const erroContato = validarContato(contato);
+    if (erroContato) {
+      alert(erroContato);
+      return;
+    }
     
     setLoading(true);
     try {
@@ -103,7 +116,8 @@ ${formData.q3_descricao}`.trim();
           userName,
           data: { 
             notes: formatReport(),
-            edpCode: selectedEdp 
+            edpCode: selectedEdp,
+            contato: { nome: contato.nome.trim(), cargo: contato.cargo.trim(), telefone: formatarTelefone(contato.telefone) }
           }
         }
       });
@@ -113,11 +127,20 @@ ${formData.q3_descricao}`.trim();
         throw new Error(msg);
       }
 
+      // Salva o contato no cadastro da escola (sem duplicar). Não bloqueia
+      // a notificação, que já foi enviada.
+      try {
+        await registrarContatoEscola(selectedSchoolId, contato, 'POWER_OUTAGE');
+      } catch (err) {
+        console.error('Erro ao salvar contato da escola:', err);
+      }
+
       setSent(true);
       setTimeout(() => {
         onClose();
         setSent(false);
         setFormData({ q1_disjuntor: '', q2_vizinhanca: '', q3_descricao: '' });
+        setContato(CONTATO_VAZIO);
       }, 3000);
     } catch (error: any) {
       alert("ERRO NO ENVIO:\n" + error.message);
@@ -214,6 +237,10 @@ ${formData.q3_descricao}`.trim();
                   </div>
                 </div>
               </div>
+
+              {selectedSchoolId && (
+                <ContatoSolicitanteFields schoolId={selectedSchoolId} value={contato} onChange={setContato} accent="amber" />
+              )}
 
               <div className="pt-4">
                 <button onClick={handleSendNotification} disabled={loading} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black shadow-lg hover:bg-black flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-50">
