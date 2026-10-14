@@ -570,6 +570,29 @@ export function AgendamentoNovo() {
       return;
     }
 
+    // Solicitante é obrigatório — nome e WhatsApp
+    if (formTemAmbiente) {
+      const _sid = agendamentoForm.solicitor_id;
+      let _solName = '';
+      let _solWa = '';
+      if (_sid && _sid !== 'novo') {
+        const _s = solicitors.find(sol => sol.id === _sid);
+        _solName = _s?.name || '';
+        _solWa = _s?.whatsapp || '';
+      } else if (_sid === 'novo') {
+        _solName = agendamentoForm.solicitor_name.trim();
+        _solWa = agendamentoForm.solicitor_whatsapp.trim();
+      }
+      if (!_solName) {
+        setErrorMsg('Informe o nome do solicitante.');
+        return;
+      }
+      if (!_solWa) {
+        setErrorMsg('Informe o WhatsApp de contato do solicitante.');
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       // Resolver solicitante do formulário atual
@@ -704,6 +727,27 @@ export function AgendamentoNovo() {
     }
     if (Number(agendamentoForm.quantidade_pessoas) > (ambienteSelecionado?.capacidade || 0)) {
       setErrorMsg(`A capacidade máxima deste ambiente é de ${ambienteSelecionado?.capacidade} pessoas.`);
+      return;
+    }
+
+    // Solicitante é obrigatório — nome e WhatsApp
+    const _qSid = agendamentoForm.solicitor_id;
+    let _qSolName = '';
+    let _qSolWa = '';
+    if (_qSid && _qSid !== 'novo') {
+      const _qs = solicitors.find(sol => sol.id === _qSid);
+      _qSolName = _qs?.name || '';
+      _qSolWa = _qs?.whatsapp || '';
+    } else if (_qSid === 'novo') {
+      _qSolName = agendamentoForm.solicitor_name.trim();
+      _qSolWa = agendamentoForm.solicitor_whatsapp.trim();
+    }
+    if (!_qSolName) {
+      setErrorMsg('Informe o nome do solicitante.');
+      return;
+    }
+    if (!_qSolWa) {
+      setErrorMsg('Informe o WhatsApp de contato do solicitante.');
       return;
     }
 
