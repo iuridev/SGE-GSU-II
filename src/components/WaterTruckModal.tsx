@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { X, Droplets, Send, Loader2, CheckCircle2, ClipboardCheck, Building2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { ContatoSolicitanteFields } from './ContatoSolicitanteFields';
+import {
+  type ContatoSolicitante, CONTATO_VAZIO,
+  validarContato, contatoParaTexto, formatarTelefone, registrarContatoEscola,
+} from '../lib/contatosEscola';
 
 interface WaterTruckModalProps {
   isOpen: boolean;
@@ -27,6 +32,8 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, schoolId, userNam
     q6_capacidade: '',
     q7_funcionario: ''
   });
+
+  const [contato, setContato] = useState<ContatoSolicitante>(CONTATO_VAZIO);
 
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
@@ -78,11 +85,17 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, schoolId, userNam
       alert("Erro: Nenhuma escola vinculada para o registro.");
       return;
     }
-    
+    const erroContato = validarContato(contato);
+    if (erroContato) {
+      alert(erroContato);
+      return;
+    }
+
     setLoading(true);
 
     try {
       const reportDetails = formatReport();
+      const contatoEmail = { nome: contato.nome.trim(), cargo: contato.cargo.trim(), telefone: formatarTelefone(contato.telefone) };
 
       // 1. Dispara E-mail via Edge Function (token do usuário injetado automaticamente)
       const { error: emailError } = await supabase.functions.invoke('send-outage-email', {
@@ -92,7 +105,8 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, schoolId, userNam
           userName: userName,
           data: {
             notes: reportDetails,
-            sabespCode: selectedSabesp
+            sabespCode: selectedSabesp,
+            contato: contatoEmail
           }
         }
       });
@@ -105,11 +119,21 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, schoolId, userNam
         school_id: selectedSchoolId,
         school_name: selectedSchoolName, // Redundância útil para relatórios rápidos
         user_name: userName,
-        details: reportDetails,
+        details: `${reportDetails}
+
+${contatoParaTexto(contato)}`,
         created_at: new Date().toISOString()
       });
 
       if (dbError) throw dbError;
+
+      // 3. Salva o contato no cadastro da escola (sem duplicar). Não bloqueia
+      // a solicitação: o e-mail e o registro já foram feitos.
+      try {
+        await registrarContatoEscola(selectedSchoolId, contato, 'WATER_TRUCK');
+      } catch (err) {
+        console.error('Erro ao salvar contato da escola:', err);
+      }
 
       setSent(true);
       setTimeout(() => {
@@ -119,6 +143,7 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, schoolId, userNam
             q1_registro: '', q2_reservatorio: '', q3_engate: '',
             q4_distancia: '', q5_altura: '', q6_capacidade: '', q7_funcionario: ''
         });
+        setContato(CONTATO_VAZIO);
       }, 2500);
 
     } catch (error: any) {
@@ -199,6 +224,10 @@ export function WaterTruckModal({ isOpen, onClose, schoolName, schoolId, userNam
               <label className="text-[10px] font-black text-slate-500 uppercase ml-1">7. Nome do Funcionário Responsável no Local</label>
               <input required className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-blue-500 outline-none" placeholder="Quem vai receber o caminhão?" value={formData.q7_funcionario} onChange={e => setFormData({...formData, q7_funcionario: e.target.value})} />
             </div>
+
+            {selectedSchoolId && (
+              <ContatoSolicitanteFields schoolId={selectedSchoolId} value={contato} onChange={setContato} accent="blue" />
+            )}
 
             <div className="pt-4 border-t border-slate-100 flex justify-end gap-3">
                <button type="button" onClick={onClose} className="px-8 py-4 text-slate-400 font-black uppercase text-xs hover:bg-slate-50 rounded-2xl transition-all">Cancelar</button>

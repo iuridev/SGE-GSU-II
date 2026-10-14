@@ -48,6 +48,7 @@ export const PAGE_LABELS: Record<string, string> = {
   'escolas': 'Escolas (Detalhes)',
   'lista-escolas': 'Lista de Escolas',
   'usuarios': 'Gestão de Usuários',
+  'supervisores': 'Gestão de Supervisores',
   'chefes': 'Chefes',
   'almoxarifado': 'Almoxarifado',
   'entrada': 'Entrada no Prédio',
@@ -58,6 +59,7 @@ export const PAGE_LABELS: Record<string, string> = {
   'metricas-acesso': 'Métricas de Acesso',
   'chamados-telefonicos': 'Chamado Elevador',
   'regularizacao-imoveis': 'Regularização de Imóveis',
+  'selos-excelencia': 'Selos de Excelência',
 };
 
 export function pageLabel(id: string): string {

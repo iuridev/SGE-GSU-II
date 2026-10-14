@@ -14,6 +14,7 @@ import {
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { fetchObrasSheet, normalizeStatus } from '../lib/obrasSheet';
+import { type ContatoEscola, listarContatosEscola, formatarTelefone } from '../lib/contatosEscola';
 
 // Tipos atualizados
 interface School {
@@ -57,7 +58,7 @@ const SERVICE_TYPES = ['LIMPEZA', 'CUIDADOR', 'MERENDA', 'TELEFONE', 'AGUA', 'VI
 const TEACHING_OPTIONS = ['Fundamental I', 'Fundamental II', 'Ensino Médio'];
 const PERIOD_OPTIONS = ['Manhã', 'Tarde', 'Noite', 'Integral 9h', 'Integral 7h'];
 
-type TabType = 'identificacao' | 'localizacao' | 'infraestrutura' | 'ensino';
+type TabType = 'identificacao' | 'localizacao' | 'infraestrutura' | 'ensino' | 'contatos';
 
 // Passo a passo ilustrado exibido no topo da aba Infraestrutura e no PDF gerado
 const MATRICULA_TUTORIAL_STEPS: { titulo: string; texto: string }[] = [
@@ -661,11 +662,14 @@ export function Escola() {
               <button onClick={() => setIsSchoolModalOpen(false)} className="hover:bg-white p-3 rounded-full transition-all text-slate-400 shadow-sm border border-transparent hover:border-slate-100"><X size={24} /></button>
             </div>
 
-            <div className="px-8 pt-4 bg-slate-50/50 flex gap-2 border-b border-slate-100">
+            <div className="px-8 pt-4 bg-slate-50/50 flex gap-2 border-b border-slate-100 overflow-x-auto">
                <TabButton active={activeTab === 'identificacao'} onClick={() => setActiveTab('identificacao')} icon={<Hash size={14}/>} label="Identificação" />
                <TabButton active={activeTab === 'localizacao'} onClick={() => setActiveTab('localizacao')} icon={<MapPin size={14}/>} label="Localização" />
                <TabButton active={activeTab === 'infraestrutura'} onClick={() => setActiveTab('infraestrutura')} icon={<Building2 size={14}/>} label="Infraestrutura" />
                <TabButton active={activeTab === 'ensino'} onClick={() => setActiveTab('ensino')} icon={<GraduationCap size={14}/>} label="Ensino" />
+               {editingSchool && (
+                 <TabButton active={activeTab === 'contatos'} onClick={() => setActiveTab('contatos')} icon={<Phone size={14}/>} label="Contatos" />
+               )}
             </div>
             
             <form onSubmit={saveSchool} className="p-8 overflow-y-auto custom-scrollbar bg-white flex-1">
@@ -940,6 +944,13 @@ export function Escola() {
                 </div>
               )}
 
+              {activeTab === 'contatos' && editingSchool && (
+                <ContatosEscolaTab
+                  schoolId={editingSchool.id}
+                  canDelete={isAdmin || (userRole === 'school_manager' && userSchoolId === editingSchool.id)}
+                />
+              )}
+
               <div className="pt-8 flex justify-end gap-4 border-t border-slate-100 mt-12">
                 <button type="button" onClick={() => setIsSchoolModalOpen(false)} className="px-8 py-3 text-slate-400 font-black hover:text-slate-600 transition-all uppercase tracking-widest text-[10px]">
                   {isAdmin ? 'Cancelar' : 'Fechar'}
@@ -991,6 +1002,73 @@ function TabButton({ active, onClick, icon, label }: { active: boolean, onClick:
       {icon}
       {label}
     </button>
+  );
+}
+
+const ORIGEM_CONTATO: Record<ContatoEscola['origem'], string> = {
+  WATER_TRUCK: 'Caminhão Pipa',
+  POWER_OUTAGE: 'Falta de Energia',
+  MANUAL: 'Manual',
+};
+
+// Contatos informados pela escola ao acionar Caminhão Pipa / Falta de Energia.
+function ContatosEscolaTab({ schoolId, canDelete }: { schoolId: string, canDelete: boolean }) {
+  const [contatos, setContatos] = useState<ContatoEscola[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    listarContatosEscola(schoolId)
+      .then(setContatos)
+      .catch(err => console.error('Erro ao carregar contatos:', err))
+      .finally(() => setLoading(false));
+  }, [schoolId]);
+
+  async function handleDelete(id: string) {
+    if (!confirm('Remover este contato da escola?')) return;
+    const { error } = await (supabase as any).from('school_contacts').delete().eq('id', id);
+    if (error) return alert('Erro ao remover contato: ' + error.message);
+    setContatos(prev => prev.filter(c => c.id !== id));
+  }
+
+  return (
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <section className="space-y-4">
+        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">Lista de Contatos</h3>
+        <p className="text-xs text-slate-500 font-medium">Contatos informados pela escola ao solicitar Caminhão Pipa ou notificar Falta de Energia. Contatos repetidos (mesmo nome e telefone) não são duplicados.</p>
+
+        {loading ? (
+          <div className="flex justify-center py-10"><Loader2 className="animate-spin text-indigo-500" size={28} /></div>
+        ) : contatos.length === 0 ? (
+          <div className="p-8 text-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200 text-xs font-bold text-slate-400 uppercase">
+            Nenhum contato registrado ainda
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {contatos.map(c => (
+              <div key={c.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-start gap-3">
+                <div className="p-2 bg-indigo-100 text-indigo-600 rounded-xl shrink-0"><User size={16} /></div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-black text-slate-800 uppercase truncate">{c.nome}</p>
+                  <p className="text-[11px] font-bold text-slate-500 truncate">{c.cargo || 'Cargo não informado'}</p>
+                  <a href={`tel:${c.telefone}`} className="mt-1 inline-flex items-center gap-1.5 text-xs font-black text-indigo-600 hover:underline">
+                    <Phone size={12} /> {formatarTelefone(c.telefone)}
+                  </a>
+                  <p className="mt-1 text-[10px] font-semibold text-slate-400">
+                    Último uso: {new Date(c.ultimo_uso).toLocaleDateString('pt-BR')} · {ORIGEM_CONTATO[c.origem] || c.origem} · {c.usos} {c.usos === 1 ? 'vez' : 'vezes'}
+                  </p>
+                </div>
+                {canDelete && (
+                  <button type="button" onClick={() => handleDelete(c.id)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all" title="Remover contato">
+                    <Trash2 size={16} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 

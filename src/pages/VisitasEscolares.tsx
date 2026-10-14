@@ -8,11 +8,11 @@ import {
   Plus, Search, X, Loader2, School, CalendarDays, Target,
   MapPin, BarChart3, TrendingUp, Users, RefreshCw, ExternalLink,
   AlertTriangle, Navigation, Route, History, Check, ChevronDown,
-  Clock, ListChecks, ClipboardList, FileDown,
+  Clock, ListChecks, ClipboardList, FileDown, ArrowUpCircle, ArrowDownCircle,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell,
+  ResponsiveContainer, Cell, LabelList,
 } from 'recharts';
 
 const OBJETIVOS_VISITA = [
@@ -29,6 +29,7 @@ const SHEET_URL = import.meta.env.VITE_VISITAS_SHEET_URL as string;
 const LEGADO_CSV_URL = import.meta.env.VITE_VISITAS_LEGADO_CSV_URL as string;
 const NOME_URE = 'unidade regional de ensino';
 const TOP_SERVIDORES_LIMIT = 5;
+const RANKING_ESCOLAS_LIMIT = 5;
 const OVERDUE_THRESHOLD_DAYS = 60;
 
 const CHART_COLORS = [
@@ -462,6 +463,34 @@ export default function VisitasEscolares() {
       .slice(0, TOP_SERVIDORES_LIMIT);
   }, [visitas]);
 
+  // Ranking de escolas por quantidade de visitas: no ano vigente e em toda a série histórica.
+  // Parte do cadastro de escolas para que as nunca visitadas (0) entrem nas "menos visitadas".
+  const rankingEscolas = useMemo(() => {
+    const anoAtual = String(now.getFullYear());
+    const contagens = escolas
+      .filter(e => normalizeEscolaNome(e.name) !== NOME_URE)
+      .map(e => {
+        const lista = visitasDaEscola(e, visitas);
+        return {
+          nome: e.name,
+          ano: lista.filter(v => v.data_visita.startsWith(anoAtual)).length,
+          total: lista.length,
+        };
+      });
+    const ordenar = (campo: 'ano' | 'total', dir: 1 | -1) =>
+      [...contagens]
+        .sort((a, b) => dir * (a[campo] - b[campo]) || a.nome.localeCompare(b.nome))
+        .slice(0, RANKING_ESCOLAS_LIMIT)
+        .map(c => ({ nome: c.nome, total: c[campo] }));
+    return {
+      anoAtual,
+      maisAno: ordenar('ano', -1),
+      menosAno: ordenar('ano', 1),
+      maisHistorico: ordenar('total', -1),
+      menosHistorico: ordenar('total', 1),
+    };
+  }, [escolas, visitas, now]);
+
   const avgPerMonth = useMemo(() => {
     const active = chartByMonth.filter(m => m.total > 0);
     if (!active.length) return 0;
@@ -645,6 +674,39 @@ export default function VisitasEscolares() {
     </div>
   );
 
+  const truncarNome = (nome: string) => (nome.length > 30 ? `${nome.slice(0, 29)}…` : nome);
+
+  const renderRankingEscolas = (
+    titulo: string,
+    dados: { nome: string; total: number }[],
+    icone: React.ReactNode,
+    cor: string,
+  ) => (
+    <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+      <h2 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
+        {icone}
+        {titulo}
+      </h2>
+      {loading || dados.length === 0 ? (
+        <div className="flex items-center justify-center h-[200px] text-slate-400 text-sm">
+          {loading ? <Loader2 size={24} className="animate-spin" /> : 'Nenhum dado disponível'}
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={dados} layout="vertical" margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+            <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+            <YAxis dataKey="nome" type="category" tick={{ fontSize: 11 }} width={180} tickFormatter={truncarNome} interval={0} />
+            <Tooltip formatter={(v) => [v, 'Visitas']} />
+            <Bar dataKey="total" fill={cor} radius={[0, 4, 4, 0]} minPointSize={2}>
+              <LabelList dataKey="total" position="right" style={{ fontSize: 11, fill: '#475569' }} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+
   const Charts = (
     <div className="space-y-4">
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -718,6 +780,33 @@ export default function VisitasEscolares() {
             </Bar>
           </BarChart>
         </ResponsiveContainer>
+      )}
+    </div>
+
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {renderRankingEscolas(
+        `5 Escolas Mais Visitadas — ${rankingEscolas.anoAtual}`,
+        rankingEscolas.maisAno,
+        <ArrowUpCircle size={16} className="text-emerald-500" />,
+        '#10b981',
+      )}
+      {renderRankingEscolas(
+        `5 Escolas Menos Visitadas — ${rankingEscolas.anoAtual}`,
+        rankingEscolas.menosAno,
+        <ArrowDownCircle size={16} className="text-red-500" />,
+        '#ef4444',
+      )}
+      {renderRankingEscolas(
+        '5 Escolas Mais Visitadas — Série Histórica',
+        rankingEscolas.maisHistorico,
+        <ArrowUpCircle size={16} className="text-blue-500" />,
+        '#3b82f6',
+      )}
+      {renderRankingEscolas(
+        '5 Escolas Menos Visitadas — Série Histórica',
+        rankingEscolas.menosHistorico,
+        <ArrowDownCircle size={16} className="text-amber-500" />,
+        '#f59e0b',
       )}
     </div>
     </div>
