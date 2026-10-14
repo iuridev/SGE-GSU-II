@@ -10,7 +10,8 @@ import {
   Building2, Calendar, Clock, MapPin, Users, Plus,
   Settings, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight,
   Trash2, FileDown, Loader2, X, RefreshCw, Check, XCircle, Edit3, History,
-  CalendarCheck, Info, BarChart3, TrendingUp, Award, ListPlus, SendHorizontal, Timer, Lock, QrCode, Printer, Copy, CheckCheck
+  CalendarCheck, Info, BarChart3, TrendingUp, Award, ListPlus, SendHorizontal, Timer, Lock, QrCode, Printer, Copy, CheckCheck,
+  User, Phone, ChevronDown, Save
 } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 
@@ -24,20 +25,29 @@ interface Ambiente {
 
 // Define a "fôrma" (tipagem) dos dados de um Agendamento
 interface Agendamento {
-  id: string; // ID do agendamento
-  ambiente_id: string; // ID da sala vinculada
-  user_name: string; // Nome de quem pediu
-  user_id: string; // ID de quem pediu
-  titulo_evento: string; // Nome do evento
-  data_agendamento: string; // Dia escolhido (YYYY-MM-DD)
-  hora_inicio: string; // Hora que começa
-  hora_fim: string; // Hora que termina
-  quantidade_pessoas: number; // Lotação prevista
-  observacao: string; // Notas extras
-  status: 'pendente' | 'aprovado' | 'reprovado' | 'cancelado'; // Status do pedido
-  motivo_reprovacao?: string; // Motivo caso o admin negue
-  historico_edicao?: string; // Log de quem mudou o que
-  ambientes?: Ambiente; // Os dados da sala em si (vindo do join do banco)
+  id: string;
+  ambiente_id: string;
+  user_name: string;
+  user_id: string;
+  titulo_evento: string;
+  data_agendamento: string;
+  hora_inicio: string;
+  hora_fim: string;
+  quantidade_pessoas: number;
+  observacao: string;
+  status: 'pendente' | 'aprovado' | 'reprovado' | 'cancelado';
+  motivo_reprovacao?: string;
+  historico_edicao?: string;
+  ambientes?: Ambiente;
+  solicitor_name?: string | null;
+  solicitor_whatsapp?: string | null;
+}
+
+interface BookingSolicitor {
+  id: string;
+  user_id: string;
+  name: string;
+  whatsapp: string;
 }
 
 // Função auxiliar que gera os valores iniciais vazios/padrões para o formulário
@@ -48,15 +58,18 @@ const getFormDefaults = () => {
   // Formata a hora atual para o padrão de relógio do Brasil (HH:MM)
   const hora_inicio = now.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
   
-  // Retorna os campos prontos para preencher o state
   return {
-    data_agendamento, // Vem com o dia de hoje
-    hora_inicio, // Vem com a hora de agora
-    hora_fim: '18:00', // Termina às 18h por padrão
-    ambiente_id: '', // Sala em branco
-    titulo_evento: '', // Título em branco
-    quantidade_pessoas: '', // Lotação em branco
-    observacao: '' // Notas em branco
+    data_agendamento,
+    hora_inicio,
+    hora_fim: '18:00',
+    ambiente_id: '',
+    titulo_evento: '',
+    quantidade_pessoas: '',
+    observacao: '',
+    solicitor_id: '',       // '' = nenhum, 'novo' = novo cadastro
+    solicitor_name: '',
+    solicitor_whatsapp: '',
+    save_solicitor: true,
   };
 };
 
@@ -128,6 +141,9 @@ export function AgendamentoNovo() {
   const [novoPendenteAlert, setNovoPendenteAlert] = useState(false);
   // Ref para acessar o userRole atual dentro do callback do Realtime (evita stale closure)
   const userRoleRef = useRef<string>('');
+
+  // === SOLICITANTES SALVOS ===
+  const [solicitors, setSolicitors] = useState<BookingSolicitor[]>([]);
 
   // === ESTADOS DE MULTI-AGENDAMENTO ===
   const [filaAgendamentos, setFilaAgendamentos] = useState<any[]>([]);
@@ -301,10 +317,12 @@ export function AgendamentoNovo() {
       setCurrentUser(session.user);
       // Puxa a tabela 'profiles' conectando pelo ID para saber a permissão dela
       const { data: profile } = await (supabase as any).from('profiles').select('role').eq('id', session.user.id).single();
-      // Se achou, guarda a patente (ex: regional_admin)
       if (profile) setUserRole(resolveViewRole(profile.role));
+      // Carrega lista de solicitantes salvos (RLS filtra por usuário / admin vê todos)
+      const { data: sols } = await (supabase as any)
+        .from('booking_solicitors').select('*').order('name');
+      setSolicitors(sols || []);
     }
-    // Dispara a busca simultânea de salas e de reservas
     fetchAmbientes();
     fetchAgendamentos();
   }
@@ -457,7 +475,6 @@ export function AgendamentoNovo() {
   const abrirModalEdicao = (ag: Agendamento) => {
     // Diz pro sistema qual item estamos "segurando"
     setAgendamentoEditando(ag);
-    // Enfia os dados antigos nos campos do formulário para o admin ver o que estava antes
     setAgendamentoForm({
       data_agendamento: ag.data_agendamento,
       hora_inicio: ag.hora_inicio,
@@ -465,7 +482,11 @@ export function AgendamentoNovo() {
       ambiente_id: ag.ambiente_id,
       titulo_evento: ag.titulo_evento,
       quantidade_pessoas: ag.quantidade_pessoas.toString(),
-      observacao: ag.observacao || ''
+      observacao: ag.observacao || '',
+      solicitor_id: '',
+      solicitor_name: ag.solicitor_name || '',
+      solicitor_whatsapp: ag.solicitor_whatsapp || '',
+      save_solicitor: false,
     });
   };
 
@@ -503,11 +524,12 @@ export function AgendamentoNovo() {
         novoHistorico = novoHistorico ? `${novoHistorico}\n${registro}` : registro;
       }
 
-      // Envia pro Supabase a sobreposição de dados
+      // Exclui campos que não existem como colunas no banco antes do spread
+      const { solicitor_id: _sid, save_solicitor: _ss, ...restAgForm } = agendamentoForm;
       const { error } = await (supabase as any).from('agendamentos_ambientes').update({
-        ...agendamentoForm, // Espeja todos os campos preenchidos
-        quantidade_pessoas: Number(agendamentoForm.quantidade_pessoas), // Força a ser número
-        historico_edicao: novoHistorico // Coloca a nova ficha criminal
+        ...restAgForm,
+        quantidade_pessoas: Number(agendamentoForm.quantidade_pessoas),
+        historico_edicao: novoHistorico
       }).eq('id', agendamentoEditando.id);
 
       if (error) throw error; // Tchau e bença
@@ -550,9 +572,33 @@ export function AgendamentoNovo() {
 
     setLoading(true);
     try {
-      const userName = currentUser.user_metadata?.full_name || currentUser.email.split('@')[0];
+      // Resolver solicitante do formulário atual
+      let solName = '';
+      let solWa = '';
+      if (agendamentoForm.solicitor_id && agendamentoForm.solicitor_id !== 'novo') {
+        const s = solicitors.find(sol => sol.id === agendamentoForm.solicitor_id);
+        solName = s?.name || '';
+        solWa = s?.whatsapp || '';
+      } else if (agendamentoForm.solicitor_id === 'novo') {
+        solName = agendamentoForm.solicitor_name.trim();
+        solWa = agendamentoForm.solicitor_whatsapp.trim();
+        // Salvar novo solicitante se marcado
+        if (agendamentoForm.save_solicitor && solName) {
+          const dup = solicitors.find(s => s.name.toLowerCase() === solName.toLowerCase() && s.whatsapp === solWa);
+          if (!dup) {
+            const { data: newSol } = await (supabase as any)
+              .from('booking_solicitors')
+              .insert({ user_id: currentUser.id, name: solName, whatsapp: solWa })
+              .select().single();
+            if (newSol) setSolicitors(prev => [...prev, newSol as BookingSolicitor].sort((a, b) => a.name.localeCompare(b.name)));
+          }
+        }
+      }
 
-      // Monta o lote: itens da fila + item do formulário (somente se tiver ambiente selecionado)
+      const userName = currentUser.user_metadata?.full_name || currentUser.email.split('@')[0];
+      // Excluir campos não-DB antes do spread
+      const { solicitor_id: _sid, save_solicitor: _ss, solicitor_name: _sn, solicitor_whatsapp: _sw, ...restAgForm } = agendamentoForm;
+
       const inserts = [
         ...filaAgendamentos.map(ag => ({
           data_agendamento: ag.data_agendamento,
@@ -562,13 +608,17 @@ export function AgendamentoNovo() {
           titulo_evento: ag.titulo_evento,
           quantidade_pessoas: Number(ag.quantidade_pessoas),
           observacao: ag.observacao || '',
+          solicitor_name: ag.solicitor_name || null,
+          solicitor_whatsapp: ag.solicitor_whatsapp || null,
           user_id: currentUser.id,
           user_name: userName,
           status: 'pendente',
         })),
         ...(formTemAmbiente ? [{
-          ...agendamentoForm,
+          ...restAgForm,
           quantidade_pessoas: Number(agendamentoForm.quantidade_pessoas),
+          solicitor_name: solName || null,
+          solicitor_whatsapp: solWa || null,
           user_id: currentUser.id,
           user_name: userName,
           status: 'pendente',
@@ -657,9 +707,23 @@ export function AgendamentoNovo() {
       return;
     }
 
+    // Resolve nome/whatsapp do solicitante antes de gravar no snapshot da fila
+    let queueSolName = '';
+    let queueSolWa = '';
+    if (agendamentoForm.solicitor_id && agendamentoForm.solicitor_id !== 'novo') {
+      const s = solicitors.find(sol => sol.id === agendamentoForm.solicitor_id);
+      queueSolName = s?.name || '';
+      queueSolWa = s?.whatsapp || '';
+    } else if (agendamentoForm.solicitor_id === 'novo') {
+      queueSolName = agendamentoForm.solicitor_name.trim();
+      queueSolWa = agendamentoForm.solicitor_whatsapp.trim();
+    }
+
     setFilaAgendamentos(prev => [...prev, {
       ...agendamentoForm,
       ambienteNome: ambienteSelecionado?.nome || '',
+      solicitor_name: queueSolName,
+      solicitor_whatsapp: queueSolWa,
     }]);
 
     // Libera a reserva provisória (o item vai para a fila, não precisa mais do lock)
@@ -1069,9 +1133,20 @@ export function AgendamentoNovo() {
 
                     {/* Lado Direito do Card: Botões da Guilhotina */}
                     <div className="flex flex-col items-end gap-2 shrink-0 border-t md:border-t-0 md:border-l border-slate-200 pt-3 md:pt-0 md:pl-4 mt-2 md:mt-0 w-full md:w-auto">
-                      <div className="text-right w-full">
-                        <p className="text-[9px] uppercase font-black text-slate-400 tracking-widest">Solicitante</p>
-                        <p className="text-xs font-bold text-indigo-700">{b.user_name}</p>
+                      <div className="text-right w-full space-y-1.5">
+                        <div>
+                          <p className="text-[9px] uppercase font-black text-slate-400 tracking-widest">Responsável</p>
+                          <p className="text-xs font-bold text-indigo-700">{b.user_name}</p>
+                        </div>
+                        {b.solicitor_name && (
+                          <div>
+                            <p className="text-[9px] uppercase font-black text-slate-400 tracking-widest">Solicitante</p>
+                            <p className="text-xs font-bold text-slate-700 flex items-center justify-end gap-1"><User size={10}/>{b.solicitor_name}</p>
+                            {b.solicitor_whatsapp && (
+                              <p className="text-[10px] font-bold text-emerald-600 flex items-center justify-end gap-1"><Phone size={10}/>{b.solicitor_whatsapp}</p>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center justify-end gap-2 mt-1 w-full">
                         {/* Botão de Dar O.K - Note que a função é a mesma alterarStatus */}
@@ -1606,9 +1681,20 @@ export function AgendamentoNovo() {
                     </div>
                     
                     <div className="flex flex-col items-end gap-3 shrink-0">
-                      <div className="text-right bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm w-full md:w-auto">
-                        <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest mb-1">Responsável</p>
-                        <p className="text-sm font-bold text-indigo-700">{b.user_name}</p>
+                      <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm w-full md:w-auto space-y-1.5">
+                        <div>
+                          <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest">Responsável</p>
+                          <p className="text-sm font-bold text-indigo-700">{b.user_name}</p>
+                        </div>
+                        {b.solicitor_name && (
+                          <div>
+                            <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest">Solicitante</p>
+                            <p className="text-sm font-bold text-slate-700 flex items-center gap-1"><User size={12} className="text-slate-400"/>{b.solicitor_name}</p>
+                            {userRole === 'regional_admin' && b.solicitor_whatsapp && (
+                              <p className="text-xs font-bold text-emerald-600 flex items-center gap-1 mt-0.5"><Phone size={10}/>{b.solicitor_whatsapp}</p>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex flex-wrap items-center justify-end gap-2 w-full md:w-auto">
@@ -1675,6 +1761,99 @@ export function AgendamentoNovo() {
             )}
 
             <form onSubmit={handleAgendar} noValidate className="space-y-6">
+
+              {/* SOLICITANTE */}
+              <div className="p-5 bg-indigo-50 border border-indigo-100 rounded-3xl space-y-4">
+                <div className="flex items-center gap-2">
+                  <User size={15} className="text-indigo-600" />
+                  <span className="text-[10px] font-black text-indigo-700 uppercase tracking-widest">Solicitante</span>
+                </div>
+
+                {/* Dropdown de solicitantes salvos */}
+                <div className="relative">
+                  <select
+                    value={agendamentoForm.solicitor_id}
+                    onChange={e => {
+                      const id = e.target.value;
+                      if (id === 'novo') {
+                        setAgendamentoForm(f => ({ ...f, solicitor_id: 'novo', solicitor_name: '', solicitor_whatsapp: '' }));
+                      } else {
+                        const sol = solicitors.find(s => s.id === id);
+                        setAgendamentoForm(f => ({ ...f, solicitor_id: id, solicitor_name: sol?.name || '', solicitor_whatsapp: sol?.whatsapp || '' }));
+                      }
+                    }}
+                    className="w-full appearance-none bg-white border border-indigo-200 text-slate-800 rounded-2xl px-4 py-3 pr-10 font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+                  >
+                    <option value="">— Selecione um solicitante salvo —</option>
+                    {solicitors.map(s => (
+                      <option key={s.id} value={s.id}>{s.name}{s.whatsapp ? ` — ${s.whatsapp}` : ''}</option>
+                    ))}
+                    <option value="novo">+ Cadastrar novo solicitante</option>
+                  </select>
+                  <ChevronDown size={15} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                </div>
+
+                {/* Campos de novo solicitante */}
+                {agendamentoForm.solicitor_id === 'novo' && (
+                  <div className="space-y-3 animate-in slide-in-from-top-2 duration-200">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="relative">
+                        <User size={13} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          value={agendamentoForm.solicitor_name}
+                          onChange={e => setAgendamentoForm(f => ({ ...f, solicitor_name: e.target.value }))}
+                          placeholder="Nome do solicitante *"
+                          className="w-full bg-white border border-indigo-200 rounded-2xl pl-9 pr-4 py-3 font-bold text-slate-800 placeholder:text-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                      </div>
+                      <div className="relative">
+                        <Phone size={13} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="tel"
+                          value={agendamentoForm.solicitor_whatsapp}
+                          onChange={e => {
+                            const d = e.target.value.replace(/\D/g, '').slice(0, 11);
+                            let fmt = d;
+                            if (d.length > 2 && d.length <= 6) fmt = `(${d.slice(0,2)}) ${d.slice(2)}`;
+                            else if (d.length > 6 && d.length <= 10) fmt = `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;
+                            else if (d.length > 10) fmt = `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
+                            setAgendamentoForm(f => ({ ...f, solicitor_whatsapp: fmt }));
+                          }}
+                          placeholder="WhatsApp (opcional)"
+                          className="w-full bg-white border border-indigo-200 rounded-2xl pl-9 pr-4 py-3 font-bold text-slate-800 placeholder:text-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <div
+                        onClick={() => setAgendamentoForm(f => ({ ...f, save_solicitor: !f.save_solicitor }))}
+                        className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all shrink-0 ${agendamentoForm.save_solicitor ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300'}`}
+                      >
+                        {agendamentoForm.save_solicitor && <Check size={10} className="text-white" />}
+                      </div>
+                      <span className="text-xs font-bold text-indigo-700 flex items-center gap-1.5"><Save size={11}/> Salvar para uso futuro</span>
+                    </label>
+                  </div>
+                )}
+
+                {/* Preview do solicitante selecionado */}
+                {agendamentoForm.solicitor_id && agendamentoForm.solicitor_id !== 'novo' && (
+                  <div className="flex items-center gap-3 bg-white rounded-2xl px-4 py-3 border border-indigo-200 animate-in slide-in-from-top-2 duration-200">
+                    <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-black text-xs shrink-0">
+                      {agendamentoForm.solicitor_name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-black text-slate-800 truncate">{agendamentoForm.solicitor_name}</p>
+                      {agendamentoForm.solicitor_whatsapp && (
+                        <p className="text-xs font-bold text-indigo-600 flex items-center gap-1"><Phone size={10}/> {agendamentoForm.solicitor_whatsapp}</p>
+                      )}
+                    </div>
+                    <button type="button" onClick={() => setAgendamentoForm(f => ({ ...f, solicitor_id: '', solicitor_name: '', solicitor_whatsapp: '' }))} className="p-1 text-slate-400 hover:text-slate-600 shrink-0"><X size={14}/></button>
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-6 bg-slate-50 border border-slate-100 rounded-3xl">
                 <div>
                   <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Data do Evento *</label>
