@@ -11,7 +11,7 @@ import {
   Settings, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight,
   Trash2, FileDown, Loader2, X, RefreshCw, Check, XCircle, Edit3, History,
   CalendarCheck, Info, BarChart3, TrendingUp, Award, ListPlus, SendHorizontal, Timer, Lock, QrCode, Printer, Copy, CheckCheck,
-  User, Phone, ChevronDown, Save
+  User, Phone, ChevronDown, Save, HardHat
 } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 
@@ -48,6 +48,14 @@ interface BookingSolicitor {
   user_id: string;
   name: string;
   whatsapp: string;
+}
+
+interface AmbienteObra {
+  id: string;
+  ambiente_id: string;
+  data_inicio: string;
+  data_fim: string;
+  descricao?: string | null;
 }
 
 // Função auxiliar que gera os valores iniciais vazios/padrões para o formulário
@@ -144,6 +152,13 @@ export function AgendamentoNovo() {
 
   // === SOLICITANTES SALVOS ===
   const [solicitors, setSolicitors] = useState<BookingSolicitor[]>([]);
+
+  // === OBRAS / REFORMAS ===
+  const [obras, setObras] = useState<AmbienteObra[]>([]);
+  const [obraAmbienteId, setObraAmbienteId] = useState('');
+  const [obraDataInicio, setObraDataInicio] = useState('');
+  const [obraDataFim, setObraDataFim] = useState('');
+  const [obraDescricao, setObraDescricao] = useState('');
 
   // === ESTADOS DE MULTI-AGENDAMENTO ===
   const [filaAgendamentos, setFilaAgendamentos] = useState<any[]>([]);
@@ -325,6 +340,7 @@ export function AgendamentoNovo() {
     }
     fetchAmbientes();
     fetchAgendamentos();
+    fetchObras();
   }
 
   // Puxa todas as salas que não foram excluídas
@@ -332,6 +348,11 @@ export function AgendamentoNovo() {
     // Traz de 'ambientes' tudo que ativo for true, organizado por nome
     const { data } = await (supabase as any).from('ambientes').select('*').eq('ativo', true).order('nome');
     if (data) setAmbientes(data); // Salva no state
+  }
+
+  async function fetchObras() {
+    const { data } = await (supabase as any).from('ambiente_obras').select('*').order('data_inicio');
+    if (data) setObras(data);
   }
 
   // Puxa todas as reservas feitas
@@ -353,10 +374,20 @@ export function AgendamentoNovo() {
     if (data) setReservasProvisoriasAtivas(data);
   }
 
+  // Retorna a obra ativa para o ambiente na data do formulário (ou data informada)
+  const ambienteEmObra = (ambienteId: string, data?: string): AmbienteObra | null => {
+    const d = data || agendamentoForm.data_agendamento;
+    if (!d) return null;
+    return obras.find(o => o.ambiente_id === ambienteId && o.data_inicio <= d && o.data_fim >= d) || null;
+  };
+
   // Lógica matemática para saber se uma sala já está ocupada naquele dia e hora
-  const obterStatusAmbiente = (ambienteId: string, ignorarAgendamentoId?: string): 'livre' | 'ocupado' | 'reservado' => {
+  const obterStatusAmbiente = (ambienteId: string, ignorarAgendamentoId?: string): 'livre' | 'ocupado' | 'reservado' | 'obra' => {
     // Se o cara nem terminou de preencher a hora no formulário, a gente diz que tá livre
     if (!agendamentoForm.data_agendamento || !agendamentoForm.hora_inicio || !agendamentoForm.hora_fim) return 'livre';
+
+    // Ambiente em período de reforma — bloqueia independente de horário
+    if (ambienteEmObra(ambienteId)) return 'obra';
 
     // Cria datas de mentira (01-01-1970) só pra gente conseguir comparar matematicamente as horas
     const formInicio = new Date(`1970-01-01T${agendamentoForm.hora_inicio}`);
@@ -812,6 +843,33 @@ export function AgendamentoNovo() {
     // O pulo do gato: Não apaga a sala de verdade, só esconde (`ativo = false`), assim o PDF antigo não quebra!
     await (supabase as any).from('ambientes').update({ ativo: false }).eq('id', id);
     fetchAmbientes(); // Recarrega
+  };
+
+  const handleCadastrarObra = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!obraAmbienteId || !obraDataInicio || !obraDataFim) return;
+    if (obraDataFim < obraDataInicio) {
+      alert('A data de término deve ser igual ou posterior à data de início.');
+      return;
+    }
+    const { error } = await (supabase as any).from('ambiente_obras').insert([{
+      ambiente_id: obraAmbienteId,
+      data_inicio: obraDataInicio,
+      data_fim: obraDataFim,
+      descricao: obraDescricao.trim() || null,
+    }]);
+    if (error) { alert('Erro ao cadastrar período de obra: ' + error.message); return; }
+    setObraAmbienteId('');
+    setObraDataInicio('');
+    setObraDataFim('');
+    setObraDescricao('');
+    fetchObras();
+  };
+
+  const handleDeletarObra = async (id: string) => {
+    if (!confirm('Deseja encerrar/remover este período de obra?')) return;
+    await (supabase as any).from('ambiente_obras').delete().eq('id', id);
+    fetchObras();
   };
 
   // ========================================================================
@@ -1685,13 +1743,38 @@ export function AgendamentoNovo() {
             {viewMode === 'mes' ? (
               renderCalendarioMes()
             ) : (
-              // Ou a gente mostra os Cards de Agendamentos do dia em questão
-              dateBookings.length === 0 ? (
+              <>
+                {/* Cards de ambientes em obra neste dia */}
+                {obras
+                  .filter(o => o.data_inicio <= selectedDateTelaStr && o.data_fim >= selectedDateTelaStr)
+                  .map(o => {
+                    const amb = ambientes.find(a => a.id === o.ambiente_id);
+                    return (
+                      <div key={o.id} className="p-5 bg-amber-50 border-2 border-amber-300 rounded-3xl flex items-center gap-5">
+                        <div className="w-12 h-12 rounded-2xl bg-amber-200 text-amber-700 flex items-center justify-center shrink-0">
+                          <HardHat size={22} />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex flex-wrap items-center gap-2 mb-0.5">
+                            <span className="font-black uppercase text-amber-800 text-base">{amb?.nome || 'Ambiente'}</span>
+                            <span className="bg-amber-400 text-white text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest">🚧 Em Obra</span>
+                          </div>
+                          <p className="text-xs font-bold text-amber-700">
+                            Período: {o.data_inicio.split('-').reverse().join('/')} até {o.data_fim.split('-').reverse().join('/')}
+                          </p>
+                          {o.descricao && <p className="text-xs text-amber-600 mt-0.5 italic">{o.descricao}</p>}
+                        </div>
+                      </div>
+                    );
+                  })
+                }
+                {/* Agendamentos do dia */}
+                {dateBookings.length === 0 && obras.filter(o => o.data_inicio <= selectedDateTelaStr && o.data_fim >= selectedDateTelaStr).length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-64 text-slate-400">
                   <Calendar size={48} className="mb-4 opacity-50" />
                   <p className="font-bold">Nenhum ambiente reservado para este dia.</p>
                 </div>
-              ) : (
+              ) : dateBookings.length > 0 && (
                 dateBookings.map(b => (
                   <div key={b.id} className={`p-6 bg-slate-50 border rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${b.status === 'reprovado' || b.status === 'cancelado' ? 'border-red-200 opacity-60' : 'border-slate-100 hover:shadow-md'}`}>
                     <div className="flex items-start gap-5">
@@ -1768,7 +1851,8 @@ export function AgendamentoNovo() {
                     </div>
                   </div>
                 ))
-              )
+              )}
+            </>
             )}
           </div>
         </div>
@@ -1957,7 +2041,7 @@ export function AgendamentoNovo() {
                       return (
                         <option key={a.id} value={a.id} disabled={status !== 'livre'}>
                           {a.nome} (Até {a.capacidade} pess.)
-                          {status === 'ocupado' ? ' — ⚠️ OCUPADO' : status === 'reservado' ? ' — 🔒 EM AGENDAMENTO (outro usuário)' : ''}
+                          {status === 'obra' ? ' — 🚧 EM OBRA' : status === 'ocupado' ? ' — ⚠️ OCUPADO' : status === 'reservado' ? ' — 🔒 EM AGENDAMENTO (outro usuário)' : ''}
                         </option>
                       );
                     })}
@@ -2366,6 +2450,7 @@ export function AgendamentoNovo() {
 
       {/* CONTEÚDO DA ABA 4: GERENCIAR AMBIENTES (SÓ PARA ADMIN) */}
       {activeTab === 'gerenciar' && userRole === 'regional_admin' && (
+        <>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 relative">
             <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-6">Cadastrar Novo Ambiente</h2>
@@ -2426,6 +2511,103 @@ export function AgendamentoNovo() {
             </div>
           </div>
         </div>
+
+        {/* OBRAS / REFORMAS */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-2">
+          {/* Formulário de cadastro de obra */}
+          <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100">
+            <div className="flex items-center gap-3 mb-6">
+              <HardHat size={22} className="text-amber-500" />
+              <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Período de Reforma</h2>
+            </div>
+            <p className="text-xs font-bold text-slate-500 mb-6">O ambiente ficará bloqueado para agendamentos durante o período informado e exibirá o aviso <span className="text-amber-600">🚧 Em Obra</span> no calendário.</p>
+            <form onSubmit={handleCadastrarObra} className="space-y-5">
+              <div>
+                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Ambiente *</label>
+                <select
+                  required
+                  value={obraAmbienteId}
+                  onChange={e => setObraAmbienteId(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-amber-400 outline-none"
+                >
+                  <option value="">Selecione o ambiente</option>
+                  {ambientes.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Início *</label>
+                  <input
+                    type="date" required
+                    value={obraDataInicio}
+                    onChange={e => setObraDataInicio(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-amber-400 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Término *</label>
+                  <input
+                    type="date" required
+                    value={obraDataFim}
+                    onChange={e => setObraDataFim(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-amber-400 outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Descrição (opcional)</label>
+                <input
+                  type="text"
+                  value={obraDescricao}
+                  onChange={e => setObraDescricao(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 font-bold focus:ring-2 focus:ring-amber-400 outline-none"
+                  placeholder="Ex: Reforma elétrica, pintura..."
+                />
+              </div>
+              <button type="submit" className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all">
+                Registrar Período de Obra
+              </button>
+            </form>
+          </div>
+
+          {/* Lista de obras ativas/futuras */}
+          <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 flex flex-col">
+            <div className="flex items-center gap-3 mb-6">
+              <HardHat size={22} className="text-amber-500" />
+              <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Obras Registradas</h2>
+            </div>
+            <div className="space-y-3 overflow-y-auto max-h-[400px] pr-2 custom-scrollbar">
+              {obras.length === 0 ? (
+                <p className="text-sm font-bold text-slate-400 text-center py-6">Nenhum período de obra registrado.</p>
+              ) : (
+                obras.map(o => {
+                  const amb = ambientes.find(a => a.id === o.ambiente_id);
+                  const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+                  const ativa = o.data_inicio <= hoje && o.data_fim >= hoje;
+                  const futura = o.data_inicio > hoje;
+                  return (
+                    <div key={o.id} className={`p-4 rounded-2xl border flex items-start justify-between gap-3 ${ativa ? 'bg-amber-50 border-amber-300' : futura ? 'bg-blue-50 border-blue-200' : 'bg-slate-50 border-slate-200 opacity-60'}`}>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <p className="font-black text-slate-800 uppercase text-sm">{amb?.nome || '—'}</p>
+                          {ativa && <span className="bg-amber-400 text-white text-[8px] font-black px-1.5 py-0.5 rounded uppercase">Ativa</span>}
+                          {futura && <span className="bg-blue-400 text-white text-[8px] font-black px-1.5 py-0.5 rounded uppercase">Futura</span>}
+                          {!ativa && !futura && <span className="bg-slate-400 text-white text-[8px] font-black px-1.5 py-0.5 rounded uppercase">Encerrada</span>}
+                        </div>
+                        <p className="text-xs font-bold text-slate-600">{o.data_inicio.split('-').reverse().join('/')} → {o.data_fim.split('-').reverse().join('/')}</p>
+                        {o.descricao && <p className="text-xs text-slate-500 mt-0.5 italic">{o.descricao}</p>}
+                      </div>
+                      <button onClick={() => handleDeletarObra(o.id)} className="p-2 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors shrink-0" title="Remover">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+        </>
       )}
 
       {/* CONTEÚDO DA ABA: QR CODES (SÓ PARA ADMIN) */}
