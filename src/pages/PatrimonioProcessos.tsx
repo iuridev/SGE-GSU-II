@@ -430,11 +430,20 @@ export function PatrimonioProcessos() {
       .sort((a, b) => (a.correcao_em || a.created_at).localeCompare(b.correcao_em || b.created_at));
   }, [processes]);
 
+  // Uma fila por tipo de processo (cada tipo é atendido em sua própria ordem
+  // de antiguidade). Tipos sem processo pendente não aparecem.
+  const queuesByType = useMemo(() => {
+    return PROCESS_TYPES
+      .map(type => ({ type, items: pendingQueue.filter(p => p.type === type.id) }))
+      .filter(q => q.items.length > 0);
+  }, [pendingQueue]);
+
+  // Posição do processo dentro da fila do seu tipo.
   const queuePositionMap = useMemo(() => {
     const map = new Map<string, number>();
-    pendingQueue.forEach((p, idx) => map.set(p.id, idx + 1));
+    queuesByType.forEach(q => q.items.forEach((p, idx) => map.set(p.id, idx + 1)));
     return map;
-  }, [pendingQueue]);
+  }, [queuesByType]);
 
   const activeProcesses = useMemo(() => {
     if (isExporting && exportTargetSchool !== '') {
@@ -810,42 +819,55 @@ export function PatrimonioProcessos() {
               <h3 className="text-sm font-bold text-slate-800">Fila de Atendimento por Antiguidade</h3>
             </div>
             <p className="text-xs text-slate-400 mb-4">
-              Processos pendentes ordenados do mais antigo para o mais recente. Ao ser concluído, o processo sai da fila automaticamente.
+              Uma fila para cada tipo de processo, ordenada do mais antigo para o mais recente. Ao ser concluído, o processo sai da fila automaticamente.
             </p>
 
-            {pendingQueue.length === 0 ? (
+            {queuesByType.length === 0 ? (
               <p className="text-sm text-slate-400 py-4 text-center">Nenhum processo pendente. Fila vazia.</p>
             ) : (
-              <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                {pendingQueue.map((p, idx) => {
-                  const typeInfo = PROCESS_TYPES.find(t => t.id === p.type);
-                  const daysWaiting = Math.max(0, Math.floor((Date.now() - new Date(p.process_date + 'T00:00:00').getTime()) / 86400000));
-                  const isNext = idx === 0;
-                  return (
-                    <div
-                      key={p.id}
-                      className={`flex items-center gap-3 p-3 rounded-xl border ${isNext ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-100'}`}
-                    >
-                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 font-bold text-xs ${isNext ? 'bg-indigo-600 text-white' : 'bg-white text-slate-500 border border-slate-200'}`}>
-                        {idx + 1}º
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-bold text-slate-700 truncate max-w-[10rem]">{p.schools?.name}</span>
-                          <span className="text-xs text-slate-400 font-mono">SEI {p.sei_number}</span>
-                          {isNext && (
-                            <span className="text-[10px] font-bold text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded-full uppercase tracking-wide">
-                              Próximo
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          {p.type === 'FURTOS' ? p.subtype : typeInfo?.label} · aguardando há {daysWaiting} dia{daysWaiting !== 1 ? 's' : ''}
-                        </p>
-                      </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {queuesByType.map(({ type, items }) => (
+                  <div key={type.id} className="rounded-xl border border-slate-100 bg-white">
+                    <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-slate-100">
+                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide truncate">
+                        Fila de {type.label}
+                      </h4>
+                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0 ${type.color}`}>
+                        {items.length} pendente{items.length !== 1 ? 's' : ''}
+                      </span>
                     </div>
-                  );
-                })}
+                    <div className="space-y-2 max-h-72 overflow-y-auto p-2">
+                      {items.map((p, idx) => {
+                        const daysWaiting = Math.max(0, Math.floor((Date.now() - new Date(p.process_date + 'T00:00:00').getTime()) / 86400000));
+                        const isNext = idx === 0;
+                        return (
+                          <div
+                            key={p.id}
+                            className={`flex items-center gap-3 p-3 rounded-xl border ${isNext ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-100'}`}
+                          >
+                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 font-bold text-xs ${isNext ? 'bg-indigo-600 text-white' : 'bg-white text-slate-500 border border-slate-200'}`}>
+                              {idx + 1}º
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-bold text-slate-700 truncate max-w-[10rem]">{p.schools?.name}</span>
+                                <span className="text-xs text-slate-400 font-mono">SEI {p.sei_number}</span>
+                                {isNext && (
+                                  <span className="text-[10px] font-bold text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded-full uppercase tracking-wide">
+                                    Próximo
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-slate-400 mt-0.5">
+                                {p.type === 'FURTOS' ? `${p.subtype} · ` : ''}aguardando há {daysWaiting} dia{daysWaiting !== 1 ? 's' : ''}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
 
@@ -1207,7 +1229,7 @@ export function PatrimonioProcessos() {
                       {showQueue && !isCompleted && queuePositionMap.has(p.id) && (
                         <span
                           className="px-2.5 py-1.5 rounded-lg font-bold text-xs bg-slate-900 text-white shrink-0"
-                          title="Posição na fila de atendimento por antiguidade"
+                          title={`Posição na fila de ${typeInfo?.label || 'atendimento'} (por antiguidade)`}
                         >
                           {queuePositionMap.get(p.id)}º na fila
                         </span>
