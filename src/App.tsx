@@ -136,6 +136,10 @@ function salvarAvisosDispensados(ids: string[]) {
   } catch { /* storage indisponível: o aviso apenas volta no próximo refresh */ }
 }
 
+// Itens fixos no topo do menu, nesta ordem, para quem tiver acesso a eles
+// (fora dos grupos e dos favoritos). O Cronograma só é visível ao regional_admin.
+const PINNED_TOP_IDS = ['dashboard', 'cronograma-setor'];
+
 const MENU_GROUPS: MenuGroup[] = [
   {
     title: 'PRINCIPAL',
@@ -852,8 +856,10 @@ export default function App() {
     : [];
   const favoriteItems = favorites
     .map(id => allVisibleItems.find(item => item.id === id))
-    .filter((item): item is MenuItem => !!item && item.id !== 'dashboard');
-  const dashboardItem = allVisibleItems.find(item => item.id === 'dashboard');
+    .filter((item): item is MenuItem => !!item && !PINNED_TOP_IDS.includes(item.id));
+  const pinnedItems = PINNED_TOP_IDS
+    .map(id => allVisibleItems.find(item => item.id === id))
+    .filter((item): item is MenuItem => !!item);
 
   return (
     <div className={`h-screen overflow-hidden bg-[#f8fafc] flex font-sans text-slate-900 print:bg-white print:block print:h-auto print:overflow-visible ${isHomolog ? 'pt-7' : ''}`}>
@@ -922,12 +928,14 @@ export default function App() {
             </div>
           ) : (
             <>
-              {dashboardItem && (
+              {pinnedItems.length > 0 && (
                 <div className="flex flex-col gap-1 mb-1">
-                  <a href={`#/${dashboardItem.id}`} onClick={navLinkClick(dashboardItem.id)} title={isCollapsed ? dashboardItem.label : undefined} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg transition-all duration-200 group ${currentPage === dashboardItem.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}>
-                    <div className={`${currentPage === dashboardItem.id ? 'text-white' : 'text-slate-400 group-hover:text-blue-400'} transition-colors flex-shrink-0`}>{dashboardItem.icon}</div>
-                    {!isCollapsed && <span className="font-medium whitespace-nowrap text-sm text-left truncate flex-1">{dashboardItem.label}</span>}
-                  </a>
+                  {pinnedItems.map(item => (
+                    <a key={`pin-${item.id}`} href={`#/${item.id}`} onClick={navLinkClick(item.id)} title={isCollapsed ? item.label : undefined} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg transition-all duration-200 group ${currentPage === item.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}>
+                      <div className={`${currentPage === item.id ? 'text-white' : 'text-slate-400 group-hover:text-blue-400'} transition-colors flex-shrink-0`}>{item.icon}</div>
+                      {!isCollapsed && <span className="font-medium whitespace-nowrap text-sm text-left truncate flex-1">{item.label}</span>}
+                    </a>
+                  ))}
                 </div>
               )}
 
@@ -960,7 +968,7 @@ export default function App() {
               )}
 
               {MENU_GROUPS.map((group, groupIndex) => {
-                const visibleItems = group.items.filter(item => item.roles.includes(userRole) && item.id !== 'dashboard');
+                const visibleItems = group.items.filter(item => item.roles.includes(userRole) && !PINNED_TOP_IDS.includes(item.id));
                 if (visibleItems.length === 0) return null;
 
                 const isOpen = expandedGroups.includes(group.title);
