@@ -7,14 +7,18 @@ import {
   CalendarRange, ChevronLeft, ChevronRight, Plus, X, Loader2, Search, RefreshCw,
   CalendarDays, ListChecks, BarChart3, CheckCircle2, XCircle, Ban, Clock, CalendarClock,
   Lightbulb, Printer, Pencil, Trash2, RotateCcw, Users, MapPin, School, AlertTriangle,
-  Repeat, User, Check,
+  Repeat, User, Check, Eye, Layers, FileDown,
 } from 'lucide-react';
 import {
   SETORES, TIPOS_ATIVIDADE, TIPO_INFO, OBJETIVOS_VISITA, TIPOS_COM_PARTICIPANTES,
   toISODate, mesDe, somarMeses, formatarData, nomeMes, semanasDoMes, datasRepeticao,
   aguardandoConfirmacao, sugestoesParaMes, visitaCorrespondente, resumoExecucao, ordenarAtividades,
+  eventosExternosSemDuplicata,
   type Atividade, type ResumoExecucao, type Setor, type TipoAtividade, type StatusAtividade, type VisitaRegistrada,
 } from '../lib/cronogramaAtividades';
+import { AGENDA_TIPOS, type AgendaItem, type AgendaSourceType, type AgendaTipoConfig } from '../lib/agendaUnificada';
+import { fetchAgendaUnificada } from '../lib/agendaUnificadaFontes';
+import { gerarPdfCronograma } from '../lib/pdfCronograma';
 
 // Cronograma de Atividades da SEOM/SEFISC (regional_admin).
 // Planejamento mensal (previsto) e depois o registro do que foi realizado:
@@ -52,7 +56,25 @@ const db = supabase as unknown as SupabaseClient;
 
 const DIAS_SEMANA = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
 const PAGINA = 1000;
-const MAX_CHIPS_DIA = 3;
+const MAX_CHIPS_DIA = 4;
+const MOSTRAR_SISTEMA_KEY = 'sge_cronograma_mostrar_sistema';
+
+// Eventos de outras páginas do sistema (os mesmos da Agenda Unificada do
+// topo), exibidos no cronograma só para leitura.
+const SISTEMA_INFO = Object.fromEntries(AGENDA_TIPOS.map(t => [t.tipo, t])) as Record<AgendaSourceType, AgendaTipoConfig>;
+const SISTEMA_ORIGEM: Record<AgendaSourceType, string> = {
+  ambiente: 'Reservas de Ambiente',
+  carro: 'Carros Oficiais',
+  reuniao: 'Calendário',
+  visita_fiscal: 'Fiscalização de Serviços Terceirizados',
+  obra: 'Obras e Reformas',
+  visita_escolar: 'Visitas às Escolas',
+};
+// Ao filtrar o cronograma por tipo, quais eventos do sistema continuam visíveis.
+const SISTEMA_POR_TIPO: Partial<Record<TipoAtividade, AgendaSourceType[]>> = {
+  VISITA: ['visita_escolar', 'visita_fiscal'],
+  REUNIAO: ['reuniao'],
+};
 
 const DIACRITICS = new RegExp('[\\u0300-\\u036f]', 'g');
 const normalizar = (s: string | null | undefined) =>
@@ -140,6 +162,12 @@ export default function CronogramaSetor() {
   const [filtroTipo, setFiltroTipo] = useState<'TODOS' | TipoAtividade>('TODOS');
   const [filtroStatus, setFiltroStatus] = useState<FiltroStatus>('TODOS');
   const [busca, setBusca] = useState('');
+  const [eventosSistema, setEventosSistema] = useState<AgendaItem[]>([]);
+  const [mostrarSistema, setMostrarSistema] = useState(() => {
+    try { return localStorage.getItem(MOSTRAR_SISTEMA_KEY) !== '0'; } catch { return true; }
+  });
+  const [eventoSistema, setEventoSistema] = useState<AgendaItem | null>(null);
+  const [diaAberto, setDiaAberto] = useState<string | null>(null);
 
   const [form, setForm] = useState<FormState | null>(null);
   const [buscaEscola, setBuscaEscola] = useState('');
@@ -179,7 +207,14 @@ export default function CronogramaSetor() {
   const carregar = useCallback(async () => {
     setLoading(true);
     try {
-      await Promise.all([fetchAtividades(), fetchVisitasRegistradas()]);
+      const falhas: string[] = [];
+      const [, , eventos] = await Promise.all([
+        fetchAtividades(),
+        fetchVisitasRegistradas(),
+        fetchAgendaUnificada(fonte => falhas.push(fonte)),
+      ]);
+      setEventosSistema(eventos);
+      if (falhas.length) toast.error(`Eventos do sistema: não foi possível carregar ${falhas.join(', ')}.`);
     } catch (e) {
       console.error(e);
       toast.error('Não foi possível carregar o cronograma.');
@@ -267,6 +302,31 @@ export default function CronogramaSetor() {
   }, [doMes, busca, filtroStatus, hoje]);
 
   const semanas = useMemo(() => semanasDoMes(mes), [mes]);
+
+  useEffect(() => {
+    try { localStorage.setItem(MOSTRAR_SISTEMA_KEY, mostrarSistema ? '1' : '0'); } catch { /* storage indisponível */ }
+  }, [mostrarSistema]);
+
+  const sistemaDoMes = useMemo(() => {
+    if (!mostrarSistema) return [];
+    const permitidos = filtroTipo === 'TODOS' ? null : SISTEMA_POR_TIPO[filtroTipo] || [];
+    return eventosExternosSemDuplicata(eventosSistema, atividades)
+      .filter(i => mesDe(i.data) === mes && (!permitidos || permitidos.includes(i.tipo)))
+      .sort((a, b) => a.data.localeCompare(b.data) || (a.hora || '').localeCompare(b.hora || ''));
+  }, [mostrarSistema, filtroTipo, eventosSistema, atividades, mes]);
+
+  const sistemaPorDia = useMemo(() => {
+    const m = new Map<string, AgendaItem[]>();
+    for (const i of sistemaDoMes) m.set(i.data, [...(m.get(i.data) || []), i]);
+    return m;
+  }, [sistemaDoMes]);
+
+  // Na lista, eventos do sistema só aparecem sem filtro de status (não têm status do cronograma).
+  const sistemaLista = useMemo(() => {
+    if (filtroStatus !== 'TODOS') return [];
+    const q = normalizar(busca);
+    return sistemaDoMes.filter(i => !q || normalizar(`${i.titulo} ${i.subtitulo || ''}`).includes(q));
+  }, [sistemaDoMes, filtroStatus, busca]);
 
   const porDia = useMemo(() => {
     const m = new Map<string, Atividade[]>();
@@ -482,6 +542,37 @@ export default function CronogramaSetor() {
     </>
   );
 
+  const gerarPdf = () => {
+    if (!doMes.length && !sistemaDoMes.length) return void toast.error(`Nenhuma atividade em ${nomeMes(mes)} para gerar o PDF.`);
+    try {
+      const filtros = [
+        `Setor: ${filtroSetor === 'TODOS' ? 'SEOM e SEFISC' : filtroSetor}`,
+        `Tipo: ${filtroTipo === 'TODOS' ? 'todos' : TIPO_INFO[filtroTipo].plural}`,
+        mostrarSistema ? 'com eventos das outras páginas' : '',
+      ].filter(Boolean).join(' · ');
+      gerarPdfCronograma({ mes, atividades: doMes, eventos: sistemaDoMes, resumo, filtros, hoje });
+    } catch (err) {
+      console.error('Cronograma: erro ao gerar PDF', err);
+      toast.error('Não foi possível gerar o PDF.');
+    }
+  };
+
+  const linhaEventoSistema = (ev: AgendaItem) => (
+    <>
+      <span className={`w-2.5 h-2.5 rounded-sm mt-1 shrink-0 ${SISTEMA_INFO[ev.tipo]?.cor || 'bg-slate-400'}`} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md border border-dashed border-slate-300 bg-white text-[11px] font-semibold text-slate-600">{SISTEMA_INFO[ev.tipo]?.label || ev.tipo}</span>
+          <span className="font-semibold text-slate-700 text-sm">{ev.titulo}</span>
+        </div>
+        <div className="text-xs text-slate-500 mt-1 flex flex-wrap gap-x-3">
+          <span className="inline-flex items-center gap-1"><CalendarDays size={12} /> {formatarData(ev.data)}{ev.hora && ` · ${ev.hora.slice(0, 5)}`}</span>
+          {ev.subtitulo && <span>{ev.subtitulo}</span>}
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto print:p-0 print:max-w-none">
       <div className="print:hidden space-y-6">
@@ -502,6 +593,9 @@ export default function CronogramaSetor() {
             </button>
             <button onClick={() => window.print()} className="flex items-center gap-2 px-3 py-2 text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 text-sm">
               <Printer size={16} /> Imprimir
+            </button>
+            <button onClick={gerarPdf} disabled={loading} className="flex items-center gap-2 px-3 py-2 text-blue-700 border border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 text-sm font-medium disabled:opacity-60">
+              <FileDown size={16} /> Gerar PDF do mês
             </button>
             {!readOnly && (
               <button onClick={() => abrirNova()} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
@@ -532,13 +626,32 @@ export default function CronogramaSetor() {
             <option value="TODOS">Todos os tipos</option>
             {TIPOS_ATIVIDADE.map(t => <option key={t} value={t}>{TIPO_INFO[t].plural}</option>)}
           </select>
-          <div className="flex flex-wrap gap-x-3 gap-y-1 lg:ml-auto">
+          <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none lg:ml-auto">
+            <input type="checkbox" checked={mostrarSistema} onChange={e => setMostrarSistema(e.target.checked)} className="rounded" />
+            <Layers size={14} className="text-slate-400" /> Mostrar eventos das outras páginas
+          </label>
+        </div>
+
+        {/* Legenda */}
+        <div className="flex flex-col gap-1.5 -mt-3 px-1">
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Cronograma:</span>
             {TIPOS_ATIVIDADE.map(t => (
               <span key={t} className="inline-flex items-center gap-1 text-[11px] text-slate-500">
                 <span className={`w-2 h-2 rounded-full ${TIPO_INFO[t].dot}`} /> {TIPO_INFO[t].label}
               </span>
             ))}
           </div>
+          {mostrarSistema && (
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Outras páginas (só leitura):</span>
+              {AGENDA_TIPOS.map(t => (
+                <span key={t.tipo} className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+                  <span className={`w-2 h-2 rounded-sm ${t.cor}`} /> {t.label}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* KPIs */}
@@ -643,6 +756,10 @@ export default function CronogramaSetor() {
                 {semana.map((dia, j) => {
                   if (!dia) return <div key={j} className="min-h-[72px] md:min-h-[110px] bg-slate-50/60 border-r border-slate-100 last:border-r-0" />;
                   const itens = porDia.get(dia) || [];
+                  const externos = sistemaPorDia.get(dia) || [];
+                  const proprios = itens.slice(0, MAX_CHIPS_DIA);
+                  const externosVisiveis = externos.slice(0, MAX_CHIPS_DIA - proprios.length);
+                  const restantes = itens.length + externos.length - proprios.length - externosVisiveis.length;
                   const fimDeSemana = j >= 5;
                   return (
                     <div
@@ -657,9 +774,13 @@ export default function CronogramaSetor() {
                       {/* Celular: só pontos coloridos */}
                       <div className="flex flex-wrap gap-1 md:hidden">
                         {itens.map(a => <span key={a.id} className={`w-2 h-2 rounded-full ${TIPO_INFO[a.tipo].dot} ${a.status === 'CANCELADA' ? 'opacity-30' : ''}`} />)}
+                        {externos.map(i => <span key={i.id} className={`w-2 h-2 rounded-sm opacity-60 ${SISTEMA_INFO[i.tipo]?.cor || 'bg-slate-400'}`} />)}
                       </div>
+                      {(itens.length > 0 || externos.length > 0) && (
+                        <button onClick={e => { e.stopPropagation(); setDiaAberto(dia); }} className="md:hidden mt-1 text-[10px] font-semibold text-blue-600">ver</button>
+                      )}
                       <div className="hidden md:block space-y-1">
-                        {itens.slice(0, MAX_CHIPS_DIA).map(a => {
+                        {proprios.map(a => {
                           const { Icon } = statusVisual(a, hoje);
                           return (
                             <button
@@ -674,12 +795,24 @@ export default function CronogramaSetor() {
                             </button>
                           );
                         })}
-                        {itens.length > MAX_CHIPS_DIA && (
+                        {externosVisiveis.map(i => (
                           <button
-                            onClick={e => { e.stopPropagation(); setBusca(''); setFiltroStatus('TODOS'); setAba('lista'); }}
+                            key={i.id}
+                            onClick={e => { e.stopPropagation(); setEventoSistema(i); }}
+                            title={`${SISTEMA_INFO[i.tipo]?.label || ''} · ${i.titulo}`}
+                            className="w-full flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed border-slate-300 bg-white text-[11px] text-slate-600 text-left truncate"
+                          >
+                            <span className={`w-2 h-2 rounded-sm shrink-0 ${SISTEMA_INFO[i.tipo]?.cor || 'bg-slate-400'}`} />
+                            {i.hora && <span className="font-semibold shrink-0">{i.hora.slice(0, 5)}</span>}
+                            <span className="truncate">{i.titulo}</span>
+                          </button>
+                        ))}
+                        {restantes > 0 && (
+                          <button
+                            onClick={e => { e.stopPropagation(); setDiaAberto(dia); }}
                             className="text-[11px] font-semibold text-blue-600 hover:underline px-1"
                           >
-                            + {itens.length - MAX_CHIPS_DIA} mais
+                            + {restantes} mais
                           </button>
                         )}
                       </div>
@@ -705,7 +838,7 @@ export default function CronogramaSetor() {
                 <option value="CANCELADA">Canceladas</option>
               </select>
             </div>
-            {listaFiltrada.length === 0 ? (
+            {listaFiltrada.length === 0 && sistemaLista.length === 0 ? (
               <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-10 text-center text-slate-400 text-sm">
                 <CalendarRange size={36} className="mx-auto mb-2 opacity-30" />
                 Nenhuma atividade encontrada em {nomeMes(mes)}.
@@ -713,15 +846,27 @@ export default function CronogramaSetor() {
             ) : semanas.map((semana, i) => {
               const dias = semana.filter(Boolean) as string[];
               const itens = listaFiltrada.filter(a => dias.includes(a.data_prevista));
-              if (!itens.length) return null;
+              const externos = sistemaLista.filter(ev => dias.includes(ev.data));
+              if (!itens.length && !externos.length) return null;
+              const linhas = [
+                ...itens.map(a => ({ chave: `${a.data_prevista}|${hora(a.hora_inicio) || '99'}`, a, ev: null })),
+                ...externos.map(ev => ({ chave: `${ev.data}|${ev.hora?.slice(0, 5) || '99'}`, a: null, ev })),
+              ].sort((x, y) => x.chave.localeCompare(y.chave));
               return (
                 <div key={i} className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
                   <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-600">
                     Semana {i + 1} · {formatarData(dias[0])} a {formatarData(dias[dias.length - 1])}
-                    <span className="ml-2 font-medium text-slate-400">{itens.length} {itens.length === 1 ? 'atividade' : 'atividades'}</span>
+                    <span className="ml-2 font-medium text-slate-400">
+                      {itens.length} {itens.length === 1 ? 'atividade' : 'atividades'}
+                      {externos.length > 0 && ` · ${externos.length} ${externos.length === 1 ? 'evento' : 'eventos'} de outras páginas`}
+                    </span>
                   </div>
                   <div className="divide-y divide-slate-100">
-                    {itens.map(a => (
+                    {linhas.map(({ a, ev }) => ev ? (
+                      <button key={ev.id} onClick={() => setEventoSistema(ev)} className="w-full p-3 flex items-start gap-2 text-left bg-slate-50/50 hover:bg-slate-50">
+                        {linhaEventoSistema(ev)}
+                      </button>
+                    ) : a && (
                       <div key={a.id} className={`p-3 flex flex-col md:flex-row md:items-center gap-2 ${a.status === 'CANCELADA' ? 'opacity-60' : ''}`}>
                         <button onClick={() => setDetalhe(a)} className="flex-1 min-w-0 text-left">{linhaResumo(a)}</button>
                         <div className="flex items-center gap-2 flex-wrap md:justify-end">
@@ -981,6 +1126,61 @@ export default function CronogramaSetor() {
                 )}
               </div>
             )}
+          </div>
+        </Modal>
+      )}
+
+      {diaAberto && (
+        <Modal titulo={`Agenda de ${formatarData(diaAberto)}`} onClose={() => setDiaAberto(null)}>
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Cronograma</h3>
+              {(porDia.get(diaAberto) || []).length === 0 ? (
+                <p className="text-sm text-slate-400">Nenhuma atividade planejada.</p>
+              ) : (
+                <div className="space-y-2">
+                  {(porDia.get(diaAberto) || []).map(a => (
+                    <button key={a.id} onClick={() => { setDiaAberto(null); setDetalhe(a); }} className="w-full text-left rounded-lg border border-slate-100 p-2.5 hover:bg-slate-50">
+                      {linhaResumo(a)}
+                      <div className="mt-1.5"><StatusBadge a={a} hoje={hoje} /></div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {(sistemaPorDia.get(diaAberto) || []).length > 0 && (
+              <div>
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Outras páginas</h3>
+                <div className="space-y-2">
+                  {(sistemaPorDia.get(diaAberto) || []).map(ev => (
+                    <div key={ev.id} className="flex items-start gap-2 rounded-lg border border-dashed border-slate-200 p-2.5">{linhaEventoSistema(ev)}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!readOnly && (
+              <div className="flex justify-end pt-3 border-t border-slate-100">
+                <button onClick={() => { const d = diaAberto; setDiaAberto(null); abrirNova(d); }} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">
+                  <Plus size={16} /> Nova atividade neste dia
+                </button>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {eventoSistema && (
+        <Modal titulo={SISTEMA_INFO[eventoSistema.tipo]?.label || 'Evento'} onClose={() => setEventoSistema(null)}>
+          <div className="space-y-3">
+            <h3 className="text-lg font-bold text-slate-800">{eventoSistema.titulo}</h3>
+            <p className="text-sm text-slate-600 inline-flex items-center gap-1.5">
+              <CalendarDays size={14} /> {formatarData(eventoSistema.data)}{eventoSistema.hora && ` · ${eventoSistema.hora.slice(0, 5)}`}
+            </p>
+            {eventoSistema.subtitulo && <p className="text-sm text-slate-600 bg-slate-50 rounded-lg p-3">{eventoSistema.subtitulo}</p>}
+            <p className="text-xs text-slate-500 flex items-start gap-1.5 border-t border-slate-100 pt-3">
+              <Eye size={14} className="shrink-0 mt-0.5" />
+              <span>Evento da página <b>{SISTEMA_ORIGEM[eventoSistema.tipo]}</b>, exibido aqui só para consulta. Para alterá-lo, use a página de origem.</span>
+            </p>
           </div>
         </Modal>
       )}

@@ -1,14 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
-import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { addTimbradoAllPages } from '../lib/pdfTimbrado';
-import { fetchObrasSheet } from '../lib/obrasSheet';
+import { fetchAgendaUnificada } from '../lib/agendaUnificadaFontes';
 import { X, ChevronLeft, ChevronRight, FileDown, Loader2, CalendarDays } from 'lucide-react';
 import {
   type AgendaItem, AGENDA_TIPOS,
-  parseDataFlexivel, groupAgendaItemsByDate, filterAgendaItemsByMonth,
+  groupAgendaItemsByDate, filterAgendaItemsByMonth,
 } from '../lib/agendaUnificada';
 
 const MONTHS = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -30,134 +29,9 @@ export function AgendaUnificadaModal({ onClose }: Props) {
 
   useEffect(() => { fetchTudo(); }, []);
 
-  // Busca as 6 fontes em paralelo, cada uma com seu próprio try/catch: se
-  // uma fonte falhar (ex.: planilha fora do ar), as outras continuam
-  // aparecendo normalmente — só a fonte com problema vira um toast de erro.
   async function fetchTudo() {
     setLoading(true);
-    const resultado: AgendaItem[] = [];
-    const { data: schoolsData } = await (supabase as any).from('schools').select('id, name');
-    const schools = schoolsData || [];
-    const schoolName = (id: string) => schools.find((s: any) => s.id === id)?.name || id;
-
-    await Promise.all([
-      (async () => {
-        try {
-          const { data, error } = await (supabase as any)
-            .from('agendamentos_ambientes')
-            .select('id, data_agendamento, hora_inicio, hora_fim, titulo_evento, user_name, status, ambientes(nome)')
-            .in('status', ['pendente', 'aprovado']);
-          if (error) throw error;
-          (data || []).forEach((a: any) => {
-            if (!a.data_agendamento) return;
-            resultado.push({
-              id: `amb-${a.id}`, tipo: 'ambiente', data: a.data_agendamento, hora: a.hora_inicio,
-              titulo: `${a.ambientes?.nome || 'Ambiente'} — ${a.titulo_evento || 'Reserva'}`,
-              subtitulo: `${a.user_name || ''} · ${a.hora_inicio || ''}${a.hora_fim ? `–${a.hora_fim}` : ''} · ${a.status === 'pendente' ? 'Pendente' : 'Aprovado'}`,
-            });
-          });
-        } catch (err) {
-          console.error('Agenda Unificada: erro ao buscar Reservas de Ambiente', err);
-          toast.error('Não foi possível carregar Reservas de Ambiente.');
-        }
-      })(),
-
-      (async () => {
-        try {
-          const { data, error } = await (supabase as any).from('car_schedules').select('id, service_date, requester_name, status');
-          if (error) throw error;
-          (data || []).forEach((c: any) => {
-            if (!c.service_date) return;
-            resultado.push({
-              id: `car-${c.id}`, tipo: 'carro', data: c.service_date,
-              titulo: `Carro Oficial — ${c.requester_name || 'Sem nome'}`,
-              subtitulo: c.status || '',
-            });
-          });
-        } catch (err) {
-          console.error('Agenda Unificada: erro ao buscar Carros Oficiais', err);
-          toast.error('Não foi possível carregar Carros Oficiais.');
-        }
-      })(),
-
-      (async () => {
-        try {
-          const { data, error } = await (supabase as any).from('meetings').select('id, title, event_type, date, time, schools(name)');
-          if (error) throw error;
-          (data || []).forEach((m: any) => {
-            if (!m.date) return;
-            resultado.push({
-              id: `reu-${m.id}`, tipo: 'reuniao', data: m.date, hora: m.time,
-              titulo: m.title || m.event_type || 'Evento',
-              subtitulo: [m.schools?.name, m.time].filter(Boolean).join(' · '),
-            });
-          });
-        } catch (err) {
-          console.error('Agenda Unificada: erro ao buscar Calendário/Reuniões', err);
-          toast.error('Não foi possível carregar o Calendário/Reuniões.');
-        }
-      })(),
-
-      (async () => {
-        try {
-          const { data, error } = await supabase.functions.invoke('google-sheets-fiscalizacao-terceirizados', { method: 'GET' });
-          if (error) throw error;
-          const visitas = Array.isArray(data?.visitRequests) ? data.visitRequests : [];
-          visitas
-            .filter((v: any) => v.status === 'agendada' && v.dataAgendada)
-            .forEach((v: any) => {
-              resultado.push({
-                id: `visf-${v.id}`, tipo: 'visita_fiscal', data: v.dataAgendada,
-                titulo: `Visita Técnica — ${schoolName(v.escolaId)}`,
-                subtitulo: v.motivo || '',
-              });
-            });
-        } catch (err) {
-          console.error('Agenda Unificada: erro ao buscar Visita Técnica da Fiscalização', err);
-          toast.error('Não foi possível carregar Visita Técnica da Fiscalização.');
-        }
-      })(),
-
-      (async () => {
-        try {
-          const obras = await fetchObrasSheet(schools);
-          obras.forEach((o, idx) => {
-            const nomeEscola = o.matchedSchoolName || o.escola;
-            const inicio = parseDataFlexivel(o.dataInicio);
-            if (inicio) {
-              resultado.push({ id: `obra-ini-${idx}`, tipo: 'obra', data: inicio, titulo: `Início de Obra — ${nomeEscola}`, subtitulo: o.obra });
-            }
-            const termino = parseDataFlexivel(o.previsaoTermino);
-            if (termino) {
-              resultado.push({ id: `obra-fim-${idx}`, tipo: 'obra', data: termino, titulo: `Previsão de Término — ${nomeEscola}`, subtitulo: o.obra });
-            }
-          });
-        } catch (err) {
-          console.error('Agenda Unificada: erro ao buscar Obras', err);
-          toast.error('Não foi possível carregar Obras.');
-        }
-      })(),
-
-      (async () => {
-        try {
-          const { data, error } = await supabase.functions.invoke('google-sheets-visitas', { method: 'GET' });
-          if (error) throw error;
-          const visitas = Array.isArray(data) ? data : [];
-          visitas.forEach((v: any) => {
-            if (!v.data_visita) return;
-            resultado.push({
-              id: `esc-${v.id}`, tipo: 'visita_escolar', data: v.data_visita,
-              titulo: `Visita Escolar — ${v.escola_nome || ''}`,
-              subtitulo: v.objetivo || '',
-            });
-          });
-        } catch (err) {
-          console.error('Agenda Unificada: erro ao buscar Visitas Escolares', err);
-          toast.error('Não foi possível carregar Visitas Escolares.');
-        }
-      })(),
-    ]);
-
+    const resultado = await fetchAgendaUnificada(fonte => toast.error(`Não foi possível carregar ${fonte}.`));
     setItems(resultado);
     setLoading(false);
   }

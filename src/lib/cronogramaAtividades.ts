@@ -1,6 +1,7 @@
 // Cronograma de Atividades SEOM/SEFISC — tipos e regras puras (sem React nem
 // Supabase), para a página CronogramaSetor.tsx e para os testes.
 // Ver migration 20261014030000_cronograma_atividades.sql.
+import type { AgendaItem } from './agendaUnificada';
 
 export const SETORES = ['SEOM', 'SEFISC'] as const;
 export type Setor = typeof SETORES[number];
@@ -203,4 +204,23 @@ export function ordenarAtividades(lista: Atividade[]): Atividade[] {
     (a.hora_inicio || '99').localeCompare(b.hora_inicio || '99') ||
     a.titulo.localeCompare(b.titulo),
   );
+}
+
+// Eventos da Agenda Unificada (outras páginas) exibidos no cronograma, sem a
+// visita escolar que o próprio cronograma já mostra: a registrada por ele na
+// planilha (id `crono-<atividade>`) e a confirmada a partir de um registro
+// existente (mesma escola na data de realização).
+export function eventosExternosSemDuplicata(itens: AgendaItem[], atividades: Atividade[]): AgendaItem[] {
+  const ids = new Set(atividades.map(a => `esc-crono-${a.id}`));
+  const concluidas = new Set(
+    atividades
+      .filter(a => a.tipo === 'VISITA' && a.status === 'CONCLUIDA' && a.data_realizada)
+      .map(a => `${a.data_realizada}|${normalizar(a.escola_nome)}`),
+  );
+  return itens.filter(i => {
+    if (i.tipo !== 'visita_escolar') return true;
+    if (ids.has(i.id)) return false;
+    const escola = normalizar(i.titulo.replace(/^Visita Escolar\s*—\s*/, ''));
+    return !concluidas.has(`${i.data}|${escola}`);
+  });
 }

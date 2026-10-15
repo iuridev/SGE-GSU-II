@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   semanasDoMes, datasRepeticao, somarMeses, aguardandoConfirmacao, sugestoesParaMes,
-  visitaCorrespondente, resumoExecucao, type Atividade,
+  visitaCorrespondente, resumoExecucao, eventosExternosSemDuplicata, type Atividade,
 } from '../cronogramaAtividades';
 
 const atv = (p: Partial<Atividade>): Atividade => ({
@@ -88,5 +88,21 @@ describe('resumoExecucao', () => {
       atv({ status: 'PLANEJADA', data_prevista: '2026-09-01' }), atv({ status: 'CANCELADA' }),
     ], '2026-10-14');
     expect(r).toMatchObject({ total: 4, concluidas: 2, naoRealizadas: 1, aguardando: 1, canceladas: 1, percentual: 67 });
+  });
+});
+
+describe('eventosExternosSemDuplicata', () => {
+  it('remove visitas escolares que o cronograma já mostra e mantém o resto', () => {
+    const atividades = [
+      atv({ id: 'x1', status: 'CONCLUIDA', data_realizada: '2026-09-10', visita_registrada: true }),
+      atv({ id: 'x2', status: 'CONCLUIDA', data_realizada: '2026-09-12', escola_nome: 'EE João Nunes', visita_registrada: true }),
+    ];
+    const itens = [
+      { id: 'esc-crono-x1', tipo: 'visita_escolar' as const, data: '2026-09-10', titulo: 'Visita Escolar — EE TESTE' },
+      { id: 'esc-999', tipo: 'visita_escolar' as const, data: '2026-09-12', titulo: 'Visita Escolar — EE JOAO NUNES' },
+      { id: 'esc-1000', tipo: 'visita_escolar' as const, data: '2026-09-15', titulo: 'Visita Escolar — EE OUTRA' },
+      { id: 'reu-1', tipo: 'reuniao' as const, data: '2026-09-10', titulo: 'Reunião geral' },
+    ];
+    expect(eventosExternosSemDuplicata(itens, atividades).map(i => i.id)).toEqual(['esc-1000', 'reu-1']);
   });
 });
