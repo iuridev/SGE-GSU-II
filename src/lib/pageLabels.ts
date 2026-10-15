@@ -24,6 +24,7 @@ export const PAGE_LABELS: Record<string, string> = {
   'financeiro-agua': 'Importação Financeiro (SABESP)',
   'zeladoria': 'Zeladoria',
   'visitas-escolares': 'Visitas às Escolas',
+  'cronograma-setor': 'Cronograma SEOM/SEFISC',
   'atendimento-patrimonio': 'Atendimento Patrimônio',
   'reforma-funap': 'Reforma FUNAP (Carteiras/Cadeiras)',
   'educacao-patrimonial': 'Educação Patrimonial',

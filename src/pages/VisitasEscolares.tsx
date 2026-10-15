@@ -14,16 +14,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, LabelList,
 } from 'recharts';
-
-const OBJETIVOS_VISITA = [
-  'Abertura de Obra',
-  'Fechamento de Obra',
-  'Patrimônio mobiliário',
-  'Reunião Administrativa',
-  'Fiscalização e Monitoramento',
-  'Vistoria Predial',
-  'Outros',
-];
+import { OBJETIVOS_VISITA } from '../lib/cronogramaAtividades';
 
 const SHEET_URL = import.meta.env.VITE_VISITAS_SHEET_URL as string;
 const LEGADO_CSV_URL = import.meta.env.VITE_VISITAS_LEGADO_CSV_URL as string;
