@@ -10,13 +10,30 @@ import {
   AlertCircle, History, Flag, ShieldAlert, Gift,
   ClipboardList, DollarSign, ListPlus, Calculator,
   LayoutGrid, CheckCircle, Download, BarChart2, TrendingUp,
-  FileDown, ListOrdered
+  FileDown, ListOrdered, Undo2
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
 import jsPDF from 'jspdf';
 import { addTimbradoAllPages } from '../lib/pdfTimbrado';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
+
+// Status gravado quando a Regional devolve o processo à escola para correção.
+// O valor no banco continua 'CORREÇÃO' (dados existentes); na tela aparece
+// como "Devolvido à escola".
+const STATUS_CORRECAO = 'CORREÇÃO';
+const STATUS_LABELS: Record<string, string> = { [STATUS_CORRECAO]: 'DEVOLVIDO À ESCOLA' };
+const statusLabel = (s: string) => STATUS_LABELS[s] || s;
+
+function diasDesde(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
+}
+
+function correcaoHa(iso: string | null | undefined): string {
+  const d = diasDesde(iso);
+  return d === null ? '' : ` há ${d} dia${d !== 1 ? 's' : ''}`;
+}
 
 interface PatrimonioItem {
   name: string;
@@ -56,6 +73,8 @@ interface PatrimonioProcess {
   subtype?: string;
   items_json?: string;
   doe_date?: string;
+  correcao_motivo?: string | null;
+  correcao_em?: string | null;
   created_at: string;
   schools?: { name: string };
 }
@@ -142,7 +161,8 @@ export function PatrimonioProcessos() {
     authorship: 'Não conhecida',
     conclusion: 'EM ANDAMENTO',
     subtype: 'Furto',
-    doe_date: ''
+    doe_date: '',
+    correcao_motivo: ''
   });
 
   useEffect(() => {
@@ -326,19 +346,28 @@ export function PatrimonioProcessos() {
   const isReadOnly = !!editingProcess && !isAdmin;
 
   // Fila de priorização: processos pendentes ordenados do mais antigo para o
-  // mais recente. Ao ser concluído, o processo some da fila automaticamente
-  // (não entra no filtro abaixo). Oculta para school_manager por decisão de
+  // mais recente. Ao ser concluído ou devolvido à escola para correção, o
+  // processo some da fila; quando a escola responde e o status volta a
+  // andamento, ele retorna à posição original (ordem por process_date). Oculta para school_manager por decisão de
   // produto — a fila é uma ferramenta de gestão regional, não da escola.
   const showQueue = userRole !== '' && userRole !== 'school_manager';
 
   const pendingQueue = useMemo(() => {
     return processes
-      .filter(p => p.status !== 'CONCLUÍDO')
+      .filter(p => p.status !== 'CONCLUÍDO' && p.status !== STATUS_CORRECAO)
       .slice()
       .sort((a, b) => {
         if (a.process_date !== b.process_date) return a.process_date.localeCompare(b.process_date);
         return a.created_at.localeCompare(b.created_at);
       });
+  }, [processes]);
+
+  // Devolvidos à escola, do que espera há mais tempo para o mais recente.
+  const aguardandoEscola = useMemo(() => {
+    return processes
+      .filter(p => p.status === STATUS_CORRECAO)
+      .slice()
+      .sort((a, b) => (a.correcao_em || a.created_at).localeCompare(b.correcao_em || b.created_at));
   }, [processes]);
 
   const queuePositionMap = useMemo(() => {
@@ -357,7 +386,8 @@ export function PatrimonioProcessos() {
   const dashboardMetrics = useMemo(() => {
     const total = activeProcesses.length;
     const concluidos = activeProcesses.filter(p => p.status === 'CONCLUÍDO').length;
-    const pendentes = total - concluidos;
+    const aguardandoEscola = activeProcesses.filter(p => p.status === STATUS_CORRECAO).length;
+    const pendentes = total - concluidos - aguardandoEscola;
     const taxaConclusao = total > 0 ? Math.round((concluidos / total) * 100) : 0;
 
     const chartData = PROCESS_TYPES.map(type => {
@@ -369,7 +399,8 @@ export function PatrimonioProcessos() {
         name: xAxisName,
         Total: typeProcesses.length,
         Concluídos: typeProcesses.filter(p => p.status === 'CONCLUÍDO').length,
-        Pendentes: typeProcesses.filter(p => p.status !== 'CONCLUÍDO').length,
+        Pendentes: typeProcesses.filter(p => p.status !== 'CONCLUÍDO' && p.status !== STATUS_CORRECAO).length,
+        'Aguardando Escola': typeProcesses.filter(p => p.status === STATUS_CORRECAO).length,
       };
     });
 
@@ -384,7 +415,7 @@ export function PatrimonioProcessos() {
       .sort((a, b) => b.Processos - a.Processos)
       .slice(0, 10);
 
-    return { total, concluidos, pendentes, taxaConclusao, chartData, schoolRankingData };
+    return { total, concluidos, pendentes, aguardandoEscola, taxaConclusao, chartData, schoolRankingData };
   }, [activeProcesses]);
 
   useEffect(() => {
@@ -415,7 +446,7 @@ export function PatrimonioProcessos() {
         currentY += 6;
         doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`, margin, currentY);
         currentY += 6;
-        doc.text(`Total: ${dashboardMetrics.total} processos | Concluídos: ${dashboardMetrics.concluidos} | Em Andamento: ${dashboardMetrics.pendentes} | Taxa de Conclusão: ${dashboardMetrics.taxaConclusao}%`, margin, currentY);
+        doc.text(`Total: ${dashboardMetrics.total} processos | Concluídos: ${dashboardMetrics.concluidos} | Em Andamento: ${dashboardMetrics.pendentes} | Aguardando Escola: ${dashboardMetrics.aguardandoEscola} | Taxa de Conclusão: ${dashboardMetrics.taxaConclusao}%`, margin, currentY);
 
         currentY += 10;
 
@@ -451,7 +482,7 @@ export function PatrimonioProcessos() {
           p.sei_number,
           p.schools?.name || 'Não informada',
           PROCESS_TYPES.find(t => t.id === p.type)?.label || p.type,
-          p.status,
+          statusLabel(p.status),
           new Date(p.process_date + 'T12:00:00').toLocaleDateString('pt-BR'),
           p.current_step
         ]);
@@ -515,14 +546,27 @@ export function PatrimonioProcessos() {
       return;
     }
 
+    const emCorrecao = formData.status === STATUS_CORRECAO;
+    if (emCorrecao && !formData.correcao_motivo.trim()) {
+      setFormError('Informe o que a escola precisa corrigir antes de devolver o processo.');
+      return;
+    }
+
     setSaveLoading(true);
     setFormError(null);
 
+    // correcao_em marca o início da devolução atual: mantém a data original se
+    // o processo já estava em correção e zera quando a escola responde.
+    const jaEstavaEmCorrecao = editingProcess?.status === STATUS_CORRECAO;
     const payload = {
       ...formData,
       occurrence_date: formData.occurrence_date ? formData.occurrence_date : null,
       doe_date: formData.doe_date ? formData.doe_date : null,
-      items_json: formData.type === 'FURTOS' ? JSON.stringify(sinistroItems) : null
+      items_json: formData.type === 'FURTOS' ? JSON.stringify(sinistroItems) : null,
+      correcao_motivo: emCorrecao ? formData.correcao_motivo.trim() : null,
+      correcao_em: emCorrecao
+        ? (jaEstavaEmCorrecao && editingProcess?.correcao_em ? editingProcess.correcao_em : new Date().toISOString())
+        : null
     };
 
     try {
@@ -587,7 +631,8 @@ export function PatrimonioProcessos() {
         authorship: process.authorship || 'Não conhecida',
         conclusion: process.conclusion || 'EM ANDAMENTO',
         subtype: process.subtype || 'Furto',
-        doe_date: process.doe_date || ''
+        doe_date: process.doe_date || '',
+        correcao_motivo: process.correcao_motivo || ''
       });
       setSinistroItems(process.items_json ? JSON.parse(process.items_json) : []);
       setIncVinculados([]);
@@ -612,7 +657,8 @@ export function PatrimonioProcessos() {
         authorship: 'Não conhecida',
         conclusion: 'EM ANDAMENTO',
         subtype: 'Furto',
-        doe_date: ''
+        doe_date: '',
+        correcao_motivo: ''
       });
       setSinistroItems([]);
     }
@@ -742,6 +788,77 @@ export function PatrimonioProcessos() {
                 })}
               </div>
             )}
+
+            {aguardandoEscola.length > 0 && (
+              <div className="mt-5 pt-4 border-t border-slate-100">
+                <div className="flex items-center gap-2 mb-1">
+                  <Undo2 size={15} className="text-red-500" />
+                  <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide">
+                    Fora da fila — aguardando resposta da escola ({aguardandoEscola.length})
+                  </h4>
+                </div>
+                <p className="text-[11px] text-slate-400 mb-3">
+                  Processos devolvidos para correção. Ao mudar o status de volta para andamento, o processo retorna à sua posição original na fila.
+                </p>
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {aguardandoEscola.map(p => {
+                    const typeInfo = PROCESS_TYPES.find(t => t.id === p.type);
+                    const dias = diasDesde(p.correcao_em);
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => openModal(p)}
+                        className="w-full text-left flex items-start gap-3 p-3 rounded-xl border bg-red-50/60 border-red-100 hover:border-red-200 transition-all"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-bold text-slate-700 truncate max-w-[10rem]">{p.schools?.name}</span>
+                            <span className="text-xs text-slate-400 font-mono">SEI {p.sei_number}</span>
+                            <span className="text-[11px] text-slate-400">{p.type === 'FURTOS' ? p.subtype : typeInfo?.label}</span>
+                          </div>
+                          {p.correcao_motivo && (
+                            <p className="text-[11px] text-red-700 mt-0.5 line-clamp-2">{p.correcao_motivo}</p>
+                          )}
+                        </div>
+                        <span className="text-[11px] font-bold text-red-600 bg-white border border-red-200 px-2 py-1 rounded-lg shrink-0">
+                          {dias === null ? 'sem data' : `há ${dias} dia${dias !== 1 ? 's' : ''}`}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Para a escola: o que a Regional devolveu e precisa ser corrigido. */}
+        {userRole === 'school_manager' && aguardandoEscola.length > 0 && (
+          <div className="bg-red-50 rounded-2xl border border-red-200 p-5">
+            <div className="flex items-center gap-2 mb-1">
+              <AlertCircle size={17} className="text-red-600" />
+              <h3 className="text-sm font-bold text-red-800">
+                {aguardandoEscola.length === 1 ? '1 processo devolvido' : `${aguardandoEscola.length} processos devolvidos`} pela Regional para correção
+              </h3>
+            </div>
+            <p className="text-xs text-red-700/80 mb-3">
+              Faça as correções indicadas abaixo no SEI e avise a Regional para que o processo volte à fila de atendimento.
+            </p>
+            <div className="space-y-2">
+              {aguardandoEscola.map(p => {
+                const dias = diasDesde(p.correcao_em);
+                return (
+                  <div key={p.id} className="bg-white rounded-xl border border-red-100 p-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-bold text-slate-700 font-mono">SEI {p.sei_number}</span>
+                      {dias !== null && <span className="text-[11px] text-slate-400">devolvido há {dias} dia{dias !== 1 ? 's' : ''}</span>}
+                    </div>
+                    <p className="text-xs text-slate-600 mt-1 whitespace-pre-line">{p.correcao_motivo || 'Motivo não informado — consulte a Regional.'}</p>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -749,7 +866,7 @@ export function PatrimonioProcessos() {
         <div ref={dashboardRef} className="space-y-4 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm">
 
           {/* KPI Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             <div className="bg-gradient-to-br from-indigo-50 to-white rounded-2xl border border-indigo-100 p-5 flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0">
                 <ClipboardList size={22} className="text-indigo-600" />
@@ -799,6 +916,24 @@ export function PatrimonioProcessos() {
                 </div>
               </div>
             </div>
+
+            <div className="bg-gradient-to-br from-red-50 to-white rounded-2xl border border-red-100 p-5 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+                <Undo2 size={22} className="text-red-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-0.5">Aguardando Escola</p>
+                <p className="text-3xl font-bold text-red-600 tabular-nums">{dashboardMetrics.aguardandoEscola}</p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-xs font-bold text-red-400">
+                  {dashboardMetrics.total > 0 ? Math.round((dashboardMetrics.aguardandoEscola / dashboardMetrics.total) * 100) : 0}%
+                </p>
+                <div className="w-14 h-1.5 bg-red-100 rounded-full mt-1.5">
+                  <div className="h-full bg-red-500 rounded-full transition-all duration-700" style={{ width: `${dashboardMetrics.total > 0 ? (dashboardMetrics.aguardandoEscola / dashboardMetrics.total) * 100 : 0}%` }} />
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Charts */}
@@ -823,6 +958,7 @@ export function PatrimonioProcessos() {
                     />
                     <Legend wrapperStyle={{ paddingTop: '12px', fontWeight: 600, fontSize: '11px' }} />
                     <Bar dataKey="Pendentes" stackId="a" fill="#fbbf24" radius={[0, 0, 4, 4]} maxBarSize={44} isAnimationActive={!isExporting} />
+                    <Bar dataKey="Aguardando Escola" stackId="a" fill="#f87171" maxBarSize={44} isAnimationActive={!isExporting} />
                     <Bar dataKey="Concluídos" stackId="a" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={44} isAnimationActive={!isExporting} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -994,6 +1130,16 @@ export function PatrimonioProcessos() {
                           />
                         </div>
                       </div>
+
+                      {p.status === STATUS_CORRECAO && (
+                        <div className="mt-3 flex items-start gap-2 p-2.5 rounded-lg bg-red-50 border border-red-100">
+                          <Undo2 size={13} className="text-red-500 mt-0.5 shrink-0" />
+                          <p className="text-xs text-red-700">
+                            <strong>Devolvido à escola{correcaoHa(p.correcao_em)}:</strong>{' '}
+                            {p.correcao_motivo || 'motivo não informado.'}
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     {/* Status + Actions */}
@@ -1011,7 +1157,7 @@ export function PatrimonioProcessos() {
                         p.status === 'CORREÇÃO' ? 'bg-red-50 text-red-700 border-red-200' :
                         'bg-indigo-50 text-indigo-700 border-indigo-200'
                       }`}>
-                        {p.status}
+                        {statusLabel(p.status)}
                       </span>
 
                       <div className="flex gap-1">
@@ -1504,7 +1650,7 @@ export function PatrimonioProcessos() {
                     <LayoutGrid size={12} /> Status Final
                   </label>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {['RECEBIDO', 'EM APURAÇÃO', 'CONCLUÍDO', 'CORREÇÃO'].map(s => (
+                    {['RECEBIDO', 'EM APURAÇÃO', 'CONCLUÍDO', STATUS_CORRECAO].map(s => (
                       <button
                         key={s}
                         type="button"
@@ -1516,10 +1662,32 @@ export function PatrimonioProcessos() {
                             : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
                         }`}
                       >
-                        {s}
+                        {statusLabel(s)}
                       </button>
                     ))}
                   </div>
+
+                  {formData.status === STATUS_CORRECAO && (
+                    <div className="space-y-1.5 p-4 rounded-xl bg-red-50 border border-red-100">
+                      <label className="text-xs font-semibold text-red-700 uppercase tracking-wider flex items-center gap-1.5">
+                        <Undo2 size={12} /> O que a escola precisa corrigir *
+                      </label>
+                      <textarea
+                        rows={3}
+                        disabled={isReadOnly}
+                        className="w-full px-3 py-2 bg-white border border-red-200 rounded-lg text-sm text-slate-700 outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-300 disabled:bg-slate-50 disabled:cursor-not-allowed"
+                        placeholder="Ex.: falta o termo de doação assinado; nota fiscal ilegível..."
+                        value={formData.correcao_motivo}
+                        onChange={e => setFormData({ ...formData, correcao_motivo: e.target.value })}
+                      />
+                      <p className="text-[11px] text-red-600/80">
+                        Enquanto estiver devolvido, o processo fica fora da fila por antiguidade e conta como "Aguardando Escola". Quando a escola responder, volte o status para Recebido ou Em Apuração.
+                        {editingProcess?.status === STATUS_CORRECAO && editingProcess.correcao_em && (
+                          <> Devolvido em {new Date(editingProcess.correcao_em).toLocaleDateString('pt-BR')}.</>
+                        )}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
 
