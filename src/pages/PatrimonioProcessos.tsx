@@ -30,6 +30,21 @@ function diasDesde(iso: string | null | undefined): number | null {
   return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
 }
 
+// Itens com o mesmo nome compartilham o código BEC (tabela patrimonio_codigos_bec).
+// A chave ignora caixa, acentos e espaços extras para "Cadeira  escolar" e
+// "CADEIRA ESCOLAR" caírem no mesmo código.
+function chaveBec(descricao: string): string {
+  return descricao.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+async function carregarCodigosBec(): Promise<Record<string, string>> {
+  const { data, error } = await (supabase as any).from('patrimonio_codigos_bec').select('descricao_chave, codigo_bec');
+  if (error) throw error;
+  const map: Record<string, string> = {};
+  (data || []).forEach((r: { descricao_chave: string; codigo_bec: string }) => { map[r.descricao_chave] = r.codigo_bec; });
+  return map;
+}
+
 function correcaoHa(iso: string | null | undefined): string {
   const d = diasDesde(iso);
   return d === null ? '' : ` há ${d} dia${d !== 1 ? 's' : ''}`;
@@ -147,6 +162,10 @@ export function PatrimonioProcessos() {
   const [incLoading, setIncLoading] = useState(false);
   const [incSaving, setIncSaving] = useState(false);
   const [incSelecionados, setIncSelecionados] = useState<string[]>([]);
+  // Código BEC por descrição normalizada (chaveBec) + rascunho em edição.
+  const [becMap, setBecMap] = useState<Record<string, string>>({});
+  const [becDrafts, setBecDrafts] = useState<Record<string, string>>({});
+  const [becSaving, setBecSaving] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     school_id: '',
@@ -236,6 +255,8 @@ export function PatrimonioProcessos() {
   async function carregarIncorporacoesDoProcesso(proc: PatrimonioProcess) {
     setIncLoading(true);
     setIncSelecionados([]);
+    setBecDrafts({});
+    carregarCodigosBec().then(setBecMap).catch(e => console.error('Erro ao carregar códigos BEC:', e));
     try {
       const data = await invokePatrimonio('listar_incorporacoes');
       const lista: ItemIncorporar[] = Array.isArray(data) ? data : [];
@@ -250,6 +271,41 @@ export function PatrimonioProcessos() {
       setIncPendentesEscola([]);
     } finally {
       setIncLoading(false);
+    }
+  }
+
+  async function salvarCodigoBec(descricao: string) {
+    const chave = chaveBec(descricao);
+    const rascunho = becDrafts[chave];
+    if (rascunho === undefined) return;
+    const codigo = rascunho.trim();
+    if (codigo === (becMap[chave] || '')) {
+      setBecDrafts(d => { const n = { ...d }; delete n[chave]; return n; });
+      return;
+    }
+    setBecSaving(chave);
+    try {
+      if (codigo) {
+        const { data: { user } } = await supabase.auth.getUser();
+        const { error } = await (supabase as any).from('patrimonio_codigos_bec').upsert({
+          descricao_chave: chave, descricao: descricao.trim(), codigo_bec: codigo,
+          updated_at: new Date().toISOString(), updated_by: user?.id ?? null,
+        });
+        if (error) throw error;
+      } else {
+        const { error } = await (supabase as any).from('patrimonio_codigos_bec').delete().eq('descricao_chave', chave);
+        if (error) throw error;
+      }
+      setBecMap(m => {
+        const n = { ...m };
+        if (codigo) n[chave] = codigo; else delete n[chave];
+        return n;
+      });
+      setBecDrafts(d => { const n = { ...d }; delete n[chave]; return n; });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao salvar o código BEC.');
+    } finally {
+      setBecSaving(null);
     }
   }
 
@@ -284,7 +340,10 @@ export function PatrimonioProcessos() {
     setItensPdfError(null);
     setItensPdfLoading(true);
     try {
-      const data = await invokePatrimonio('listar_incorporacoes');
+      const [data, codigosBec] = await Promise.all([
+        invokePatrimonio('listar_incorporacoes'),
+        carregarCodigosBec().catch(() => ({} as Record<string, string>)),
+      ]);
       const lista: ItemIncorporar[] = Array.isArray(data) ? data : [];
       const itens = lista
         .filter(i => i.processo_incorporacao_id === proc.id)
@@ -316,6 +375,7 @@ export function PatrimonioProcessos() {
       const tableData = itens.map(i => [
         i.orgao_entrega ? `${i.origem_aquisicao} (${i.orgao_entrega})` : (i.origem_aquisicao || '-'),
         i.descricao,
+        codigosBec[chaveBec(i.descricao)] || '-',
         i.quantidade,
         i.data_aquisicao ? new Date(i.data_aquisicao + 'T12:00:00').toLocaleDateString('pt-BR') : '-',
         formatarMoeda(i.valor_item) || '-',
@@ -323,7 +383,7 @@ export function PatrimonioProcessos() {
 
       autoTable(doc, {
         startY: currentY,
-        head: [['Origem', 'Descrição', 'Qtd', 'Data Aquisição', 'Valor Unitário']],
+        head: [['Origem', 'Descrição', 'Código BEC', 'Qtd', 'Data Aquisição', 'Valor Unitário']],
         body: tableData,
         theme: 'grid',
         headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
@@ -1539,12 +1599,33 @@ export function PatrimonioProcessos() {
                         <div className="space-y-2">
                           {incVinculados.length === 0 ? (
                             <p className="text-xs text-slate-400 italic">Nenhum item vinculado a este processo ainda.</p>
-                          ) : incVinculados.map(i => (
-                            <div key={i.id} className="flex items-center gap-3 p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                          ) : incVinculados.map(i => {
+                            const chave = chaveBec(i.descricao);
+                            const codigoBec = becDrafts[chave] ?? becMap[chave] ?? '';
+                            return (
+                            <div key={i.id} className="flex flex-wrap sm:flex-nowrap items-center gap-3 p-3 rounded-xl bg-emerald-50 border border-emerald-100">
                               <CheckCircle2 size={15} className="text-emerald-600 shrink-0" />
                               <div className="flex-1 min-w-0">
                                 <p className="text-xs font-semibold text-slate-700 truncate">{i.descricao}</p>
                                 <p className="text-[11px] text-slate-400">Qtd {i.quantidade}{formatarMoeda(i.valor_item) ? ` · ${formatarMoeda(i.valor_item)}/un` : ''} · {i.status}{i.numero_patrimonial ? ` · nº ${i.numero_patrimonial}` : ''}</p>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0" title="Itens com o mesmo nome compartilham o código BEC">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">BEC</label>
+                                {isAdmin ? (
+                                  <input
+                                    type="text"
+                                    placeholder="Código"
+                                    value={codigoBec}
+                                    disabled={becSaving === chave}
+                                    onChange={e => setBecDrafts(d => ({ ...d, [chave]: e.target.value }))}
+                                    onBlur={() => salvarCodigoBec(i.descricao)}
+                                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                                    className={`w-28 px-2 py-1 text-xs font-mono bg-white border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 disabled:opacity-60 ${codigoBec ? 'border-slate-200' : 'border-amber-300'}`}
+                                  />
+                                ) : (
+                                  <span className={`text-xs font-mono ${codigoBec ? 'text-slate-700' : 'text-slate-400 italic'}`}>{codigoBec || 'não informado'}</span>
+                                )}
+                                {becSaving === chave && <Loader2 size={12} className="animate-spin text-indigo-500" />}
                               </div>
                               {isAdmin && (
                                 <button
@@ -1557,8 +1638,14 @@ export function PatrimonioProcessos() {
                                 </button>
                               )}
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
+                        {incVinculados.length > 0 && (
+                          <p className="text-[11px] text-slate-400">
+                            O código BEC é gravado pelo nome do item: ao informá-lo aqui, ele vale para todos os itens com o mesmo nome, em qualquer processo.
+                          </p>
+                        )}
 
                         {isAdmin && incPendentesEscola.length > 0 && (
                           <div className="border border-slate-100 rounded-xl p-3 bg-slate-50 space-y-2">
