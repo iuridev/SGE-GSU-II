@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
 import { DefesoEleitoralBanner } from '../components/DefesoEleitoralBanner';
+import { FurtoProcessoModal, FURTO_SELECT, furtoPendenteBaixaSam, furtoTemNl, type ProcessoFurto } from '../components/FurtoProcessoModal';
 import {
   Package, Plus, Search, FileText,
   Trash2, Edit, X, Save, Loader2,
@@ -162,6 +163,10 @@ export function PatrimonioProcessos() {
   const [incLoading, setIncLoading] = useState(false);
   const [incSaving, setIncSaving] = useState(false);
   const [incSelecionados, setIncSelecionados] = useState<string[]>([]);
+  // Processos da página de Furtos (tabela processos_furtos) — fonte dos
+  // sinistros; exibidos e atualizáveis aqui pelo FurtoProcessoModal.
+  const [furtos, setFurtos] = useState<ProcessoFurto[]>([]);
+  const [editingFurto, setEditingFurto] = useState<ProcessoFurto | null>(null);
   // Código BEC por descrição normalizada (chaveBec) + rascunho em edição.
   const [becMap, setBecMap] = useState<Record<string, string>>({});
   const [becDrafts, setBecDrafts] = useState<Record<string, string>>({});
@@ -227,8 +232,18 @@ export function PatrimonioProcessos() {
       query = query.eq('school_id', activeSchoolId);
     }
 
-    const { data, error } = await query.order('process_date', { ascending: false });
+    let furtosQuery = (supabase as any).from('processos_furtos').select(FURTO_SELECT);
+    if (activeRole === 'school_manager' && activeSchoolId) {
+      furtosQuery = furtosQuery.eq('escola_id', activeSchoolId);
+    }
+
+    const [{ data, error }, { data: furtosData, error: furtosError }] = await Promise.all([
+      query.order('process_date', { ascending: false }),
+      furtosQuery.order('data_ocorrencia', { ascending: false }),
+    ]);
     if (!error) setProcesses(data || []);
+    if (furtosError) console.error('Erro ao carregar processos de furtos:', furtosError);
+    else setFurtos(furtosData || []);
   }
 
   // Chama a edge function patrimonio-atendimento e desembrulha a mensagem de erro
@@ -438,6 +453,19 @@ export function PatrimonioProcessos() {
       .filter(q => q.items.length > 0);
   }, [pendingQueue]);
 
+  // Furtos concluídos aguardando a baixa no SAM Patrimônio, do que foi
+  // concluído há mais tempo para o mais recente.
+  const filaBaixaSam = useMemo(() => {
+    const ref = (f: ProcessoFurto) => f.data_conclusao || f.updated_at || f.created_at || '';
+    return furtos.filter(furtoPendenteBaixaSam).slice().sort((a, b) => ref(a).localeCompare(ref(b)));
+  }, [furtos]);
+
+  const filaBaixaSamPosicao = useMemo(() => {
+    const map = new Map<string, number>();
+    filaBaixaSam.forEach((f, idx) => map.set(f.id, idx + 1));
+    return map;
+  }, [filaBaixaSam]);
+
   // Posição do processo dentro da fila do seu tipo.
   const queuePositionMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -445,12 +473,28 @@ export function PatrimonioProcessos() {
     return map;
   }, [queuesByType]);
 
+  // Furtos da página de Furtos no formato de processo, só para indicadores,
+  // gráficos e relatório (contam como Sinistros).
+  const furtosComoProcessos = useMemo<PatrimonioProcess[]>(() => furtos.map(f => ({
+    id: `furto:${f.id}`,
+    school_id: f.escola_id,
+    type: 'FURTOS',
+    sei_number: f.numero_sei,
+    process_date: f.data_ocorrencia || (f.created_at || '').slice(0, 10),
+    current_step: f.situacao || '',
+    status: f.situacao === 'Concluído' ? 'CONCLUÍDO' : 'EM APURAÇÃO',
+    subtype: f.tipo_ocorrencia || undefined,
+    created_at: f.created_at || '',
+    schools: f.schools ? { name: f.schools.name } : undefined,
+  })), [furtos]);
+
   const activeProcesses = useMemo(() => {
+    const todos = [...processes, ...furtosComoProcessos];
     if (isExporting && exportTargetSchool !== '') {
-      return processes.filter(p => p.school_id === exportTargetSchool);
+      return todos.filter(p => p.school_id === exportTargetSchool);
     }
-    return processes;
-  }, [processes, isExporting, exportTargetSchool]);
+    return todos;
+  }, [processes, furtosComoProcessos, isExporting, exportTargetSchool]);
 
   const dashboardMetrics = useMemo(() => {
     const total = activeProcesses.length;
@@ -603,6 +647,22 @@ export function PatrimonioProcessos() {
     });
   }, [processes, searchTerm, activeMainTab, activeSubTab]);
 
+  const filteredFurtos = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    const qDigits = q.replace(/\D/g, '');
+    return furtos.filter(f => {
+      if (q) {
+        const sei = (f.numero_sei || '').toLowerCase();
+        return sei.includes(q)
+          || (qDigits.length >= 4 && sei.replace(/\D/g, '').includes(qDigits))
+          || (f.schools?.name || '').toLowerCase().includes(q);
+      }
+      if (activeMainTab !== 'furtos') return false;
+      const concluido = f.situacao === 'Concluído';
+      return activeSubTab === 'concluido' ? concluido : !concluido;
+    });
+  }, [furtos, searchTerm, activeMainTab, activeSubTab]);
+
   const totalSinistroValue = useMemo(() => {
     return sinistroItems.reduce((acc, curr) => acc + (curr.unit_value || 0), 0);
   }, [sinistroItems]);
@@ -612,6 +672,11 @@ export function PatrimonioProcessos() {
 
     if (editingProcess && !isAdmin) {
       setFormError("Apenas usuários com perfil Regional podem atualizar processos.");
+      return;
+    }
+
+    if (!editingProcess && formData.type === 'FURTOS') {
+      setFormError('Novos sinistros (furtos/roubos) devem ser lançados na página de Furtos — eles aparecem aqui automaticamente.');
       return;
     }
 
@@ -822,15 +887,65 @@ export function PatrimonioProcessos() {
               Uma fila para cada tipo de processo, ordenada do mais antigo para o mais recente. Ao ser concluído, o processo sai da fila automaticamente.
             </p>
 
-            {queuesByType.length === 0 ? (
+            {queuesByType.length === 0 && filaBaixaSam.length === 0 ? (
               <p className="text-sm text-slate-400 py-4 text-center">Nenhum processo pendente. Fila vazia.</p>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {filaBaixaSam.length > 0 && (
+                  <div className="rounded-xl border border-slate-100 bg-white">
+                    <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-slate-100">
+                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide truncate" title="Furtos concluídos na página de Furtos, aguardando o registro da baixa no SAM Patrimônio">
+                        Fila de Sinistros — Baixa no SAM
+                      </h4>
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0 text-red-600 bg-red-50">
+                        {filaBaixaSam.length} pendente{filaBaixaSam.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <div className="space-y-2 max-h-72 overflow-y-auto p-2">
+                      {filaBaixaSam.map((f, idx) => {
+                        const dias = diasDesde(f.data_conclusao || f.updated_at);
+                        const isNext = idx === 0;
+                        return (
+                          <div
+                            key={f.id}
+                            className={`flex items-center gap-3 p-3 rounded-xl border ${isNext ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-100'}`}
+                          >
+                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 font-bold text-xs ${isNext ? 'bg-indigo-600 text-white' : 'bg-white text-slate-500 border border-slate-200'}`}>
+                              {idx + 1}º
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-bold text-slate-700 truncate max-w-[10rem]">{f.schools?.name}</span>
+                                <span className="text-xs text-slate-400 font-mono">SEI {f.numero_sei}</span>
+                                {isNext && (
+                                  <span className="text-[10px] font-bold text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded-full uppercase tracking-wide">
+                                    Próximo
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-slate-400 mt-0.5">
+                                {f.tipo_ocorrencia} · {(Number(f.valor_total) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}{dias !== null ? ` · concluído há ${dias} dia${dias !== 1 ? 's' : ''}` : ''}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setEditingFurto(f)}
+                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-lg transition-all shrink-0"
+                              title={isAdmin ? 'Editar / atualizar processo' : 'Visualizar processo'}
+                            >
+                              {isAdmin ? <Edit size={16} /> : <Eye size={16} />}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 {queuesByType.map(({ type, items }) => (
                   <div key={type.id} className="rounded-xl border border-slate-100 bg-white">
                     <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-slate-100">
                       <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide truncate">
-                        Fila de {type.label}
+                        Fila de {type.label}{type.id === 'FURTOS' ? ' (lançamentos antigos)' : ''}
                       </h4>
                       <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0 ${type.color}`}>
                         {items.length} pendente{items.length !== 1 ? 's' : ''}
@@ -862,6 +977,14 @@ export function PatrimonioProcessos() {
                                 {p.type === 'FURTOS' ? `${p.subtype} · ` : ''}aguardando há {daysWaiting} dia{daysWaiting !== 1 ? 's' : ''}
                               </p>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => openModal(p)}
+                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-lg transition-all shrink-0"
+                              title={isAdmin ? 'Editar / atualizar processo' : 'Visualizar processo'}
+                            >
+                              {isAdmin ? <Edit size={16} /> : <Eye size={16} />}
+                            </button>
                           </div>
                         );
                       })}
@@ -1139,7 +1262,7 @@ export function PatrimonioProcessos() {
             <Loader2 className="animate-spin text-indigo-500" size={36} />
             <p className="text-sm font-medium text-slate-400">Consultando fluxos...</p>
           </div>
-        ) : filteredProcesses.length === 0 ? (
+        ) : filteredProcesses.length === 0 && filteredFurtos.length === 0 ? (
           <div className="py-20 bg-white rounded-2xl border-2 border-dashed border-slate-200 text-center flex flex-col items-center justify-center gap-3">
             <div className="w-14 h-14 bg-slate-100 text-slate-300 rounded-2xl flex items-center justify-center">
               <ClipboardList size={28} />
@@ -1189,6 +1312,11 @@ export function PatrimonioProcessos() {
                         <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg border ${catColor.bg} ${catColor.text} ${catColor.border}`}>
                           {p.type === 'FURTOS' ? p.subtype : typeInfo?.label}
                         </span>
+                        {p.type === 'FURTOS' && (
+                          <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400 border border-slate-200 px-2 py-0.5 rounded-full" title="Sinistro lançado nesta página antes do vínculo com a página de Furtos">
+                            Lançamento antigo
+                          </span>
+                        )}
                         <span className="text-xs text-slate-400 flex items-center gap-1 ml-auto sm:ml-0">
                           <Calendar size={12} className="text-indigo-400" />
                           {new Date(p.process_date + 'T12:00:00').toLocaleDateString('pt-BR')}
@@ -1260,6 +1388,76 @@ export function PatrimonioProcessos() {
                           </button>
                         )}
                       </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {filteredFurtos.map(f => {
+              const concluido = f.situacao === 'Concluído';
+              const posicao = filaBaixaSamPosicao.get(f.id);
+              const baixa = !(Number(f.valor_total) > 0) || !concluido
+                ? null
+                : furtoTemNl(f)
+                ? { label: `NL ${f.nl_baixa}`, cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+                : f.numero_baixa_sam
+                ? { label: 'NL pendente no SEAFIN', cls: 'bg-amber-50 text-amber-700 border-amber-200' }
+                : { label: 'Baixa SAM pendente', cls: 'bg-indigo-50 text-indigo-700 border-indigo-200' };
+              return (
+                <div key={`furto-${f.id}`} className="bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md hover:border-red-100 transition-all overflow-hidden">
+                  <div className={`h-0.5 w-full ${concluido ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                  <div className="p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+                    <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${concluido ? 'bg-emerald-50' : 'bg-red-50'}`}>
+                      <ShieldAlert size={20} className={concluido ? 'text-emerald-600' : 'text-red-600'} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                        <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg truncate max-w-xs">
+                          {f.schools?.name}
+                        </span>
+                        <span className="text-xs font-semibold px-2.5 py-1 rounded-lg border bg-red-50 text-red-700 border-red-200">
+                          {f.tipo_ocorrencia || 'Sinistro'}
+                        </span>
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400 border border-slate-200 px-2 py-0.5 rounded-full" title="Processo cadastrado na página de Furtos">
+                          Página de Furtos
+                        </span>
+                        {f.data_ocorrencia && (
+                          <span className="text-xs text-slate-400 flex items-center gap-1 ml-auto sm:ml-0">
+                            <Calendar size={12} className="text-indigo-400" />
+                            {new Date(f.data_ocorrencia + 'T12:00:00').toLocaleDateString('pt-BR')}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-base font-bold text-slate-800 font-mono tracking-tight">SEI {f.numero_sei}</p>
+                      <p className="text-xs text-slate-500 mt-1.5">
+                        {f.status || 'NÃO INSTAURADO'} · prejuízo {(Number(f.valor_total) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        {f.numero_bo ? ` · B.O. ${f.numero_bo}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+                      {showQueue && posicao && (
+                        <span className="px-2.5 py-1.5 rounded-lg font-bold text-xs bg-slate-900 text-white shrink-0" title="Posição na fila de baixa no SAM">
+                          {posicao}º na fila
+                        </span>
+                      )}
+                      {baixa && (
+                        <span className={`px-3 py-1.5 rounded-lg font-semibold text-xs border ${baixa.cls}`}>{baixa.label}</span>
+                      )}
+                      <span className={`px-3 py-1.5 rounded-lg font-semibold text-xs border ${
+                        concluido ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : f.situacao === 'Em Apuração' ? 'bg-amber-50 text-amber-700 border-amber-200'
+                        : 'bg-blue-50 text-blue-700 border-blue-200'
+                      }`}>
+                        {(f.situacao || 'Em Análise').toUpperCase()}
+                      </span>
+                      <button
+                        onClick={() => setEditingFurto(f)}
+                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                        title={isAdmin ? 'Editar Processo' : 'Visualizar Processo'}
+                      >
+                        {isAdmin ? <Edit size={16} /> : <Eye size={16} />}
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1423,6 +1621,18 @@ export function PatrimonioProcessos() {
       )}
 
       {/* ── PROCESS MODAL ─────────────────────────────────────────── */}
+      {editingFurto && (
+        <FurtoProcessoModal
+          furto={editingFurto}
+          readOnly={!isAdmin}
+          onClose={() => setEditingFurto(null)}
+          onSaved={f => {
+            setFurtos(prev => prev.map(x => x.id === f.id ? f : x));
+            setEditingFurto(null);
+          }}
+        />
+      )}
+
       {isModalOpen && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4">
           <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[95vh] shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col overflow-hidden border border-slate-100">
@@ -1478,7 +1688,7 @@ export function PatrimonioProcessos() {
                       <ClipboardList size={12} /> Tipo de Fluxo
                     </label>
                     <select required disabled={isReadOnly} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:border-indigo-400 disabled:opacity-50 transition-all" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}>
-                      {PROCESS_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                      {PROCESS_TYPES.filter(t => editingProcess || t.id !== 'FURTOS').map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1.5">
