@@ -24,6 +24,7 @@ const RESPOSTAS_COLUMNS = [
   'confirmado', 'confirmado_por', 'confirmado_em', 'termo_texto',
   'atendimento', 'atendimento_motivo', 'atendimento_por', 'atendimento_em',
   'atend_cja05_carteiras', 'atend_cja05_cadeiras', 'atend_cja06_carteiras', 'atend_cja06_cadeiras',
+  'secomse_enviado_em', 'secomse_registrado_por',
 ]
 const CAMPOS_QTD = ['cja05_carteiras', 'cja05_cadeiras', 'cja06_carteiras', 'cja06_cadeiras']
 const ROTULO_QTD: Record<string, string> = {
@@ -508,6 +509,42 @@ Deno.serve(async (req) => {
           autor_id: user.id,
           autor_nome: autorNome,
           data_hora: agora,
+        })
+
+        return ok(corsHeaders, { success: true })
+      }
+
+      // Registra quando a escola foi enviada à SECOMSE para contratar o
+      // transporte. enviado_em vazio = desfaz (ainda não enviada).
+      case 'definir_envio_secomse': {
+        exigirRegionalAdmin(p)
+        if (!body.id) throw new Error('Resposta não informada.')
+        const enviadoEm = String(body.enviado_em ?? '')
+        if (enviadoEm && isNaN(new Date(enviadoEm).getTime())) throw new Error('Data/hora de envio inválida.')
+
+        const sheet = await getOrCreateSheet(doc, RESPOSTAS_SHEET, RESPOSTAS_COLUMNS)
+        const rows = await sheet.getRows()
+        const row = rows.find((r: any) => r.get('id') === String(body.id))
+        if (!row) throw new Error('Resposta não encontrada.')
+
+        const dadosAntes = { secomse_enviado_em: row.get('secomse_enviado_em') ?? '' }
+        const dadosDepois = { secomse_enviado_em: enviadoEm }
+        row.set('secomse_enviado_em', enviadoEm)
+        row.set('secomse_registrado_por', enviadoEm ? autorNome : '')
+        await row.save()
+
+        const historicoSheet = await getOrCreateSheet(doc, HISTORICO_SHEET, HISTORICO_COLUMNS)
+        await historicoSheet.addRow({
+          id: crypto.randomUUID(),
+          resposta_id: row.get('id'),
+          escola_id: row.get('escola_id'),
+          escola_nome: row.get('escola_nome') ?? '',
+          acao: 'secomse',
+          dados_antes: JSON.stringify(dadosAntes),
+          dados_depois: JSON.stringify(dadosDepois),
+          autor_id: user.id,
+          autor_nome: autorNome,
+          data_hora: new Date().toISOString(),
         })
 
         return ok(corsHeaders, { success: true })

@@ -66,6 +66,8 @@ interface Resposta {
   atend_cja05_cadeiras: string;
   atend_cja06_carteiras: string;
   atend_cja06_cadeiras: string;
+  secomse_enviado_em: string;
+  secomse_registrado_por: string;
 }
 
 interface HistoricoItem {
@@ -300,6 +302,9 @@ export default function ReformaFunap() {
 
   const [logisticaEdits, setLogisticaEdits] = useState<Record<string, { transporte: string; data_prevista_transporte: string; quantidade_viagens: string }>>({});
   const [savingLogisticaId, setSavingLogisticaId] = useState<string | null>(null);
+  // Escola com o campo de data/hora de envio à SECOMSE aberto para edição.
+  const [envioSecomseEdit, setEnvioSecomseEdit] = useState<{ id: string; valor: string } | null>(null);
+  const [savingEnvioId, setSavingEnvioId] = useState<string | null>(null);
 
   const [cja05ImgOk, setCja05ImgOk] = useState(true);
   const [cja06ImgOk, setCja06ImgOk] = useState(true);
@@ -594,6 +599,22 @@ export default function ReformaFunap() {
 
   const setLogisticaField = (resposta: Resposta, field: 'transporte' | 'data_prevista_transporte' | 'quantidade_viagens', value: string) => {
     setLogisticaEdits(prev => ({ ...prev, [resposta.id]: { ...getLogisticaEdit(resposta), [field]: value } }));
+  };
+
+  const handleDefinirEnvioSecomse = async (resposta: Resposta, enviadoEmLocal: string) => {
+    setSavingEnvioId(resposta.id);
+    try {
+      await invoke('definir_envio_secomse', {
+        id: resposta.id,
+        enviado_em: enviadoEmLocal ? new Date(enviadoEmLocal).toISOString() : '',
+      });
+      await fetchRespostas();
+      setEnvioSecomseEdit(null);
+    } catch (e: any) {
+      alert('Erro ao registrar envio à SECOMSE: ' + e.message);
+    } finally {
+      setSavingEnvioId(null);
+    }
   };
 
   const handleSalvarLogistica = async (resposta: Resposta) => {
@@ -964,6 +985,11 @@ export default function ReformaFunap() {
     if (item.acao === 'criacao') {
       const resumo = Object.entries(depois).map(([k, v]) => `${CAMPO_LABEL[k] || k}: ${v}`).join(', ');
       return `Preencheu pela primeira vez — ${resumo}`;
+    }
+    if (item.acao === 'secomse') {
+      return depois.secomse_enviado_em
+        ? `Registrou o envio à SECOMSE (contratação do transporte) em ${formatDateTime(depois.secomse_enviado_em)}`
+        : 'Desfez o registro de envio à SECOMSE';
     }
     if (item.acao === 'atendimento') {
       const situacao = ATENDIMENTO_LABEL[depois.atendimento ?? ''] ?? depois.atendimento;
@@ -1661,6 +1687,21 @@ export default function ReformaFunap() {
                   {' '}Aparecem aqui só as escolas marcadas como atendidas na aba Respostas, com a quantidade que a FUNAP vai atender.
                   {contagemAtendimento.aDecidir > 0 && ` Ainda há ${contagemAtendimento.aDecidir} escola(s) com atendimento a decidir.`}
                 </p>
+                {respostasAtendidas.length > 0 && (() => {
+                  const enviadas = respostasAtendidas.filter(r => r.secomse_enviado_em).length;
+                  const faltam = respostasAtendidas.length - enviadas;
+                  return (
+                    <div className={`mb-3 text-xs rounded-lg border px-3 py-2 flex items-center gap-2 ${
+                      faltam === 0 ? 'bg-teal-50 border-teal-200 text-teal-700' : 'bg-amber-50 border-amber-200 text-amber-700'
+                    }`}>
+                      <Send size={14} className="shrink-0" />
+                      <span>
+                        Enviadas à SECOMSE para contratar o transporte: <strong>{enviadas} de {respostasAtendidas.length}</strong>
+                        {faltam > 0 && ` — faltam ${faltam}.`}
+                      </span>
+                    </div>
+                  );
+                })()}
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
@@ -1673,6 +1714,7 @@ export default function ReformaFunap() {
                         <th className="text-left p-2">Qtd. Viagens</th>
                         <th className="text-left p-2">Atualizado por</th>
                         <th className="text-left p-2"></th>
+                        <th className="text-left p-2">Envio SECOMSE</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1737,12 +1779,72 @@ export default function ReformaFunap() {
                                 Salvar
                               </button>
                             </td>
+                            <td className="p-2 min-w-[200px]">
+                              {savingEnvioId === resposta.id ? (
+                                <Loader2 size={14} className="animate-spin text-teal-600" />
+                              ) : envioSecomseEdit?.id === resposta.id ? (
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="datetime-local"
+                                    value={envioSecomseEdit.valor}
+                                    onChange={e => setEnvioSecomseEdit({ id: resposta.id, valor: e.target.value })}
+                                    className="p-1.5 border border-slate-200 rounded-lg text-xs"
+                                  />
+                                  <button
+                                    onClick={() => handleDefinirEnvioSecomse(resposta, envioSecomseEdit.valor)}
+                                    disabled={!envioSecomseEdit.valor}
+                                    title="Salvar"
+                                    className="p-1 text-teal-600 hover:text-teal-800 disabled:text-slate-300"
+                                  >
+                                    <Save size={14} />
+                                  </button>
+                                  <button
+                                    onClick={() => setEnvioSecomseEdit(null)}
+                                    title="Cancelar"
+                                    className="p-1 text-slate-400 hover:text-slate-600"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </div>
+                              ) : resposta.secomse_enviado_em ? (
+                                <div>
+                                  <span className="inline-flex items-center gap-1 text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full text-xs font-medium">
+                                    <Send size={11} /> Enviado
+                                  </span>
+                                  <p className="text-xs text-slate-600 mt-0.5">{formatDateTime(resposta.secomse_enviado_em)}</p>
+                                  <p className="text-[11px] text-slate-400">por {resposta.secomse_registrado_por}</p>
+                                  <div className="flex gap-2 mt-0.5">
+                                    <button
+                                      onClick={() => setEnvioSecomseEdit({ id: resposta.id, valor: toDatetimeLocal(resposta.secomse_enviado_em) })}
+                                      className="text-[11px] text-teal-600 hover:underline"
+                                    >
+                                      Editar
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        if (confirm(`Desfazer o envio à SECOMSE de "${resposta.escola_nome}"?`)) handleDefinirEnvioSecomse(resposta, '');
+                                      }}
+                                      className="text-[11px] text-slate-500 hover:underline"
+                                    >
+                                      Desfazer
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => setEnvioSecomseEdit({ id: resposta.id, valor: toDatetimeLocal(new Date().toISOString()) })}
+                                  className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-700 border border-amber-200 bg-amber-50 rounded-lg hover:bg-amber-100"
+                                >
+                                  <Send size={12} /> Marcar como enviado
+                                </button>
+                              )}
+                            </td>
                           </tr>
                         );
                       })}
                       {respostasAtendidas.length === 0 && (
                         <tr>
-                          <td colSpan={8} className="p-6 text-center text-slate-400 text-sm">Nenhuma escola marcada como atendida ainda.</td>
+                          <td colSpan={9} className="p-6 text-center text-slate-400 text-sm">Nenhuma escola marcada como atendida ainda.</td>
                         </tr>
                       )}
                     </tbody>
