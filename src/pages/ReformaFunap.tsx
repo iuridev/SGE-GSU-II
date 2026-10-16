@@ -176,7 +176,13 @@ function formatDateTime(d?: string | null): string {
 // só quando ainda não está escrito, pra não duplicar.
 function formatEndereco(address?: string | null): string {
   if (!address) return '-';
-  return /guarulhos/i.test(address) ? address : `${address}, Guarulhos - SP`;
+  // schools.address vem separado por tabulação (logradouro⇥número⇥bairro). O
+  // jsPDF não quebra linha em \t e cortava o endereço no PDF — vira texto normal.
+  const partes = address.split(/\t+/).map(p => p.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const texto = partes.length === 3
+    ? `${partes[0]}, ${partes[1]} - ${partes[2]}`
+    : partes.join(', ');
+  return /guarulhos/i.test(texto) ? texto : `${texto}, Guarulhos - SP`;
 }
 
 const MESES = [
@@ -893,7 +899,7 @@ export default function ReformaFunap() {
         theme: 'grid',
         headStyles: { fillColor: [13, 148, 136], textColor: 255, fontStyle: 'bold' },
         styles: { fontSize: 7.5, cellPadding: 2.5 },
-        columnStyles: { 3: { cellWidth: 55 } },
+        columnStyles: { 3: { cellWidth: 65 } },
         alternateRowStyles: { fillColor: [248, 250, 252] },
         margin: { top: TIMBRADO_HEADER_H + 6, bottom: TIMBRADO_FOOTER_H + 6 },
       });
