@@ -116,6 +116,11 @@ const PROCESS_TYPES = [
   { id: 'FURTOS', label: 'Sinistros (Furtos/Roubos)', category: 'furtos', color: 'text-red-600 bg-red-50' },
 ];
 
+// Tipos que não aceitam novo lançamento aqui (continuam existindo para exibir
+// processos antigos): sinistros vêm da página de Furtos e os "Doação PDDE"
+// eram, na verdade, Doação de Material Permanente.
+const TIPOS_SEM_NOVO_LANCAMENTO = ['FURTOS', 'DOACAO_PDDE'];
+
 const WORKFLOWS: Record<string, string[]> = {
   'DOACAO_MAT_PERMANENTE': ["FILA DE ATENDIMENTO", "ANÁLISE SEFISC", "AUTORIZAÇÃO SEOM", "DESPACHO DO COORDENADOR GERAL - DIRIGENTE", "SIAFEM CONTÁBIL", "INCORPORAÇÃO SAM PATRIMÔNIO", "CONCLUÍDO"],
   'DOACAO_PDDE': ["RECEBIDO NO SEI", "ANÁLISE DO SEFISC", "DEVOLVIDO PARA CORREÇÃO", "DOE", "REGISTRO NO SAM", "REGISTRO NÚMERO PATRIMÔNIO"],
@@ -174,7 +179,7 @@ export function PatrimonioProcessos() {
 
   const [formData, setFormData] = useState({
     school_id: '',
-    type: 'DOACAO_PDDE',
+    type: 'DOACAO_MAT_PERMANENTE',
     sei_number: '',
     process_date: new Date().toISOString().split('T')[0],
     current_step: '',
@@ -780,10 +785,10 @@ export function PatrimonioProcessos() {
       setIncSelecionados([]);
       setFormData({
         school_id: isAdmin ? '' : (userSchoolId || ''),
-        type: 'DOACAO_PDDE',
+        type: 'DOACAO_MAT_PERMANENTE',
         sei_number: '',
         process_date: new Date().toISOString().split('T')[0],
-        current_step: WORKFLOWS['DOACAO_PDDE'][0],
+        current_step: WORKFLOWS['DOACAO_MAT_PERMANENTE'][0],
         status: 'RECEBIDO',
         occurrence_date: '',
         bulletin_number: '',
@@ -1688,7 +1693,7 @@ export function PatrimonioProcessos() {
                       <ClipboardList size={12} /> Tipo de Fluxo
                     </label>
                     <select required disabled={isReadOnly} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:border-indigo-400 disabled:opacity-50 transition-all" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}>
-                      {PROCESS_TYPES.filter(t => editingProcess || t.id !== 'FURTOS').map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                      {PROCESS_TYPES.filter(t => editingProcess || !TIPOS_SEM_NOVO_LANCAMENTO.includes(t.id)).map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1.5">
