@@ -26,12 +26,25 @@ const RESPOSTAS_COLUMNS = [
   'atend_cja05_carteiras', 'atend_cja05_cadeiras', 'atend_cja06_carteiras', 'atend_cja06_cadeiras',
 ]
 const CAMPOS_QTD = ['cja05_carteiras', 'cja05_cadeiras', 'cja06_carteiras', 'cja06_cadeiras']
+const ROTULO_QTD: Record<string, string> = {
+  cja05_carteiras: 'Carteiras CJA-05',
+  cja05_cadeiras: 'Cadeiras CJA-05',
+  cja06_carteiras: 'Carteiras CJA-06',
+  cja06_cadeiras: 'Cadeiras CJA-06',
+}
 const HISTORICO_COLUMNS = [
   'id', 'resposta_id', 'escola_id', 'escola_nome', 'acao',
   'dados_antes', 'dados_depois', 'autor_id', 'autor_nome', 'data_hora',
 ]
 const JANELA_COLUMNS = [
   'id', 'data_inicio', 'data_fim', 'ativo', 'autor_id', 'autor_nome', 'data_registro',
+]
+// Capacidade informada pela FUNAP. Cada edição vira uma linha nova (a última
+// vale) — mesmo padrão da Janela, para manter o histórico de alterações.
+const CAPACIDADE_SHEET = 'Reforma_FUNAP_Capacidade'
+const CAPACIDADE_COLUMNS = [
+  'id', 'cja05_carteiras', 'cja05_cadeiras', 'cja06_carteiras', 'cja06_cadeiras',
+  'observacao', 'autor_id', 'autor_nome', 'data_registro',
 ]
 
 type Profile = { role: string; school_id: string | null; full_name: string | null }
@@ -118,6 +131,13 @@ async function getJanelaAtual(doc: any) {
   return rowToObject(last, JANELA_COLUMNS)
 }
 
+async function getCapacidadeAtual(doc: any) {
+  const sheet = await getOrCreateSheet(doc, CAPACIDADE_SHEET, CAPACIDADE_COLUMNS)
+  const rows = await sheet.getRows()
+  if (rows.length === 0) return null
+  return rowToObject(rows[rows.length - 1], CAPACIDADE_COLUMNS)
+}
+
 function janelaEstaAberta(janela: any): { aberta: boolean; motivo?: string } {
   if (!janela) return { aberta: false, motivo: 'Nenhum prazo de preenchimento foi configurado ainda.' }
   if (janela.ativo !== 'TRUE') return { aberta: false, motivo: 'O prazo de preenchimento está desativado.' }
@@ -168,6 +188,34 @@ Deno.serve(async (req) => {
     const doc = await getDoc()
 
     switch (action) {
+      case 'obter_capacidade': {
+        if (p.role === 'school_manager') throw new Error('Seu perfil não tem acesso a esta informação.')
+        const sheet = await getOrCreateSheet(doc, CAPACIDADE_SHEET, CAPACIDADE_COLUMNS)
+        const rows = await sheet.getRows()
+        const historico = rows.map((r: any) => rowToObject(r, CAPACIDADE_COLUMNS)).reverse()
+        return ok(corsHeaders, { capacidade: historico[0] || null, historico })
+      }
+
+      case 'definir_capacidade': {
+        exigirRegionalAdmin(p)
+        const valores: Record<string, string> = {}
+        for (const campo of CAMPOS_QTD) {
+          const v = Number(body[campo] ?? 0)
+          if (!Number.isInteger(v) || v < 0) throw new Error('As quantidades da capacidade devem ser números inteiros não negativos.')
+          valores[campo] = String(v)
+        }
+        const sheet = await getOrCreateSheet(doc, CAPACIDADE_SHEET, CAPACIDADE_COLUMNS)
+        await sheet.addRow({
+          id: crypto.randomUUID(),
+          ...valores,
+          observacao: String(body.observacao ?? '').trim(),
+          autor_id: user.id,
+          autor_nome: autorNome,
+          data_registro: new Date().toISOString(),
+        })
+        return ok(corsHeaders, { success: true })
+      }
+
       case 'obter_janela': {
         const janela = await getJanelaAtual(doc)
         return ok(corsHeaders, { janela, status: janelaEstaAberta(janela) })
@@ -414,6 +462,23 @@ Deno.serve(async (req) => {
         }
         if (atendimento === 'ATENDIDA' && Object.values(quantidades).every(v => Number(v) === 0)) {
           throw new Error('Informe ao menos um item a ser atendido (ou marque como não atendida).')
+        }
+
+        // Não deixa passar do saldo da capacidade FUNAP (se cadastrada): soma o
+        // já atendido nas outras escolas + o que está sendo atendido nesta.
+        if (atendimento === 'ATENDIDA') {
+          const capacidade = await getCapacidadeAtual(doc)
+          if (capacidade) {
+            for (const campo of CAMPOS_QTD) {
+              const outras = rows
+                .filter((r: any) => r.get('id') !== String(body.id) && r.get('atendimento') === 'ATENDIDA')
+                .reduce((acc: number, r: any) => acc + Number(r.get(`atend_${campo}`) || 0), 0)
+              const saldo = Number(capacidade[campo] || 0) - outras
+              if (Number(quantidades[`atend_${campo}`]) > saldo) {
+                throw new Error(`Saldo FUNAP insuficiente em ${ROTULO_QTD[campo]}: disponível ${Math.max(0, saldo)}.`)
+              }
+            }
+          }
         }
 
         const dadosAntes: Record<string, string> = {

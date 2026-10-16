@@ -10,7 +10,7 @@ import {
   Wrench, Clock, RefreshCw, Save, CheckCircle2, AlertTriangle, History,
   FileDown, FileSpreadsheet, Image as ImageIcon, Upload, Truck, Calendar,
   Users, X, Loader2, Search, ExternalLink, FileCheck, ClipboardList, Send,
-  ThumbsUp, Ban, Undo2,
+  ThumbsUp, Ban, Undo2, Package, Pencil,
 } from 'lucide-react';
 import {
   BarChart, Bar, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend,
@@ -78,6 +78,17 @@ interface HistoricoItem {
   dados_depois: string;
   autor_nome: string;
   data_hora: string;
+}
+
+interface Capacidade {
+  id: string;
+  cja05_carteiras: string;
+  cja05_cadeiras: string;
+  cja06_carteiras: string;
+  cja06_cadeiras: string;
+  observacao: string;
+  autor_nome: string;
+  data_registro: string;
 }
 
 interface EscolaOption {
@@ -270,6 +281,10 @@ export default function ReformaFunap() {
   const [filtroAtendimento, setFiltroAtendimento] = useState<FiltroAtendimento>('todos');
   const [savingAtendimentoId, setSavingAtendimentoId] = useState<string | null>(null);
   const [atendimentoModal, setAtendimentoModal] = useState<AtendimentoModal | null>(null);
+  const [capacidade, setCapacidade] = useState<Capacidade | null>(null);
+  const [capacidadeHistorico, setCapacidadeHistorico] = useState<Capacidade[]>([]);
+  const [capacidadeModal, setCapacidadeModal] = useState<{ qtd: Record<CampoQtd, string>; observacao: string } | null>(null);
+  const [savingCapacidade, setSavingCapacidade] = useState(false);
 
   const [form, setForm] = useState(FORM_INITIAL);
   const [janelaForm, setJanelaForm] = useState({ data_inicio: '', data_fim: '', ativo: true });
@@ -319,6 +334,7 @@ export default function ReformaFunap() {
     fetchJanela();
     fetchRespostas();
     if (isAdmin) { fetchJanelas(); fetchLinkPlanilha(); }
+    if (isAdmin || isReadOnlyViewer) fetchCapacidade();
     if (isSchoolManager) setActiveTab('preencher');
     else if (isAdmin || isReadOnlyViewer) setActiveTab('respostas');
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -430,6 +446,40 @@ export default function ReformaFunap() {
       setPlanilhaUrl(data?.url || null);
     } catch (e) {
       console.error('Erro ao obter link da planilha:', e);
+    }
+  };
+
+  const fetchCapacidade = async () => {
+    try {
+      const data = await invoke('obter_capacidade');
+      setCapacidade(data?.capacidade || null);
+      setCapacidadeHistorico(Array.isArray(data?.historico) ? data.historico : []);
+    } catch (e) {
+      console.error('Erro ao carregar capacidade FUNAP:', e);
+    }
+  };
+
+  const abrirModalCapacidade = () => {
+    setCapacidadeModal({
+      qtd: Object.fromEntries(CAMPOS_QTD.map(c => [c, capacidade?.[c] || ''])) as Record<CampoQtd, string>,
+      observacao: '',
+    });
+  };
+
+  const handleSalvarCapacidade = async () => {
+    if (!capacidadeModal) return;
+    setSavingCapacidade(true);
+    try {
+      await invoke('definir_capacidade', {
+        ...Object.fromEntries(CAMPOS_QTD.map(c => [c, Number(capacidadeModal.qtd[c] || 0)])),
+        observacao: capacidadeModal.observacao,
+      });
+      await fetchCapacidade();
+      setCapacidadeModal(null);
+    } catch (e: any) {
+      alert('Erro ao salvar capacidade: ' + e.message);
+    } finally {
+      setSavingCapacidade(false);
     }
   };
 
@@ -560,8 +610,9 @@ export default function ReformaFunap() {
 
   const abrirModalAtendimento = (resposta: Resposta, tipo: 'ATENDIDA' | 'NAO_ATENDIDA') => {
     const jaAtendida = resposta.atendimento === 'ATENDIDA';
+    // Novo atendimento já sugere o máximo possível: o solicitado, limitado ao saldo.
     const qtd = Object.fromEntries(CAMPOS_QTD.map(c => [
-      c, jaAtendida ? (resposta[`atend_${c}`] || '0') : (resposta[c] || '0'),
+      c, jaAtendida ? (resposta[`atend_${c}`] || '0') : String(maximoAtendivel(resposta, c)),
     ])) as Record<CampoQtd, string>;
     setAtendimentoModal({
       resposta,
@@ -649,6 +700,29 @@ export default function ReformaFunap() {
 
   const totalRespondido = respostas.length;
   const totalPendente = Math.max(0, escolas.length - totalRespondido);
+
+  // Saldo da capacidade FUNAP por item: capacidade − soma do atendido nas escolas.
+  const saldoFunap = useMemo(() => {
+    if (!capacidade) return null;
+    return Object.fromEntries(CAMPOS_QTD.map(c => {
+      const total = Number(capacidade[c] || 0);
+      const atendido = respostas
+        .filter(r => r.atendimento === 'ATENDIDA')
+        .reduce((acc, r) => acc + Number(r[`atend_${c}`] || 0), 0);
+      return [c, { capacidade: total, atendido, saldo: total - atendido }];
+    })) as Record<CampoQtd, { capacidade: number; atendido: number; saldo: number }>;
+  }, [capacidade, respostas]);
+
+  // Saldo disponível para esta escola: o saldo geral + o que ela mesma já ocupa
+  // (ao editar, a quantidade atual dela volta para o saldo).
+  const saldoDisponivelPara = (resposta: Resposta, campo: CampoQtd) => {
+    if (!saldoFunap) return Infinity;
+    const proprio = resposta.atendimento === 'ATENDIDA' ? Number(resposta[`atend_${campo}`] || 0) : 0;
+    return Math.max(0, saldoFunap[campo].saldo + proprio);
+  };
+
+  const maximoAtendivel = (resposta: Resposta, campo: CampoQtd) =>
+    Math.min(Number(resposta[campo] || 0), saldoDisponivelPara(resposta, campo));
 
   const contagemAtendimento = useMemo(() => {
     const comItens = respostas.filter(r => totalItens(r) > 0);
@@ -949,7 +1023,11 @@ export default function ReformaFunap() {
         </div>
         <div className="flex gap-2 flex-wrap">
           <button
-            onClick={() => { fetchJanela(); fetchRespostas(); if (isAdmin) { fetchJanelas(); fetchLinkPlanilha(); } }}
+            onClick={() => {
+              fetchJanela(); fetchRespostas();
+              if (isAdmin) { fetchJanelas(); fetchLinkPlanilha(); }
+              if (isAdmin || isReadOnlyViewer) fetchCapacidade();
+            }}
             className="flex items-center gap-2 px-3 py-2 text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-sm"
           >
             <RefreshCw size={16} />
@@ -1202,6 +1280,66 @@ export default function ReformaFunap() {
           {/* Aba: Respostas */}
           {activeTab === 'respostas' && (isAdmin || isReadOnlyViewer) && (
             <div className="space-y-4">
+              {/* Capacidade FUNAP e saldo */}
+              <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+                <div className="flex items-start justify-between flex-wrap gap-2 mb-3">
+                  <div>
+                    <p className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                      <Package size={16} className="text-teal-600" /> Capacidade de atendimento FUNAP
+                    </p>
+                    {capacidade ? (
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Cadastrada por {capacidade.autor_nome} em {formatDateTime(capacidade.data_registro)}
+                        {capacidade.observacao && ` — ${capacidade.observacao}`}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Ainda não cadastrada — sem ela não há controle de saldo ao atender as escolas.
+                      </p>
+                    )}
+                  </div>
+                  {isAdmin && (
+                    <button
+                      onClick={abrirModalCapacidade}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-teal-700 border border-teal-200 bg-teal-50 rounded-lg hover:bg-teal-100"
+                    >
+                      <Pencil size={13} /> {capacidade ? 'Editar capacidade' : 'Cadastrar capacidade'}
+                    </button>
+                  )}
+                </div>
+                {saldoFunap && (
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    {CAMPOS_QTD.map(c => {
+                      const s = saldoFunap[c];
+                      const pct = s.capacidade > 0 ? Math.min(100, (s.atendido / s.capacidade) * 100) : 0;
+                      return (
+                        <div key={c} className={`rounded-lg border p-3 ${c.startsWith('cja05') ? 'border-emerald-200' : 'border-blue-200'}`}>
+                          <p className="text-xs font-semibold text-slate-600">{CAMPO_LABEL[c]}</p>
+                          <p className={`text-2xl font-bold mt-1 ${s.saldo < 0 ? 'text-red-600' : s.saldo === 0 ? 'text-slate-400' : 'text-teal-600'}`}>
+                            {s.saldo}
+                            <span className="text-xs font-normal text-slate-400"> de saldo</span>
+                          </p>
+                          <div className="h-1.5 bg-slate-100 rounded-full mt-2 overflow-hidden">
+                            <div
+                              className={`h-full ${s.saldo < 0 ? 'bg-red-500' : c.startsWith('cja05') ? 'bg-emerald-500' : 'bg-blue-500'}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-1">
+                            {s.atendido} atendido(s) de {s.capacidade}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {saldoFunap && CAMPOS_QTD.some(c => saldoFunap[c].saldo < 0) && (
+                  <p className="text-xs text-red-600 mt-2 flex items-center gap-1">
+                    <AlertTriangle size={13} /> O atendido passou da capacidade em algum item — reduza a quantidade de alguma escola ou revise a capacidade.
+                  </p>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 {[
                   { label: 'Total de Escolas', value: escolas.length, bg: 'bg-blue-50', text: 'text-blue-600' },
@@ -1763,15 +1901,116 @@ export default function ReformaFunap() {
         </div>
       )}
 
+      {/* Modal: Capacidade FUNAP (cadastrar/editar) */}
+      {isAdmin && capacidadeModal && (() => {
+        const cm = capacidadeModal;
+        const invalido = CAMPOS_QTD.some(c => !/^\d*$/.test(cm.qtd[c]));
+        return (
+          <div className="fixed inset-0 z-[110] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between p-5 border-b border-slate-100">
+                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <Package size={20} className="text-teal-600" /> Capacidade de atendimento FUNAP
+                </h2>
+                <button onClick={() => setCapacidadeModal(null)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+                  <X size={18} className="text-slate-500" />
+                </button>
+              </div>
+              <div className="p-5 space-y-4 overflow-y-auto">
+                <p className="text-sm text-slate-600">
+                  Informe quantos itens a FUNAP consegue reformar. O saldo é a capacidade menos o que já foi atendido nas escolas.
+                </p>
+                <table className="w-full text-sm">
+                  <thead className="text-xs text-slate-500 uppercase">
+                    <tr>
+                      <th className="text-left py-1.5">Item</th>
+                      <th className="text-center py-1.5">Já atendido</th>
+                      <th className="text-center py-1.5">Capacidade</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {CAMPOS_QTD.map(c => {
+                      const atendido = saldoFunap?.[c].atendido
+                        ?? respostas.filter(r => r.atendimento === 'ATENDIDA').reduce((acc, r) => acc + Number(r[`atend_${c}`] || 0), 0);
+                      const abaixo = cm.qtd[c] !== '' && Number(cm.qtd[c]) < atendido;
+                      return (
+                        <tr key={c} className="border-t border-slate-100">
+                          <td className="py-2 text-slate-700">{CAMPO_LABEL[c]}</td>
+                          <td className="py-2 text-center text-slate-500">{atendido}</td>
+                          <td className="py-2 text-center">
+                            <input
+                              type="number"
+                              min={0}
+                              value={cm.qtd[c]}
+                              onChange={e => setCapacidadeModal({ ...cm, qtd: { ...cm.qtd, [c]: e.target.value } })}
+                              className={`w-24 p-1.5 border rounded-lg text-sm text-center ${abaixo ? 'border-amber-400 bg-amber-50' : 'border-slate-200'}`}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {CAMPOS_QTD.some(c => cm.qtd[c] !== '' && Number(cm.qtd[c]) < (saldoFunap?.[c].atendido ?? 0)) && (
+                  <p className="text-xs text-amber-700 flex items-center gap-1">
+                    <AlertTriangle size={13} /> Capacidade menor do que já foi atendido — o saldo ficará negativo até você reduzir alguma escola.
+                  </p>
+                )}
+                <div>
+                  <label className="text-xs font-semibold text-slate-500">Observação (opcional)</label>
+                  <input
+                    value={cm.observacao}
+                    onChange={e => setCapacidadeModal({ ...cm, observacao: e.target.value })}
+                    placeholder="Ex.: ofício FUNAP nº ..., capacidade revista em reunião..."
+                    className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm"
+                  />
+                </div>
+                {capacidadeHistorico.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 mb-1">Histórico de alterações</p>
+                    <div className="space-y-1 max-h-36 overflow-y-auto">
+                      {capacidadeHistorico.map(h => (
+                        <div key={h.id} className="text-[11px] text-slate-500 border-l-2 border-slate-200 pl-2">
+                          <strong>{formatDateTime(h.data_registro)}</strong> · {h.autor_nome} — CJA-05: {h.cja05_carteiras} cart. / {h.cja05_cadeiras} cad.;
+                          {' '}CJA-06: {h.cja06_carteiras} cart. / {h.cja06_cadeiras} cad.
+                          {h.observacao && ` — ${h.observacao}`}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-end gap-2 p-5 border-t border-slate-100">
+                <button
+                  onClick={() => setCapacidadeModal(null)}
+                  className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSalvarCapacidade}
+                  disabled={invalido || savingCapacidade}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:bg-slate-300"
+                >
+                  {savingCapacidade ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                  Salvar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Modal: Atender (quantidade atendida) / Não atender (motivo obrigatório) */}
       {isAdmin && atendimentoModal && (() => {
         const m = atendimentoModal;
         const atender = m.tipo === 'ATENDIDA';
         const excedidos = CAMPOS_QTD.filter(c => Number(m.qtd[c] || 0) > Number(m.resposta[c] || 0));
+        const semSaldo = CAMPOS_QTD.filter(c => !excedidos.includes(c) && Number(m.qtd[c] || 0) > saldoDisponivelPara(m.resposta, c));
         const invalidos = CAMPOS_QTD.filter(c => !/^\d*$/.test(m.qtd[c]));
         const totalModal = CAMPOS_QTD.reduce((acc, c) => acc + Number(m.qtd[c] || 0), 0);
         const podeSalvar = atender
-          ? excedidos.length === 0 && invalidos.length === 0 && totalModal > 0
+          ? excedidos.length === 0 && semSaldo.length === 0 && invalidos.length === 0 && totalModal > 0
           : m.motivo.trim().length > 0;
         const salvar = () => {
           if (atender) {
@@ -1809,22 +2048,28 @@ export default function ReformaFunap() {
                         <tr>
                           <th className="text-left py-1.5">Item</th>
                           <th className="text-center py-1.5">Solicitado</th>
+                          {saldoFunap && <th className="text-center py-1.5">Saldo FUNAP</th>}
                           <th className="text-center py-1.5">Atender</th>
                         </tr>
                       </thead>
                       <tbody>
                         {CAMPOS_QTD.map(c => {
                           const solicitado = Number(m.resposta[c] || 0);
-                          const excedido = excedidos.includes(c);
+                          const excedido = excedidos.includes(c) || semSaldo.includes(c);
                           return (
                             <tr key={c} className="border-t border-slate-100">
                               <td className="py-2 text-slate-700">{CAMPO_LABEL[c]}</td>
                               <td className="py-2 text-center text-slate-500">{solicitado}</td>
+                              {saldoFunap && (
+                                <td className={`py-2 text-center ${semSaldo.includes(c) ? 'text-red-600 font-semibold' : 'text-slate-500'}`}>
+                                  {saldoDisponivelPara(m.resposta, c)}
+                                </td>
+                              )}
                               <td className="py-2 text-center">
                                 <input
                                   type="number"
                                   min={0}
-                                  max={solicitado}
+                                  max={maximoAtendivel(m.resposta, c)}
                                   value={m.qtd[c]}
                                   disabled={solicitado === 0}
                                   onChange={e => setAtendimentoModal({ ...m, qtd: { ...m.qtd, [c]: e.target.value } })}
@@ -1839,19 +2084,21 @@ export default function ReformaFunap() {
                       </tbody>
                     </table>
                     <div className="flex items-center justify-between text-xs">
-                      <span className={excedidos.length > 0 ? 'text-red-600' : 'text-slate-500'}>
+                      <span className={excedidos.length > 0 || semSaldo.length > 0 ? 'text-red-600' : 'text-slate-500'}>
                         {excedidos.length > 0
                           ? 'A quantidade atendida não pode passar da solicitada.'
-                          : `Total a atender: ${totalModal} de ${totalItens(m.resposta)}`}
+                          : semSaldo.length > 0
+                            ? 'A quantidade passa do saldo disponível da FUNAP.'
+                            : `Total a atender: ${totalModal} de ${totalItens(m.resposta)}`}
                       </span>
                       <button
                         onClick={() => setAtendimentoModal({
                           ...m,
-                          qtd: Object.fromEntries(CAMPOS_QTD.map(c => [c, m.resposta[c] || '0'])) as Record<CampoQtd, string>,
+                          qtd: Object.fromEntries(CAMPOS_QTD.map(c => [c, String(maximoAtendivel(m.resposta, c))])) as Record<CampoQtd, string>,
                         })}
                         className="text-teal-700 font-medium hover:underline"
                       >
-                        Atender tudo
+                        {saldoFunap ? 'Máximo possível' : 'Atender tudo'}
                       </button>
                     </div>
                   </>
