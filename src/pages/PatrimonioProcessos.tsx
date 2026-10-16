@@ -69,14 +69,26 @@ function resumirChapas(valor: string): string {
   return consecutivas ? `${lista[0]} a ${lista[lista.length - 1]}` : lista.join(', ');
 }
 
-// Nº da nota fiscal por item a incorporar (tabela patrimonio_itens_nota_fiscal,
-// chave = id do item na planilha).
-async function carregarNotasFiscais(): Promise<Record<string, string>> {
-  const { data, error } = await (supabase as any).from('patrimonio_itens_nota_fiscal').select('item_id, numero_nota_fiscal');
+// Nº e data da nota fiscal por item a incorporar (tabela
+// patrimonio_itens_nota_fiscal, chave = id do item na planilha).
+interface NotaFiscalItem { numero: string; data: string }
+
+async function carregarNotasFiscais(): Promise<Record<string, NotaFiscalItem>> {
+  const { data, error } = await (supabase as any).from('patrimonio_itens_nota_fiscal').select('item_id, numero_nota_fiscal, data_nota_fiscal');
   if (error) throw error;
-  const map: Record<string, string> = {};
-  (data || []).forEach((r: { item_id: string; numero_nota_fiscal: string }) => { map[r.item_id] = r.numero_nota_fiscal; });
+  const map: Record<string, NotaFiscalItem> = {};
+  (data || []).forEach((r: { item_id: string; numero_nota_fiscal: string | null; data_nota_fiscal: string | null }) => {
+    map[r.item_id] = { numero: r.numero_nota_fiscal || '', data: r.data_nota_fiscal || '' };
+  });
   return map;
+}
+
+// "123 de 05/03/2026" para os PDFs.
+function textoNotaFiscal(nf?: NotaFiscalItem): string {
+  if (!nf || (!nf.numero && !nf.data)) return '-';
+  const data = nf.data ? new Date(nf.data + 'T12:00:00').toLocaleDateString('pt-BR') : '';
+  if (nf.numero && data) return `${nf.numero} de ${data}`;
+  return nf.numero || `(sem nº) de ${data}`;
 }
 
 async function carregarCodigosBec(): Promise<Record<string, string>> {
@@ -221,8 +233,8 @@ export function PatrimonioProcessos() {
   const [chapaDrafts, setChapaDrafts] = useState<Record<string, { ini: string; fim: string }>>({});
   const [chapaSaving, setChapaSaving] = useState<string | null>(null);
   const [pdfProcessoLoading, setPdfProcessoLoading] = useState<string | null>(null);
-  const [nfMap, setNfMap] = useState<Record<string, string>>({});
-  const [nfDrafts, setNfDrafts] = useState<Record<string, string>>({});
+  const [nfMap, setNfMap] = useState<Record<string, NotaFiscalItem>>({});
+  const [nfDrafts, setNfDrafts] = useState<Record<string, NotaFiscalItem>>({});
   const [nfSaving, setNfSaving] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
@@ -380,20 +392,26 @@ export function PatrimonioProcessos() {
     }
   }
 
+  function nfDe(itemId: string): NotaFiscalItem {
+    return nfDrafts[itemId] ?? nfMap[itemId] ?? { numero: '', data: '' };
+  }
+
   async function salvarNotaFiscal(itemId: string) {
     const rascunho = nfDrafts[itemId];
     if (rascunho === undefined) return;
-    const numero = rascunho.trim();
-    if (numero === (nfMap[itemId] || '')) {
+    const numero = rascunho.numero.trim();
+    const data = rascunho.data;
+    const atual = nfMap[itemId] ?? { numero: '', data: '' };
+    if (numero === atual.numero && data === atual.data) {
       setNfDrafts(d => { const n = { ...d }; delete n[itemId]; return n; });
       return;
     }
     setNfSaving(itemId);
     try {
-      if (numero) {
+      if (numero || data) {
         const { data: { user } } = await supabase.auth.getUser();
         const { error } = await (supabase as any).from('patrimonio_itens_nota_fiscal').upsert({
-          item_id: itemId, numero_nota_fiscal: numero,
+          item_id: itemId, numero_nota_fiscal: numero || null, data_nota_fiscal: data || null,
           updated_at: new Date().toISOString(), updated_by: user?.id ?? null,
         });
         if (error) throw error;
@@ -403,7 +421,7 @@ export function PatrimonioProcessos() {
       }
       setNfMap(m => {
         const n = { ...m };
-        if (numero) n[itemId] = numero; else delete n[itemId];
+        if (numero || data) n[itemId] = { numero, data }; else delete n[itemId];
         return n;
       });
       setNfDrafts(d => { const n = { ...d }; delete n[itemId]; return n; });
@@ -490,7 +508,7 @@ export function PatrimonioProcessos() {
       const [data, codigosBec, notasFiscais] = await Promise.all([
         invokePatrimonio('listar_incorporacoes'),
         carregarCodigosBec().catch(() => ({} as Record<string, string>)),
-        carregarNotasFiscais().catch(() => ({} as Record<string, string>)),
+        carregarNotasFiscais().catch(() => ({} as Record<string, NotaFiscalItem>)),
       ]);
       const lista: ItemIncorporar[] = Array.isArray(data) ? data : [];
       const itens = lista
@@ -569,7 +587,7 @@ export function PatrimonioProcessos() {
         return [
           i.descricao,
           codigosBec[chaveBec(i.descricao)] || '-',
-          notasFiscais[i.id] || '-',
+          textoNotaFiscal(notasFiscais[i.id]),
           resumirChapas(i.numero_patrimonial) || 'Não informado',
           String(i.quantidade || '-'),
           unit ? moeda(unit) : '-',
@@ -586,16 +604,16 @@ export function PatrimonioProcessos() {
       autoTable(doc, {
         startY: y,
         theme: 'grid',
-        head: [['Descrição', 'Código BEC', 'Nº NF', 'Nº Patrimonial (chapas)', 'Qtd', 'Valor Unit.', 'Valor Total']],
+        head: [['Descrição', 'Código BEC', 'Nota Fiscal (nº e data)', 'Nº Patrimonial (chapas)', 'Qtd', 'Valor Unit.', 'Valor Total']],
         body: linhasItens.length ? linhasItens : [['Nenhum item vinculado a este processo.', '', '', '', '', '', '']],
         foot: linhasItens.length ? [['Total', '', '', '', String(totalUnidades), '', moeda(valorTotal)]] : undefined,
         headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
         footStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontStyle: 'bold' },
         styles: { fontSize: 8, cellPadding: 2.2 },
         columnStyles: {
-          1: { cellWidth: 20 },
-          2: { cellWidth: 20 },
-          3: { cellWidth: 32 },
+          1: { cellWidth: 19 },
+          2: { cellWidth: 26 },
+          3: { cellWidth: 30 },
           4: { cellWidth: 11, halign: 'center' },
           5: { cellWidth: 22, halign: 'right' },
           6: { cellWidth: 24, halign: 'right' },
@@ -655,7 +673,7 @@ export function PatrimonioProcessos() {
       const [data, codigosBec, notasFiscais] = await Promise.all([
         invokePatrimonio('listar_incorporacoes'),
         carregarCodigosBec().catch(() => ({} as Record<string, string>)),
-        carregarNotasFiscais().catch(() => ({} as Record<string, string>)),
+        carregarNotasFiscais().catch(() => ({} as Record<string, NotaFiscalItem>)),
       ]);
       const lista: ItemIncorporar[] = Array.isArray(data) ? data : [];
       const itens = lista
@@ -689,7 +707,7 @@ export function PatrimonioProcessos() {
         i.orgao_entrega ? `${i.origem_aquisicao} (${i.orgao_entrega})` : (i.origem_aquisicao || '-'),
         i.descricao,
         codigosBec[chaveBec(i.descricao)] || '-',
-        notasFiscais[i.id] || '-',
+        textoNotaFiscal(notasFiscais[i.id]),
         resumirChapas(i.numero_patrimonial) || '-',
         i.quantidade,
         i.data_aquisicao ? new Date(i.data_aquisicao + 'T12:00:00').toLocaleDateString('pt-BR') : '-',
@@ -698,7 +716,7 @@ export function PatrimonioProcessos() {
 
       autoTable(doc, {
         startY: currentY,
-        head: [['Origem', 'Descrição', 'Código BEC', 'Nº NF', 'Nº Patrimonial', 'Qtd', 'Data Aquisição', 'Valor Unitário']],
+        head: [['Origem', 'Descrição', 'Código BEC', 'Nota Fiscal (nº e data)', 'Nº Patrimonial', 'Qtd', 'Data Aquisição', 'Valor Unitário']],
         body: tableData,
         theme: 'grid',
         headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
@@ -2190,8 +2208,8 @@ export function PatrimonioProcessos() {
                               if (!isAdmin) {
                                 return (
                                   <p className="text-[11px] text-slate-500 pl-7">
-                                    <span className="font-bold uppercase tracking-wide text-slate-500">Nº NF:</span>{' '}
-                                    {nfMap[i.id] ? <span className="font-mono text-slate-700">{nfMap[i.id]}</span> : <span className="italic text-slate-400">não informado</span>}
+                                    <span className="font-bold uppercase tracking-wide text-slate-500">Nota fiscal:</span>{' '}
+                                    {nfMap[i.id] ? <span className="font-mono text-slate-700">{textoNotaFiscal(nfMap[i.id])}</span> : <span className="italic text-slate-400">não informada</span>}
                                     {' · '}
                                     <span className="font-bold uppercase tracking-wide text-slate-500">Nº patrimonial:</span>{' '}
                                     {salvo ? <span className="font-mono text-slate-700">{salvo}</span> : <span className="italic text-slate-400">não informado</span>}
@@ -2204,12 +2222,21 @@ export function PatrimonioProcessos() {
                                   <input
                                     type="text"
                                     placeholder="Nota fiscal"
-                                    value={nfDrafts[i.id] ?? nfMap[i.id] ?? ''}
+                                    value={nfDe(i.id).numero}
                                     disabled={nfSaving === i.id}
-                                    onChange={e => setNfDrafts(d => ({ ...d, [i.id]: e.target.value }))}
+                                    onChange={e => { const v = e.target.value; setNfDrafts(d => ({ ...d, [i.id]: { ...nfDe(i.id), numero: v } })); }}
                                     onBlur={() => salvarNotaFiscal(i.id)}
                                     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-                                    className={`${inputCls} ${(nfDrafts[i.id] ?? nfMap[i.id]) ? '' : '!border-amber-300'}`}
+                                    className={`${inputCls} ${nfDe(i.id).numero ? '' : '!border-amber-300'}`}
+                                  />
+                                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Data NF</span>
+                                  <input
+                                    type="date"
+                                    value={nfDe(i.id).data}
+                                    disabled={nfSaving === i.id}
+                                    onChange={e => { const v = e.target.value; setNfDrafts(d => ({ ...d, [i.id]: { ...nfDe(i.id), data: v } })); }}
+                                    onBlur={() => salvarNotaFiscal(i.id)}
+                                    className={`w-32 px-2 py-1 text-xs bg-white border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 disabled:opacity-60 ${nfDe(i.id).data ? 'border-slate-200' : 'border-amber-300'}`}
                                   />
                                   {nfSaving === i.id && <Loader2 size={12} className="animate-spin text-indigo-500" />}
                                   <span className="w-px h-4 bg-emerald-200 mx-1" />
