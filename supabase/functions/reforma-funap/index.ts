@@ -89,7 +89,13 @@ async function getOrCreateSheet(doc: any, title: string, columns: string[]) {
 
   const missing = columns.filter(c => !headers.includes(c))
   if (missing.length > 0) {
-    await sheet.setHeaderRow([...headers, ...missing])
+    const novosHeaders = [...headers, ...missing]
+    // setHeaderRow recusa cabeçalho maior que a grade da aba (26 colunas por
+    // padrão) — amplia as colunas antes, mantendo as linhas existentes.
+    if (novosHeaders.length > sheet.columnCount) {
+      await sheet.resize({ rowCount: sheet.rowCount, columnCount: novosHeaders.length })
+    }
+    await sheet.setHeaderRow(novosHeaders)
   }
   return sheet
 }
