@@ -23,7 +23,9 @@ const RESPOSTAS_COLUMNS = [
   'logistica_atualizada_por', 'logistica_atualizada_em',
   'confirmado', 'confirmado_por', 'confirmado_em', 'termo_texto',
   'atendimento', 'atendimento_motivo', 'atendimento_por', 'atendimento_em',
+  'atend_cja05_carteiras', 'atend_cja05_cadeiras', 'atend_cja06_carteiras', 'atend_cja06_cadeiras',
 ]
+const CAMPOS_QTD = ['cja05_carteiras', 'cja05_cadeiras', 'cja06_carteiras', 'cja06_cadeiras']
 const HISTORICO_COLUMNS = [
   'id', 'resposta_id', 'escola_id', 'escola_nome', 'acao',
   'dados_antes', 'dados_depois', 'autor_id', 'autor_nome', 'data_hora',
@@ -379,12 +381,14 @@ Deno.serve(async (req) => {
       // Decisão da Regional, depois de analisar as respostas, sobre quais
       // escolas a FUNAP vai conseguir atender: ATENDIDA | NAO_ATENDIDA | ''
       // (vazio = ainda a decidir). Motivo obrigatório quando não atendida.
+      // Quando atendida, informa a quantidade que a FUNAP consegue atender por
+      // item (pode ser menor que a solicitada pela escola = atendimento parcial).
       case 'definir_atendimento': {
         exigirRegionalAdmin(p)
         if (!body.id) throw new Error('Resposta não informada.')
         const atendimento = String(body.atendimento ?? '')
         if (!['ATENDIDA', 'NAO_ATENDIDA', ''].includes(atendimento)) throw new Error('Situação de atendimento inválida.')
-        const motivo = atendimento === 'NAO_ATENDIDA' ? String(body.motivo ?? '').trim() : ''
+        const motivo = atendimento ? String(body.motivo ?? '').trim() : ''
         if (atendimento === 'NAO_ATENDIDA' && !motivo) throw new Error('Informe o motivo do não atendimento.')
 
         const sheet = await getOrCreateSheet(doc, RESPOSTAS_SHEET, RESPOSTAS_COLUMNS)
@@ -392,15 +396,31 @@ Deno.serve(async (req) => {
         const row = rows.find((r: any) => r.get('id') === String(body.id))
         if (!row) throw new Error('Resposta não encontrada.')
 
-        const dadosAntes = {
+        const quantidades: Record<string, string> = {}
+        for (const campo of CAMPOS_QTD) {
+          const colAtend = `atend_${campo}`
+          if (atendimento !== 'ATENDIDA') { quantidades[colAtend] = ''; continue }
+          const v = Number(body.quantidades?.[campo] ?? 0)
+          const solicitado = Number(row.get(campo) || 0)
+          if (!Number.isInteger(v) || v < 0) throw new Error('As quantidades atendidas devem ser números inteiros não negativos.')
+          if (v > solicitado) throw new Error('A quantidade atendida não pode ser maior que a solicitada pela escola.')
+          quantidades[colAtend] = String(v)
+        }
+        if (atendimento === 'ATENDIDA' && Object.values(quantidades).every(v => Number(v) === 0)) {
+          throw new Error('Informe ao menos um item a ser atendido (ou marque como não atendida).')
+        }
+
+        const dadosAntes: Record<string, string> = {
           atendimento: row.get('atendimento') ?? '',
           atendimento_motivo: row.get('atendimento_motivo') ?? '',
         }
-        const dadosDepois = { atendimento, atendimento_motivo: motivo }
+        for (const campo of CAMPOS_QTD) dadosAntes[`atend_${campo}`] = row.get(`atend_${campo}`) ?? ''
+        const dadosDepois = { atendimento, atendimento_motivo: motivo, ...quantidades }
         const agora = new Date().toISOString()
 
         row.set('atendimento', atendimento)
         row.set('atendimento_motivo', motivo)
+        for (const [col, v] of Object.entries(quantidades)) row.set(col, v)
         row.set('atendimento_por', atendimento ? autorNome : '')
         row.set('atendimento_em', atendimento ? agora : '')
         await row.save()

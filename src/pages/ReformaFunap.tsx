@@ -62,6 +62,10 @@ interface Resposta {
   atendimento_motivo: string;
   atendimento_por: string;
   atendimento_em: string;
+  atend_cja05_carteiras: string;
+  atend_cja05_cadeiras: string;
+  atend_cja06_carteiras: string;
+  atend_cja06_cadeiras: string;
 }
 
 interface HistoricoItem {
@@ -86,10 +90,26 @@ interface EscolaOption {
 type Tab = 'preencher' | 'respostas' | 'janela' | 'relatorio';
 type FiltroAtendimento = 'todos' | 'ATENDIDA' | 'NAO_ATENDIDA' | 'A_DECIDIR';
 
+type CampoQtd = 'cja05_carteiras' | 'cja05_cadeiras' | 'cja06_carteiras' | 'cja06_cadeiras';
+const CAMPOS_QTD: CampoQtd[] = ['cja05_carteiras', 'cja05_cadeiras', 'cja06_carteiras', 'cja06_cadeiras'];
+
 // Total de itens (carteiras + cadeiras, CJA-05 + CJA-06) informados pela escola.
 const totalItens = (r: Resposta) =>
   Number(r.cja05_carteiras || 0) + Number(r.cja05_cadeiras || 0) +
   Number(r.cja06_carteiras || 0) + Number(r.cja06_cadeiras || 0);
+
+// Total que a FUNAP vai atender (pode ser menor que o solicitado = parcial).
+const totalAtendido = (r: Resposta) => CAMPOS_QTD.reduce((acc, c) => acc + Number(r[`atend_${c}`] || 0), 0);
+
+// Quantidade que a Regional informou que a FUNAP vai atender, por item.
+const qtdAtendida = (r: Resposta, campo: CampoQtd) => Number(r[`atend_${campo}`] || 0);
+
+type AtendimentoModal = {
+  resposta: Resposta;
+  tipo: 'ATENDIDA' | 'NAO_ATENDIDA';
+  motivo: string;
+  qtd: Record<CampoQtd, string>;
+};
 
 const CAMPO_LABEL: Record<string, string> = {
   cja05_carteiras: 'Carteiras CJA-05',
@@ -249,7 +269,7 @@ export default function ReformaFunap() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroAtendimento, setFiltroAtendimento] = useState<FiltroAtendimento>('todos');
   const [savingAtendimentoId, setSavingAtendimentoId] = useState<string | null>(null);
-  const [naoAtenderModal, setNaoAtenderModal] = useState<{ resposta: Resposta; motivo: string } | null>(null);
+  const [atendimentoModal, setAtendimentoModal] = useState<AtendimentoModal | null>(null);
 
   const [form, setForm] = useState(FORM_INITIAL);
   const [janelaForm, setJanelaForm] = useState({ data_inicio: '', data_fim: '', ativo: true });
@@ -538,12 +558,30 @@ export default function ReformaFunap() {
     }
   };
 
-  const handleDefinirAtendimento = async (resposta: Resposta, atendimento: 'ATENDIDA' | 'NAO_ATENDIDA' | '', motivo = '') => {
+  const abrirModalAtendimento = (resposta: Resposta, tipo: 'ATENDIDA' | 'NAO_ATENDIDA') => {
+    const jaAtendida = resposta.atendimento === 'ATENDIDA';
+    const qtd = Object.fromEntries(CAMPOS_QTD.map(c => [
+      c, jaAtendida ? (resposta[`atend_${c}`] || '0') : (resposta[c] || '0'),
+    ])) as Record<CampoQtd, string>;
+    setAtendimentoModal({
+      resposta,
+      tipo,
+      motivo: resposta.atendimento === tipo ? resposta.atendimento_motivo || '' : '',
+      qtd,
+    });
+  };
+
+  const handleDefinirAtendimento = async (
+    resposta: Resposta,
+    atendimento: 'ATENDIDA' | 'NAO_ATENDIDA' | '',
+    motivo = '',
+    quantidades?: Record<CampoQtd, number>,
+  ) => {
     setSavingAtendimentoId(resposta.id);
     try {
-      await invoke('definir_atendimento', { id: resposta.id, atendimento, motivo });
+      await invoke('definir_atendimento', { id: resposta.id, atendimento, motivo, quantidades });
       await fetchRespostas();
-      setNaoAtenderModal(null);
+      setAtendimentoModal(null);
     } catch (e: any) {
       alert('Erro ao registrar atendimento: ' + e.message);
     } finally {
@@ -621,9 +659,10 @@ export default function ReformaFunap() {
     };
   }, [respostas]);
 
-  // Escolas marcadas como "não será atendida" saem da logística e do relatório FUNAP.
-  const respostasComReforma = useMemo(
-    () => respostas.filter(r => totalItens(r) > 0 && r.atendimento !== 'NAO_ATENDIDA'),
+  // Logística e relatório FUNAP só com as escolas que a Regional marcou como
+  // atendidas — "a decidir" e "não será atendida" ficam de fora.
+  const respostasAtendidas = useMemo(
+    () => respostas.filter(r => r.atendimento === 'ATENDIDA' && totalAtendido(r) > 0),
     [respostas]
   );
 
@@ -634,13 +673,13 @@ export default function ReformaFunap() {
       dataPrevista: string; quantidadeViagens: string;
     };
     const linhas: Linha[] = [];
-    respostas.filter(r => r.atendimento !== 'NAO_ATENDIDA').forEach(r => {
+    respostasAtendidas.forEach(r => {
       const transporteLabel = r.transporte === 'SIM' ? 'SIM' : r.transporte === 'NAO' ? 'NÃO' : '-';
       const dataPrevista = r.data_prevista_transporte ? formatDate(r.data_prevista_transporte) : '-';
       const viagens = r.quantidade_viagens || '-';
       const endereco = formatEndereco(escolaById.get(r.escola_id)?.address);
-      const cja05Carteiras = Number(r.cja05_carteiras || 0);
-      const cja05Cadeiras = Number(r.cja05_cadeiras || 0);
+      const cja05Carteiras = qtdAtendida(r, 'cja05_carteiras');
+      const cja05Cadeiras = qtdAtendida(r, 'cja05_cadeiras');
       if (cja05Carteiras > 0 || cja05Cadeiras > 0) {
         linhas.push({
           diretoria: DIRETORIA, cie: r.cie_code || '-', escola: r.escola_nome, endereco, codigoBem: 'CJA-05',
@@ -648,8 +687,8 @@ export default function ReformaFunap() {
           transporte: transporteLabel, dataPrevista, quantidadeViagens: viagens,
         });
       }
-      const cja06Carteiras = Number(r.cja06_carteiras || 0);
-      const cja06Cadeiras = Number(r.cja06_cadeiras || 0);
+      const cja06Carteiras = qtdAtendida(r, 'cja06_carteiras');
+      const cja06Cadeiras = qtdAtendida(r, 'cja06_cadeiras');
       if (cja06Carteiras > 0 || cja06Cadeiras > 0) {
         linhas.push({
           diretoria: DIRETORIA, cie: r.cie_code || '-', escola: r.escola_nome, endereco, codigoBem: 'CJA-06',
@@ -848,9 +887,15 @@ export default function ReformaFunap() {
     }
     if (item.acao === 'atendimento') {
       const situacao = ATENDIMENTO_LABEL[depois.atendimento ?? ''] ?? depois.atendimento;
-      return depois.atendimento === 'NAO_ATENDIDA'
-        ? `Marcou como "${situacao}" — motivo: ${depois.atendimento_motivo || '-'}`
-        : `Marcou como "${situacao}"`;
+      if (depois.atendimento === 'NAO_ATENDIDA') {
+        return `Marcou como "${situacao}" — motivo: ${depois.atendimento_motivo || '-'}`;
+      }
+      if (depois.atendimento === 'ATENDIDA') {
+        const qtds = `CJA-05: ${depois.atend_cja05_carteiras || 0} cart. / ${depois.atend_cja05_cadeiras || 0} cad.; `
+          + `CJA-06: ${depois.atend_cja06_carteiras || 0} cart. / ${depois.atend_cja06_cadeiras || 0} cad.`;
+        return `Marcou como "${situacao}" — ${qtds}${depois.atendimento_motivo ? ` — obs.: ${depois.atendimento_motivo}` : ''}`;
+      }
+      return `Marcou como "${situacao}"`;
     }
     if (item.acao === 'confirmacao') {
       return 'Confirmou o Termo de Conferência — a quantidade informada não pode mais ser alterada.';
@@ -1242,11 +1287,31 @@ export default function ReformaFunap() {
                             <span className="text-xs text-slate-400">Nada a reformar</span>
                           ) : (
                             <div className="space-y-1">
-                              {resposta.atendimento === 'ATENDIDA' && (
-                                <span className="inline-flex items-center gap-1 text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full text-xs font-medium">
-                                  <ThumbsUp size={12} /> Será atendida
-                                </span>
-                              )}
+                              {resposta.atendimento === 'ATENDIDA' && (() => {
+                                const atendido = totalAtendido(resposta);
+                                const solicitado = totalItens(resposta);
+                                const parcial = atendido < solicitado;
+                                return (
+                                  <>
+                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${
+                                      parcial ? 'text-blue-700 bg-blue-50 border-blue-200' : 'text-teal-700 bg-teal-50 border-teal-200'
+                                    }`}>
+                                      <ThumbsUp size={12} /> {parcial ? 'Atendida parcialmente' : 'Será atendida'}
+                                    </span>
+                                    <p className="text-xs text-slate-600">
+                                      <strong>{atendido}</strong> de {solicitado} itens
+                                    </p>
+                                    <p className="text-[11px] text-slate-500">
+                                      CJA-05: {resposta.atend_cja05_carteiras || 0}/{resposta.atend_cja05_cadeiras || 0} · CJA-06: {resposta.atend_cja06_carteiras || 0}/{resposta.atend_cja06_cadeiras || 0}
+                                    </p>
+                                    {resposta.atendimento_motivo && (
+                                      <p className="text-xs text-slate-500 max-w-[220px]" title={resposta.atendimento_motivo}>
+                                        {resposta.atendimento_motivo}
+                                      </p>
+                                    )}
+                                  </>
+                                );
+                              })()}
                               {resposta.atendimento === 'NAO_ATENDIDA' && (
                                 <>
                                   <span className="inline-flex items-center gap-1 text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full text-xs font-medium">
@@ -1270,17 +1335,15 @@ export default function ReformaFunap() {
                                   <Loader2 size={14} className="animate-spin text-teal-600" />
                                 ) : (
                                   <div className="flex gap-1 flex-wrap">
-                                    {resposta.atendimento !== 'ATENDIDA' && (
-                                      <button
-                                        onClick={() => handleDefinirAtendimento(resposta, 'ATENDIDA')}
-                                        className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-teal-700 border border-teal-200 rounded-lg hover:bg-teal-50"
-                                      >
-                                        <ThumbsUp size={12} /> Atender
-                                      </button>
-                                    )}
+                                    <button
+                                      onClick={() => abrirModalAtendimento(resposta, 'ATENDIDA')}
+                                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-teal-700 border border-teal-200 rounded-lg hover:bg-teal-50"
+                                    >
+                                      <ThumbsUp size={12} /> {resposta.atendimento === 'ATENDIDA' ? 'Alterar qtd.' : 'Atender'}
+                                    </button>
                                     {resposta.atendimento !== 'NAO_ATENDIDA' && (
                                       <button
-                                        onClick={() => setNaoAtenderModal({ resposta, motivo: '' })}
+                                        onClick={() => abrirModalAtendimento(resposta, 'NAO_ATENDIDA')}
                                         className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-700 border border-red-200 rounded-lg hover:bg-red-50"
                                       >
                                         <Ban size={12} /> Não atender
@@ -1451,7 +1514,8 @@ export default function ReformaFunap() {
                 </p>
                 <p className="text-xs text-slate-500 mb-3">
                   Preencha o transporte, a data prevista e o nº de viagens de cada escola antes de exportar.
-                  {contagemAtendimento.naoAtendidas > 0 && ` As ${contagemAtendimento.naoAtendidas} escola(s) marcadas como "não será atendida" ficam fora desta lista e do relatório.`}
+                  {' '}Aparecem aqui só as escolas marcadas como atendidas na aba Respostas, com a quantidade que a FUNAP vai atender.
+                  {contagemAtendimento.aDecidir > 0 && ` Ainda há ${contagemAtendimento.aDecidir} escola(s) com atendimento a decidir.`}
                 </p>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -1459,6 +1523,7 @@ export default function ReformaFunap() {
                       <tr>
                         <th className="text-left p-2">Escola</th>
                         <th className="text-left p-2">Endereço</th>
+                        <th className="text-center p-2">Qtd. atendida</th>
                         <th className="text-left p-2">Transporte</th>
                         <th className="text-left p-2">Data Prevista</th>
                         <th className="text-left p-2">Qtd. Viagens</th>
@@ -1467,12 +1532,25 @@ export default function ReformaFunap() {
                       </tr>
                     </thead>
                     <tbody>
-                      {respostasComReforma.map(resposta => {
+                      {respostasAtendidas.map(resposta => {
                         const edit = getLogisticaEdit(resposta);
+                        const parcial = totalAtendido(resposta) < totalItens(resposta);
                         return (
                           <tr key={resposta.id} className="border-t border-slate-100">
                             <td className="p-2 font-medium text-slate-700">{resposta.escola_nome}</td>
                             <td className="p-2 text-xs text-slate-500 max-w-xs">{formatEndereco(escolaById.get(resposta.escola_id)?.address)}</td>
+                            <td className="p-2 text-center whitespace-nowrap">
+                              <p className="text-sm font-bold text-slate-700">
+                                {totalAtendido(resposta)}
+                                {parcial && <span className="text-xs font-normal text-slate-400"> de {totalItens(resposta)}</span>}
+                              </p>
+                              <p className="text-[11px] text-slate-500">
+                                CJA-05: {resposta.atend_cja05_carteiras || 0} cart. / {resposta.atend_cja05_cadeiras || 0} cad.
+                              </p>
+                              <p className="text-[11px] text-slate-500">
+                                CJA-06: {resposta.atend_cja06_carteiras || 0} cart. / {resposta.atend_cja06_cadeiras || 0} cad.
+                              </p>
+                            </td>
                             <td className="p-2">
                               <select
                                 value={edit.transporte || ''}
@@ -1518,9 +1596,9 @@ export default function ReformaFunap() {
                           </tr>
                         );
                       })}
-                      {respostasComReforma.length === 0 && (
+                      {respostasAtendidas.length === 0 && (
                         <tr>
-                          <td colSpan={7} className="p-6 text-center text-slate-400 text-sm">Nenhuma escola com quantidade a reformar.</td>
+                          <td colSpan={8} className="p-6 text-center text-slate-400 text-sm">Nenhuma escola marcada como atendida ainda.</td>
                         </tr>
                       )}
                     </tbody>
@@ -1566,7 +1644,7 @@ export default function ReformaFunap() {
                     ))}
                     {linhasRelatorio.length === 0 && (
                       <tr>
-                        <td colSpan={10} className="p-6 text-center text-slate-400 text-sm">Nenhuma quantidade informada ainda.</td>
+                        <td colSpan={10} className="p-6 text-center text-slate-400 text-sm">Nenhuma escola marcada como atendida ainda.</td>
                       </tr>
                     )}
                   </tbody>
@@ -1685,56 +1763,140 @@ export default function ReformaFunap() {
         </div>
       )}
 
-      {/* Modal: Termo de Conferência de Mobiliário Escolar */}
-      {/* Modal: Não atender (motivo obrigatório) */}
-      {isAdmin && naoAtenderModal && (
-        <div className="fixed inset-0 z-[110] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-            <div className="flex items-center justify-between p-5 border-b border-slate-100">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <Ban size={20} className="text-red-600" /> Não será atendida
-              </h2>
-              <button onClick={() => setNaoAtenderModal(null)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
-                <X size={18} className="text-slate-500" />
-              </button>
-            </div>
-            <div className="p-5 space-y-3">
-              <p className="text-sm text-slate-600">
-                <strong>{naoAtenderModal.resposta.escola_nome}</strong> — {totalItens(naoAtenderModal.resposta)} item(ns) informados.
-                A escola sairá da logística e do relatório enviado à FUNAP.
-              </p>
-              <div>
-                <label className="text-xs font-semibold text-slate-500">Motivo *</label>
-                <textarea
-                  value={naoAtenderModal.motivo}
-                  onChange={e => setNaoAtenderModal({ ...naoAtenderModal, motivo: e.target.value })}
-                  rows={3}
-                  autoFocus
-                  placeholder="Ex.: capacidade da FUNAP esgotada neste lote, inviabilidade de transporte..."
-                  className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm"
-                />
+      {/* Modal: Atender (quantidade atendida) / Não atender (motivo obrigatório) */}
+      {isAdmin && atendimentoModal && (() => {
+        const m = atendimentoModal;
+        const atender = m.tipo === 'ATENDIDA';
+        const excedidos = CAMPOS_QTD.filter(c => Number(m.qtd[c] || 0) > Number(m.resposta[c] || 0));
+        const invalidos = CAMPOS_QTD.filter(c => !/^\d*$/.test(m.qtd[c]));
+        const totalModal = CAMPOS_QTD.reduce((acc, c) => acc + Number(m.qtd[c] || 0), 0);
+        const podeSalvar = atender
+          ? excedidos.length === 0 && invalidos.length === 0 && totalModal > 0
+          : m.motivo.trim().length > 0;
+        const salvar = () => {
+          if (atender) {
+            const quantidades = Object.fromEntries(CAMPOS_QTD.map(c => [c, Number(m.qtd[c] || 0)])) as Record<CampoQtd, number>;
+            handleDefinirAtendimento(m.resposta, 'ATENDIDA', m.motivo.trim(), quantidades);
+          } else {
+            handleDefinirAtendimento(m.resposta, 'NAO_ATENDIDA', m.motivo.trim());
+          }
+        };
+        return (
+          <div className="fixed inset-0 z-[110] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between p-5 border-b border-slate-100">
+                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  {atender
+                    ? <><ThumbsUp size={20} className="text-teal-600" /> Quantidade a atender</>
+                    : <><Ban size={20} className="text-red-600" /> Não será atendida</>}
+                </h2>
+                <button onClick={() => setAtendimentoModal(null)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+                  <X size={18} className="text-slate-500" />
+                </button>
+              </div>
+              <div className="p-5 space-y-4 overflow-y-auto">
+                <p className="text-sm text-slate-600">
+                  <strong>{m.resposta.escola_nome}</strong> — {totalItens(m.resposta)} item(ns) solicitados.
+                  {atender
+                    ? ' Informe quanto a FUNAP consegue atender de cada item; é essa quantidade que vai para a logística e o relatório.'
+                    : ' A escola sairá da logística e do relatório enviado à FUNAP.'}
+                </p>
+
+                {atender && (
+                  <>
+                    <table className="w-full text-sm">
+                      <thead className="text-xs text-slate-500 uppercase">
+                        <tr>
+                          <th className="text-left py-1.5">Item</th>
+                          <th className="text-center py-1.5">Solicitado</th>
+                          <th className="text-center py-1.5">Atender</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {CAMPOS_QTD.map(c => {
+                          const solicitado = Number(m.resposta[c] || 0);
+                          const excedido = excedidos.includes(c);
+                          return (
+                            <tr key={c} className="border-t border-slate-100">
+                              <td className="py-2 text-slate-700">{CAMPO_LABEL[c]}</td>
+                              <td className="py-2 text-center text-slate-500">{solicitado}</td>
+                              <td className="py-2 text-center">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={solicitado}
+                                  value={m.qtd[c]}
+                                  disabled={solicitado === 0}
+                                  onChange={e => setAtendimentoModal({ ...m, qtd: { ...m.qtd, [c]: e.target.value } })}
+                                  className={`w-24 p-1.5 border rounded-lg text-sm text-center disabled:bg-slate-50 disabled:text-slate-300 ${
+                                    excedido ? 'border-red-400 bg-red-50' : 'border-slate-200'
+                                  }`}
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className={excedidos.length > 0 ? 'text-red-600' : 'text-slate-500'}>
+                        {excedidos.length > 0
+                          ? 'A quantidade atendida não pode passar da solicitada.'
+                          : `Total a atender: ${totalModal} de ${totalItens(m.resposta)}`}
+                      </span>
+                      <button
+                        onClick={() => setAtendimentoModal({
+                          ...m,
+                          qtd: Object.fromEntries(CAMPOS_QTD.map(c => [c, m.resposta[c] || '0'])) as Record<CampoQtd, string>,
+                        })}
+                        className="text-teal-700 font-medium hover:underline"
+                      >
+                        Atender tudo
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-500">
+                    {atender ? 'Observação (opcional)' : 'Motivo *'}
+                  </label>
+                  <textarea
+                    value={m.motivo}
+                    onChange={e => setAtendimentoModal({ ...m, motivo: e.target.value })}
+                    rows={3}
+                    autoFocus={!atender}
+                    placeholder={atender
+                      ? 'Ex.: atendimento parcial por limite de capacidade deste lote...'
+                      : 'Ex.: capacidade da FUNAP esgotada neste lote, inviabilidade de transporte...'}
+                    className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 p-5 border-t border-slate-100">
+                <button
+                  onClick={() => setAtendimentoModal(null)}
+                  className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={salvar}
+                  disabled={!podeSalvar || savingAtendimentoId !== null}
+                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:bg-slate-300 ${
+                    atender ? 'bg-teal-600 hover:bg-teal-700' : 'bg-red-600 hover:bg-red-700'
+                  }`}
+                >
+                  {savingAtendimentoId ? <Loader2 size={16} className="animate-spin" /> : atender ? <ThumbsUp size={16} /> : <Ban size={16} />}
+                  Confirmar
+                </button>
               </div>
             </div>
-            <div className="flex justify-end gap-2 p-5 border-t border-slate-100">
-              <button
-                onClick={() => setNaoAtenderModal(null)}
-                className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => handleDefinirAtendimento(naoAtenderModal.resposta, 'NAO_ATENDIDA', naoAtenderModal.motivo.trim())}
-                disabled={!naoAtenderModal.motivo.trim() || savingAtendimentoId !== null}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:bg-slate-300"
-              >
-                {savingAtendimentoId ? <Loader2 size={16} className="animate-spin" /> : <Ban size={16} />}
-                Confirmar
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
+      {/* Modal: Termo de Conferência de Mobiliário Escolar */}
       {showTermoModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4" onClick={() => !confirming && setShowTermoModal(false)}>
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
