@@ -38,6 +38,37 @@ function chaveBec(descricao: string): string {
   return descricao.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
+// Nº patrimonial (chapa) dos itens a incorporar: gravado na planilha como
+// lista separada por vírgula (formato já usado em Atendimento Patrimônio).
+// Item com várias unidades recebe um intervalo de chapas consecutivas, que é
+// expandido aqui (mantendo os zeros à esquerda da chapa inicial).
+function separarChapas(valor: string): string[] {
+  return (valor || '').split(',').map(n => n.trim()).filter(Boolean);
+}
+
+function expandirIntervaloChapas(inicial: string, final: string): string[] | string {
+  const ini = inicial.trim();
+  const fim = final.trim();
+  if (!/^\d+$/.test(ini) || !/^\d+$/.test(fim)) return 'Para intervalo, use só números na chapa inicial e final.';
+  const a = Number(ini);
+  const b = Number(fim);
+  if (b < a) return 'A chapa final deve ser maior ou igual à inicial.';
+  if (b - a + 1 > 5000) return 'Intervalo grande demais (máx. 5000 chapas).';
+  const largura = ini.length;
+  const lista: string[] = [];
+  for (let n = a; n <= b; n++) lista.push(String(n).padStart(largura, '0'));
+  return lista;
+}
+
+// "100, 101, 102" → "100 a 102"; listas não consecutivas ficam como estão.
+function resumirChapas(valor: string): string {
+  const lista = separarChapas(valor);
+  if (lista.length <= 1) return lista[0] || '';
+  const consecutivas = lista.every(n => /^\d+$/.test(n))
+    && lista.every((n, i) => i === 0 || Number(n) === Number(lista[i - 1]) + 1);
+  return consecutivas ? `${lista[0]} a ${lista[lista.length - 1]}` : lista.join(', ');
+}
+
 async function carregarCodigosBec(): Promise<Record<string, string>> {
   const { data, error } = await (supabase as any).from('patrimonio_codigos_bec').select('descricao_chave, codigo_bec');
   if (error) throw error;
@@ -176,6 +207,9 @@ export function PatrimonioProcessos() {
   const [becMap, setBecMap] = useState<Record<string, string>>({});
   const [becDrafts, setBecDrafts] = useState<Record<string, string>>({});
   const [becSaving, setBecSaving] = useState<string | null>(null);
+  // Rascunho da chapa (ou intervalo) por item a incorporar.
+  const [chapaDrafts, setChapaDrafts] = useState<Record<string, { ini: string; fim: string }>>({});
+  const [chapaSaving, setChapaSaving] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     school_id: '',
@@ -276,6 +310,7 @@ export function PatrimonioProcessos() {
     setIncLoading(true);
     setIncSelecionados([]);
     setBecDrafts({});
+    setChapaDrafts({});
     carregarCodigosBec().then(setBecMap).catch(e => console.error('Erro ao carregar códigos BEC:', e));
     try {
       const data = await invokePatrimonio('listar_incorporacoes');
@@ -326,6 +361,58 @@ export function PatrimonioProcessos() {
       alert(e instanceof Error ? e.message : 'Erro ao salvar o código BEC.');
     } finally {
       setBecSaving(null);
+    }
+  }
+
+  function chapaDraftDe(i: ItemIncorporar) {
+    if (chapaDrafts[i.id]) return chapaDrafts[i.id];
+    const lista = separarChapas(i.numero_patrimonial);
+    return { ini: lista[0] || '', fim: lista.length > 1 ? lista[lista.length - 1] : '' };
+  }
+
+  function alterarChapaInicial(i: ItemIncorporar, ini: string) {
+    const qtd = parseInt(i.quantidade, 10) || 1;
+    const atual = chapaDraftDe(i);
+    // Preenche a final automaticamente (inicial + qtd - 1) enquanto ela não
+    // foi digitada à mão — ou seja, enquanto ainda é a sugestão anterior.
+    const sugestaoAnterior = expandirIntervaloChapas(atual.ini, atual.fim);
+    const finalEraSugestao = !atual.fim || (Array.isArray(sugestaoAnterior) && sugestaoAnterior.length === qtd);
+    let fim = atual.fim;
+    if (qtd > 1 && finalEraSugestao) {
+      fim = /^\d+$/.test(ini.trim())
+        ? String(Number(ini.trim()) + qtd - 1).padStart(ini.trim().length, '0')
+        : '';
+    }
+    setChapaDrafts(d => ({ ...d, [i.id]: { ini, fim } }));
+  }
+
+  async function salvarChapas(i: ItemIncorporar) {
+    const qtd = parseInt(i.quantidade, 10) || 1;
+    const { ini, fim } = chapaDraftDe(i);
+    if (!ini.trim()) { alert('Informe o nº patrimonial (chapa).'); return; }
+
+    let numeros: string[];
+    if (qtd > 1) {
+      const r = expandirIntervaloChapas(ini, fim || ini);
+      if (typeof r === 'string') { alert(r); return; }
+      if (r.length !== qtd) {
+        alert(`O intervalo ${ini.trim()} a ${(fim || ini).trim()} tem ${r.length} chapa(s), mas o item tem quantidade ${qtd}.`);
+        return;
+      }
+      numeros = r;
+    } else {
+      numeros = [ini.trim()];
+    }
+
+    setChapaSaving(i.id);
+    try {
+      await invokePatrimonio('marcar_incorporado', { id: i.id, numero_patrimonial: numeros.join(', ') });
+      setChapaDrafts(d => { const n = { ...d }; delete n[i.id]; return n; });
+      if (editingProcess) await carregarIncorporacoesDoProcesso(editingProcess);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao salvar o nº patrimonial.');
+    } finally {
+      setChapaSaving(null);
     }
   }
 
@@ -396,6 +483,7 @@ export function PatrimonioProcessos() {
         i.orgao_entrega ? `${i.origem_aquisicao} (${i.orgao_entrega})` : (i.origem_aquisicao || '-'),
         i.descricao,
         codigosBec[chaveBec(i.descricao)] || '-',
+        resumirChapas(i.numero_patrimonial) || '-',
         i.quantidade,
         i.data_aquisicao ? new Date(i.data_aquisicao + 'T12:00:00').toLocaleDateString('pt-BR') : '-',
         formatarMoeda(i.valor_item) || '-',
@@ -403,7 +491,7 @@ export function PatrimonioProcessos() {
 
       autoTable(doc, {
         startY: currentY,
-        head: [['Origem', 'Descrição', 'Código BEC', 'Qtd', 'Data Aquisição', 'Valor Unitário']],
+        head: [['Origem', 'Descrição', 'Código BEC', 'Nº Patrimonial', 'Qtd', 'Data Aquisição', 'Valor Unitário']],
         body: tableData,
         theme: 'grid',
         headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
@@ -1840,11 +1928,12 @@ export function PatrimonioProcessos() {
                             const chave = chaveBec(i.descricao);
                             const codigoBec = becDrafts[chave] ?? becMap[chave] ?? '';
                             return (
-                            <div key={i.id} className="flex flex-wrap sm:flex-nowrap items-center gap-3 p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                            <div key={i.id} className="p-3 rounded-xl bg-emerald-50 border border-emerald-100 space-y-2.5">
+                            <div className="flex flex-wrap sm:flex-nowrap items-center gap-3">
                               <CheckCircle2 size={15} className="text-emerald-600 shrink-0" />
                               <div className="flex-1 min-w-0">
                                 <p className="text-xs font-semibold text-slate-700 truncate">{i.descricao}</p>
-                                <p className="text-[11px] text-slate-400">Qtd {i.quantidade}{formatarMoeda(i.valor_item) ? ` · ${formatarMoeda(i.valor_item)}/un` : ''} · {i.status}{i.numero_patrimonial ? ` · nº ${i.numero_patrimonial}` : ''}</p>
+                                <p className="text-[11px] text-slate-400">Qtd {i.quantidade}{formatarMoeda(i.valor_item) ? ` · ${formatarMoeda(i.valor_item)}/un` : ''} · {i.status}</p>
                               </div>
                               <div className="flex items-center gap-1.5 shrink-0" title="Itens com o mesmo nome compartilham o código BEC">
                                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">BEC</label>
@@ -1875,12 +1964,70 @@ export function PatrimonioProcessos() {
                                 </button>
                               )}
                             </div>
+                            {(() => {
+                              const qtd = parseInt(i.quantidade, 10) || 1;
+                              const draft = chapaDraftDe(i);
+                              const salvo = resumirChapas(i.numero_patrimonial);
+                              const alterado = !!chapaDrafts[i.id];
+                              const inputCls = 'w-28 px-2 py-1 text-xs font-mono bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 disabled:opacity-60';
+                              if (!isAdmin) {
+                                return (
+                                  <p className="text-[11px] text-slate-500 pl-7">
+                                    <span className="font-bold uppercase tracking-wide text-slate-500">Nº patrimonial:</span>{' '}
+                                    {salvo ? <span className="font-mono text-slate-700">{salvo}</span> : <span className="italic text-slate-400">não informado</span>}
+                                  </p>
+                                );
+                              }
+                              return (
+                                <div className="flex flex-wrap items-center gap-2 pl-7">
+                                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                                    {qtd > 1 ? `Chapas (${qtd} un.)` : 'Nº patrimonial'}
+                                  </span>
+                                  <input
+                                    type="text"
+                                    placeholder={qtd > 1 ? 'Inicial' : 'Chapa'}
+                                    value={draft.ini}
+                                    disabled={chapaSaving === i.id}
+                                    onChange={e => alterarChapaInicial(i, e.target.value)}
+                                    className={inputCls}
+                                  />
+                                  {qtd > 1 && (
+                                    <>
+                                      <span className="text-xs text-slate-400">a</span>
+                                      <input
+                                        type="text"
+                                        placeholder="Final"
+                                        value={draft.fim}
+                                        disabled={chapaSaving === i.id}
+                                        onChange={e => setChapaDrafts(d => ({ ...d, [i.id]: { ini: draft.ini, fim: e.target.value } }))}
+                                        className={inputCls}
+                                      />
+                                    </>
+                                  )}
+                                  {alterado && (
+                                    <button
+                                      type="button"
+                                      disabled={chapaSaving === i.id}
+                                      onClick={() => salvarChapas(i)}
+                                      className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                                    >
+                                      {chapaSaving === i.id ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                                      Salvar
+                                    </button>
+                                  )}
+                                  {!alterado && salvo && (
+                                    <span className="text-[11px] text-emerald-700 font-semibold">✓ {salvo}</span>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                            </div>
                             );
                           })}
                         </div>
                         {incVinculados.length > 0 && (
                           <p className="text-[11px] text-slate-400">
-                            O código BEC é gravado pelo nome do item: ao informá-lo aqui, ele vale para todos os itens com o mesmo nome, em qualquer processo.
+                            O código BEC é gravado pelo nome do item: ao informá-lo aqui, ele vale para todos os itens com o mesmo nome, em qualquer processo. Ao salvar o nº patrimonial, o item é marcado como Incorporado; para várias unidades, informe a chapa inicial e a final (preenchida automaticamente pela quantidade).
                           </p>
                         )}
 
