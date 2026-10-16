@@ -22,6 +22,7 @@ const RESPOSTAS_COLUMNS = [
   'data_ultima_edicao', 'editado_por_nome',
   'logistica_atualizada_por', 'logistica_atualizada_em',
   'confirmado', 'confirmado_por', 'confirmado_em', 'termo_texto',
+  'atendimento', 'atendimento_motivo', 'atendimento_por', 'atendimento_em',
 ]
 const HISTORICO_COLUMNS = [
   'id', 'resposta_id', 'escola_id', 'escola_nome', 'acao',
@@ -365,6 +366,52 @@ Deno.serve(async (req) => {
           escola_id: row.get('escola_id'),
           escola_nome: row.get('escola_nome') ?? '',
           acao: 'logistica',
+          dados_antes: JSON.stringify(dadosAntes),
+          dados_depois: JSON.stringify(dadosDepois),
+          autor_id: user.id,
+          autor_nome: autorNome,
+          data_hora: agora,
+        })
+
+        return ok(corsHeaders, { success: true })
+      }
+
+      // Decisão da Regional, depois de analisar as respostas, sobre quais
+      // escolas a FUNAP vai conseguir atender: ATENDIDA | NAO_ATENDIDA | ''
+      // (vazio = ainda a decidir). Motivo obrigatório quando não atendida.
+      case 'definir_atendimento': {
+        exigirRegionalAdmin(p)
+        if (!body.id) throw new Error('Resposta não informada.')
+        const atendimento = String(body.atendimento ?? '')
+        if (!['ATENDIDA', 'NAO_ATENDIDA', ''].includes(atendimento)) throw new Error('Situação de atendimento inválida.')
+        const motivo = atendimento === 'NAO_ATENDIDA' ? String(body.motivo ?? '').trim() : ''
+        if (atendimento === 'NAO_ATENDIDA' && !motivo) throw new Error('Informe o motivo do não atendimento.')
+
+        const sheet = await getOrCreateSheet(doc, RESPOSTAS_SHEET, RESPOSTAS_COLUMNS)
+        const rows = await sheet.getRows()
+        const row = rows.find((r: any) => r.get('id') === String(body.id))
+        if (!row) throw new Error('Resposta não encontrada.')
+
+        const dadosAntes = {
+          atendimento: row.get('atendimento') ?? '',
+          atendimento_motivo: row.get('atendimento_motivo') ?? '',
+        }
+        const dadosDepois = { atendimento, atendimento_motivo: motivo }
+        const agora = new Date().toISOString()
+
+        row.set('atendimento', atendimento)
+        row.set('atendimento_motivo', motivo)
+        row.set('atendimento_por', atendimento ? autorNome : '')
+        row.set('atendimento_em', atendimento ? agora : '')
+        await row.save()
+
+        const historicoSheet = await getOrCreateSheet(doc, HISTORICO_SHEET, HISTORICO_COLUMNS)
+        await historicoSheet.addRow({
+          id: crypto.randomUUID(),
+          resposta_id: row.get('id'),
+          escola_id: row.get('escola_id'),
+          escola_nome: row.get('escola_nome') ?? '',
+          acao: 'atendimento',
           dados_antes: JSON.stringify(dadosAntes),
           dados_depois: JSON.stringify(dadosDepois),
           autor_id: user.id,
