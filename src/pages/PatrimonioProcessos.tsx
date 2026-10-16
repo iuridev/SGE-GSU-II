@@ -210,6 +210,7 @@ export function PatrimonioProcessos() {
   // Rascunho da chapa (ou intervalo) por item a incorporar.
   const [chapaDrafts, setChapaDrafts] = useState<Record<string, { ini: string; fim: string }>>({});
   const [chapaSaving, setChapaSaving] = useState<string | null>(null);
+  const [pdfProcessoLoading, setPdfProcessoLoading] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     school_id: '',
@@ -428,6 +429,158 @@ export function PatrimonioProcessos() {
       alert(e instanceof Error ? e.message : 'Erro ao vincular itens ao processo.');
     } finally {
       setIncSaving(false);
+    }
+  }
+
+  // PDF completo de um processo de Doação de Material Permanente, para entregar
+  // à escola ao final: dados do processo, etapas do fluxo, itens incorporados
+  // (código BEC, chapas, valores) e campo de recebimento.
+  async function gerarPdfProcessoDoacao(proc: PatrimonioProcess) {
+    setPdfProcessoLoading(proc.id);
+    try {
+      const [data, codigosBec] = await Promise.all([
+        invokePatrimonio('listar_incorporacoes'),
+        carregarCodigosBec().catch(() => ({} as Record<string, string>)),
+      ]);
+      const lista: ItemIncorporar[] = Array.isArray(data) ? data : [];
+      const itens = lista
+        .filter(i => i.processo_incorporacao_id === proc.id)
+        .sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR', { sensitivity: 'base' }));
+
+      const doc = new jsPDF('portrait');
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const margin = 14;
+      const dataBr = (d?: string | null) => d ? new Date(d.length === 10 ? d + 'T12:00:00' : d).toLocaleDateString('pt-BR') : '-';
+      const moeda = (n: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n);
+      let y = 36;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(30, 41, 59);
+      doc.text('PROCESSO DE DOAÇÃO DE MATERIAL PERMANENTE', pageW / 2, y, { align: 'center' });
+      y += 6;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(100);
+      doc.text('Relatório de incorporação patrimonial', pageW / 2, y, { align: 'center' });
+      y += 6;
+
+      autoTable(doc, {
+        startY: y,
+        theme: 'grid',
+        body: [
+          ['Unidade Escolar', proc.schools?.name || 'Não informada'],
+          ['Nº do Processo SEI', proc.sei_number],
+          ['Data do Processo', dataBr(proc.process_date)],
+          ['Publicação no DOE', dataBr(proc.doe_date)],
+          ['Etapa Atual', proc.current_step || '-'],
+          ['Status', statusLabel(proc.status)],
+        ],
+        styles: { fontSize: 9, cellPadding: 2.5 },
+        columnStyles: { 0: { fontStyle: 'bold', fillColor: [241, 245, 249], cellWidth: 50 } },
+        margin: { left: margin, right: margin, top: 36, bottom: 30 },
+      });
+      y = (doc as any).lastAutoTable.finalY + 8;
+
+      // Etapas do fluxo
+      const fluxo = WORKFLOWS[proc.type] || [];
+      const idxAtual = fluxo.indexOf(proc.current_step);
+      const concluido = proc.status === 'CONCLUÍDO';
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(30, 41, 59);
+      doc.text('Etapas do Fluxo', margin, y);
+      y += 2;
+      autoTable(doc, {
+        startY: y,
+        theme: 'grid',
+        head: [['#', 'Etapa', 'Situação']],
+        body: fluxo.map((etapa, idx) => [
+          String(idx + 1),
+          etapa,
+          concluido || idx < idxAtual ? 'Concluída' : idx === idxAtual ? 'Em andamento' : 'Pendente',
+        ]),
+        headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
+        styles: { fontSize: 8.5, cellPadding: 2.2 },
+        columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 2: { cellWidth: 35 } },
+        margin: { left: margin, right: margin, top: 36, bottom: 30 },
+      });
+      y = (doc as any).lastAutoTable.finalY + 8;
+
+      // Itens incorporados
+      let totalUnidades = 0;
+      let valorTotal = 0;
+      const linhasItens = itens.map(i => {
+        const qtd = parseInt(i.quantidade, 10) || 0;
+        const unit = Number(i.valor_item) || 0;
+        totalUnidades += qtd;
+        valorTotal += qtd * unit;
+        return [
+          i.descricao,
+          codigosBec[chaveBec(i.descricao)] || '-',
+          resumirChapas(i.numero_patrimonial) || 'Não informado',
+          String(i.quantidade || '-'),
+          unit ? moeda(unit) : '-',
+          unit && qtd ? moeda(unit * qtd) : '-',
+        ];
+      });
+
+      if (y > pageH - 60) { doc.addPage(); y = 36; }
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(30, 41, 59);
+      doc.text('Itens Incorporados', margin, y);
+      y += 2;
+      autoTable(doc, {
+        startY: y,
+        theme: 'grid',
+        head: [['Descrição', 'Código BEC', 'Nº Patrimonial (chapas)', 'Qtd', 'Valor Unit.', 'Valor Total']],
+        body: linhasItens.length ? linhasItens : [['Nenhum item vinculado a este processo.', '', '', '', '', '']],
+        foot: linhasItens.length ? [['Total', '', '', String(totalUnidades), '', moeda(valorTotal)]] : undefined,
+        headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
+        footStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontStyle: 'bold' },
+        styles: { fontSize: 8, cellPadding: 2.2 },
+        columnStyles: {
+          1: { cellWidth: 24 },
+          2: { cellWidth: 38 },
+          3: { cellWidth: 12, halign: 'center' },
+          4: { cellWidth: 24, halign: 'right' },
+          5: { cellWidth: 26, halign: 'right' },
+        },
+        margin: { left: margin, right: margin, top: 36, bottom: 30 },
+      });
+      y = (doc as any).lastAutoTable.finalY + 10;
+
+      // Recebimento pela escola
+      if (y > pageH - 70) { doc.addPage(); y = 36; }
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(60);
+      const texto = doc.splitTextToSize(
+        `Declaro ter recebido este relatório referente ao processo SEI ${proc.sei_number}, com a relação dos itens incorporados ao patrimônio da unidade escolar e seus respectivos números patrimoniais.`,
+        pageW - margin * 2,
+      );
+      doc.text(texto, margin, y);
+      y += texto.length * 4.5 + 16;
+      const larg = (pageW - margin * 2 - 16) / 2;
+      doc.setDrawColor(150);
+      doc.line(margin, y, margin + larg, y);
+      doc.line(margin + larg + 16, y, pageW - margin, y);
+      y += 4.5;
+      doc.setFontSize(8);
+      doc.text('Responsável pela Unidade Escolar (nome e assinatura)', margin + larg / 2, y, { align: 'center' });
+      doc.text('Data de recebimento', margin + larg + 16 + larg / 2, y, { align: 'center' });
+      y += 10;
+      doc.setTextColor(130);
+      doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')} — SGE-GSU-II`, margin, y);
+
+      addTimbradoAllPages(doc);
+      doc.save(`Processo_Doacao_SEI_${proc.sei_number.replace(/[^\w-]+/g, '_')}.pdf`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao gerar o PDF do processo.');
+    } finally {
+      setPdfProcessoLoading(null);
     }
   }
 
@@ -1464,6 +1617,16 @@ export function PatrimonioProcessos() {
                       </span>
 
                       <div className="flex gap-1">
+                        {p.type === 'DOACAO_MAT_PERMANENTE' && isCompleted && (
+                          <button
+                            onClick={() => gerarPdfProcessoDoacao(p)}
+                            disabled={pdfProcessoLoading === p.id}
+                            className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all disabled:opacity-50"
+                            title="Gerar PDF do processo para entregar à escola"
+                          >
+                            {pdfProcessoLoading === p.id ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
+                          </button>
+                        )}
                         <button
                           onClick={() => openModal(p)}
                           className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
@@ -2163,7 +2326,19 @@ export function PatrimonioProcessos() {
               </div>
 
               {/* Modal footer */}
-              <div className="p-5 border-t border-slate-100 bg-slate-50/50 shrink-0 flex justify-end gap-3">
+              <div className="p-5 border-t border-slate-100 bg-slate-50/50 shrink-0 flex flex-wrap justify-end gap-3">
+                {editingProcess && editingProcess.type === 'DOACAO_MAT_PERMANENTE' && (
+                  <button
+                    type="button"
+                    onClick={() => gerarPdfProcessoDoacao(editingProcess)}
+                    disabled={pdfProcessoLoading === editingProcess.id}
+                    className="mr-auto inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-xl transition-all disabled:opacity-60"
+                    title="Gera o PDF com os dados salvos do processo"
+                  >
+                    {pdfProcessoLoading === editingProcess.id ? <Loader2 className="animate-spin" size={16} /> : <FileDown size={16} />}
+                    PDF do processo
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
