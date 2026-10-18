@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { parsePlanilha, resumir, extrairRegistros, compararSnapshots, montarSnapshot, anoDoOficio } from '../regularizacaoImoveis';
+import {
+  parsePlanilha, resumir, extrairRegistros, compararSnapshots, montarSnapshot, anoDoOficio,
+  cartorioDoTexto, compararCartorio, projetarConclusao,
+} from '../regularizacaoImoveis';
 
 // Trechos reais da planilha (formato do export CSV do Google Sheets).
 const CSV = [
@@ -51,6 +54,45 @@ describe('regularizacaoImoveis', () => {
     expect(r.solicitacoes2CriFeitas).toBe(1);
     expect(r.solicitacoes2CriPendentes).toBe(1);
     expect(anoDoOficio('1549/26 RI')).toBe(2026);
+  });
+
+  it('separa a situação no 1º e no 2º CRI', () => {
+    expect(cartorioDoTexto('2º CRI - 20.380/53.684')).toBe(2);
+    expect(cartorioDoTexto('MATRICULA 309 - 2º CARTORIO')).toBe(2);
+    expect(cartorioDoTexto('NÃO TEM 1º CRI')).toBe(1);
+    expect(cartorioDoTexto('1º CRI - TRANSCRIÇÃO 42.423')).toBe(1);
+
+    expect(por('ALAYDE').cri1.status).toBe('atualizada');
+    expect(por('ALAYDE').cri2.status).toBe('nao_se_aplica');
+    expect(por('AGOSTINHO').cri1.status).toBe('nao_consta');
+    expect(por('AGOSTINHO').cri2.status).toBe('aguardando');
+    expect(por('JOAO CRISPINIANO').cri2.status).toBe('a_solicitar');
+    expect(por('VALENTIN').cri1.status).toBe('nao_localizado');
+    expect(por('JOSE ROBERTO').cri1.status).toBe('nao_consta');
+    expect(por('JOSE ROBERTO').cri2.matriculas).toEqual(['20.380', '53.684']);
+    expect(por('JOSE ROBERTO').cri2.status).toBe('aguardando');
+    expect(por('ALICE').cri1.status).toBe('nao_pesquisado');
+
+    const r = resumir(imoveis);
+    expect(r.cri1.porStatus.atualizada).toBe(3);
+    expect(r.cri2.unidades).toBe(3);
+  });
+
+  it('compara cartório só quando as duas fotografias têm o dado', () => {
+    const depois = montarSnapshot(imoveis, '2026-10-31');
+    const antigo = { ...depois, por_escola: Object.fromEntries(Object.entries(depois.por_escola).map(([k, v]) => [k, { escola: v.escola, status: v.status }])) };
+    expect(compararCartorio(antigo, depois, 'cri1')).toEqual([]);
+    const antes = montarSnapshot(imoveis.map(i => i.escola.startsWith('JOAO CRISPINIANO') ? { ...i, cri2: { ...i.cri2, status: 'a_solicitar' as const } } : i), '2026-09-30');
+    const fim = montarSnapshot(imoveis.map(i => i.escola.startsWith('JOAO CRISPINIANO') ? { ...i, cri2: { ...i.cri2, status: 'aguardando' as const } } : i), '2026-10-31');
+    expect(compararCartorio(antes, fim, 'cri2')).toEqual([
+      { chave: 'JOAO CRISPINIANO SOARES', escola: 'JOAO CRISPINIANO SOARES', de: 'a_solicitar', para: 'aguardando' },
+    ]);
+  });
+
+  it('projeta conclusão pelo ritmo mensal', () => {
+    expect(projetarConclusao([{ ym: '2026-09', atualizadas: 20, total: 40 }, { ym: '2026-10', atualizadas: 30, total: 40 }]))
+      .toEqual({ ritmo: 10, conclusao: '2026-11' });
+    expect(projetarConclusao([{ ym: '2026-10', atualizadas: 30, total: 40 }])).toBeNull();
   });
 
   it('detecta mudanças de status entre fotografias', () => {

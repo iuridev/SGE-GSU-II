@@ -41,6 +41,62 @@ export const STATUS_INFO: Record<StatusImovel, { label: string; descricao: strin
   nao_iniciada: { label: 'Não iniciada', descricao: 'Nenhuma informação lançada na planilha ainda', cor: '#a8a7a0' },
 };
 
+// ── Situação por cartório ───────────────────────────────────────────────────
+// Guarulhos tem dois Cartórios de Registro de Imóveis. Na planilha, o 1º CRI é
+// o padrão (os ofícios "xxxx/26 RI" são respostas dele; "NÃO TEM 1º CRI" é a
+// resposta negativa), e o 2º CRI aparece nas colunas "SOLICITAÇÃO 2º CRI"
+// ("SOLICITAR" / "OK - OF") ou em registros marcados como "2º CRI"/"2º CARTÓRIO".
+// A atribuição é feita linha a linha: uma unidade pode ter linhas nos dois.
+
+export type StatusCri1 =
+  | 'atualizada'
+  | 'desatualizada'
+  | 'em_pesquisa'
+  | 'nao_consta'
+  | 'nao_localizado'
+  | 'nao_pesquisado';
+
+export type StatusCri2 =
+  | 'atualizada'
+  | 'desatualizada'
+  | 'aguardando'
+  | 'a_solicitar'
+  | 'nao_se_aplica';
+
+// Mesma ordem/cores da situação geral (paleta validada nessa sequência).
+export const STATUS_CRI1_ORDEM: StatusCri1[] = [
+  'atualizada', 'desatualizada', 'em_pesquisa', 'nao_consta', 'nao_localizado', 'nao_pesquisado',
+];
+export const STATUS_CRI2_ORDEM: StatusCri2[] = [
+  'atualizada', 'desatualizada', 'aguardando', 'a_solicitar', 'nao_se_aplica',
+];
+
+export const STATUS_CRI1_INFO: Record<StatusCri1, { label: string; descricao: string; cor: string }> = {
+  atualizada: { label: 'Certidão atualizada', descricao: `Registro no 1º CRI com certidão de ${ANO_CICLO_ATUAL} ou depois`, cor: '#1baf7a' },
+  desatualizada: { label: 'Certidão desatualizada', descricao: `Registro no 1º CRI com certidão anterior a ${ANO_CICLO_ATUAL}`, cor: '#eda100' },
+  em_pesquisa: { label: 'Em pesquisa', descricao: 'Ofício emitido ou registro identificado, sem ano da certidão', cor: '#2a78d6' },
+  nao_consta: { label: 'Não consta no 1º CRI', descricao: 'O 1º CRI respondeu que não há registro — imóvel encaminhado ao 2º CRI', cor: '#eb6834' },
+  nao_localizado: { label: 'Não localizado', descricao: 'Registro não localizado pelo 1º CRI', cor: '#4a3aa7' },
+  nao_pesquisado: { label: 'Não pesquisado', descricao: 'Nenhuma informação do 1º CRI lançada ainda', cor: '#a8a7a0' },
+};
+
+export const STATUS_CRI2_INFO: Record<StatusCri2, { label: string; descricao: string; cor: string }> = {
+  atualizada: { label: 'Certidão atualizada', descricao: `Registro no 2º CRI com certidão de ${ANO_CICLO_ATUAL} ou depois`, cor: '#1baf7a' },
+  desatualizada: { label: 'Certidão desatualizada', descricao: `Registro no 2º CRI com certidão anterior a ${ANO_CICLO_ATUAL}`, cor: '#eda100' },
+  aguardando: { label: 'Aguardando certidão', descricao: 'Solicitação enviada ao 2º CRI (ou registro identificado), sem certidão ainda', cor: '#2a78d6' },
+  a_solicitar: { label: 'A solicitar', descricao: 'Não consta no 1º CRI e a solicitação ao 2º CRI ainda não foi feita', cor: '#eb6834' },
+  nao_se_aplica: { label: 'Sem demanda', descricao: 'Unidade sem pendência no 2º CRI', cor: '#a8a7a0' },
+};
+
+export interface DadosCartorio {
+  documentos: string[];
+  matriculas: string[];
+  transcricoes: string[];
+  outrosRegistros: string[];
+  oficios: string[];
+  anos: number[];
+}
+
 export interface ImovelEscola {
   chave: string;
   numero: string;
@@ -58,6 +114,17 @@ export interface ImovelEscola {
   solicitado2Cri: boolean;
   atualizacoesSei: string[];
   status: StatusImovel;
+  cri1: DadosCartorio & { status: StatusCri1 };
+  cri2: DadosCartorio & { status: StatusCri2 };
+}
+
+export interface ResumoCartorio<S extends string> {
+  // Unidades com alguma demanda neste cartório (exclui "não pesquisado"/"sem demanda").
+  unidades: number;
+  porStatus: Record<S, number>;
+  matriculas: number;
+  transcricoes: number;
+  oficios: number;
 }
 
 export interface ResumoRegularizacao {
@@ -69,12 +136,17 @@ export interface ResumoRegularizacao {
   oficiosCri: number;
   solicitacoes2CriPendentes: number;
   solicitacoes2CriFeitas: number;
+  // Ausentes nas fotografias gravadas antes da separação por cartório (out/2026).
+  cri1?: ResumoCartorio<StatusCri1>;
+  cri2?: ResumoCartorio<StatusCri2>;
 }
+
+export type ResumoCompleto = ResumoRegularizacao & Required<Pick<ResumoRegularizacao, 'cri1' | 'cri2'>>;
 
 export interface Snapshot {
   data: string; // yyyy-mm-dd
   resumo: ResumoRegularizacao;
-  por_escola: Record<string, { escola: string; status: StatusImovel }>;
+  por_escola: Record<string, { escola: string; status: StatusImovel; cri1?: StatusCri1; cri2?: StatusCri2 }>;
 }
 
 export function normalizar(txt: string): string {
@@ -148,7 +220,32 @@ export function normalizarProprietaria(txt: string): string[] {
   return [...out];
 }
 
-function classificar(e: Omit<ImovelEscola, 'status'>): StatusImovel {
+// Linha pertence ao 2º CRI quando o texto do registro cita o 2º cartório
+// ("2º CRI - 20.380", "MATRICULA 309 - 2º CARTORIO"); qualquer outra é do 1º.
+export function cartorioDoTexto(texto: string): 1 | 2 {
+  return /\b2\s*[º°O]?\s*(CRI\b|CARTORIO|OFICIAL|RI\b)/.test(normalizar(texto)) ? 2 : 1;
+}
+
+const temRegistro = (d: DadosCartorio) => d.matriculas.length + d.transcricoes.length + d.outrosRegistros.length > 0;
+
+export function classificarCri1(d: DadosCartorio, o: { semRegistro: boolean; naoLocalizado: boolean; registroNo2: boolean; oficioUre: boolean }): StatusCri1 {
+  if (temRegistro(d) && d.anos.some(a => a >= ANO_CICLO_ATUAL)) return 'atualizada';
+  if (o.naoLocalizado) return 'nao_localizado';
+  if (temRegistro(d) && d.anos.length > 0) return 'desatualizada';
+  if (o.semRegistro || (o.registroNo2 && !temRegistro(d))) return 'nao_consta';
+  if (temRegistro(d) || d.oficios.length > 0 || d.documentos.length > 0 || o.oficioUre) return 'em_pesquisa';
+  return 'nao_pesquisado';
+}
+
+export function classificarCri2(d: DadosCartorio, o: { precisa: boolean; solicitado: boolean }): StatusCri2 {
+  if (temRegistro(d) && d.anos.some(a => a >= ANO_CICLO_ATUAL)) return 'atualizada';
+  if (temRegistro(d) && d.anos.length > 0) return 'desatualizada';
+  if (temRegistro(d) || o.solicitado) return 'aguardando';
+  if (o.precisa) return 'a_solicitar';
+  return 'nao_se_aplica';
+}
+
+function classificar(e: Omit<ImovelEscola, 'status' | 'cri1' | 'cri2'>): StatusImovel {
   if (e.anosAtualizacao.some(a => a >= ANO_CICLO_ATUAL)) return 'atualizada';
   if (e.proprietarias.includes('Não localizada')) return 'nao_localizada';
   const temRegistro = e.matriculas.length + e.transcricoes.length + e.outrosRegistros.length > 0;
@@ -176,15 +273,35 @@ export function parsePlanilha(csv: string): ImovelEscola[] {
     else if (temDados && brutos.length) brutos[brutos.length - 1].linhas.push(l);
   }
 
+  const extrairAnos = (vals: string[]) => vals
+    .map(v => Number((v.match(/\b(19|20)\d{2}\b/) || [])[0]))
+    .filter(n => Number.isFinite(n) && n > 0);
+
   const vistos = new Map<string, number>();
   return brutos.map(b => {
-    const pegar = (c: number) => b.linhas.map(l => (l[c] || '').trim()).filter(Boolean);
+    const pegarDe = (ls: string[][], c: number) => ls.map(l => (l[c] || '').trim()).filter(Boolean);
+    const pegar = (c: number) => pegarDe(b.linhas, c);
     const docs = pegar(col.documentos);
     const regs = docs.map(extrairRegistros);
-    const anos = pegar(col.atualizacao)
-      .map(v => Number((v.match(/\b(19|20)\d{2}\b/) || [])[0]))
-      .filter(n => Number.isFinite(n) && n > 0);
+    const anos = extrairAnos(pegar(col.atualizacao));
     const naoLocalizadaNoAno = pegar(col.atualizacao).some(v => normalizar(v).includes('NAO LOCALIZ'));
+
+    const dadosCartorio = (n: 1 | 2): DadosCartorio => {
+      const ls = b.linhas.filter(l => cartorioDoTexto(l[col.documentos] || '') === n);
+      const ds = pegarDe(ls, col.documentos);
+      const rs = ds.map(extrairRegistros);
+      return {
+        documentos: ds.filter(d => !normalizar(d).includes('NAO TEM')),
+        matriculas: [...new Set(rs.flatMap(r => r.matriculas))],
+        transcricoes: [...new Set(rs.flatMap(r => r.transcricoes))],
+        outrosRegistros: [...new Set(rs.flatMap(r => r.outros))],
+        oficios: pegarDe(ls, col.oficioCri),
+        anos: extrairAnos(pegarDe(ls, col.atualizacao)),
+      };
+    };
+    const linhas1 = b.linhas.filter(l => cartorioDoTexto(l[col.documentos] || '') === 1);
+    const d1 = dadosCartorio(1);
+    const d2 = dadosCartorio(2);
     const proprietarias = [...new Set([
       ...pegar(col.proprietaria).flatMap(normalizarProprietaria),
       ...(naoLocalizadaNoAno ? ['Não localizada'] : []),
@@ -197,7 +314,8 @@ export function parsePlanilha(csv: string): ImovelEscola[] {
 
     const base = {
       chave,
-      numero: b.numero,
+      // Algumas unidades têm o nº lançado na linha de continuação.
+      numero: b.numero || pegar(col.numero)[0] || '',
       escola: b.escola,
       oficiosUre: pegar(col.oficioUre),
       documentos: docs,
@@ -212,15 +330,48 @@ export function parsePlanilha(csv: string): ImovelEscola[] {
       solicitado2Cri: pegar(col.solicitado2Cri).some(v => normalizar(v).startsWith('OK')),
       atualizacoesSei: pegar(col.sei),
     };
-    return { ...base, status: classificar(base) };
+    const naoLocalizado1 = linhas1.some(l => normalizar(`${l[col.atualizacao] || ''} ${l[col.proprietaria] || ''}`).includes('NAO LOCALIZ'));
+    const cri1 = {
+      ...d1,
+      status: classificarCri1(d1, {
+        semRegistro: base.semRegistro1Cri,
+        naoLocalizado: naoLocalizado1,
+        registroNo2: temRegistro(d2),
+        oficioUre: pegarDe(linhas1, col.oficioUre).length > 0,
+      }),
+    };
+    const cri2 = {
+      ...d2,
+      status: classificarCri2(d2, {
+        precisa: base.semRegistro1Cri || base.solicitar2Cri,
+        solicitado: base.solicitado2Cri,
+      }),
+    };
+    return { ...base, status: classificar(base), cri1, cri2 };
   });
 }
 
-export function resumir(imoveis: ImovelEscola[]): ResumoRegularizacao {
+function resumirCartorio<S extends string>(
+  imoveis: ImovelEscola[], ordem: S[], pegar: (i: ImovelEscola) => DadosCartorio & { status: S }, semDemanda: S,
+): ResumoCartorio<S> {
+  const porStatus = Object.fromEntries(ordem.map(s => [s, 0])) as Record<S, number>;
+  imoveis.forEach(i => { porStatus[pegar(i).status]++; });
+  return {
+    unidades: imoveis.length - porStatus[semDemanda],
+    porStatus,
+    matriculas: imoveis.reduce((s, i) => s + pegar(i).matriculas.length, 0),
+    transcricoes: imoveis.reduce((s, i) => s + pegar(i).transcricoes.length, 0),
+    oficios: imoveis.reduce((s, i) => s + pegar(i).oficios.length, 0),
+  };
+}
+
+export function resumir(imoveis: ImovelEscola[]): ResumoCompleto {
   const porStatus = Object.fromEntries(STATUS_ORDEM.map(s => [s, 0])) as Record<StatusImovel, number>;
   imoveis.forEach(i => { porStatus[i.status]++; });
   const precisa2Cri = imoveis.filter(i => i.semRegistro1Cri || i.solicitar2Cri);
   return {
+    cri1: resumirCartorio(imoveis, STATUS_CRI1_ORDEM, i => i.cri1, 'nao_pesquisado'),
+    cri2: resumirCartorio(imoveis, STATUS_CRI2_ORDEM, i => i.cri2, 'nao_se_aplica'),
     total: imoveis.length,
     porStatus,
     matriculas: imoveis.reduce((s, i) => s + i.matriculas.length, 0),
@@ -236,7 +387,9 @@ export function montarSnapshot(imoveis: ImovelEscola[], data: string): Snapshot 
   return {
     data,
     resumo: resumir(imoveis),
-    por_escola: Object.fromEntries(imoveis.map(i => [i.chave, { escola: i.escola, status: i.status }])),
+    por_escola: Object.fromEntries(imoveis.map(i => [i.chave, {
+      escola: i.escola, status: i.status, cri1: i.cri1.status, cri2: i.cri2.status,
+    }])),
   };
 }
 
@@ -264,6 +417,71 @@ export function compararSnapshots(antes: Snapshot | null, depois: Snapshot): Mov
   });
   const rank = (s: StatusImovel) => STATUS_ORDEM.indexOf(s);
   return out.sort((a, b) => rank(a.para) - rank(b.para) || a.escola.localeCompare(b.escola));
+}
+
+export interface MovimentacaoCartorio<S extends string> {
+  chave: string;
+  escola: string;
+  de: S | null;
+  para: S;
+}
+
+// Mudanças de situação num cartório. Fotografias antigas (sem o campo) não
+// entram na comparação para não acusar "mudança" que é só falta de dado.
+export function compararCartorio(antes: Snapshot | null, depois: Snapshot, campo: 'cri1'): MovimentacaoCartorio<StatusCri1>[];
+export function compararCartorio(antes: Snapshot | null, depois: Snapshot, campo: 'cri2'): MovimentacaoCartorio<StatusCri2>[];
+export function compararCartorio(antes: Snapshot | null, depois: Snapshot, campo: 'cri1' | 'cri2'): MovimentacaoCartorio<string>[] {
+  if (!antes) return [];
+  const ordem: string[] = campo === 'cri1' ? STATUS_CRI1_ORDEM : STATUS_CRI2_ORDEM;
+  const out: MovimentacaoCartorio<string>[] = [];
+  Object.entries(depois.por_escola).forEach(([chave, v]) => {
+    const para = v[campo];
+    if (!para) return;
+    const reg = antes.por_escola[chave];
+    if (reg && !reg[campo]) return;
+    const de = reg?.[campo] ?? null;
+    if (de !== para) out.push({ chave, escola: v.escola, de, para });
+  });
+  return out.sort((a, b) => ordem.indexOf(a.para) - ordem.indexOf(b.para) || a.escola.localeCompare(b.escola));
+}
+
+// Matrículas/transcrições citadas em mais de uma unidade — normalmente terreno
+// compartilhado (ex.: escola + extensão), às vezes erro de digitação.
+export function registrosCompartilhados(imoveis: ImovelEscola[]): { registro: string; escolas: string[] }[] {
+  const m = new Map<string, Set<string>>();
+  imoveis.forEach(i => [...i.matriculas, ...i.transcricoes].forEach(r => {
+    if (!m.has(r)) m.set(r, new Set());
+    m.get(r)!.add(i.escola);
+  }));
+  const grupos = new Map<string, { registros: string[]; escolas: string[] }>();
+  m.forEach((esc, reg) => {
+    if (esc.size < 2) return;
+    const escolas = [...esc].sort();
+    const k = escolas.join('|');
+    if (!grupos.has(k)) grupos.set(k, { registros: [], escolas });
+    grupos.get(k)!.registros.push(reg);
+  });
+  return [...grupos.values()].map(g => ({
+    registro: g.registros.length > 3 ? `${g.registros.slice(0, 3).join(', ')} e +${g.registros.length - 3}` : g.registros.join(', '),
+    escolas: g.escolas,
+  }));
+}
+
+// Ritmo médio mensal de certidões atualizadas e mês projetado para 100%,
+// a partir da série mensal (ordem crescente). null = sem base para projetar.
+export function projetarConclusao(serie: { ym: string; atualizadas: number; total: number }[]): { ritmo: number; conclusao: string | null } | null {
+  if (serie.length < 2) return null;
+  const pri = serie[0];
+  const ult = serie[serie.length - 1];
+  const [a0, m0] = pri.ym.split('-').map(Number);
+  const [a1, m1] = ult.ym.split('-').map(Number);
+  const meses = (a1 - a0) * 12 + (m1 - m0);
+  if (meses <= 0) return null;
+  const ritmo = (ult.atualizadas - pri.atualizadas) / meses;
+  if (ritmo <= 0) return { ritmo, conclusao: null };
+  const faltam = Math.ceil((ult.total - ult.atualizadas) / ritmo);
+  const alvo = new Date(a1, m1 - 1 + faltam, 1);
+  return { ritmo, conclusao: `${alvo.getFullYear()}-${String(alvo.getMonth() + 1).padStart(2, '0')}` };
 }
 
 // Última fotografia de cada mês (yyyy-mm) — base do gráfico de evolução.
