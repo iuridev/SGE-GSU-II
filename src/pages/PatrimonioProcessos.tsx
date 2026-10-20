@@ -175,7 +175,7 @@ const PROCESS_TYPES = [
 const TIPOS_SEM_NOVO_LANCAMENTO = ['FURTOS', 'DOACAO_PDDE'];
 
 const WORKFLOWS: Record<string, string[]> = {
-  'DOACAO_MAT_PERMANENTE': ["FILA DE ATENDIMENTO", "ANÁLISE SEFISC", "AUTORIZAÇÃO SEOM", "DESPACHO DO COORDENADOR GERAL - DIRIGENTE", "SIAFEM CONTÁBIL", "INCORPORAÇÃO SAM PATRIMÔNIO", "CONCLUÍDO"],
+  'DOACAO_MAT_PERMANENTE': ["FILA DE ATENDIMENTO", "ANÁLISE SEFISC", "AUTORIZAÇÃO SEOM", "DESPACHO DO COORDENADOR GERAL - DIRIGENTE", "INCORPORAÇÃO SAM PATRIMÔNIO", "CONCLUÍDO"],
   'DOACAO_PDDE': ["RECEBIDO NO SEI", "ANÁLISE DO SEFISC", "DEVOLVIDO PARA CORREÇÃO", "DOE", "REGISTRO NO SAM", "REGISTRO NÚMERO PATRIMÔNIO"],
   'DOACAO_APM': ["RECEBIDO NO SEI", "ANÁLISE DO SEFISC", "DEVOLVIDO PARA CORREÇÃO", "DOE", "REGISTRO NO SAM", "REGISTRO NÚMERO PATRIMÔNIO"],
   'DOACAO_TERCEIROS': ["RECEBIDO NO SEI", "ANÁLISE DO SEFISC", "DEVOLVIDO PARA CORREÇÃO", "DOE", "REGISTRO NO SAM", "REGISTRO NÚMERO PATRIMÔNIO"],
@@ -306,7 +306,10 @@ export function PatrimonioProcessos() {
       query.order('process_date', { ascending: false }),
       furtosQuery.order('data_ocorrencia', { ascending: false }),
     ]);
-    if (!error) setProcesses(data || []);
+    // A etapa "SIAFEM CONTÁBIL" saiu do fluxo de Doação de Material Permanente:
+    // processos antigos parados nela passam a aparecer na etapa seguinte.
+    if (!error) setProcesses(((data || []) as PatrimonioProcess[]).map(p =>
+      p.current_step === 'SIAFEM CONTÁBIL' ? { ...p, current_step: 'INCORPORAÇÃO SAM PATRIMÔNIO' } : p));
     if (furtosError) console.error('Erro ao carregar processos de furtos:', furtosError);
     else setFurtos(furtosData || []);
   }
