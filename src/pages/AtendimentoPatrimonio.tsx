@@ -6,11 +6,12 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 import { addTimbradoAllPages } from '../lib/pdfTimbrado';
+import { descreverChaveEnvioFde } from '../lib/fdeEnvios';
 import {
   Plus, Search, X, Loader2, CalendarDays, Video,
   MapPin, BarChart3, TrendingUp, RefreshCw, ExternalLink,
   ClipboardList, ArrowRightLeft, Package, Check, Mail, History, Pencil, Ticket, Link2, FileDown,
-  AlertTriangle, ListOrdered, Eye, Trash2, Link, Unlink,
+  AlertTriangle, ListOrdered, Eye, Trash2, Link, Unlink, Truck,
 } from 'lucide-react';
 
 // Mesma chave usada por Chamados.tsx para ler a referência pré-preenchida ao
@@ -212,6 +213,9 @@ interface Incorporacao {
   // a incorporação. Vazio = escola ainda deve a documentação/abertura do processo.
   processo_incorporacao_id: string;
   processo_sei: string;
+  // Envio informado pela FDE (aba "Envios FDE" da Gestão FDE) que este item comprova
+  // com a nota fiscal — chave "PROJETO|CIE|CODIGO", ver src/lib/fdeEnvios.ts.
+  fde_envio_chave: string;
 }
 
 // Linha unificada da aba "Itens a Incorporar": mescla itens cadastrados diretamente
@@ -237,6 +241,9 @@ interface IncorporacaoRow {
   lote_id: string;
   processo_incorporacao_id: string;
   processo_sei: string;
+  // Envio informado pela FDE (aba "Envios FDE" da Gestão FDE) que este item comprova
+  // com a nota fiscal — chave "PROJETO|CIE|CODIGO", ver src/lib/fdeEnvios.ts.
+  fde_envio_chave: string;
 }
 
 interface ProcessoOption {
@@ -1075,6 +1082,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
       data_aquisicao: i.data_aquisicao || '', valor_item: i.valor_item || '', ano_verba: i.ano_verba || '',
       lote_id: i.lote_id || '',
       processo_incorporacao_id: i.processo_incorporacao_id || '', processo_sei: i.processo_sei || '',
+      fde_envio_chave: i.fde_envio_chave || '',
     }));
     const deRemanejamento: IncorporacaoRow[] = remanejamentos
       .filter(r => r.pendente_incorporacao === 'TRUE')
@@ -1085,7 +1093,7 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
         quantidade: '-', nota_fiscal_link: r.nota_fiscal_link, status: 'Pendente',
         numero_patrimonial: '', autor_nome: r.autor_nome, data_registro: r.data_registro,
         origem_aquisicao: '', orgao_entrega: '', data_aquisicao: '', valor_item: '', ano_verba: '', lote_id: '',
-        processo_incorporacao_id: '', processo_sei: '',
+        processo_incorporacao_id: '', processo_sei: '', fde_envio_chave: '',
       }));
     return [...diretos, ...deRemanejamento].sort((a, b) => (a.data_registro < b.data_registro ? 1 : -1));
   }, [incorporacoes, remanejamentos]);
@@ -2471,6 +2479,12 @@ export default function AtendimentoPatrimonio({ onNavigate }: { onNavigate?: (pa
                               <span title="Cadastrado junto com outros itens na mesma leva — cada um mantém status de incorporação independente"
                                 className="inline-flex items-center gap-1 mt-0.5 text-[10px] font-medium text-slate-400">
                                 <Link2 size={10} /> lote de {loteCounts.get(i.lote_id)} itens
+                              </span>
+                            )}
+                            {i.fde_envio_chave && (
+                              <span title="Vinculado a um envio informado pela FDE (Gestão FDE › Envios FDE)"
+                                className="flex items-center gap-1 mt-0.5 text-[10px] font-medium text-emerald-600">
+                                <Truck size={10} /> Envio FDE: {descreverChaveEnvioFde(i.fde_envio_chave)}
                               </span>
                             )}
                           </td>
