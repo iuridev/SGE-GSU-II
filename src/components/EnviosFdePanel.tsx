@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
 import {
-  carregarEnviosFde, chaveEnvioFde, normalizarCie, normalizarTexto,
+  carregarEnviosFde, chaveEnvioFde, chaveEnvioFdeLegada, normalizarCie, normalizarTexto,
   FDE_ENVIOS_CONFIGURADO, FDE_ENVIOS_SHEET_URL, type FdeEnvio,
 } from '../lib/fdeEnvios';
 import {
@@ -42,8 +42,8 @@ interface ItemIncorporar {
 const today = new Date().toISOString().slice(0, 10);
 
 function situacao(e: FdeEnvio): 'ENTREGUE' | 'ATRASADO' | 'PENDENTE' {
-  if (e.status === 'ENTREGUE') return 'ENTREGUE';
-  if (e.dataLimite && e.dataLimite < today) return 'ATRASADO';
+  if (e.status === 'ENTREGUE' || e.dataEntrega) return 'ENTREGUE';
+  if (e.status === 'VENCIDO' || (e.dataLimite && e.dataLimite < today)) return 'ATRASADO';
   return 'PENDENTE';
 }
 
@@ -78,6 +78,7 @@ export function EnviosFdePanel({ isAdmin, userSchoolId, searchTerm, items }: Pro
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [filtroProjeto, setFiltroProjeto] = useState('');
+  const [filtroFornecedora, setFiltroFornecedora] = useState('');
   const [filtroSituacao, setFiltroSituacao] = useState('');
   const [filtroNf, setFiltroNf] = useState('');
   const [vinculando, setVinculando] = useState<FdeEnvio | null>(null);
@@ -136,9 +137,12 @@ export function EnviosFdePanel({ isAdmin, userSchoolId, searchTerm, items }: Pro
     return m;
   }, [incorporar]);
 
+  const vinculadosDe = (e: FdeEnvio) =>
+    incorporarPorChave.get(chaveEnvioFde(e)) || incorporarPorChave.get(chaveEnvioFdeLegada(e)) || [];
+
   // NF só é cobrada depois que a FDE entregou; antes disso não se aplica
   const situacaoNf = (e: FdeEnvio): 'RECEBIDA' | 'PENDENTE' | 'NA' => {
-    if (incorporarPorChave.has(chaveEnvioFde(e))) return 'RECEBIDA';
+    if (vinculadosDe(e).length > 0) return 'RECEBIDA';
     return situacao(e) === 'ENTREGUE' ? 'PENDENTE' : 'NA';
   };
 
@@ -151,19 +155,21 @@ export function EnviosFdePanel({ isAdmin, userSchoolId, searchTerm, items }: Pro
   }, [envios, schools, isAdmin, userSchoolId]);
 
   const projetos = useMemo(() => Array.from(new Set(visiveis.map(e => e.projeto).filter(Boolean))).sort(), [visiveis]);
+  const fornecedoras = useMemo(() => Array.from(new Set(visiveis.map(e => e.fornecedora).filter(Boolean))).sort(), [visiveis]);
 
   const filtrados = useMemo(() => {
     const q = normalizarTexto(searchTerm);
     return visiveis.filter(e => {
       if (filtroProjeto && e.projeto !== filtroProjeto) return false;
+      if (filtroFornecedora && e.fornecedora !== filtroFornecedora) return false;
       if (filtroSituacao && situacao(e) !== filtroSituacao) return false;
       if (filtroNf && situacaoNf(e) !== filtroNf) return false;
       if (!q) return true;
       const nomeSistema = schoolPorCie.get(e.cie)?.name || '';
       const nomeItem = itemPorCodigo.get(e.codigo) || '';
-      return [e.escola, nomeSistema, e.cie, e.codigo, nomeItem].some(t => normalizarTexto(t).includes(q));
+      return [e.escola, nomeSistema, e.cie, e.codigo, nomeItem, e.of, e.fornecedora].some(t => normalizarTexto(t).includes(q));
     });
-  }, [visiveis, filtroProjeto, filtroSituacao, filtroNf, searchTerm, schoolPorCie, itemPorCodigo, incorporarPorChave]);
+  }, [visiveis, filtroProjeto, filtroFornecedora, filtroSituacao, filtroNf, searchTerm, schoolPorCie, itemPorCodigo, incorporarPorChave]);
 
   const kpis = useMemo(() => {
     const escolas = new Set(filtrados.map(e => e.cie || e.escola));
@@ -239,6 +245,10 @@ export function EnviosFdePanel({ isAdmin, userSchoolId, searchTerm, items }: Pro
           <option value="">Todos os projetos</option>
           {projetos.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
+        <select className="p-3 bg-slate-50 rounded-xl font-bold text-xs text-slate-700 outline-none" value={filtroFornecedora} onChange={e => setFiltroFornecedora(e.target.value)}>
+          <option value="">Todas as fornecedoras</option>
+          {fornecedoras.map(f => <option key={f} value={f}>{f}</option>)}
+        </select>
         <select className="p-3 bg-slate-50 rounded-xl font-bold text-xs text-slate-700 outline-none" value={filtroSituacao} onChange={e => setFiltroSituacao(e.target.value)}>
           <option value="">Todas as situações</option>
           <option value="ENTREGUE">Entregue</option>
@@ -281,10 +291,10 @@ export function EnviosFdePanel({ isAdmin, userSchoolId, searchTerm, items }: Pro
             <thead className="bg-slate-50 text-[9px] font-black text-slate-400 uppercase tracking-widest">
               <tr>
                 <th className="p-5 pl-8">Escola</th>
-                <th className="p-5">Projeto</th>
+                <th className="p-5">Projeto / OF</th>
                 <th className="p-5">Código / Item</th>
                 <th className="p-5 text-center">Qtde</th>
-                <th className="p-5 text-center">Data Limite</th>
+                <th className="p-5 text-center">Prazo / Entrega</th>
                 <th className="p-5 text-center">Situação</th>
                 <th className="p-5 pr-8">Nota Fiscal</th>
               </tr>
@@ -300,26 +310,33 @@ export function EnviosFdePanel({ isAdmin, userSchoolId, searchTerm, items }: Pro
                 const nomeItem = itemPorCodigo.get(e.codigo);
                 const s = situacao(e);
                 const nf = situacaoNf(e);
-                const vinculados = incorporarPorChave.get(chaveEnvioFde(e)) || [];
+                const vinculados = vinculadosDe(e);
                 return (
-                  <tr key={`${e.cie}-${e.codigo}-${e.projeto}-${i}`} className="hover:bg-slate-50/50 align-top">
+                  <tr key={`${e.of}-${e.cie}-${e.codigo}-${i}`} className="hover:bg-slate-50/50 align-top">
                     <td className="p-5 pl-8">
                       <p className="text-[11px] font-black text-slate-800 uppercase">{escolaSistema?.name || e.escola}</p>
                       <p className={`text-[9px] font-bold uppercase ${escolaSistema ? 'text-slate-400' : 'text-amber-600'}`}>CIE {e.cie || '—'}{!escolaSistema && ' · não vinculada'}</p>
                     </td>
-                    <td className="p-5 text-[10px] font-black text-slate-600 uppercase">{e.projeto || '—'}</td>
+                    <td className="p-5">
+                      <p className="text-[10px] font-black text-slate-600 uppercase">{e.projeto || '—'}</p>
+                      {e.of && <p className="text-[9px] font-bold text-slate-400 uppercase whitespace-nowrap">OF {e.of}</p>}
+                      {e.fornecedora && <p className="text-[9px] font-bold text-slate-400 uppercase">{e.fornecedora}</p>}
+                    </td>
                     <td className="p-5">
                       <span className="px-2 py-1 bg-slate-900 text-white rounded-lg font-black text-[10px]">{e.codigo || '—'}</span>
                       {nomeItem && <p className="text-[10px] font-bold text-slate-500 uppercase mt-1 line-clamp-1">{nomeItem}</p>}
                     </td>
                     <td className="p-5 text-center text-sm font-black text-slate-800">{e.qtde}</td>
-                    <td className="p-5 text-center text-[11px] font-bold text-slate-600">{fmtData(e.dataLimite)}</td>
+                    <td className="p-5 text-center whitespace-nowrap">
+                      <p className="text-[11px] font-bold text-slate-600">{fmtData(e.dataLimite)}</p>
+                      {e.dataEntrega && <p className="text-[9px] font-black text-emerald-600 uppercase mt-0.5">Entregue {fmtData(e.dataEntrega)}</p>}
+                    </td>
                     <td className="p-5 text-center">
                       <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-black text-[9px] uppercase ${
                         s === 'ENTREGUE' ? 'bg-emerald-50 text-emerald-700' : s === 'ATRASADO' ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'
                       }`}>
                         {s === 'ENTREGUE' ? <PackageCheck size={12} /> : s === 'ATRASADO' ? <AlertTriangle size={12} /> : <Truck size={12} />}
-                        {s === 'PENDENTE' ? (e.status || 'No prazo') : s}
+                        {s === 'ENTREGUE' ? 'ENTREGUE' : s === 'ATRASADO' ? (e.status === 'VENCIDO' ? 'VENCIDO' : 'ATRASADO') : (e.status || 'No prazo')}
                       </span>
                     </td>
                     <td className="p-5 pr-8 min-w-[220px]">
@@ -404,7 +421,7 @@ function VincularModal({ envio, escola, nomeItem, itens, onClose, onSaved }: {
         <div className="p-6 border-b border-slate-100 flex items-start justify-between gap-4">
           <div>
             <h3 className="text-sm font-black text-slate-900 uppercase">Vincular nota fiscal ao envio FDE</h3>
-            <p className="text-[10px] font-bold text-slate-500 uppercase mt-1">{escola.name} · {envio.projeto} · {envio.codigo}{nomeItem ? ` – ${nomeItem}` : ''} · {envio.qtde} un.</p>
+            <p className="text-[10px] font-bold text-slate-500 uppercase mt-1">{escola.name} · {envio.of ? `OF ${envio.of}` : envio.projeto} · {envio.codigo}{nomeItem ? ` – ${nomeItem}` : ''} · {envio.qtde} un.</p>
           </div>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700"><X size={18} /></button>
         </div>
