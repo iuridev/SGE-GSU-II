@@ -113,7 +113,7 @@ interface EscolaOption {
 }
 
 type Tab = 'preencher' | 'respostas' | 'janela' | 'relatorio';
-type FiltroAtendimento = 'todos' | 'ATENDIDA' | 'NAO_ATENDIDA' | 'A_DECIDIR';
+type FiltroAtendimento = 'todos' | 'ATENDIDA' | 'NAO_ATENDIDA' | 'A_DECIDIR' | 'A_DECIDIR_NUNCA' | 'A_DECIDIR_PARCIAL';
 // Situação da escola em um lote — COMPLETA = já recebeu tudo em outros lotes.
 type SituacaoLote = 'ATENDIDA' | 'NAO_ATENDIDA' | 'A_DECIDIR' | 'COMPLETA';
 
@@ -796,13 +796,26 @@ export default function ReformaFunap() {
     return totalRestanteNoLote(resposta, lote) === 0 ? 'COMPLETA' : 'A_DECIDIR';
   };
 
+  // Já recebeu algo em um lote anterior (atendida em parte) — para priorizar,
+  // no lote novo, as escolas que ainda não receberam nada.
+  const atendidaEmLoteAnterior = (resposta: Resposta, lote: number) =>
+    (atendimentosPorResposta.get(resposta.id) || [])
+      .some(a => Number(a.lote) < lote && a.atendimento === 'ATENDIDA' && totalAtendido(a) > 0);
+
   const respostasFiltradas = useMemo(
     () => respostasPorEscola.filter(({ escola, resposta }) => {
       if (!escola.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
       if (filtroAtendimento === 'todos') return true;
       // Só entram no filtro de atendimento as escolas com algo a reformar.
       if (!resposta || totalItens(resposta) === 0) return false;
-      return situacaoNoLote(resposta, loteAtual) === filtroAtendimento;
+      const situacao = situacaoNoLote(resposta, loteAtual);
+      if (filtroAtendimento === 'A_DECIDIR_NUNCA') return situacao === 'A_DECIDIR' && !atendidaEmLoteAnterior(resposta, loteAtual);
+      if (filtroAtendimento === 'A_DECIDIR_PARCIAL') return situacao === 'A_DECIDIR' && atendidaEmLoteAnterior(resposta, loteAtual);
+      return situacao === filtroAtendimento;
+    }).sort((a, b) => {
+      // Em "a decidir", as que nunca foram atendidas vêm primeiro (prioridade).
+      if (filtroAtendimento !== 'A_DECIDIR' || !a.resposta || !b.resposta) return 0;
+      return Number(atendidaEmLoteAnterior(a.resposta, loteAtual)) - Number(atendidaEmLoteAnterior(b.resposta, loteAtual));
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [respostasPorEscola, searchTerm, filtroAtendimento, atendimentosPorResposta, loteAtual]
@@ -838,11 +851,16 @@ export default function ReformaFunap() {
     Math.min(restanteNoLote(resposta, campo, loteAtual), saldoDisponivelPara(resposta, campo));
 
   const contagemAtendimento = useMemo(() => {
-    const situacoes = respostas.filter(r => totalItens(r) > 0).map(r => situacaoNoLote(r, loteAtual));
+    const comItens = respostas.filter(r => totalItens(r) > 0);
+    const situacoes = comItens.map(r => situacaoNoLote(r, loteAtual));
+    const aDecidirParcial = comItens.filter(r => situacaoNoLote(r, loteAtual) === 'A_DECIDIR' && atendidaEmLoteAnterior(r, loteAtual)).length;
+    const aDecidir = situacoes.filter(s => s === 'A_DECIDIR').length;
     return {
       atendidas: situacoes.filter(s => s === 'ATENDIDA').length,
       naoAtendidas: situacoes.filter(s => s === 'NAO_ATENDIDA').length,
-      aDecidir: situacoes.filter(s => s === 'A_DECIDIR').length,
+      aDecidir,
+      aDecidirParcial,
+      aDecidirNunca: aDecidir - aDecidirParcial,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [respostas, atendimentosPorResposta, loteAtual]);
@@ -1533,11 +1551,15 @@ export default function ReformaFunap() {
                   { label: 'Pendente', value: totalPendente, bg: 'bg-amber-50', text: 'text-amber-600' },
                   { label: `Atendidas no Lote ${loteAtual}`, value: contagemAtendimento.atendidas, bg: 'bg-teal-50', text: 'text-teal-600' },
                   { label: `Não atendidas no Lote ${loteAtual}`, value: contagemAtendimento.naoAtendidas, bg: 'bg-red-50', text: 'text-red-600' },
-                  { label: `A decidir no Lote ${loteAtual}`, value: contagemAtendimento.aDecidir, bg: 'bg-slate-50', text: 'text-slate-600' },
-                ].map(card => (
+                  {
+                    label: `A decidir no Lote ${loteAtual}`, value: contagemAtendimento.aDecidir, bg: 'bg-slate-50', text: 'text-slate-600',
+                    detalhe: loteAtual > 1 ? `${contagemAtendimento.aDecidirNunca} nunca atendida(s) · ${contagemAtendimento.aDecidirParcial} parcial(is)` : '',
+                  },
+                ].map((card: { label: string; value: number; bg: string; text: string; detalhe?: string }) => (
                   <div key={card.label} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
                     <p className="text-xs text-slate-500 font-medium">{card.label}</p>
                     <p className={`text-2xl font-bold ${card.text}`}>{card.value}</p>
+                    {card.detalhe && <p className="text-[11px] text-slate-500 mt-0.5">{card.detalhe}</p>}
                   </div>
                 ))}
               </div>
@@ -1560,7 +1582,9 @@ export default function ReformaFunap() {
                   <option value="todos">Todas as escolas</option>
                   <option value="ATENDIDA">Atendidas no Lote {loteAtual}</option>
                   <option value="NAO_ATENDIDA">Não atendidas no Lote {loteAtual}</option>
-                  <option value="A_DECIDIR">A decidir no Lote {loteAtual}</option>
+                  <option value="A_DECIDIR">A decidir no Lote {loteAtual}{loteAtual > 1 ? ' (nunca atendidas primeiro)' : ''}</option>
+                  {loteAtual > 1 && <option value="A_DECIDIR_NUNCA">A decidir — nunca atendidas</option>}
+                  {loteAtual > 1 && <option value="A_DECIDIR_PARCIAL">A decidir — atendidas em parte antes</option>}
                 </select>
               </div>
 
@@ -1654,10 +1678,21 @@ export default function ReformaFunap() {
                                     <CheckCircle2 size={12} /> Atendida integralmente
                                   </span>
                                 )}
+                                {situacao === 'A_DECIDIR' && loteAtual > 1 && (
+                                  atendidaEmLoteAnterior(resposta, loteAtual) ? (
+                                    <span className="inline-flex items-center gap-1 text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full text-xs font-medium">
+                                      <Layers size={12} /> Atendida em parte antes
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full text-xs font-medium">
+                                      <AlertTriangle size={12} /> Ainda não atendida
+                                    </span>
+                                  )
+                                )}
                                 {situacao === 'A_DECIDIR' && (
-                                  <span className="text-xs text-slate-400">
+                                  <p className="text-xs text-slate-400">
                                     A decidir{outrosLotes.length > 0 && ` — faltam ${totalRestanteNoLote(resposta, loteAtual)} de ${solicitado} itens`}
-                                  </span>
+                                  </p>
                                 )}
                                 {outrosLotes.map(a => (
                                   <p key={a.id} className="text-[11px] text-slate-500 flex items-center gap-1">
