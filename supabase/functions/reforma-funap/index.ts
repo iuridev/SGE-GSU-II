@@ -43,10 +43,29 @@ const JANELA_COLUMNS = [
 // Capacidade informada pela FUNAP. Cada edição vira uma linha nova (a última
 // vale) — mesmo padrão da Janela, para manter o histórico de alterações.
 const CAPACIDADE_SHEET = 'Reforma_FUNAP_Capacidade'
+// `lote` vazio = Lote 1 (linhas cadastradas antes de existirem lotes). Cada
+// novo saldo recebido da FUNAP abre o lote seguinte, com capacidade própria.
 const CAPACIDADE_COLUMNS = [
   'id', 'cja05_carteiras', 'cja05_cadeiras', 'cja06_carteiras', 'cja06_cadeiras',
-  'observacao', 'autor_id', 'autor_nome', 'data_registro',
+  'observacao', 'autor_id', 'autor_nome', 'data_registro', 'lote',
 ]
+// Decisão de atendimento por escola × lote — a mesma escola pode ser atendida
+// em parte no Lote 1 e completar no Lote 2, cada lote com sua logística.
+// Linha com atendimento vazio = desfeita (a linha nunca é apagada, para não
+// reativar a migração abaixo).
+const ATENDIMENTOS_SHEET = 'Reforma_FUNAP_Atendimentos'
+const ATENDIMENTOS_COLUMNS = [
+  'id', 'resposta_id', 'escola_id', 'escola_nome', 'lote',
+  'atendimento', 'atendimento_motivo', 'atendimento_por', 'atendimento_em',
+  'atend_cja05_carteiras', 'atend_cja05_cadeiras', 'atend_cja06_carteiras', 'atend_cja06_cadeiras',
+  'transporte', 'data_prevista_transporte', 'quantidade_viagens',
+  'logistica_atualizada_por', 'logistica_atualizada_em',
+  'secomse_enviado_em', 'secomse_registrado_por',
+]
+// Colunas que antes dos lotes ficavam na própria resposta (mesmos nomes).
+const COLUNAS_MIGRADAS = ATENDIMENTOS_COLUMNS.slice(5)
+
+const loteDe = (v: unknown) => Math.max(1, parseInt(String(v ?? ''), 10) || 1)
 
 type Profile = { role: string; school_id: string | null; full_name: string | null }
 
@@ -132,12 +151,43 @@ async function getJanelaAtual(doc: any) {
   return rowToObject(last, JANELA_COLUMNS)
 }
 
-async function getCapacidadeAtual(doc: any) {
+// Capacidade vigente de cada lote (a última linha do lote vale) + histórico.
+async function getCapacidades(doc: any) {
   const sheet = await getOrCreateSheet(doc, CAPACIDADE_SHEET, CAPACIDADE_COLUMNS)
   const rows = await sheet.getRows()
-  if (rows.length === 0) return null
-  return rowToObject(rows[rows.length - 1], CAPACIDADE_COLUMNS)
+  const historico = rows.map((r: any) => ({ ...rowToObject(r, CAPACIDADE_COLUMNS), lote: String(loteDe(r.get('lote'))) }))
+  const porLote: Record<string, any> = {}
+  for (const h of historico) porLote[h.lote] = h
+  const ultimoLote = Math.max(1, ...Object.keys(porLote).map(Number))
+  return { porLote, historico, ultimoLote }
 }
+
+// Antes dos lotes, a decisão de atendimento e a logística ficavam em colunas da
+// própria resposta. Na primeira leitura, copia tudo como Lote 1 — as colunas
+// antigas continuam intactas na aba de respostas, só deixam de ser usadas.
+async function getAtendimentos(doc: any) {
+  const sheet = await getOrCreateSheet(doc, ATENDIMENTOS_SHEET, ATENDIMENTOS_COLUMNS)
+  let rows = await sheet.getRows()
+  if (rows.length === 0) {
+    const respostasSheet = await getOrCreateSheet(doc, RESPOSTAS_SHEET, RESPOSTAS_COLUMNS)
+    const legado = (await respostasSheet.getRows()).filter((r: any) => r.get('atendimento'))
+    if (legado.length > 0) {
+      await sheet.addRows(legado.map((r: any) => ({
+        id: crypto.randomUUID(),
+        resposta_id: r.get('id'),
+        escola_id: r.get('escola_id'),
+        escola_nome: r.get('escola_nome') ?? '',
+        lote: '1',
+        ...Object.fromEntries(COLUNAS_MIGRADAS.map(c => [c, r.get(c) ?? ''])),
+      })))
+      rows = await sheet.getRows()
+    }
+  }
+  return { sheet, rows }
+}
+
+const qtdAtendidaRow = (r: any, campo: string) =>
+  r.get('atendimento') === 'ATENDIDA' ? Number(r.get(`atend_${campo}`) || 0) : 0
 
 function janelaEstaAberta(janela: any): { aberta: boolean; motivo?: string } {
   if (!janela) return { aberta: false, motivo: 'Nenhum prazo de preenchimento foi configurado ainda.' }
@@ -191,14 +241,17 @@ Deno.serve(async (req) => {
     switch (action) {
       case 'obter_capacidade': {
         if (p.role === 'school_manager') throw new Error('Seu perfil não tem acesso a esta informação.')
-        const sheet = await getOrCreateSheet(doc, CAPACIDADE_SHEET, CAPACIDADE_COLUMNS)
-        const rows = await sheet.getRows()
-        const historico = rows.map((r: any) => rowToObject(r, CAPACIDADE_COLUMNS)).reverse()
-        return ok(corsHeaders, { capacidade: historico[0] || null, historico })
+        const { porLote, historico } = await getCapacidades(doc)
+        return ok(corsHeaders, { capacidades: porLote, historico: [...historico].reverse() })
       }
 
       case 'definir_capacidade': {
         exigirRegionalAdmin(p)
+        const lote = loteDe(body.lote)
+        const { porLote, ultimoLote } = await getCapacidades(doc)
+        // Só abre o lote seguinte depois que o atual tem capacidade cadastrada.
+        const proximo = porLote[String(ultimoLote)] ? ultimoLote + 1 : ultimoLote
+        if (lote > proximo) throw new Error(`Cadastre a capacidade do Lote ${proximo} antes.`)
         const valores: Record<string, string> = {}
         for (const campo of CAMPOS_QTD) {
           const v = Number(body[campo] ?? 0)
@@ -209,6 +262,7 @@ Deno.serve(async (req) => {
         await sheet.addRow({
           id: crypto.randomUUID(),
           ...valores,
+          lote: String(lote),
           observacao: String(body.observacao ?? '').trim(),
           autor_id: user.id,
           autor_nome: autorNome,
@@ -257,6 +311,22 @@ Deno.serve(async (req) => {
           respostas = respostas.filter((r: any) => r.escola_id === p.school_id)
         }
         return ok(corsHeaders, respostas)
+      }
+
+      // Decisão é visível só para admin/supervisor/dirigente — a escola não vê.
+      case 'listar_atendimentos': {
+        if (p.role === 'school_manager') throw new Error('Seu perfil não tem acesso a esta informação.')
+        const { rows } = await getAtendimentos(doc)
+        // Se duas leituras simultâneas migraram o legado em dobro, vale a primeira.
+        const unicos = new Map<string, any>()
+        for (const r of rows) {
+          const chave = `${r.get('resposta_id')}|${loteDe(r.get('lote'))}`
+          if (!unicos.has(chave)) unicos.set(chave, r)
+        }
+        const atendimentos = [...unicos.values()]
+          .filter((r: any) => r.get('atendimento'))
+          .map((r: any) => ({ ...rowToObject(r, ATENDIMENTOS_COLUMNS), lote: String(loteDe(r.get('lote'))) }))
+        return ok(corsHeaders, atendimentos)
       }
 
       case 'salvar_resposta': {
@@ -389,20 +459,23 @@ Deno.serve(async (req) => {
         return ok(corsHeaders, { success: true })
       }
 
+      // Logística de transporte de um atendimento (escola × lote).
       case 'atualizar_logistica': {
         exigirRegionalAdmin(p)
-        if (!body.id) throw new Error('Resposta não informada.')
-        const sheet = await getOrCreateSheet(doc, RESPOSTAS_SHEET, RESPOSTAS_COLUMNS)
-        const rows = await sheet.getRows()
-        const row = rows.find((r: any) => r.get('id') === String(body.id))
-        if (!row) throw new Error('Resposta não encontrada.')
+        if (!body.atendimento_id) throw new Error('Atendimento não informado.')
+        const { rows } = await getAtendimentos(doc)
+        const row = rows.find((r: any) => r.get('id') === String(body.atendimento_id))
+        if (!row || row.get('atendimento') !== 'ATENDIDA') throw new Error('Atendimento não encontrado.')
 
+        const lote = String(loteDe(row.get('lote')))
         const dadosAntes = {
+          lote,
           transporte: row.get('transporte') ?? '',
           data_prevista_transporte: row.get('data_prevista_transporte') ?? '',
           quantidade_viagens: row.get('quantidade_viagens') ?? '',
         }
         const dadosDepois = {
+          lote,
           transporte: body.transporte === true || body.transporte === 'SIM' ? 'SIM' : 'NAO',
           data_prevista_transporte: String(body.data_prevista_transporte || ''),
           quantidade_viagens: String(body.quantidade_viagens || ''),
@@ -419,7 +492,7 @@ Deno.serve(async (req) => {
         const historicoSheet = await getOrCreateSheet(doc, HISTORICO_SHEET, HISTORICO_COLUMNS)
         await historicoSheet.addRow({
           id: crypto.randomUUID(),
-          resposta_id: row.get('id'),
+          resposta_id: row.get('resposta_id'),
           escola_id: row.get('escola_id'),
           escola_nome: row.get('escola_nome') ?? '',
           acao: 'logistica',
@@ -433,76 +506,98 @@ Deno.serve(async (req) => {
         return ok(corsHeaders, { success: true })
       }
 
-      // Decisão da Regional, depois de analisar as respostas, sobre quais
-      // escolas a FUNAP vai conseguir atender: ATENDIDA | NAO_ATENDIDA | ''
-      // (vazio = ainda a decidir). Motivo obrigatório quando não atendida.
-      // Quando atendida, informa a quantidade que a FUNAP consegue atender por
-      // item (pode ser menor que a solicitada pela escola = atendimento parcial).
+      // Decisão da Regional, por lote, sobre o que a FUNAP vai atender de cada
+      // escola: ATENDIDA | NAO_ATENDIDA | '' (vazio = volta a "a decidir").
+      // Motivo obrigatório quando não atendida. Quando atendida, informa a
+      // quantidade por item — até o que falta atender (solicitado − atendido
+      // nos outros lotes) e dentro do saldo do lote.
       case 'definir_atendimento': {
         exigirRegionalAdmin(p)
         if (!body.id) throw new Error('Resposta não informada.')
+        const lote = loteDe(body.lote)
         const atendimento = String(body.atendimento ?? '')
         if (!['ATENDIDA', 'NAO_ATENDIDA', ''].includes(atendimento)) throw new Error('Situação de atendimento inválida.')
         const motivo = atendimento ? String(body.motivo ?? '').trim() : ''
         if (atendimento === 'NAO_ATENDIDA' && !motivo) throw new Error('Informe o motivo do não atendimento.')
 
-        const sheet = await getOrCreateSheet(doc, RESPOSTAS_SHEET, RESPOSTAS_COLUMNS)
-        const rows = await sheet.getRows()
-        const row = rows.find((r: any) => r.get('id') === String(body.id))
-        if (!row) throw new Error('Resposta não encontrada.')
+        const { porLote, ultimoLote } = await getCapacidades(doc)
+        if (lote > ultimoLote) throw new Error(`O Lote ${lote} ainda não foi aberto — cadastre a capacidade dele.`)
+
+        const respostasSheet = await getOrCreateSheet(doc, RESPOSTAS_SHEET, RESPOSTAS_COLUMNS)
+        const resposta = (await respostasSheet.getRows()).find((r: any) => r.get('id') === String(body.id))
+        if (!resposta) throw new Error('Resposta não encontrada.')
+
+        const { sheet, rows } = await getAtendimentos(doc)
+        const daEscola = (r: any) => r.get('resposta_id') === String(body.id)
+        const doLote = (r: any) => loteDe(r.get('lote')) === lote
+        const existente = rows.find((r: any) => daEscola(r) && doLote(r))
 
         const quantidades: Record<string, string> = {}
         for (const campo of CAMPOS_QTD) {
           const colAtend = `atend_${campo}`
           if (atendimento !== 'ATENDIDA') { quantidades[colAtend] = ''; continue }
           const v = Number(body.quantidades?.[campo] ?? 0)
-          const solicitado = Number(row.get(campo) || 0)
+          const outrosLotes = rows.filter((r: any) => daEscola(r) && !doLote(r)).reduce((acc: number, r: any) => acc + qtdAtendidaRow(r, campo), 0)
+          const restante = Number(resposta.get(campo) || 0) - outrosLotes
           if (!Number.isInteger(v) || v < 0) throw new Error('As quantidades atendidas devem ser números inteiros não negativos.')
-          if (v > solicitado) throw new Error('A quantidade atendida não pode ser maior que a solicitada pela escola.')
+          if (v > restante) {
+            throw new Error(`${ROTULO_QTD[campo]}: só faltam ${Math.max(0, restante)} para esta escola (solicitado menos o já atendido em outros lotes).`)
+          }
           quantidades[colAtend] = String(v)
         }
         if (atendimento === 'ATENDIDA' && Object.values(quantidades).every(v => Number(v) === 0)) {
           throw new Error('Informe ao menos um item a ser atendido (ou marque como não atendida).')
         }
 
-        // Não deixa passar do saldo da capacidade FUNAP (se cadastrada): soma o
-        // já atendido nas outras escolas + o que está sendo atendido nesta.
-        if (atendimento === 'ATENDIDA') {
-          const capacidade = await getCapacidadeAtual(doc)
-          if (capacidade) {
-            for (const campo of CAMPOS_QTD) {
-              const outras = rows
-                .filter((r: any) => r.get('id') !== String(body.id) && r.get('atendimento') === 'ATENDIDA')
-                .reduce((acc: number, r: any) => acc + Number(r.get(`atend_${campo}`) || 0), 0)
-              const saldo = Number(capacidade[campo] || 0) - outras
-              if (Number(quantidades[`atend_${campo}`]) > saldo) {
-                throw new Error(`Saldo FUNAP insuficiente em ${ROTULO_QTD[campo]}: disponível ${Math.max(0, saldo)}.`)
-              }
+        // Não deixa passar do saldo do lote (se a capacidade dele foi cadastrada):
+        // soma o já atendido nas outras escolas do lote + o desta.
+        const capacidade = porLote[String(lote)]
+        if (atendimento === 'ATENDIDA' && capacidade) {
+          for (const campo of CAMPOS_QTD) {
+            const outras = rows.filter((r: any) => doLote(r) && !daEscola(r)).reduce((acc: number, r: any) => acc + qtdAtendidaRow(r, campo), 0)
+            const saldo = Number(capacidade[campo] || 0) - outras
+            if (Number(quantidades[`atend_${campo}`]) > saldo) {
+              throw new Error(`Saldo do Lote ${lote} insuficiente em ${ROTULO_QTD[campo]}: disponível ${Math.max(0, saldo)}.`)
             }
           }
         }
 
         const dadosAntes: Record<string, string> = {
-          atendimento: row.get('atendimento') ?? '',
-          atendimento_motivo: row.get('atendimento_motivo') ?? '',
+          lote: String(lote),
+          atendimento: existente?.get('atendimento') ?? '',
+          atendimento_motivo: existente?.get('atendimento_motivo') ?? '',
         }
-        for (const campo of CAMPOS_QTD) dadosAntes[`atend_${campo}`] = row.get(`atend_${campo}`) ?? ''
-        const dadosDepois = { atendimento, atendimento_motivo: motivo, ...quantidades }
+        for (const campo of CAMPOS_QTD) dadosAntes[`atend_${campo}`] = existente?.get(`atend_${campo}`) ?? ''
+        const dadosDepois = { lote: String(lote), atendimento, atendimento_motivo: motivo, ...quantidades }
         const agora = new Date().toISOString()
+        const valores = {
+          atendimento,
+          atendimento_motivo: motivo,
+          ...quantidades,
+          atendimento_por: atendimento ? autorNome : '',
+          atendimento_em: atendimento ? agora : '',
+        }
 
-        row.set('atendimento', atendimento)
-        row.set('atendimento_motivo', motivo)
-        for (const [col, v] of Object.entries(quantidades)) row.set(col, v)
-        row.set('atendimento_por', atendimento ? autorNome : '')
-        row.set('atendimento_em', atendimento ? agora : '')
-        await row.save()
+        if (existente) {
+          for (const [col, v] of Object.entries(valores)) existente.set(col, v)
+          await existente.save()
+        } else if (atendimento) {
+          await sheet.addRow({
+            id: crypto.randomUUID(),
+            resposta_id: resposta.get('id'),
+            escola_id: resposta.get('escola_id'),
+            escola_nome: resposta.get('escola_nome') ?? '',
+            lote: String(lote),
+            ...valores,
+          })
+        }
 
         const historicoSheet = await getOrCreateSheet(doc, HISTORICO_SHEET, HISTORICO_COLUMNS)
         await historicoSheet.addRow({
           id: crypto.randomUUID(),
-          resposta_id: row.get('id'),
-          escola_id: row.get('escola_id'),
-          escola_nome: row.get('escola_nome') ?? '',
+          resposta_id: resposta.get('id'),
+          escola_id: resposta.get('escola_id'),
+          escola_nome: resposta.get('escola_nome') ?? '',
           acao: 'atendimento',
           dados_antes: JSON.stringify(dadosAntes),
           dados_depois: JSON.stringify(dadosDepois),
@@ -514,21 +609,21 @@ Deno.serve(async (req) => {
         return ok(corsHeaders, { success: true })
       }
 
-      // Registra quando a escola foi enviada à SECOMSE para contratar o
-      // transporte. enviado_em vazio = desfaz (ainda não enviada).
+      // Registra quando o atendimento (escola × lote) foi enviado à SECOMSE para
+      // contratar o transporte. enviado_em vazio = desfaz (ainda não enviado).
       case 'definir_envio_secomse': {
         exigirRegionalAdmin(p)
-        if (!body.id) throw new Error('Resposta não informada.')
+        if (!body.atendimento_id) throw new Error('Atendimento não informado.')
         const enviadoEm = String(body.enviado_em ?? '')
         if (enviadoEm && isNaN(new Date(enviadoEm).getTime())) throw new Error('Data/hora de envio inválida.')
 
-        const sheet = await getOrCreateSheet(doc, RESPOSTAS_SHEET, RESPOSTAS_COLUMNS)
-        const rows = await sheet.getRows()
-        const row = rows.find((r: any) => r.get('id') === String(body.id))
-        if (!row) throw new Error('Resposta não encontrada.')
+        const { rows } = await getAtendimentos(doc)
+        const row = rows.find((r: any) => r.get('id') === String(body.atendimento_id))
+        if (!row || row.get('atendimento') !== 'ATENDIDA') throw new Error('Atendimento não encontrado.')
 
-        const dadosAntes = { secomse_enviado_em: row.get('secomse_enviado_em') ?? '' }
-        const dadosDepois = { secomse_enviado_em: enviadoEm }
+        const lote = String(loteDe(row.get('lote')))
+        const dadosAntes = { lote, secomse_enviado_em: row.get('secomse_enviado_em') ?? '' }
+        const dadosDepois = { lote, secomse_enviado_em: enviadoEm }
         row.set('secomse_enviado_em', enviadoEm)
         row.set('secomse_registrado_por', enviadoEm ? autorNome : '')
         await row.save()
@@ -536,7 +631,7 @@ Deno.serve(async (req) => {
         const historicoSheet = await getOrCreateSheet(doc, HISTORICO_SHEET, HISTORICO_COLUMNS)
         await historicoSheet.addRow({
           id: crypto.randomUUID(),
-          resposta_id: row.get('id'),
+          resposta_id: row.get('resposta_id'),
           escola_id: row.get('escola_id'),
           escola_nome: row.get('escola_nome') ?? '',
           acao: 'secomse',

@@ -10,7 +10,7 @@ import {
   Wrench, Clock, RefreshCw, Save, CheckCircle2, AlertTriangle, History,
   FileDown, FileSpreadsheet, Image as ImageIcon, Upload, Truck, Calendar,
   Users, X, Loader2, Search, ExternalLink, FileCheck, ClipboardList, Send,
-  ThumbsUp, Ban, Undo2, Package, Pencil,
+  ThumbsUp, Ban, Undo2, Package, Pencil, Plus, Layers,
 } from 'lucide-react';
 import {
   BarChart, Bar, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend,
@@ -45,19 +45,25 @@ interface Resposta {
   cja05_cadeiras: string;
   cja06_carteiras: string;
   cja06_cadeiras: string;
-  transporte: string;
-  data_prevista_transporte: string;
-  quantidade_viagens: string;
   respondente_nome: string;
   data_resposta: string;
   data_ultima_edicao: string;
   editado_por_nome: string;
-  logistica_atualizada_por: string;
-  logistica_atualizada_em: string;
   confirmado: string;
   confirmado_por: string;
   confirmado_em: string;
   termo_texto: string;
+}
+
+// Decisão de atendimento de uma escola em um lote (aba Reforma_FUNAP_Atendimentos).
+// A mesma escola pode ter um atendimento por lote — ex.: parcial no Lote 1 e o
+// restante no Lote 2 —, cada um com sua logística e envio à SECOMSE.
+interface Atendimento {
+  id: string;
+  resposta_id: string;
+  escola_id: string;
+  escola_nome: string;
+  lote: string;
   atendimento: string;
   atendimento_motivo: string;
   atendimento_por: string;
@@ -66,6 +72,11 @@ interface Resposta {
   atend_cja05_cadeiras: string;
   atend_cja06_carteiras: string;
   atend_cja06_cadeiras: string;
+  transporte: string;
+  data_prevista_transporte: string;
+  quantidade_viagens: string;
+  logistica_atualizada_por: string;
+  logistica_atualizada_em: string;
   secomse_enviado_em: string;
   secomse_registrado_por: string;
 }
@@ -84,6 +95,7 @@ interface HistoricoItem {
 
 interface Capacidade {
   id: string;
+  lote: string;
   cja05_carteiras: string;
   cja05_cadeiras: string;
   cja06_carteiras: string;
@@ -102,6 +114,8 @@ interface EscolaOption {
 
 type Tab = 'preencher' | 'respostas' | 'janela' | 'relatorio';
 type FiltroAtendimento = 'todos' | 'ATENDIDA' | 'NAO_ATENDIDA' | 'A_DECIDIR';
+// Situação da escola em um lote — COMPLETA = já recebeu tudo em outros lotes.
+type SituacaoLote = 'ATENDIDA' | 'NAO_ATENDIDA' | 'A_DECIDIR' | 'COMPLETA';
 
 type CampoQtd = 'cja05_carteiras' | 'cja05_cadeiras' | 'cja06_carteiras' | 'cja06_cadeiras';
 const CAMPOS_QTD: CampoQtd[] = ['cja05_carteiras', 'cja05_cadeiras', 'cja06_carteiras', 'cja06_cadeiras'];
@@ -111,14 +125,16 @@ const totalItens = (r: Resposta) =>
   Number(r.cja05_carteiras || 0) + Number(r.cja05_cadeiras || 0) +
   Number(r.cja06_carteiras || 0) + Number(r.cja06_cadeiras || 0);
 
-// Total que a FUNAP vai atender (pode ser menor que o solicitado = parcial).
-const totalAtendido = (r: Resposta) => CAMPOS_QTD.reduce((acc, c) => acc + Number(r[`atend_${c}`] || 0), 0);
+// Quantidade que a Regional informou que a FUNAP vai atender, por item, no lote.
+const qtdAtendida = (a: Atendimento, campo: CampoQtd) =>
+  a.atendimento === 'ATENDIDA' ? Number(a[`atend_${campo}`] || 0) : 0;
 
-// Quantidade que a Regional informou que a FUNAP vai atender, por item.
-const qtdAtendida = (r: Resposta, campo: CampoQtd) => Number(r[`atend_${campo}`] || 0);
+// Total que a FUNAP vai atender no lote (pode ser menor que o solicitado = parcial).
+const totalAtendido = (a: Atendimento) => CAMPOS_QTD.reduce((acc, c) => acc + qtdAtendida(a, c), 0);
 
 type AtendimentoModal = {
   resposta: Resposta;
+  lote: number;
   tipo: 'ATENDIDA' | 'NAO_ATENDIDA';
   motivo: string;
   qtd: Record<CampoQtd, string>;
@@ -289,9 +305,15 @@ export default function ReformaFunap() {
   const [filtroAtendimento, setFiltroAtendimento] = useState<FiltroAtendimento>('todos');
   const [savingAtendimentoId, setSavingAtendimentoId] = useState<string | null>(null);
   const [atendimentoModal, setAtendimentoModal] = useState<AtendimentoModal | null>(null);
-  const [capacidade, setCapacidade] = useState<Capacidade | null>(null);
+  const [atendimentos, setAtendimentos] = useState<Atendimento[]>([]);
+  // Capacidade vigente por lote ("1", "2", ...) — cada saldo novo da FUNAP abre um lote.
+  const [capacidades, setCapacidades] = useState<Record<string, Capacidade>>({});
   const [capacidadeHistorico, setCapacidadeHistorico] = useState<Capacidade[]>([]);
-  const [capacidadeModal, setCapacidadeModal] = useState<{ qtd: Record<CampoQtd, string>; observacao: string } | null>(null);
+  const [capacidadeModal, setCapacidadeModal] = useState<{ lote: number; qtd: Record<CampoQtd, string>; observacao: string } | null>(null);
+  // Lote em montagem na aba Respostas (null = o último aberto).
+  const [loteSelecionado, setLoteSelecionado] = useState<number | null>(null);
+  // Lote exibido/exportado no Relatório FUNAP (null = todos, separados por lote).
+  const [loteRelatorio, setLoteRelatorio] = useState<number | null>(null);
   const [savingCapacidade, setSavingCapacidade] = useState(false);
 
   const [form, setForm] = useState(FORM_INITIAL);
@@ -345,7 +367,7 @@ export default function ReformaFunap() {
     fetchJanela();
     fetchRespostas();
     if (isAdmin) { fetchJanelas(); fetchLinkPlanilha(); }
-    if (isAdmin || isReadOnlyViewer) fetchCapacidade();
+    if (isAdmin || isReadOnlyViewer) { fetchCapacidade(); fetchAtendimentos(); }
     if (isSchoolManager) setActiveTab('preencher');
     else if (isAdmin || isReadOnlyViewer) setActiveTab('respostas');
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -463,16 +485,28 @@ export default function ReformaFunap() {
   const fetchCapacidade = async () => {
     try {
       const data = await invoke('obter_capacidade');
-      setCapacidade(data?.capacidade || null);
+      setCapacidades(data?.capacidades && typeof data.capacidades === 'object' ? data.capacidades : {});
       setCapacidadeHistorico(Array.isArray(data?.historico) ? data.historico : []);
     } catch (e) {
       console.error('Erro ao carregar capacidade FUNAP:', e);
     }
   };
 
-  const abrirModalCapacidade = () => {
+  const fetchAtendimentos = async () => {
+    try {
+      const data = await invoke('listar_atendimentos');
+      setAtendimentos(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error('Erro ao carregar atendimentos FUNAP:', e);
+    }
+  };
+
+  // Editar a capacidade de um lote existente ou abrir o próximo (campos vazios).
+  const abrirModalCapacidade = (lote: number) => {
+    const atual = capacidades[String(lote)];
     setCapacidadeModal({
-      qtd: Object.fromEntries(CAMPOS_QTD.map(c => [c, capacidade?.[c] || ''])) as Record<CampoQtd, string>,
+      lote,
+      qtd: Object.fromEntries(CAMPOS_QTD.map(c => [c, atual?.[c] || ''])) as Record<CampoQtd, string>,
       observacao: '',
     });
   };
@@ -482,10 +516,12 @@ export default function ReformaFunap() {
     setSavingCapacidade(true);
     try {
       await invoke('definir_capacidade', {
+        lote: capacidadeModal.lote,
         ...Object.fromEntries(CAMPOS_QTD.map(c => [c, Number(capacidadeModal.qtd[c] || 0)])),
         observacao: capacidadeModal.observacao,
       });
       await fetchCapacidade();
+      setLoteSelecionado(capacidadeModal.lote);
       setCapacidadeModal(null);
     } catch (e: any) {
       alert('Erro ao salvar capacidade: ' + e.message);
@@ -591,24 +627,25 @@ export default function ReformaFunap() {
     }
   };
 
-  const getLogisticaEdit = (resposta: Resposta) => logisticaEdits[resposta.id] || {
-    transporte: resposta.transporte,
-    data_prevista_transporte: resposta.data_prevista_transporte,
-    quantidade_viagens: resposta.quantidade_viagens,
+  // Logística e envio à SECOMSE são por atendimento (escola × lote).
+  const getLogisticaEdit = (a: Atendimento) => logisticaEdits[a.id] || {
+    transporte: a.transporte,
+    data_prevista_transporte: a.data_prevista_transporte,
+    quantidade_viagens: a.quantidade_viagens,
   };
 
-  const setLogisticaField = (resposta: Resposta, field: 'transporte' | 'data_prevista_transporte' | 'quantidade_viagens', value: string) => {
-    setLogisticaEdits(prev => ({ ...prev, [resposta.id]: { ...getLogisticaEdit(resposta), [field]: value } }));
+  const setLogisticaField = (a: Atendimento, field: 'transporte' | 'data_prevista_transporte' | 'quantidade_viagens', value: string) => {
+    setLogisticaEdits(prev => ({ ...prev, [a.id]: { ...getLogisticaEdit(a), [field]: value } }));
   };
 
-  const handleDefinirEnvioSecomse = async (resposta: Resposta, enviadoEmLocal: string) => {
-    setSavingEnvioId(resposta.id);
+  const handleDefinirEnvioSecomse = async (a: Atendimento, enviadoEmLocal: string) => {
+    setSavingEnvioId(a.id);
     try {
       await invoke('definir_envio_secomse', {
-        id: resposta.id,
+        atendimento_id: a.id,
         enviado_em: enviadoEmLocal ? new Date(enviadoEmLocal).toISOString() : '',
       });
-      await fetchRespostas();
+      await fetchAtendimentos();
       setEnvioSecomseEdit(null);
     } catch (e: any) {
       alert('Erro ao registrar envio à SECOMSE: ' + e.message);
@@ -617,17 +654,17 @@ export default function ReformaFunap() {
     }
   };
 
-  const handleSalvarLogistica = async (resposta: Resposta) => {
-    const edit = getLogisticaEdit(resposta);
-    setSavingLogisticaId(resposta.id);
+  const handleSalvarLogistica = async (a: Atendimento) => {
+    const edit = getLogisticaEdit(a);
+    setSavingLogisticaId(a.id);
     try {
       await invoke('atualizar_logistica', {
-        id: resposta.id,
+        atendimento_id: a.id,
         transporte: edit.transporte === 'SIM',
         data_prevista_transporte: edit.data_prevista_transporte,
         quantidade_viagens: edit.quantidade_viagens,
       });
-      await fetchRespostas();
+      await fetchAtendimentos();
     } catch (e: any) {
       alert('Erro ao salvar logística: ' + e.message);
     } finally {
@@ -636,29 +673,32 @@ export default function ReformaFunap() {
   };
 
   const abrirModalAtendimento = (resposta: Resposta, tipo: 'ATENDIDA' | 'NAO_ATENDIDA') => {
-    const jaAtendida = resposta.atendimento === 'ATENDIDA';
-    // Novo atendimento já sugere o máximo possível: o solicitado, limitado ao saldo.
+    const atual = atendimentoNoLote(resposta.id, loteAtual);
+    const jaAtendida = atual?.atendimento === 'ATENDIDA';
+    // Novo atendimento já sugere o máximo possível: o que falta, limitado ao saldo do lote.
     const qtd = Object.fromEntries(CAMPOS_QTD.map(c => [
-      c, jaAtendida ? (resposta[`atend_${c}`] || '0') : String(maximoAtendivel(resposta, c)),
+      c, jaAtendida ? (atual[`atend_${c}`] || '0') : String(maximoAtendivel(resposta, c)),
     ])) as Record<CampoQtd, string>;
     setAtendimentoModal({
       resposta,
+      lote: loteAtual,
       tipo,
-      motivo: resposta.atendimento === tipo ? resposta.atendimento_motivo || '' : '',
+      motivo: atual?.atendimento === tipo ? atual.atendimento_motivo || '' : '',
       qtd,
     });
   };
 
   const handleDefinirAtendimento = async (
     resposta: Resposta,
+    lote: number,
     atendimento: 'ATENDIDA' | 'NAO_ATENDIDA' | '',
     motivo = '',
     quantidades?: Record<CampoQtd, number>,
   ) => {
     setSavingAtendimentoId(resposta.id);
     try {
-      await invoke('definir_atendimento', { id: resposta.id, atendimento, motivo, quantidades });
-      await fetchRespostas();
+      await invoke('definir_atendimento', { id: resposta.id, lote, atendimento, motivo, quantidades });
+      await fetchAtendimentos();
       setAtendimentoModal(null);
     } catch (e: any) {
       alert('Erro ao registrar atendimento: ' + e.message);
@@ -712,6 +752,49 @@ export default function ReformaFunap() {
   }, [escolas, respostas]);
 
   const escolaById = useMemo(() => new Map(escolas.map(e => [e.id, e])), [escolas]);
+  const respostaById = useMemo(() => new Map(respostas.map(r => [r.id, r])), [respostas]);
+
+  // ── Lotes de atendimento ───────────────────────────────────────────────
+  // Cada saldo novo informado pela FUNAP abre um lote. Lotes abertos: os que
+  // têm capacidade cadastrada (ou atendimento) — sempre existe ao menos o Lote 1.
+  const ultimoLote = useMemo(() => Math.max(
+    1,
+    ...Object.keys(capacidades).map(Number),
+    ...atendimentos.map(a => Number(a.lote) || 1),
+  ), [capacidades, atendimentos]);
+  const lotes = useMemo(() => Array.from({ length: ultimoLote }, (_, i) => i + 1), [ultimoLote]);
+  const loteAtual = loteSelecionado && loteSelecionado <= ultimoLote ? loteSelecionado : ultimoLote;
+  const capacidadeAtual = capacidades[String(loteAtual)] || null;
+  // O próximo lote só abre depois que o último tem capacidade cadastrada.
+  const podeAbrirNovoLote = !!capacidades[String(ultimoLote)];
+
+  const atendimentosPorResposta = useMemo(() => {
+    const map = new Map<string, Atendimento[]>();
+    atendimentos.forEach(a => map.set(a.resposta_id, [...(map.get(a.resposta_id) || []), a]));
+    map.forEach(lista => lista.sort((a, b) => Number(a.lote) - Number(b.lote)));
+    return map;
+  }, [atendimentos]);
+
+  const atendimentoNoLote = (respostaId: string, lote: number) =>
+    atendimentosPorResposta.get(respostaId)?.find(a => Number(a.lote) === lote) || null;
+
+  // O que falta atender da escola no lote: solicitado − atendido nos outros lotes.
+  const restanteNoLote = (resposta: Resposta, campo: CampoQtd, lote: number) => {
+    const foraDoLote = (atendimentosPorResposta.get(resposta.id) || [])
+      .filter(a => Number(a.lote) !== lote)
+      .reduce((acc, a) => acc + qtdAtendida(a, campo), 0);
+    return Math.max(0, Number(resposta[campo] || 0) - foraDoLote);
+  };
+  const totalRestanteNoLote = (resposta: Resposta, lote: number) =>
+    CAMPOS_QTD.reduce((acc, c) => acc + restanteNoLote(resposta, c, lote), 0);
+  const totalAtendidoEscola = (resposta: Resposta) =>
+    (atendimentosPorResposta.get(resposta.id) || []).reduce((acc, a) => acc + totalAtendido(a), 0);
+
+  const situacaoNoLote = (resposta: Resposta, lote: number): SituacaoLote => {
+    const a = atendimentoNoLote(resposta.id, lote);
+    if (a?.atendimento === 'ATENDIDA' || a?.atendimento === 'NAO_ATENDIDA') return a.atendimento;
+    return totalRestanteNoLote(resposta, lote) === 0 ? 'COMPLETA' : 'A_DECIDIR';
+  };
 
   const respostasFiltradas = useMemo(
     () => respostasPorEscola.filter(({ escola, resposta }) => {
@@ -719,87 +802,105 @@ export default function ReformaFunap() {
       if (filtroAtendimento === 'todos') return true;
       // Só entram no filtro de atendimento as escolas com algo a reformar.
       if (!resposta || totalItens(resposta) === 0) return false;
-      if (filtroAtendimento === 'A_DECIDIR') return !resposta.atendimento;
-      return resposta.atendimento === filtroAtendimento;
+      return situacaoNoLote(resposta, loteAtual) === filtroAtendimento;
     }),
-    [respostasPorEscola, searchTerm, filtroAtendimento]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [respostasPorEscola, searchTerm, filtroAtendimento, atendimentosPorResposta, loteAtual]
   );
 
   const totalRespondido = respostas.length;
   const totalPendente = Math.max(0, escolas.length - totalRespondido);
 
-  // Saldo da capacidade FUNAP por item: capacidade − soma do atendido nas escolas.
+  const atendidoNoLote = (lote: number, campo: CampoQtd) =>
+    atendimentos.filter(a => Number(a.lote) === lote).reduce((acc, a) => acc + qtdAtendida(a, campo), 0);
+
+  // Saldo do lote em montagem por item: capacidade do lote − soma do atendido nele.
   const saldoFunap = useMemo(() => {
-    if (!capacidade) return null;
+    if (!capacidadeAtual) return null;
     return Object.fromEntries(CAMPOS_QTD.map(c => {
-      const total = Number(capacidade[c] || 0);
-      const atendido = respostas
-        .filter(r => r.atendimento === 'ATENDIDA')
-        .reduce((acc, r) => acc + Number(r[`atend_${c}`] || 0), 0);
+      const total = Number(capacidadeAtual[c] || 0);
+      const atendido = atendidoNoLote(loteAtual, c);
       return [c, { capacidade: total, atendido, saldo: total - atendido }];
     })) as Record<CampoQtd, { capacidade: number; atendido: number; saldo: number }>;
-  }, [capacidade, respostas]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capacidadeAtual, atendimentos, loteAtual]);
 
-  // Saldo disponível para esta escola: o saldo geral + o que ela mesma já ocupa
-  // (ao editar, a quantidade atual dela volta para o saldo).
+  // Saldo disponível para esta escola no lote: o saldo do lote + o que ela mesma
+  // já ocupa nele (ao editar, a quantidade atual dela volta para o saldo).
   const saldoDisponivelPara = (resposta: Resposta, campo: CampoQtd) => {
     if (!saldoFunap) return Infinity;
-    const proprio = resposta.atendimento === 'ATENDIDA' ? Number(resposta[`atend_${campo}`] || 0) : 0;
+    const atual = atendimentoNoLote(resposta.id, loteAtual);
+    const proprio = atual ? qtdAtendida(atual, campo) : 0;
     return Math.max(0, saldoFunap[campo].saldo + proprio);
   };
 
   const maximoAtendivel = (resposta: Resposta, campo: CampoQtd) =>
-    Math.min(Number(resposta[campo] || 0), saldoDisponivelPara(resposta, campo));
+    Math.min(restanteNoLote(resposta, campo, loteAtual), saldoDisponivelPara(resposta, campo));
 
   const contagemAtendimento = useMemo(() => {
-    const comItens = respostas.filter(r => totalItens(r) > 0);
+    const situacoes = respostas.filter(r => totalItens(r) > 0).map(r => situacaoNoLote(r, loteAtual));
     return {
-      atendidas: comItens.filter(r => r.atendimento === 'ATENDIDA').length,
-      naoAtendidas: comItens.filter(r => r.atendimento === 'NAO_ATENDIDA').length,
-      aDecidir: comItens.filter(r => !r.atendimento).length,
+      atendidas: situacoes.filter(s => s === 'ATENDIDA').length,
+      naoAtendidas: situacoes.filter(s => s === 'NAO_ATENDIDA').length,
+      aDecidir: situacoes.filter(s => s === 'A_DECIDIR').length,
     };
-  }, [respostas]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [respostas, atendimentosPorResposta, loteAtual]);
 
-  // Logística e relatório FUNAP só com as escolas que a Regional marcou como
-  // atendidas — "a decidir" e "não será atendida" ficam de fora.
-  const respostasAtendidas = useMemo(
-    () => respostas.filter(r => r.atendimento === 'ATENDIDA' && totalAtendido(r) > 0),
-    [respostas]
+  // Logística e relatório FUNAP só com os atendimentos marcados como atendidos
+  // — "a decidir" e "não será atendida" ficam de fora —, separados por lote.
+  const atendimentosAtendidos = useMemo(
+    () => atendimentos
+      .filter(a => a.atendimento === 'ATENDIDA' && totalAtendido(a) > 0)
+      .sort((a, b) => Number(a.lote) - Number(b.lote) || a.escola_nome.localeCompare(b.escola_nome)),
+    [atendimentos]
   );
+  const lotesComAtendimento = useMemo(
+    () => [...new Set(atendimentosAtendidos.map(a => Number(a.lote)))],
+    [atendimentosAtendidos]
+  );
+  const atendimentosRelatorio = useMemo(
+    () => loteRelatorio ? atendimentosAtendidos.filter(a => Number(a.lote) === loteRelatorio) : atendimentosAtendidos,
+    [atendimentosAtendidos, loteRelatorio]
+  );
+  const lotesRelatorio = loteRelatorio ? [loteRelatorio] : lotesComAtendimento;
 
   const linhasRelatorio = useMemo(() => {
     type Linha = {
-      diretoria: string; cie: string; escola: string; endereco: string; codigoBem: string;
+      lote: number; diretoria: string; cie: string; escola: string; endereco: string; codigoBem: string;
       carteiras: string; cadeiras: string; transporte: string;
       dataPrevista: string; quantidadeViagens: string;
     };
     const linhas: Linha[] = [];
-    respostasAtendidas.forEach(r => {
-      const transporteLabel = r.transporte === 'SIM' ? 'SIM' : r.transporte === 'NAO' ? 'NÃO' : '-';
-      const dataPrevista = r.data_prevista_transporte ? formatDate(r.data_prevista_transporte) : '-';
-      const viagens = r.quantidade_viagens || '-';
-      const endereco = formatEndereco(escolaById.get(r.escola_id)?.address);
-      const cja05Carteiras = qtdAtendida(r, 'cja05_carteiras');
-      const cja05Cadeiras = qtdAtendida(r, 'cja05_cadeiras');
+    atendimentosRelatorio.forEach(a => {
+      const lote = Number(a.lote);
+      const cie = respostaById.get(a.resposta_id)?.cie_code || escolaById.get(a.escola_id)?.cie_code || '-';
+      const transporteLabel = a.transporte === 'SIM' ? 'SIM' : a.transporte === 'NAO' ? 'NÃO' : '-';
+      const dataPrevista = a.data_prevista_transporte ? formatDate(a.data_prevista_transporte) : '-';
+      const viagens = a.quantidade_viagens || '-';
+      const endereco = formatEndereco(escolaById.get(a.escola_id)?.address);
+      const cja05Carteiras = qtdAtendida(a, 'cja05_carteiras');
+      const cja05Cadeiras = qtdAtendida(a, 'cja05_cadeiras');
       if (cja05Carteiras > 0 || cja05Cadeiras > 0) {
         linhas.push({
-          diretoria: DIRETORIA, cie: r.cie_code || '-', escola: r.escola_nome, endereco, codigoBem: 'CJA-05',
+          lote, diretoria: DIRETORIA, cie, escola: a.escola_nome, endereco, codigoBem: 'CJA-05',
           carteiras: String(cja05Carteiras), cadeiras: String(cja05Cadeiras),
           transporte: transporteLabel, dataPrevista, quantidadeViagens: viagens,
         });
       }
-      const cja06Carteiras = qtdAtendida(r, 'cja06_carteiras');
-      const cja06Cadeiras = qtdAtendida(r, 'cja06_cadeiras');
+      const cja06Carteiras = qtdAtendida(a, 'cja06_carteiras');
+      const cja06Cadeiras = qtdAtendida(a, 'cja06_cadeiras');
       if (cja06Carteiras > 0 || cja06Cadeiras > 0) {
         linhas.push({
-          diretoria: DIRETORIA, cie: r.cie_code || '-', escola: r.escola_nome, endereco, codigoBem: 'CJA-06',
+          lote, diretoria: DIRETORIA, cie, escola: a.escola_nome, endereco, codigoBem: 'CJA-06',
           carteiras: String(cja06Carteiras), cadeiras: String(cja06Cadeiras),
           transporte: transporteLabel, dataPrevista, quantidadeViagens: viagens,
         });
       }
     });
-    return linhas.sort((a, b) => a.escola.localeCompare(b.escola));
-  }, [respostas, escolaById]);
+    // atendimentosRelatorio já vem ordenado por lote e escola.
+    return linhas;
+  }, [atendimentosRelatorio, respostaById, escolaById]);
 
   // ── Relatório Mensal ────────────────────────────────────────────────────
   // Formulário de levantamento (não é um processo com etapas): "no mês" mede
@@ -899,10 +1000,14 @@ export default function ReformaFunap() {
     }
   };
 
+  const sufixoArquivoLote = loteRelatorio ? `_Lote${loteRelatorio}` : '';
+
+  // Relatório separado por lote de atendimento: um título + tabela por lote.
   const handleExportarPdf = () => {
     setExportingPdf(true);
     try {
       const doc = new jsPDF('landscape');
+      const pageH = doc.internal.pageSize.getHeight();
       let currentY = TIMBRADO_HEADER_H + 6;
       doc.setFontSize(13);
       doc.setTextColor(15, 118, 110);
@@ -911,22 +1016,38 @@ export default function ReformaFunap() {
       doc.setFontSize(9);
       doc.setTextColor(100);
       doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, currentY);
-      currentY += 6;
+      currentY += 8;
 
-      autoTable(doc, {
-        startY: currentY,
-        head: [['Diretoria', 'CIE', 'Escola', 'Endereço', 'Código do Bem', 'Carteiras', 'Cadeiras', 'Transporte', 'Data Prevista', 'Qtd. Viagens']],
-        body: linhasRelatorio.map(l => [l.diretoria, l.cie, l.escola, l.endereco, l.codigoBem, l.carteiras, l.cadeiras, l.transporte, l.dataPrevista, l.quantidadeViagens]),
-        theme: 'grid',
-        headStyles: { fillColor: [13, 148, 136], textColor: 255, fontStyle: 'bold' },
-        styles: { fontSize: 7.5, cellPadding: 2.5 },
-        columnStyles: { 3: { cellWidth: 65 } },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
-        margin: { top: TIMBRADO_HEADER_H + 6, bottom: TIMBRADO_FOOTER_H + 6 },
+      lotesRelatorio.forEach(lote => {
+        const linhasLote = linhasRelatorio.filter(l => l.lote === lote);
+        if (linhasLote.length === 0) return;
+        if (currentY > pageH - TIMBRADO_FOOTER_H - 30) {
+          doc.addPage();
+          currentY = TIMBRADO_HEADER_H + 6;
+        }
+        const escolasLote = new Set(linhasLote.map(l => l.escola)).size;
+        const itensLote = linhasLote.reduce((acc, l) => acc + Number(l.carteiras) + Number(l.cadeiras), 0);
+        doc.setFontSize(11);
+        doc.setTextColor(15, 118, 110);
+        doc.text(`Lote ${lote} de atendimento — ${escolasLote} escola(s), ${itensLote} item(ns)`, 14, currentY);
+        currentY += 3;
+
+        autoTable(doc, {
+          startY: currentY,
+          head: [['Diretoria', 'CIE', 'Escola', 'Endereço', 'Código do Bem', 'Carteiras', 'Cadeiras', 'Transporte', 'Data Prevista', 'Qtd. Viagens']],
+          body: linhasLote.map(l => [l.diretoria, l.cie, l.escola, l.endereco, l.codigoBem, l.carteiras, l.cadeiras, l.transporte, l.dataPrevista, l.quantidadeViagens]),
+          theme: 'grid',
+          headStyles: { fillColor: [13, 148, 136], textColor: 255, fontStyle: 'bold' },
+          styles: { fontSize: 7.5, cellPadding: 2.5 },
+          columnStyles: { 3: { cellWidth: 65 } },
+          alternateRowStyles: { fillColor: [248, 250, 252] },
+          margin: { top: TIMBRADO_HEADER_H + 6, bottom: TIMBRADO_FOOTER_H + 6 },
+        });
+        currentY = (doc as any).lastAutoTable.finalY + 10;
       });
 
       addTimbradoAllPages(doc);
-      doc.save(`Reforma_FUNAP_${new Date().toISOString().split('T')[0]}.pdf`);
+      doc.save(`Reforma_FUNAP${sufixoArquivoLote}_${new Date().toISOString().split('T')[0]}.pdf`);
     } catch (e) {
       console.error(e);
       alert('Erro ao gerar o PDF.');
@@ -935,22 +1056,28 @@ export default function ReformaFunap() {
     }
   };
 
+  // Uma aba da planilha por lote de atendimento.
   const handleExportarExcel = () => {
-    const ws = XLSX.utils.json_to_sheet(linhasRelatorio.map(l => ({
-      'DIRETORIA': l.diretoria,
-      'CIE': l.cie,
-      'ESCOLA': l.escola,
-      'ENDEREÇO': l.endereco,
-      'CÓDIGO DO BEM': l.codigoBem,
-      'CARTEIRAS': l.carteiras,
-      'CADEIRAS': l.cadeiras,
-      'TRANSPORTE': l.transporte,
-      'DATA PREVISTA PARA TRANSPORTE': l.dataPrevista,
-      'QUANTIDADE VIAGENS': l.quantidadeViagens,
-    })));
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Reforma FUNAP');
-    XLSX.writeFile(wb, `Reforma_FUNAP_${new Date().toISOString().split('T')[0]}.xlsx`);
+    lotesRelatorio.forEach(lote => {
+      const linhasLote = linhasRelatorio.filter(l => l.lote === lote);
+      if (linhasLote.length === 0) return;
+      const ws = XLSX.utils.json_to_sheet(linhasLote.map(l => ({
+        'LOTE': l.lote,
+        'DIRETORIA': l.diretoria,
+        'CIE': l.cie,
+        'ESCOLA': l.escola,
+        'ENDEREÇO': l.endereco,
+        'CÓDIGO DO BEM': l.codigoBem,
+        'CARTEIRAS': l.carteiras,
+        'CADEIRAS': l.cadeiras,
+        'TRANSPORTE': l.transporte,
+        'DATA PREVISTA PARA TRANSPORTE': l.dataPrevista,
+        'QUANTIDADE VIAGENS': l.quantidadeViagens,
+      })));
+      XLSX.utils.book_append_sheet(wb, ws, `Lote ${lote}`);
+    });
+    XLSX.writeFile(wb, `Reforma_FUNAP${sufixoArquivoLote}_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   const handleBaixarTermoPdf = (texto: string, escolaNome: string) => {
@@ -986,30 +1113,32 @@ export default function ReformaFunap() {
       const resumo = Object.entries(depois).map(([k, v]) => `${CAMPO_LABEL[k] || k}: ${v}`).join(', ');
       return `Preencheu pela primeira vez — ${resumo}`;
     }
+    // Registros anteriores aos lotes não têm "lote" — eram todos do Lote 1.
+    const noLote = ['secomse', 'atendimento', 'logistica'].includes(item.acao) ? ` (Lote ${depois.lote || 1})` : '';
     if (item.acao === 'secomse') {
       return depois.secomse_enviado_em
-        ? `Registrou o envio à SECOMSE (contratação do transporte) em ${formatDateTime(depois.secomse_enviado_em)}`
-        : 'Desfez o registro de envio à SECOMSE';
+        ? `Registrou o envio à SECOMSE (contratação do transporte)${noLote} em ${formatDateTime(depois.secomse_enviado_em)}`
+        : `Desfez o registro de envio à SECOMSE${noLote}`;
     }
     if (item.acao === 'atendimento') {
       const situacao = ATENDIMENTO_LABEL[depois.atendimento ?? ''] ?? depois.atendimento;
       if (depois.atendimento === 'NAO_ATENDIDA') {
-        return `Marcou como "${situacao}" — motivo: ${depois.atendimento_motivo || '-'}`;
+        return `Marcou como "${situacao}"${noLote} — motivo: ${depois.atendimento_motivo || '-'}`;
       }
       if (depois.atendimento === 'ATENDIDA') {
         const qtds = `CJA-05: ${depois.atend_cja05_carteiras || 0} cart. / ${depois.atend_cja05_cadeiras || 0} cad.; `
           + `CJA-06: ${depois.atend_cja06_carteiras || 0} cart. / ${depois.atend_cja06_cadeiras || 0} cad.`;
-        return `Marcou como "${situacao}" — ${qtds}${depois.atendimento_motivo ? ` — obs.: ${depois.atendimento_motivo}` : ''}`;
+        return `Marcou como "${situacao}"${noLote} — ${qtds}${depois.atendimento_motivo ? ` — obs.: ${depois.atendimento_motivo}` : ''}`;
       }
-      return `Marcou como "${situacao}"`;
+      return `Marcou como "${situacao}"${noLote}`;
     }
     if (item.acao === 'confirmacao') {
       return 'Confirmou o Termo de Conferência — a quantidade informada não pode mais ser alterada.';
     }
     const mudancas = Object.keys(depois)
-      .filter(k => antes[k] !== depois[k])
+      .filter(k => k !== 'lote' && antes[k] !== depois[k])
       .map(k => `${CAMPO_LABEL[k] || k}: ${antes[k] ?? '-'} → ${depois[k] ?? '-'}`);
-    const prefixo = item.acao === 'logistica' ? 'Atualizou a logística' : 'Editou a resposta';
+    const prefixo = item.acao === 'logistica' ? `Atualizou a logística${noLote}` : 'Editou a resposta';
     return mudancas.length > 0 ? `${prefixo} — ${mudancas.join('; ')}` : `${prefixo} sem alterar os valores.`;
   };
 
@@ -1058,7 +1187,7 @@ export default function ReformaFunap() {
             onClick={() => {
               fetchJanela(); fetchRespostas();
               if (isAdmin) { fetchJanelas(); fetchLinkPlanilha(); }
-              if (isAdmin || isReadOnlyViewer) fetchCapacidade();
+              if (isAdmin || isReadOnlyViewer) { fetchCapacidade(); fetchAtendimentos(); }
             }}
             className="flex items-center gap-2 px-3 py-2 text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-sm"
           >
@@ -1312,17 +1441,42 @@ export default function ReformaFunap() {
           {/* Aba: Respostas */}
           {activeTab === 'respostas' && (isAdmin || isReadOnlyViewer) && (
             <div className="space-y-4">
-              {/* Capacidade FUNAP e saldo */}
+              {/* Lotes de atendimento: capacidade FUNAP e saldo do lote em montagem */}
               <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+                <div className="flex items-center gap-2 flex-wrap mb-3">
+                  <span className="text-xs font-semibold text-slate-500 uppercase mr-1">Lote de atendimento</span>
+                  {lotes.map(l => (
+                    <button
+                      key={l}
+                      onClick={() => setLoteSelecionado(l)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                        l === loteAtual
+                          ? 'bg-teal-600 border-teal-600 text-white'
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      Lote {l}
+                    </button>
+                  ))}
+                  {isAdmin && podeAbrirNovoLote && (
+                    <button
+                      onClick={() => abrirModalCapacidade(ultimoLote + 1)}
+                      title="Recebeu um novo saldo da FUNAP? Cadastre a capacidade para montar o próximo lote."
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border border-dashed border-teal-300 text-teal-700 hover:bg-teal-50"
+                    >
+                      <Plus size={13} /> Novo lote (saldo FUNAP)
+                    </button>
+                  )}
+                </div>
                 <div className="flex items-start justify-between flex-wrap gap-2 mb-3">
                   <div>
                     <p className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                      <Package size={16} className="text-teal-600" /> Capacidade de atendimento FUNAP
+                      <Package size={16} className="text-teal-600" /> Capacidade de atendimento FUNAP — Lote {loteAtual}
                     </p>
-                    {capacidade ? (
+                    {capacidadeAtual ? (
                       <p className="text-xs text-slate-500 mt-0.5">
-                        Cadastrada por {capacidade.autor_nome} em {formatDateTime(capacidade.data_registro)}
-                        {capacidade.observacao && ` — ${capacidade.observacao}`}
+                        Cadastrada por {capacidadeAtual.autor_nome} em {formatDateTime(capacidadeAtual.data_registro)}
+                        {capacidadeAtual.observacao && ` — ${capacidadeAtual.observacao}`}
                       </p>
                     ) : (
                       <p className="text-xs text-slate-500 mt-0.5">
@@ -1332,10 +1486,10 @@ export default function ReformaFunap() {
                   </div>
                   {isAdmin && (
                     <button
-                      onClick={abrirModalCapacidade}
+                      onClick={() => abrirModalCapacidade(loteAtual)}
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-teal-700 border border-teal-200 bg-teal-50 rounded-lg hover:bg-teal-100"
                     >
-                      <Pencil size={13} /> {capacidade ? 'Editar capacidade' : 'Cadastrar capacidade'}
+                      <Pencil size={13} /> {capacidadeAtual ? `Editar capacidade do Lote ${loteAtual}` : `Cadastrar capacidade do Lote ${loteAtual}`}
                     </button>
                   )}
                 </div>
@@ -1377,9 +1531,9 @@ export default function ReformaFunap() {
                   { label: 'Total de Escolas', value: escolas.length, bg: 'bg-blue-50', text: 'text-blue-600' },
                   { label: 'Respondido', value: totalRespondido, bg: 'bg-emerald-50', text: 'text-emerald-600' },
                   { label: 'Pendente', value: totalPendente, bg: 'bg-amber-50', text: 'text-amber-600' },
-                  { label: 'Serão atendidas', value: contagemAtendimento.atendidas, bg: 'bg-teal-50', text: 'text-teal-600' },
-                  { label: 'Não serão atendidas', value: contagemAtendimento.naoAtendidas, bg: 'bg-red-50', text: 'text-red-600' },
-                  { label: 'Atendimento a decidir', value: contagemAtendimento.aDecidir, bg: 'bg-slate-50', text: 'text-slate-600' },
+                  { label: `Atendidas no Lote ${loteAtual}`, value: contagemAtendimento.atendidas, bg: 'bg-teal-50', text: 'text-teal-600' },
+                  { label: `Não atendidas no Lote ${loteAtual}`, value: contagemAtendimento.naoAtendidas, bg: 'bg-red-50', text: 'text-red-600' },
+                  { label: `A decidir no Lote ${loteAtual}`, value: contagemAtendimento.aDecidir, bg: 'bg-slate-50', text: 'text-slate-600' },
                 ].map(card => (
                   <div key={card.label} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
                     <p className="text-xs text-slate-500 font-medium">{card.label}</p>
@@ -1404,9 +1558,9 @@ export default function ReformaFunap() {
                   className="px-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white"
                 >
                   <option value="todos">Todas as escolas</option>
-                  <option value="ATENDIDA">Serão atendidas</option>
-                  <option value="NAO_ATENDIDA">Não serão atendidas</option>
-                  <option value="A_DECIDIR">Atendimento a decidir</option>
+                  <option value="ATENDIDA">Atendidas no Lote {loteAtual}</option>
+                  <option value="NAO_ATENDIDA">Não atendidas no Lote {loteAtual}</option>
+                  <option value="A_DECIDIR">A decidir no Lote {loteAtual}</option>
                 </select>
               </div>
 
@@ -1419,7 +1573,7 @@ export default function ReformaFunap() {
                       <th className="text-center p-3">CJA-05 (Cart./Cad.)</th>
                       <th className="text-center p-3">CJA-06 (Cart./Cad.)</th>
                       <th className="text-left p-3">Status</th>
-                      <th className="text-left p-3">Atendimento FUNAP</th>
+                      <th className="text-left p-3">Atendimento FUNAP — Lote {loteAtual}</th>
                       <th className="text-left p-3">Última edição</th>
                       <th className="text-left p-3">Histórico</th>
                     </tr>
@@ -1450,90 +1604,106 @@ export default function ReformaFunap() {
                             </span>
                           )}
                         </td>
-                        <td className="p-3 min-w-[190px]">
+                        <td className="p-3 min-w-[210px]">
                           {!resposta ? (
                             <span className="text-slate-300">-</span>
                           ) : totalItens(resposta) === 0 ? (
                             <span className="text-xs text-slate-400">Nada a reformar</span>
-                          ) : (
-                            <div className="space-y-1">
-                              {resposta.atendimento === 'ATENDIDA' && (() => {
-                                const atendido = totalAtendido(resposta);
-                                const solicitado = totalItens(resposta);
-                                const parcial = atendido < solicitado;
-                                return (
+                          ) : (() => {
+                            const situacao = situacaoNoLote(resposta, loteAtual);
+                            const noLote = atendimentoNoLote(resposta.id, loteAtual);
+                            const outrosLotes = (atendimentosPorResposta.get(resposta.id) || [])
+                              .filter(a => Number(a.lote) !== loteAtual && a.atendimento === 'ATENDIDA');
+                            const solicitado = totalItens(resposta);
+                            const atendidoTotal = totalAtendidoEscola(resposta);
+                            return (
+                              <div className="space-y-1">
+                                {situacao === 'ATENDIDA' && noLote && (
                                   <>
                                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${
-                                      parcial ? 'text-blue-700 bg-blue-50 border-blue-200' : 'text-teal-700 bg-teal-50 border-teal-200'
+                                      atendidoTotal < solicitado ? 'text-blue-700 bg-blue-50 border-blue-200' : 'text-teal-700 bg-teal-50 border-teal-200'
                                     }`}>
-                                      <ThumbsUp size={12} /> {parcial ? 'Atendida parcialmente' : 'Será atendida'}
+                                      <ThumbsUp size={12} /> {atendidoTotal < solicitado ? 'Atendida parcialmente' : 'Será atendida'}
                                     </span>
                                     <p className="text-xs text-slate-600">
-                                      <strong>{atendido}</strong> de {solicitado} itens
+                                      <strong>{totalAtendido(noLote)}</strong> neste lote
+                                      {outrosLotes.length > 0 && ` · ${atendidoTotal} no total`} · de {solicitado} itens
                                     </p>
                                     <p className="text-[11px] text-slate-500">
-                                      CJA-05: {resposta.atend_cja05_carteiras || 0}/{resposta.atend_cja05_cadeiras || 0} · CJA-06: {resposta.atend_cja06_carteiras || 0}/{resposta.atend_cja06_cadeiras || 0}
+                                      CJA-05: {noLote.atend_cja05_carteiras || 0}/{noLote.atend_cja05_cadeiras || 0} · CJA-06: {noLote.atend_cja06_carteiras || 0}/{noLote.atend_cja06_cadeiras || 0}
                                     </p>
-                                    {resposta.atendimento_motivo && (
-                                      <p className="text-xs text-slate-500 max-w-[220px]" title={resposta.atendimento_motivo}>
-                                        {resposta.atendimento_motivo}
+                                    {noLote.atendimento_motivo && (
+                                      <p className="text-xs text-slate-500 max-w-[220px]" title={noLote.atendimento_motivo}>
+                                        {noLote.atendimento_motivo}
                                       </p>
                                     )}
                                   </>
-                                );
-                              })()}
-                              {resposta.atendimento === 'NAO_ATENDIDA' && (
-                                <>
-                                  <span className="inline-flex items-center gap-1 text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full text-xs font-medium">
-                                    <Ban size={12} /> Não será atendida
+                                )}
+                                {situacao === 'NAO_ATENDIDA' && noLote && (
+                                  <>
+                                    <span className="inline-flex items-center gap-1 text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full text-xs font-medium">
+                                      <Ban size={12} /> Não será atendida
+                                    </span>
+                                    <p className="text-xs text-slate-500 max-w-[220px]" title={noLote.atendimento_motivo}>
+                                      {noLote.atendimento_motivo}
+                                    </p>
+                                  </>
+                                )}
+                                {situacao === 'COMPLETA' && (
+                                  <span className="inline-flex items-center gap-1 text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full text-xs font-medium">
+                                    <CheckCircle2 size={12} /> Atendida integralmente
                                   </span>
-                                  <p className="text-xs text-slate-500 max-w-[220px]" title={resposta.atendimento_motivo}>
-                                    {resposta.atendimento_motivo}
+                                )}
+                                {situacao === 'A_DECIDIR' && (
+                                  <span className="text-xs text-slate-400">
+                                    A decidir{outrosLotes.length > 0 && ` — faltam ${totalRestanteNoLote(resposta, loteAtual)} de ${solicitado} itens`}
+                                  </span>
+                                )}
+                                {outrosLotes.map(a => (
+                                  <p key={a.id} className="text-[11px] text-slate-500 flex items-center gap-1">
+                                    <Layers size={11} className="text-slate-400" /> Lote {a.lote}: {totalAtendido(a)} item(ns)
                                   </p>
-                                </>
-                              )}
-                              {!resposta.atendimento && !isAdmin && (
-                                <span className="text-xs text-slate-400">A decidir</span>
-                              )}
-                              {resposta.atendimento && (
-                                <p className="text-[11px] text-slate-400">
-                                  {resposta.atendimento_por} · {formatDateTime(resposta.atendimento_em)}
-                                </p>
-                              )}
-                              {isAdmin && (
-                                savingAtendimentoId === resposta.id ? (
-                                  <Loader2 size={14} className="animate-spin text-teal-600" />
-                                ) : (
-                                  <div className="flex gap-1 flex-wrap">
-                                    <button
-                                      onClick={() => abrirModalAtendimento(resposta, 'ATENDIDA')}
-                                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-teal-700 border border-teal-200 rounded-lg hover:bg-teal-50"
-                                    >
-                                      <ThumbsUp size={12} /> {resposta.atendimento === 'ATENDIDA' ? 'Alterar qtd.' : 'Atender'}
-                                    </button>
-                                    {resposta.atendimento !== 'NAO_ATENDIDA' && (
+                                ))}
+                                {noLote && (
+                                  <p className="text-[11px] text-slate-400">
+                                    {noLote.atendimento_por} · {formatDateTime(noLote.atendimento_em)}
+                                  </p>
+                                )}
+                                {isAdmin && situacao !== 'COMPLETA' && (
+                                  savingAtendimentoId === resposta.id ? (
+                                    <Loader2 size={14} className="animate-spin text-teal-600" />
+                                  ) : (
+                                    <div className="flex gap-1 flex-wrap">
                                       <button
-                                        onClick={() => abrirModalAtendimento(resposta, 'NAO_ATENDIDA')}
-                                        className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-700 border border-red-200 rounded-lg hover:bg-red-50"
+                                        onClick={() => abrirModalAtendimento(resposta, 'ATENDIDA')}
+                                        className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-teal-700 border border-teal-200 rounded-lg hover:bg-teal-50"
                                       >
-                                        <Ban size={12} /> Não atender
+                                        <ThumbsUp size={12} /> {situacao === 'ATENDIDA' ? 'Alterar qtd.' : 'Atender'}
                                       </button>
-                                    )}
-                                    {resposta.atendimento && (
-                                      <button
-                                        onClick={() => {
-                                          if (confirm(`Voltar "${escola.name}" para "A decidir"?`)) handleDefinirAtendimento(resposta, '');
-                                        }}
-                                        className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50"
-                                      >
-                                        <Undo2 size={12} /> Desfazer
-                                      </button>
-                                    )}
-                                  </div>
-                                )
-                              )}
-                            </div>
-                          )}
+                                      {situacao !== 'NAO_ATENDIDA' && (
+                                        <button
+                                          onClick={() => abrirModalAtendimento(resposta, 'NAO_ATENDIDA')}
+                                          className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-700 border border-red-200 rounded-lg hover:bg-red-50"
+                                        >
+                                          <Ban size={12} /> Não atender
+                                        </button>
+                                      )}
+                                      {noLote && (
+                                        <button
+                                          onClick={() => {
+                                            if (confirm(`Voltar "${escola.name}" para "A decidir" no Lote ${loteAtual}?`)) handleDefinirAtendimento(resposta, loteAtual, '');
+                                          }}
+                                          className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50"
+                                        >
+                                          <Undo2 size={12} /> Desfazer
+                                        </button>
+                                      )}
+                                    </div>
+                                  )
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="p-3 text-xs text-slate-500">
                           {resposta ? `${formatDateTime(resposta.data_ultima_edicao)} · ${resposta.editado_por_nome}` : '-'}
@@ -1644,6 +1814,27 @@ export default function ReformaFunap() {
                 </div>
               )}
 
+              {lotesComAtendimento.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-semibold text-slate-500 uppercase mr-1 flex items-center gap-1">
+                    <Layers size={14} /> Lote de atendimento
+                  </span>
+                  {[null, ...lotesComAtendimento].map(l => (
+                    <button
+                      key={l ?? 'todos'}
+                      onClick={() => setLoteRelatorio(l)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                        loteRelatorio === l
+                          ? 'bg-teal-600 border-teal-600 text-white'
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      {l === null ? 'Todos (separados por lote)' : `Lote ${l}`}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className="flex gap-2 flex-wrap">
                 <button
                   onClick={() => setShowRelatorioModal(true)}
@@ -1685,18 +1876,18 @@ export default function ReformaFunap() {
                 <p className="text-xs text-slate-500 mb-3">
                   Preencha o transporte, a data prevista e o nº de viagens de cada escola antes de exportar.
                   {' '}Aparecem aqui só as escolas marcadas como atendidas na aba Respostas, com a quantidade que a FUNAP vai atender.
-                  {contagemAtendimento.aDecidir > 0 && ` Ainda há ${contagemAtendimento.aDecidir} escola(s) com atendimento a decidir.`}
+                  {contagemAtendimento.aDecidir > 0 && ` Ainda há ${contagemAtendimento.aDecidir} escola(s) com atendimento a decidir no Lote ${loteAtual}.`}
                 </p>
-                {respostasAtendidas.length > 0 && (() => {
-                  const enviadas = respostasAtendidas.filter(r => r.secomse_enviado_em).length;
-                  const faltam = respostasAtendidas.length - enviadas;
+                {atendimentosRelatorio.length > 0 && (() => {
+                  const enviadas = atendimentosRelatorio.filter(r => r.secomse_enviado_em).length;
+                  const faltam = atendimentosRelatorio.length - enviadas;
                   return (
                     <div className={`mb-3 text-xs rounded-lg border px-3 py-2 flex items-center gap-2 ${
                       faltam === 0 ? 'bg-teal-50 border-teal-200 text-teal-700' : 'bg-amber-50 border-amber-200 text-amber-700'
                     }`}>
                       <Send size={14} className="shrink-0" />
                       <span>
-                        Enviadas à SECOMSE para contratar o transporte: <strong>{enviadas} de {respostasAtendidas.length}</strong>
+                        Enviadas à SECOMSE para contratar o transporte: <strong>{enviadas} de {atendimentosRelatorio.length}</strong>
                         {faltam > 0 && ` — faltam ${faltam}.`}
                       </span>
                     </div>
@@ -1718,29 +1909,39 @@ export default function ReformaFunap() {
                       </tr>
                     </thead>
                     <tbody>
-                      {respostasAtendidas.map(resposta => {
-                        const edit = getLogisticaEdit(resposta);
-                        const parcial = totalAtendido(resposta) < totalItens(resposta);
+                      {atendimentosRelatorio.map((atend, idx) => {
+                        const edit = getLogisticaEdit(atend);
+                        const solicitado = totalItens(respostaById.get(atend.resposta_id) ?? ({} as Resposta));
+                        const parcial = totalAtendido(atend) < solicitado;
+                        const inicioLote = idx === 0 || atendimentosRelatorio[idx - 1].lote !== atend.lote;
                         return (
-                          <tr key={resposta.id} className="border-t border-slate-100">
-                            <td className="p-2 font-medium text-slate-700">{resposta.escola_nome}</td>
-                            <td className="p-2 text-xs text-slate-500 max-w-xs">{formatEndereco(escolaById.get(resposta.escola_id)?.address)}</td>
+                          <React.Fragment key={atend.id}>
+                          {inicioLote && (
+                            <tr className="bg-teal-50/60 border-t border-teal-100">
+                              <td colSpan={9} className="p-2 text-xs font-bold text-teal-800 uppercase">
+                                Lote {atend.lote} de atendimento
+                              </td>
+                            </tr>
+                          )}
+                          <tr className="border-t border-slate-100">
+                            <td className="p-2 font-medium text-slate-700">{atend.escola_nome}</td>
+                            <td className="p-2 text-xs text-slate-500 max-w-xs">{formatEndereco(escolaById.get(atend.escola_id)?.address)}</td>
                             <td className="p-2 text-center whitespace-nowrap">
                               <p className="text-sm font-bold text-slate-700">
-                                {totalAtendido(resposta)}
-                                {parcial && <span className="text-xs font-normal text-slate-400"> de {totalItens(resposta)}</span>}
+                                {totalAtendido(atend)}
+                                {parcial && <span className="text-xs font-normal text-slate-400"> de {solicitado}</span>}
                               </p>
                               <p className="text-[11px] text-slate-500">
-                                CJA-05: {resposta.atend_cja05_carteiras || 0} cart. / {resposta.atend_cja05_cadeiras || 0} cad.
+                                CJA-05: {atend.atend_cja05_carteiras || 0} cart. / {atend.atend_cja05_cadeiras || 0} cad.
                               </p>
                               <p className="text-[11px] text-slate-500">
-                                CJA-06: {resposta.atend_cja06_carteiras || 0} cart. / {resposta.atend_cja06_cadeiras || 0} cad.
+                                CJA-06: {atend.atend_cja06_carteiras || 0} cart. / {atend.atend_cja06_cadeiras || 0} cad.
                               </p>
                             </td>
                             <td className="p-2">
                               <select
                                 value={edit.transporte || ''}
-                                onChange={e => setLogisticaField(resposta, 'transporte', e.target.value)}
+                                onChange={e => setLogisticaField(atend, 'transporte', e.target.value)}
                                 className="p-1.5 border border-slate-200 rounded-lg text-xs"
                               >
                                 <option value="">-</option>
@@ -1752,7 +1953,7 @@ export default function ReformaFunap() {
                               <input
                                 type="date"
                                 value={edit.data_prevista_transporte ? edit.data_prevista_transporte.split('T')[0] : ''}
-                                onChange={e => setLogisticaField(resposta, 'data_prevista_transporte', e.target.value)}
+                                onChange={e => setLogisticaField(atend, 'data_prevista_transporte', e.target.value)}
                                 className="p-1.5 border border-slate-200 rounded-lg text-xs"
                               />
                             </td>
@@ -1760,38 +1961,38 @@ export default function ReformaFunap() {
                               <input
                                 type="number" min={0}
                                 value={edit.quantidade_viagens || ''}
-                                onChange={e => setLogisticaField(resposta, 'quantidade_viagens', e.target.value)}
+                                onChange={e => setLogisticaField(atend, 'quantidade_viagens', e.target.value)}
                                 className="w-20 p-1.5 border border-slate-200 rounded-lg text-xs"
                               />
                             </td>
                             <td className="p-2 text-xs text-slate-500">
-                              {resposta.logistica_atualizada_por
-                                ? `${resposta.logistica_atualizada_por} · ${formatDateTime(resposta.logistica_atualizada_em)}`
+                              {atend.logistica_atualizada_por
+                                ? `${atend.logistica_atualizada_por} · ${formatDateTime(atend.logistica_atualizada_em)}`
                                 : '-'}
                             </td>
                             <td className="p-2">
                               <button
-                                onClick={() => handleSalvarLogistica(resposta)}
-                                disabled={savingLogisticaId === resposta.id}
+                                onClick={() => handleSalvarLogistica(atend)}
+                                disabled={savingLogisticaId === atend.id}
                                 className="flex items-center gap-1 text-teal-600 hover:text-teal-800 text-xs font-medium"
                               >
-                                {savingLogisticaId === resposta.id ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                                {savingLogisticaId === atend.id ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
                                 Salvar
                               </button>
                             </td>
                             <td className="p-2 min-w-[200px]">
-                              {savingEnvioId === resposta.id ? (
+                              {savingEnvioId === atend.id ? (
                                 <Loader2 size={14} className="animate-spin text-teal-600" />
-                              ) : envioSecomseEdit?.id === resposta.id ? (
+                              ) : envioSecomseEdit?.id === atend.id ? (
                                 <div className="flex items-center gap-1">
                                   <input
                                     type="datetime-local"
                                     value={envioSecomseEdit.valor}
-                                    onChange={e => setEnvioSecomseEdit({ id: resposta.id, valor: e.target.value })}
+                                    onChange={e => setEnvioSecomseEdit({ id: atend.id, valor: e.target.value })}
                                     className="p-1.5 border border-slate-200 rounded-lg text-xs"
                                   />
                                   <button
-                                    onClick={() => handleDefinirEnvioSecomse(resposta, envioSecomseEdit.valor)}
+                                    onClick={() => handleDefinirEnvioSecomse(atend, envioSecomseEdit.valor)}
                                     disabled={!envioSecomseEdit.valor}
                                     title="Salvar"
                                     className="p-1 text-teal-600 hover:text-teal-800 disabled:text-slate-300"
@@ -1806,23 +2007,23 @@ export default function ReformaFunap() {
                                     <X size={14} />
                                   </button>
                                 </div>
-                              ) : resposta.secomse_enviado_em ? (
+                              ) : atend.secomse_enviado_em ? (
                                 <div>
                                   <span className="inline-flex items-center gap-1 text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full text-xs font-medium">
                                     <Send size={11} /> Enviado
                                   </span>
-                                  <p className="text-xs text-slate-600 mt-0.5">{formatDateTime(resposta.secomse_enviado_em)}</p>
-                                  <p className="text-[11px] text-slate-400">por {resposta.secomse_registrado_por}</p>
+                                  <p className="text-xs text-slate-600 mt-0.5">{formatDateTime(atend.secomse_enviado_em)}</p>
+                                  <p className="text-[11px] text-slate-400">por {atend.secomse_registrado_por}</p>
                                   <div className="flex gap-2 mt-0.5">
                                     <button
-                                      onClick={() => setEnvioSecomseEdit({ id: resposta.id, valor: toDatetimeLocal(resposta.secomse_enviado_em) })}
+                                      onClick={() => setEnvioSecomseEdit({ id: atend.id, valor: toDatetimeLocal(atend.secomse_enviado_em) })}
                                       className="text-[11px] text-teal-600 hover:underline"
                                     >
                                       Editar
                                     </button>
                                     <button
                                       onClick={() => {
-                                        if (confirm(`Desfazer o envio à SECOMSE de "${resposta.escola_nome}"?`)) handleDefinirEnvioSecomse(resposta, '');
+                                        if (confirm(`Desfazer o envio à SECOMSE de "${atend.escola_nome}"?`)) handleDefinirEnvioSecomse(atend, '');
                                       }}
                                       className="text-[11px] text-slate-500 hover:underline"
                                     >
@@ -1832,7 +2033,7 @@ export default function ReformaFunap() {
                                 </div>
                               ) : (
                                 <button
-                                  onClick={() => setEnvioSecomseEdit({ id: resposta.id, valor: toDatetimeLocal(new Date().toISOString()) })}
+                                  onClick={() => setEnvioSecomseEdit({ id: atend.id, valor: toDatetimeLocal(new Date().toISOString()) })}
                                   className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-700 border border-amber-200 bg-amber-50 rounded-lg hover:bg-amber-100"
                                 >
                                   <Send size={12} /> Marcar como enviado
@@ -1840,9 +2041,10 @@ export default function ReformaFunap() {
                               )}
                             </td>
                           </tr>
+                          </React.Fragment>
                         );
                       })}
-                      {respostasAtendidas.length === 0 && (
+                      {atendimentosRelatorio.length === 0 && (
                         <tr>
                           <td colSpan={9} className="p-6 text-center text-slate-400 text-sm">Nenhuma escola marcada como atendida ainda.</td>
                         </tr>
@@ -1871,7 +2073,15 @@ export default function ReformaFunap() {
                   </thead>
                   <tbody>
                     {linhasRelatorio.map((l, i) => (
-                      <tr key={i} className="border-t border-slate-100">
+                      <React.Fragment key={i}>
+                      {(i === 0 || linhasRelatorio[i - 1].lote !== l.lote) && (
+                        <tr className="bg-teal-50/60 border-t border-teal-100">
+                          <td colSpan={10} className="p-2 text-xs font-bold text-teal-800 uppercase">
+                            Lote {l.lote} de atendimento
+                          </td>
+                        </tr>
+                      )}
+                      <tr className="border-t border-slate-100">
                         <td className="p-2">{l.diretoria}</td>
                         <td className="p-2">{l.cie}</td>
                         <td className="p-2">{l.escola}</td>
@@ -1887,6 +2097,7 @@ export default function ReformaFunap() {
                         <td className="p-2">{l.dataPrevista}</td>
                         <td className="p-2 text-center">{l.quantidadeViagens}</td>
                       </tr>
+                      </React.Fragment>
                     ))}
                     {linhasRelatorio.length === 0 && (
                       <tr>
@@ -2018,7 +2229,8 @@ export default function ReformaFunap() {
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
               <div className="flex items-center justify-between p-5 border-b border-slate-100">
                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                  <Package size={20} className="text-teal-600" /> Capacidade de atendimento FUNAP
+                  <Package size={20} className="text-teal-600" />
+                  {cm.lote > ultimoLote ? `Abrir Lote ${cm.lote} de atendimento` : `Capacidade FUNAP — Lote ${cm.lote}`}
                 </h2>
                 <button onClick={() => setCapacidadeModal(null)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
                   <X size={18} className="text-slate-500" />
@@ -2026,7 +2238,9 @@ export default function ReformaFunap() {
               </div>
               <div className="p-5 space-y-4 overflow-y-auto">
                 <p className="text-sm text-slate-600">
-                  Informe quantos itens a FUNAP consegue reformar. O saldo é a capacidade menos o que já foi atendido nas escolas.
+                  {cm.lote > ultimoLote
+                    ? `Informe o novo saldo recebido da FUNAP. Ele abre o Lote ${cm.lote}, com saldo próprio — o que já foi atendido nos lotes anteriores continua como está, e as escolas atendidas em parte podem completar neste lote.`
+                    : `Informe quantos itens a FUNAP consegue reformar no Lote ${cm.lote}. O saldo é a capacidade menos o que já foi atendido nas escolas neste lote.`}
                 </p>
                 <table className="w-full text-sm">
                   <thead className="text-xs text-slate-500 uppercase">
@@ -2038,8 +2252,7 @@ export default function ReformaFunap() {
                   </thead>
                   <tbody>
                     {CAMPOS_QTD.map(c => {
-                      const atendido = saldoFunap?.[c].atendido
-                        ?? respostas.filter(r => r.atendimento === 'ATENDIDA').reduce((acc, r) => acc + Number(r[`atend_${c}`] || 0), 0);
+                      const atendido = atendidoNoLote(cm.lote, c);
                       const abaixo = cm.qtd[c] !== '' && Number(cm.qtd[c]) < atendido;
                       return (
                         <tr key={c} className="border-t border-slate-100">
@@ -2059,7 +2272,7 @@ export default function ReformaFunap() {
                     })}
                   </tbody>
                 </table>
-                {CAMPOS_QTD.some(c => cm.qtd[c] !== '' && Number(cm.qtd[c]) < (saldoFunap?.[c].atendido ?? 0)) && (
+                {CAMPOS_QTD.some(c => cm.qtd[c] !== '' && Number(cm.qtd[c]) < atendidoNoLote(cm.lote, c)) && (
                   <p className="text-xs text-amber-700 flex items-center gap-1">
                     <AlertTriangle size={13} /> Capacidade menor do que já foi atendido — o saldo ficará negativo até você reduzir alguma escola.
                   </p>
@@ -2079,7 +2292,7 @@ export default function ReformaFunap() {
                     <div className="space-y-1 max-h-36 overflow-y-auto">
                       {capacidadeHistorico.map(h => (
                         <div key={h.id} className="text-[11px] text-slate-500 border-l-2 border-slate-200 pl-2">
-                          <strong>{formatDateTime(h.data_registro)}</strong> · {h.autor_nome} — CJA-05: {h.cja05_carteiras} cart. / {h.cja05_cadeiras} cad.;
+                          <strong>Lote {h.lote || 1}</strong> · {formatDateTime(h.data_registro)} · {h.autor_nome} — CJA-05: {h.cja05_carteiras} cart. / {h.cja05_cadeiras} cad.;
                           {' '}CJA-06: {h.cja06_carteiras} cart. / {h.cja06_cadeiras} cad.
                           {h.observacao && ` — ${h.observacao}`}
                         </div>
@@ -2113,7 +2326,9 @@ export default function ReformaFunap() {
       {isAdmin && atendimentoModal && (() => {
         const m = atendimentoModal;
         const atender = m.tipo === 'ATENDIDA';
-        const excedidos = CAMPOS_QTD.filter(c => Number(m.qtd[c] || 0) > Number(m.resposta[c] || 0));
+        const excedidos = CAMPOS_QTD.filter(c => Number(m.qtd[c] || 0) > restanteNoLote(m.resposta, c, m.lote));
+        const outrosLotes = (atendimentosPorResposta.get(m.resposta.id) || [])
+          .filter(a => Number(a.lote) !== m.lote && a.atendimento === 'ATENDIDA');
         const semSaldo = CAMPOS_QTD.filter(c => !excedidos.includes(c) && Number(m.qtd[c] || 0) > saldoDisponivelPara(m.resposta, c));
         const invalidos = CAMPOS_QTD.filter(c => !/^\d*$/.test(m.qtd[c]));
         const totalModal = CAMPOS_QTD.reduce((acc, c) => acc + Number(m.qtd[c] || 0), 0);
@@ -2123,9 +2338,9 @@ export default function ReformaFunap() {
         const salvar = () => {
           if (atender) {
             const quantidades = Object.fromEntries(CAMPOS_QTD.map(c => [c, Number(m.qtd[c] || 0)])) as Record<CampoQtd, number>;
-            handleDefinirAtendimento(m.resposta, 'ATENDIDA', m.motivo.trim(), quantidades);
+            handleDefinirAtendimento(m.resposta, m.lote, 'ATENDIDA', m.motivo.trim(), quantidades);
           } else {
-            handleDefinirAtendimento(m.resposta, 'NAO_ATENDIDA', m.motivo.trim());
+            handleDefinirAtendimento(m.resposta, m.lote, 'NAO_ATENDIDA', m.motivo.trim());
           }
         };
         return (
@@ -2134,8 +2349,8 @@ export default function ReformaFunap() {
               <div className="flex items-center justify-between p-5 border-b border-slate-100">
                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                   {atender
-                    ? <><ThumbsUp size={20} className="text-teal-600" /> Quantidade a atender</>
-                    : <><Ban size={20} className="text-red-600" /> Não será atendida</>}
+                    ? <><ThumbsUp size={20} className="text-teal-600" /> Quantidade a atender — Lote {m.lote}</>
+                    : <><Ban size={20} className="text-red-600" /> Não será atendida no Lote {m.lote}</>}
                 </h2>
                 <button onClick={() => setAtendimentoModal(null)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
                   <X size={18} className="text-slate-500" />
@@ -2145,9 +2360,14 @@ export default function ReformaFunap() {
                 <p className="text-sm text-slate-600">
                   <strong>{m.resposta.escola_nome}</strong> — {totalItens(m.resposta)} item(ns) solicitados.
                   {atender
-                    ? ' Informe quanto a FUNAP consegue atender de cada item; é essa quantidade que vai para a logística e o relatório.'
-                    : ' A escola sairá da logística e do relatório enviado à FUNAP.'}
+                    ? ` Informe quanto a FUNAP consegue atender de cada item neste lote; é essa quantidade que vai para a logística e o relatório do Lote ${m.lote}.`
+                    : ` A escola não entra na logística nem no relatório do Lote ${m.lote}.`}
                 </p>
+                {outrosLotes.length > 0 && (
+                  <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                    Já atendido em outros lotes: {outrosLotes.map(a => `Lote ${a.lote}: ${totalAtendido(a)} item(ns)`).join(' · ')}.
+                  </p>
+                )}
 
                 {atender && (
                   <>
@@ -2155,14 +2375,14 @@ export default function ReformaFunap() {
                       <thead className="text-xs text-slate-500 uppercase">
                         <tr>
                           <th className="text-left py-1.5">Item</th>
-                          <th className="text-center py-1.5">Solicitado</th>
-                          {saldoFunap && <th className="text-center py-1.5">Saldo FUNAP</th>}
+                          <th className="text-center py-1.5">{outrosLotes.length > 0 ? 'Falta atender' : 'Solicitado'}</th>
+                          {saldoFunap && <th className="text-center py-1.5">Saldo do lote</th>}
                           <th className="text-center py-1.5">Atender</th>
                         </tr>
                       </thead>
                       <tbody>
                         {CAMPOS_QTD.map(c => {
-                          const solicitado = Number(m.resposta[c] || 0);
+                          const solicitado = restanteNoLote(m.resposta, c, m.lote);
                           const excedido = excedidos.includes(c) || semSaldo.includes(c);
                           return (
                             <tr key={c} className="border-t border-slate-100">
@@ -2194,10 +2414,10 @@ export default function ReformaFunap() {
                     <div className="flex items-center justify-between text-xs">
                       <span className={excedidos.length > 0 || semSaldo.length > 0 ? 'text-red-600' : 'text-slate-500'}>
                         {excedidos.length > 0
-                          ? 'A quantidade atendida não pode passar da solicitada.'
+                          ? (outrosLotes.length > 0 ? 'A quantidade passa do que falta atender para a escola.' : 'A quantidade atendida não pode passar da solicitada.')
                           : semSaldo.length > 0
-                            ? 'A quantidade passa do saldo disponível da FUNAP.'
-                            : `Total a atender: ${totalModal} de ${totalItens(m.resposta)}`}
+                            ? `A quantidade passa do saldo disponível do Lote ${m.lote}.`
+                            : `Total a atender: ${totalModal} de ${totalRestanteNoLote(m.resposta, m.lote)}`}
                       </span>
                       <button
                         onClick={() => setAtendimentoModal({
