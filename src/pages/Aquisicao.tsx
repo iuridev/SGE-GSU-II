@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
+import { EnviosFdePanel } from '../components/EnviosFdePanel';
 import { 
   ShoppingBag, Calendar, Clock, 
   Search, 
@@ -49,7 +50,7 @@ export function Aquisicao() {
   const [userRole, setUserRole] = useState('');
   const [userSchoolId, setUserSchoolId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'solicitacao' | 'eventos' | 'itens' | 'consolidado' | 'lancamento'>('solicitacao');
+  const [activeTab, setActiveTab] = useState<'solicitacao' | 'eventos' | 'itens' | 'consolidado' | 'lancamento' | 'envios'>('solicitacao');
   
   const [events, setEvents] = useState<AcquisitionEvent[]>([]);
   const [items, setItems] = useState<Item[]>([]);
@@ -319,6 +320,7 @@ export function Aquisicao() {
         <div className="flex gap-2 p-2 bg-slate-100 rounded-2xl border border-slate-200">
           {!isAdmin && <TabButton active={activeTab === 'solicitacao'} onClick={() => setActiveTab('solicitacao')} label="Solicitar" />}
           <TabButton active={activeTab === 'consolidado'} onClick={() => setActiveTab('consolidado')} label="Painel Rede" />
+          <TabButton active={activeTab === 'envios'} onClick={() => setActiveTab('envios')} label="Envios FDE" />
           {isAdmin && (
             <>
               <TabButton active={activeTab === 'lancamento'} onClick={() => setActiveTab('lancamento')} label="Lançamento Manual" />
@@ -347,6 +349,10 @@ export function Aquisicao() {
       ) : (
         <div className="animate-in fade-in duration-500">
           
+          {activeTab === 'envios' && (
+            <EnviosFdePanel isAdmin={isAdmin} userSchoolId={userSchoolId} searchTerm={searchTerm} items={items} />
+          )}
+
           {/* ABA: SOLICITAÇÃO (ESCOLA) - VISÃO EM LISTA */}
           {activeTab === 'solicitacao' && (
             <div className="space-y-8">

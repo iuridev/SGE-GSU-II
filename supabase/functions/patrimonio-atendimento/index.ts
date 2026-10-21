@@ -76,6 +76,11 @@ const INCORPORACOES_COLUMNS = [
   // exibição resiliente (mesmo padrão de processo_id + processo_identificador da
   // aba de Atendimentos).
   'processo_incorporacao_id', 'processo_sei',
+  // Vínculo com o envio informado pela FDE (planilha de Envios FDE, aba "Envios FDE"
+  // da Gestão FDE). A planilha da FDE não tem id, então a chave é
+  // "PROJETO|CIE|CODIGO" (ver chaveEnvioFde em src/lib/fdeEnvios.ts). Envio entregue
+  // sem item vinculado = escola ainda não mandou a nota fiscal.
+  'fde_envio_chave',
 ]
 const ORIGENS_AQUISICAO_VALIDAS = ['Entrega FDE/SEDUC', 'Aquisição PDDE Federal', 'Aquisição PDDE Paulista']
 const ORGAOS_ENTREGA_VALIDOS = ['FDE', 'CEQUI', 'CITEM', 'COINTEC']
@@ -143,7 +148,13 @@ async function getOrCreateSheet(doc: any, title: string, columns: string[]) {
   // cabeçalho da coluna física onde o valor é de fato gravado.
   const missing = columns.filter(c => !headers.includes(c))
   if (missing.length > 0) {
-    await sheet.setHeaderRow([...headers, ...missing])
+    const novosHeaders = [...headers, ...missing]
+    // setHeaderRow recusa cabeçalho maior que a grade da aba (26 colunas por
+    // padrão) — amplia as colunas antes, mantendo as linhas existentes.
+    if (novosHeaders.length > sheet.columnCount) {
+      await sheet.resize({ rowCount: sheet.rowCount, columnCount: novosHeaders.length })
+    }
+    await sheet.setHeaderRow(novosHeaders)
   }
   return sheet
 }
@@ -565,6 +576,29 @@ Deno.serve(async (req) => {
             row.set('processo_incorporacao_id', '')
             row.set('processo_sei', '')
           }
+          await row.save()
+          count++
+        }
+        return ok(corsHeaders, { success: true, count })
+      }
+
+      // Vincula/desvincula itens a incorporar a um envio da FDE.
+      //  - { ids: [...], chave }     → vincula os itens ao envio
+      //  - { ids: [...], chave: '' } → desvincula os itens
+      case 'vincular_incorporacao_fde': {
+        exigirRegionalAdmin(p)
+        const sheet = await getOrCreateSheet(doc, INCORPORACOES_SHEET, INCORPORACOES_COLUMNS)
+        const chave = String(body.chave || '').trim()
+        const ids: string[] = Array.isArray(body.ids) ? body.ids.map((x: unknown) => String(x)) : []
+        if (ids.length === 0) throw new Error('Nenhum item informado para vincular.')
+        const rows = await sheet.getRows()
+        let count = 0
+        for (const row of rows) {
+          if (!ids.includes(row.get('id'))) continue
+          if (chave && row.get('origem_aquisicao') !== 'Entrega FDE/SEDUC') {
+            throw new Error(`O item "${row.get('descricao')}" não é de Entrega FDE/SEDUC.`)
+          }
+          row.set('fde_envio_chave', chave)
           await row.save()
           count++
         }
