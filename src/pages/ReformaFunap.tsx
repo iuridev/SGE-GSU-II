@@ -177,6 +177,10 @@ function toDatetimeLocal(iso: string): string {
 
 function formatDate(d?: string | null): string {
   if (!d) return '-';
+  // Data pura (AAAA-MM-DD, vinda do <input type="date">): new Date() a lê como
+  // meia-noite UTC, que no fuso de Brasília cai no dia anterior — formata direto.
+  const soData = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
+  if (soData) return `${soData[3]}/${soData[2]}/${soData[1]}`;
   const parsed = new Date(d);
   if (isNaN(parsed.getTime())) return d;
   return parsed.toLocaleDateString('pt-BR');
