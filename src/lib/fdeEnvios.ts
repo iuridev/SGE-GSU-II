@@ -8,25 +8,36 @@ export const FDE_ENVIOS_CONFIGURADO = !!SHEET_ID;
 export const FDE_ENVIOS_SHEET_URL = SHEET_ID ? `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit` : '';
 
 export interface FdeEnvio {
+  fornecedora: string;
+  of: string;                 // Ordem de Fornecimento (ex.: 36/00408/26)
   projeto: string;
-  dataLimite: string | null; // ISO yyyy-mm-dd
-  cie: string;               // sem zeros à esquerda
+  dataLimite: string | null;  // ISO yyyy-mm-dd
+  dataEntrega: string | null; // ISO yyyy-mm-dd
+  cie: string;                // sem zeros à esquerda
   escola: string;
   codigo: string;
   qtde: number;
   status: string;
 }
 
-// A planilha da FDE não tem id por linha: o envio é identificado por projeto +
-// escola + código do item. É essa chave que fica gravada no item a incorporar
-// (coluna fde_envio_chave) para ligar a nota fiscal ao envio.
-export function chaveEnvioFde(e: Pick<FdeEnvio, 'projeto' | 'cie' | 'codigo'>): string {
+// A planilha da FDE não tem id por linha: o envio é identificado por OF + escola +
+// código do item (a mesma escola pode receber o mesmo item em OFs diferentes). É essa
+// chave que fica gravada no item a incorporar (coluna fde_envio_chave) para ligar a
+// nota fiscal ao envio.
+export function chaveEnvioFde(e: Pick<FdeEnvio, 'of' | 'cie' | 'codigo'>): string {
+  return `${e.of}|${e.cie}|${e.codigo}`;
+}
+
+// Vínculos feitos antes da planilha ter a coluna OF usavam o projeto no lugar dela.
+export function chaveEnvioFdeLegada(e: Pick<FdeEnvio, 'projeto' | 'cie' | 'codigo'>): string {
   return `${e.projeto}|${e.cie}|${e.codigo}`;
 }
 
 export function descreverChaveEnvioFde(chave: string): string {
-  const [projeto, , codigo] = (chave || '').split('|');
-  return [projeto, codigo].filter(Boolean).join(' · ');
+  const [primeiro, , codigo] = (chave || '').split('|');
+  // OF tem barras (36/00408/26); a chave legada começa pelo nome do projeto
+  const origem = primeiro && primeiro.includes('/') ? `OF ${primeiro}` : primeiro;
+  return [origem, codigo].filter(Boolean).join(' · ');
 }
 
 export function normalizarTexto(s: string): string {
@@ -53,9 +64,23 @@ export async function carregarEnviosFde(): Promise<FdeEnvio[]> {
   const idxCab = linhas.findIndex(l => l.some(c => normalizarTexto(c) === 'CIE'));
   if (idxCab < 0) throw new Error('Cabeçalho "CIE" não encontrado na planilha da FDE.');
   const cab = linhas[idxCab].map(normalizarTexto);
-  const col = (...nomes: string[]) => cab.findIndex(c => nomes.some(n => c.startsWith(n)));
+  // Procura os nomes na ordem dada: primeiro o nome exato, depois por prefixo
+  const col = (...nomes: string[]) => {
+    for (const n of nomes) {
+      const i = cab.findIndex(c => c === n);
+      if (i >= 0) return i;
+    }
+    for (const n of nomes) {
+      const i = cab.findIndex(c => c.startsWith(n));
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+  const iFornecedora = col('FORNECEDORA', 'FORNECEDOR');
+  const iOf = col('OF', 'ORDEM DE FORNECIMENTO');
   const iProjeto = col('PROJETO');
-  const iData = col('DATA LIMITE', 'DATA');
+  const iDataLimite = col('DATA LIMITE');
+  const iDataEntrega = col('DATA ENTREGA', 'DATA DE ENTREGA');
   const iCie = col('CIE');
   const iEscola = col('NOME DA ESCOLA', 'ESCOLA');
   const iCodigo = col('CODIGO');
@@ -67,8 +92,11 @@ export async function carregarEnviosFde(): Promise<FdeEnvio[]> {
   return linhas.slice(idxCab + 1)
     .filter(l => get(l, iCie) || get(l, iEscola))
     .map(l => ({
+      fornecedora: normalizarTexto(get(l, iFornecedora)),
+      of: get(l, iOf),
       projeto: normalizarTexto(get(l, iProjeto)),
-      dataLimite: dataBrParaIso(get(l, iData)),
+      dataLimite: dataBrParaIso(get(l, iDataLimite)),
+      dataEntrega: dataBrParaIso(get(l, iDataEntrega)),
       cie: normalizarCie(get(l, iCie)),
       escola: get(l, iEscola),
       codigo: get(l, iCodigo).toUpperCase(),
