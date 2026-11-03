@@ -62,7 +62,7 @@ export const MODELOS: Modelo[] = [
       },
       {
         t: 'par', recuo: true, alinh: 'justify',
-        texto: `Isto posto, submetemos o assunto à apreciação da Senhora ${DIRIGENTE}, por intermédio da SEFISC-SGU, para manifestação da Equipe de Apoio de Material Excedente - EAMEX, da Supervisão de Ensino e do Centro de Administração, Finanças e Infraestrutura / Núcleo de Administração - NAD, e em não havendo impedimento legal, à sua deliberação.`,
+        texto: `Isto posto, submetemos o assunto à apreciação da Senhora ${DIRIGENTE}, por intermédio da SEFISC-SGU, para manifestação da Equipe de Apoio de Material Excedente - EAMEX, da Supervisão de Ensino e do Serviço de Obras e Manutenção Escolar - SEOM / Seção de Fiscalização - SEFISC, e em não havendo impedimento legal, à sua deliberação.`,
       },
       { t: 'par', texto: 'Guarulhos, [DATA].' },
       { t: 'par', texto: 'Nome: [NOME DO DIRETOR]\nRG: [Nº DO RG]\nDiretor(a) da Escola' },

@@ -44,7 +44,7 @@ const ETAPAS: Etapa[] = [
     passos: [
       { texto: <><strong>A EAMEX confere a documentação e assina o mapa</strong>, conforme a Resolução SE 17/2017.</>, modelos: [5] },
       { texto: <><strong>O Supervisor responsável visita a escola</strong> e confirma que o material corresponde ao mapa.</>, modelos: [6, 7] },
-      { texto: <><strong>CAF e NAD se manifestam</strong> sobre a ausência de impedimento legal.</>, modelos: [8] },
+      { texto: <><strong>SEOM e SEFISC se manifestam</strong> sobre a ausência de impedimento legal.</>, modelos: [8] },
       { texto: <><strong>A {DIRIGENTE} autoriza a doação</strong> e o processo volta à escola pelo SEI.</>, modelos: [9] },
     ],
   },
@@ -66,7 +66,7 @@ const ETAPAS: Etapa[] = [
     onde: 'Feita pela URE Guarulhos Sul. A escola recebe a NL.',
     passos: [
       { texto: <><strong>O Supervisor confirma, em visita, a retirada total</strong> do material da escola.</>, modelos: [13, 14] },
-      { texto: <><strong>O CAF autoriza a baixa contábil</strong> e a Nota de Lançamento (NL) é juntada ao processo.</>, modelos: [15] },
+      { texto: <><strong>SEOM e SEFISC autorizam a baixa contábil</strong> e a Nota de Lançamento (NL) é juntada ao processo.</>, modelos: [15] },
       { texto: <><strong>A escola retira os bens do inventário</strong> com base na NL, e o processo é arquivado.</> },
     ],
   },
