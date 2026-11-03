@@ -13,7 +13,7 @@ import {
   School, Map, ShieldAlert, ChevronLeft, Flame, ChevronDown,
   Bell, MessageSquare, CheckCircle, ClipboardList,
   Wrench, Search, CalendarCheck, BarChart2, Megaphone, DoorOpen, ClipboardCheck, Target,
-  CalendarDays, FileSignature, Bot, HelpCircle, Stamp, Phone, Landmark, Award, UserCheck, CalendarRange
+  CalendarDays, FileSignature, Bot, HelpCircle, Stamp, Phone, Landmark, Award, UserCheck, CalendarRange, Recycle
 } from 'lucide-react';
 import { AgendaUnificadaModal } from './components/AgendaUnificadaModal';
 import { AlertaEscolaModal } from './components/AlertaEscolaModal';
@@ -75,6 +75,7 @@ import VisitasEscolares from './pages/VisitasEscolares';
 import CronogramaSetor from './pages/CronogramaSetor';
 import PatrimonioSalas from './pages/PatrimonioSalas';
 import GuiaDoacaoPatrimonio from './pages/GuiaDoacaoPatrimonio';
+import GuiaDoacaoInservivel from './pages/GuiaDoacaoInservivel';
 import AtendimentoPatrimonio from './pages/AtendimentoPatrimonio';
 import ReformaFunap from './pages/ReformaFunap';
 import MetricasAcesso from './pages/MetricasAcesso';
@@ -202,6 +203,7 @@ const MENU_GROUPS: MenuGroup[] = [
     title: 'PATRIMÔNIO',
     items: [
       { id: 'guia-doacao-patrimonio', label: 'Guia de Doação de Material Permanente', icon: <Stamp size={20} className="text-amber-600" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
+      { id: 'guia-doacao-inservivel', label: 'Guia de Doação de Inservível à APM', icon: <Recycle size={20} className="text-orange-600" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'atendimento-patrimonio', label: 'Atendimento Patrimônio', icon: <MessageSquare size={20} className="text-teal-500" />, roles: ['regional_admin', 'school_manager', 'supervisor'] },
       { id: 'reforma-funap', label: 'Reforma FUNAP (Carteiras/Cadeiras)', icon: <Wrench size={20} className="text-green-600" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'educacao-patrimonial', label: 'Educação Patrimonial', icon: <ShieldAlert size={20} className="text-orange-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
@@ -818,6 +820,7 @@ export default function App() {
       case 'acompanhamento-obras': return <AcompanhamentoObras />;
       case 'patrimonio-salas': return <PatrimonioSalas />;
       case 'guia-doacao-patrimonio': return <GuiaDoacaoPatrimonio />;
+      case 'guia-doacao-inservivel': return <GuiaDoacaoInservivel />;
       case 'atendimento-patrimonio': return <AtendimentoPatrimonio onNavigate={setCurrentPage} />;
       case 'reforma-funap': return <ReformaFunap />;
       case 'metricas-acesso': return <MetricasAcesso />;

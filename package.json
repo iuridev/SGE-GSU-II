@@ -20,6 +20,7 @@
     "@tensorflow-models/coco-ssd": "^2.2.3",
     "@tensorflow/tfjs": "^4.22.0",
     "date-fns": "^4.1.0",
+    "docx": "^9.15.1",
     "google-auth-library": "^10.6.1",
     "google-spreadsheet": "^5.2.0",
     "html2canvas": "^1.4.1",
