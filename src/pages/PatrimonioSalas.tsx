@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useDeferredValue, type ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole, isReadOnlyRole } from '../lib/roles';
+import { invokePatrimonioSalas as invoke } from '../lib/patrimonioSalasApi';
 import { DefesoEleitoralBanner } from '../components/DefesoEleitoralBanner';
 import {
   Package, Search, DoorOpen, ArrowRightLeft, History, Plus, X,
@@ -62,6 +63,7 @@ interface ItemPatrimonio {
   alocadoEm: string | null;
   conferidoEm?: string | null;
   conferidoPorNome?: string | null;
+  inservivel?: boolean;
   naoEncontrado?: boolean;
   comodato?: boolean;
   empresa?: string;
@@ -223,27 +225,6 @@ export default function PatrimonioSalas() {
     }
   }
 
-  // supabase.functions.invoke() joga um FunctionsHttpError genérico quando a function
-  // responde com status != 2xx — a mensagem real (JSON { error }) vem em error.context.
-  async function invoke(action: string, payload: Record<string, unknown> = {}) {
-    const { data, error } = await supabase.functions.invoke('patrimonio-salas', {
-      body: { action, ...payload },
-    });
-    if (error) {
-      let message = error.message;
-      const context = (error as any).context;
-      if (context && typeof context.json === 'function') {
-        try {
-          const body = await context.clone().json();
-          if (body?.error) message = body.error;
-        } catch { /* corpo não é JSON, mantém mensagem padrão */ }
-      }
-      throw new Error(message);
-    }
-    if (data?.error) throw new Error(data.error);
-    return data;
-  }
-
   // Grava uma ação por vez: cliques seguidos não disputam a cota do Google entre si.
   function enfileirarEscrita(tarefa: () => Promise<void>) {
     versaoEscritas += 1;
@@ -330,7 +311,7 @@ export default function PatrimonioSalas() {
 
   const itensDisponiveis = useMemo(() => {
     const q = buscaAdiada.toLowerCase();
-    return itens.filter(i => !i.alocado && (
+    return itens.filter(i => !i.alocado && !i.inservivel && (
       !q || i.chapa.toLowerCase().includes(q) || i.descricao.toLowerCase().includes(q)
     ));
   }, [itens, buscaAdiada]);
