@@ -166,7 +166,7 @@ const MENU_GROUPS: MenuGroup[] = [
   {
     title: 'INFRAESTRUTURA',
     items: [
-      //{ id: 'vistorias-prediais-dashboard', label: 'BI Predial', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_eec', 'school_manager'] },
+      { id: 'vistorias-prediais-dashboard', label: 'BI Predial', icon: <ClipboardList size={20} className="text-blue-500" />, roles: ['regional_admin', 'dirigente', 'supervisor', 'ure_servico', 'ure_ecc', 'school_manager'] },
       { id: 'obras', label: 'Obras e Reformas', icon: <HardHat size={20} className="text-orange-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'school_manager'] },
       { id: 'acompanhamento-obras', label: 'Acompanhamento Semanal de Obras', icon: <ClipboardCheck size={20} className="text-orange-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'school_manager'] },
       //{ id: 'previsao-obras-fde', label: 'Previsão de Obras FDE', icon: <HardHat size={20} className="text-amber-500" />, roles: ['regional_admin', 'supervisor', 'dirigente', 'ure_servico'] },
