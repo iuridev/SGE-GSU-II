@@ -840,7 +840,7 @@ export default function PatrimonioSalas() {
                   <div key={item.chapa} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-mono font-bold text-xs text-slate-500">
+                        <span className="font-mono font-bold text-lg text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-lg">
                           {item.comodato ? item.chapa : `Chapa ${item.chapa}`}
                         </span>
                         {item.comodato && (
@@ -928,7 +928,7 @@ export default function PatrimonioSalas() {
                 <div key={item.chapa} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono font-bold text-xs text-slate-500">
+                      <span className="font-mono font-bold text-lg text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-lg">
                         {item.comodato ? item.chapa : `Chapa ${item.chapa}`}
                       </span>
                       {item.comodato && (
