@@ -9,9 +9,16 @@ body {
   @apply bg-gray-50;
 }
 
+/* No celular, 100vh ignora a barra de endereço e corta o fim da página. */
+.altura-tela {
+  height: 100vh;
+  height: 100dvh;
+}
+
 @media print {
   html,
-  body {
+  body,
+  .altura-tela {
     height: auto;
     overflow: visible;
   }

@@ -15,6 +15,7 @@ const ALOCACOES_SHEET = 'Alocacoes'
 const HISTORICO_SHEET = 'Historico'
 const COMODATO_SHEET = 'Comodato'
 const INSERVIVEIS_SHEET = 'Inserviveis'
+const SEM_IDENTIFICACAO_SHEET = 'SemIdentificacao'
 
 // "fotos": JSON array (máx. 4) de URLs públicas do bucket "salas-fotos" — ajudam
 // a identificar a sala e saem no PDF da lista de itens.
@@ -24,6 +25,8 @@ const SALAS_COLUMNS = ['id', 'nome', 'descricao', 'ativa', 'criado_por', 'criado
 const COMODATO_COLUMNS = ['id', 'seq', 'codigo', 'descricao', 'empresa', 'patrimonio_empresa', 'observacao', 'ativo', 'criado_por_id', 'criado_por_nome', 'criado_em']
 const ALOCACOES_COLUMNS = ['chapa', 'descricao_item', 'sala_id', 'sala_nome', 'alocado_por_id', 'alocado_por_nome', 'alocado_em', 'conferido_em', 'conferido_por_id', 'conferido_por_nome']
 const INSERVIVEIS_COLUMNS = ['chapa', 'descricao_item', 'foto_url', 'observacao', 'registrado_por_id', 'registrado_por_nome', 'registrado_em']
+// Item físico que perdeu a plaqueta: fica PENDENTE até ser ligado a uma chapa do inventário.
+const SEM_IDENTIFICACAO_COLUMNS = ['id', 'descricao', 'sala_id', 'sala_nome', 'foto_url', 'observacao', 'status', 'chapa_vinculada', 'registrado_por_id', 'registrado_por_nome', 'registrado_em', 'vinculado_por_id', 'vinculado_por_nome', 'vinculado_em']
 const HISTORICO_COLUMNS = ['id', 'chapa', 'descricao_item', 'tipo_evento', 'sala_id', 'sala_nome', 'usuario_id', 'usuario_nome', 'data_evento', 'observacao']
 
 type Profile = { role: string; salas_trabalho: string[] | null; full_name: string | null }
@@ -148,12 +151,13 @@ Deno.serve(async (req) => {
     // ── Conecta na planilha (doc cacheado entre invocações — ver getDoc) ──
     const doc = await getDoc()
 
-    const [salasSheet, alocacoesSheet, historicoSheet, comodatoSheet, inserviveisSheet] = await Promise.all([
+    const [salasSheet, alocacoesSheet, historicoSheet, comodatoSheet, inserviveisSheet, semIdentificacaoSheet] = await Promise.all([
       getOrCreateSheet(doc, SALAS_SHEET, SALAS_COLUMNS),
       getOrCreateSheet(doc, ALOCACOES_SHEET, ALOCACOES_COLUMNS),
       getOrCreateSheet(doc, HISTORICO_SHEET, HISTORICO_COLUMNS),
       getOrCreateSheet(doc, COMODATO_SHEET, COMODATO_COLUMNS),
       getOrCreateSheet(doc, INSERVIVEIS_SHEET, INSERVIVEIS_COLUMNS),
+      getOrCreateSheet(doc, SEM_IDENTIFICACAO_SHEET, SEM_IDENTIFICACAO_COLUMNS),
     ])
 
     switch (action) {
@@ -510,7 +514,7 @@ Deno.serve(async (req) => {
       }
 
       case 'marcar_inservivel': {
-        exigirEdicaoInserviveis(profile as Profile)
+        exigirEdicaoInventario(profile as Profile)
         const chapa = String(body.chapa || '').trim()
         if (!chapa) throw new Error('Item não informado.')
         const fotoUrl = String(body.foto_url || '').trim()
@@ -557,7 +561,7 @@ Deno.serve(async (req) => {
       }
 
       case 'desmarcar_inservivel': {
-        exigirEdicaoInserviveis(profile as Profile)
+        exigirEdicaoInventario(profile as Profile)
         const chapa = String(body.chapa || '').trim()
         if (!chapa) throw new Error('Item não informado.')
 
@@ -567,6 +571,131 @@ Deno.serve(async (req) => {
 
         await row.delete()
         inserviveisRowsCache = null
+        return ok(corsHeaders, { success: true })
+      }
+
+      case 'listar_sem_identificacao': {
+        const rows = await semIdentificacaoSheet.getRows()
+        const registros = rows
+          .map(montarSemIdentificacao)
+          .sort((a: any, b: any) => (a.registradoEm < b.registradoEm ? 1 : -1))
+        return ok(corsHeaders, { registros })
+      }
+
+      case 'criar_sem_identificacao': {
+        exigirEdicaoInventario(profile as Profile)
+        const descricao = String(body.descricao || '').trim()
+        if (!descricao) throw new Error('Informe a descrição do item.')
+
+        const salaId = String(body.sala_id || '')
+        let salaNome = ''
+        if (salaId) {
+          exigirAcessoSala(profile as Profile, salaId)
+          const salasRows = await getSalasRows(salasSheet)
+          const sala = salasRows.find((r: any) => r.get('id') === salaId && r.get('ativa') === 'TRUE')
+          if (!sala) throw new Error('Sala inválida ou inativa.')
+          salaNome = sala.get('nome')
+        }
+
+        const row = await semIdentificacaoSheet.addRow({
+          id: crypto.randomUUID(),
+          descricao,
+          sala_id: salaId,
+          sala_nome: salaNome,
+          foto_url: String(body.foto_url || ''),
+          observacao: String(body.observacao || '').trim(),
+          status: 'PENDENTE',
+          registrado_por_id: user.id,
+          registrado_por_nome: usuarioNome,
+          registrado_em: new Date().toISOString(),
+        })
+        return ok(corsHeaders, { success: true, registro: montarSemIdentificacao(row) })
+      }
+
+      case 'vincular_sem_identificacao': {
+        exigirEdicaoInventario(profile as Profile)
+        const id = String(body.id || '')
+        const chapa = String(body.chapa || '').trim()
+        if (!id || !chapa) throw new Error('Registro ou chapa não informados.')
+
+        const [registros, itemRows, alocRows, inservRows, salasRows] = await Promise.all([
+          semIdentificacaoSheet.getRows(),
+          getItensRows(getItensSheet(doc)),
+          alocacoesSheet.getRows(),
+          getInserviveisRows(inserviveisSheet),
+          getSalasRows(salasSheet),
+        ])
+        const registro = registros.find((r: any) => r.get('id') === id)
+        if (!registro) throw new Error('Registro não encontrado.')
+        if (registro.get('status') !== 'PENDENTE') throw new Error('Este registro já foi vinculado.')
+
+        const itemRow = itemRows.find((r: any) => String(r.get('Chapa') ?? '').trim() === chapa)
+        if (!itemRow) throw new Error('Chapa não encontrada no inventário oficial.')
+        const alocado = alocRows.find((r: any) => String(r.get('chapa') ?? '').trim() === chapa)
+        if (alocado) throw new Error(`Esta chapa já está alocada na sala "${alocado.get('sala_nome')}".`)
+        if (inservRows.some((r: any) => String(r.get('chapa') ?? '').trim() === chapa)) {
+          throw new Error('Esta chapa está na lista de inservíveis da URE.')
+        }
+        if (registros.some((r: any) => String(r.get('chapa_vinculada') ?? '').trim() === chapa)) {
+          throw new Error('Esta chapa já foi vinculada a outro registro.')
+        }
+
+        const salaId = String(registro.get('sala_id') || '')
+        const agora = new Date().toISOString()
+        let item = null
+        if (salaId) {
+          exigirAcessoSala(profile as Profile, salaId)
+          const sala = salasRows.find((r: any) => r.get('id') === salaId && r.get('ativa') === 'TRUE')
+          if (!sala) throw new Error('A sala deste registro está inativa.')
+          const descricaoItem = itemRow.get('Descrição do Item') || '-'
+          const salaNome = sala.get('nome')
+
+          await alocacoesSheet.addRow({
+            chapa,
+            descricao_item: descricaoItem,
+            sala_id: salaId,
+            sala_nome: salaNome,
+            alocado_por_id: user.id,
+            alocado_por_nome: usuarioNome,
+            alocado_em: agora,
+          })
+          await registrarHistorico(historicoSheet, {
+            id: crypto.randomUUID(),
+            chapa,
+            descricao_item: descricaoItem,
+            tipo_evento: 'ALOCACAO',
+            sala_id: salaId,
+            sala_nome: salaNome,
+            usuario_id: user.id,
+            usuario_nome: usuarioNome,
+            data_evento: agora,
+            observacao: `Item sem identificação vinculado: ${registro.get('descricao')}`,
+          })
+          item = { chapa, alocado: true, salaId, salaNome, alocadoPorNome: usuarioNome, alocadoEm: agora }
+        }
+
+        registro.set('status', 'VINCULADO')
+        registro.set('chapa_vinculada', chapa)
+        registro.set('vinculado_por_id', user.id)
+        registro.set('vinculado_por_nome', usuarioNome)
+        registro.set('vinculado_em', agora)
+        await gravarComEspera(() => registro.save(), `vínculo não salvo: registro ${id}, chapa ${chapa}`)
+
+        return ok(corsHeaders, { success: true, registro: montarSemIdentificacao(registro), item })
+      }
+
+      case 'excluir_sem_identificacao': {
+        exigirEdicaoInventario(profile as Profile)
+        const id = String(body.id || '')
+        if (!id) throw new Error('Registro não informado.')
+
+        const rows = await semIdentificacaoSheet.getRows()
+        const row = rows.find((r: any) => r.get('id') === id)
+        if (!row) throw new Error('Registro não encontrado.')
+        if (row.get('status') !== 'PENDENTE') throw new Error('Um registro já vinculado não pode ser excluído.')
+        if (row.get('sala_id')) exigirAcessoSala(profile as Profile, row.get('sala_id'))
+
+        await row.delete()
         return ok(corsHeaders, { success: true })
       }
 
@@ -727,21 +856,25 @@ function montarSalas(rows: any[]) {
   }))
 }
 
-// A alocação/devolução já foi gravada quando isto roda: uma falha aqui não pode virar
-// erro para o usuário (ele tentaria de novo uma ação que já aconteceu).
-async function registrarHistorico(historicoSheet: any, evento: Record<string, unknown>) {
+// Roda depois que a ação principal já foi gravada: uma falha aqui não pode virar erro
+// para o usuário (ele tentaria de novo uma ação que já aconteceu).
+async function gravarComEspera(gravar: () => Promise<unknown>, descricao: string) {
   for (const espera of [2000, 5000, 0]) {
     try {
-      await historicoSheet.addRow(evento)
+      await gravar()
       return
     } catch (e) {
       if (!espera) {
-        console.error('[patrimonio-salas] histórico não registrado', evento, e)
+        console.error(`[patrimonio-salas] ${descricao}`, e)
         return
       }
       await new Promise((resolve) => setTimeout(resolve, espera))
     }
   }
+}
+
+function registrarHistorico(historicoSheet: any, evento: Record<string, unknown>) {
+  return gravarComEspera(() => historicoSheet.addRow(evento), `histórico não registrado: ${JSON.stringify(evento)}`)
 }
 
 function parseFotos(raw: unknown): string[] {
@@ -754,9 +887,32 @@ function parseFotos(raw: unknown): string[] {
   }
 }
 
-function exigirEdicaoInserviveis(profile: Profile) {
+function exigirEdicaoInventario(profile: Profile) {
   if (!['regional_admin', 'ure_servico'].includes(profile.role)) {
-    throw new Error('Seu perfil não pode alterar a lista de inservíveis.')
+    throw new Error('Seu perfil é somente leitura neste módulo.')
+  }
+}
+
+function exigirAcessoSala(profile: Profile, salaId: string) {
+  if (profile.role === 'ure_servico' && !(profile.salas_trabalho || []).includes(salaId)) {
+    throw new Error('Você só pode usar uma das suas salas vinculadas.')
+  }
+}
+
+function montarSemIdentificacao(r: any) {
+  return {
+    id: r.get('id'),
+    descricao: r.get('descricao') || '',
+    salaId: r.get('sala_id') || null,
+    salaNome: r.get('sala_nome') || null,
+    fotoUrl: r.get('foto_url') || null,
+    observacao: r.get('observacao') || '',
+    status: r.get('status'),
+    chapaVinculada: r.get('chapa_vinculada') || null,
+    registradoPorNome: r.get('registrado_por_nome') || '',
+    registradoEm: r.get('registrado_em') || '',
+    vinculadoPorNome: r.get('vinculado_por_nome') || null,
+    vinculadoEm: r.get('vinculado_em') || null,
   }
 }
 
