@@ -86,6 +86,17 @@ function mondayOnOrBefore(date: Date): Date {
   return d;
 }
 
+// Segunda-feira ainda é tolerância da semana anterior: o snapshot gerado nesse
+// dia usa o domingo como data de referência, então atualiza a semana que acabou
+// já com os lançamentos atrasados feitos na segunda e não cobra a própria
+// segunda. A semana nova só começa a ser medida na terça.
+function dataReferenciaSnapshot(agora: Date): Date {
+  if (agora.getDay() !== 1) return agora;
+  const domingo = new Date(agora);
+  domingo.setDate(domingo.getDate() - 1);
+  return domingo;
+}
+
 function formatWeekLabel(ymd: string): string {
   const [, m, d] = ymd.split('-');
   return `${d}/${m}`;
@@ -201,16 +212,17 @@ export default function PendenciasSemanais() {
     setSnapshotting(true);
     setSnapshotMsg(null);
     try {
-      const hoje = new Date();
+      const agora = new Date();
+      const referencia = dataReferenciaSnapshot(agora);
 
       // ── Água: reaproveita a mesma RPC e janela do Dashboard ──────────────
       // Janela de 3 meses (mês atual + 2 anteriores): lacunas mais antigas que isso
       // não entram no índice.
-      const tresMesesAtras = new Date(hoje.getFullYear(), hoje.getMonth() - 2, 1);
+      const tresMesesAtras = new Date(referencia.getFullYear(), referencia.getMonth() - 2, 1);
       const windowStart = tresMesesAtras > WATER_REPORTING_HARD_START ? tresMesesAtras : WATER_REPORTING_HARD_START;
       const { data: pendenciasAgua, error: aguaError } = await supabase.rpc('get_pending_water_schools', {
         p_window_start: formatDateToYMD(windowStart),
-        p_today: formatDateToYMD(hoje),
+        p_today: formatDateToYMD(referencia),
       });
       if (aguaError) throw aguaError;
 
@@ -260,13 +272,14 @@ export default function PendenciasSemanais() {
         };
       });
 
-      const semana = formatDateToYMD(mondayOnOrBefore(hoje));
+      const semana = formatDateToYMD(mondayOnOrBefore(referencia));
       const resultado = await invoke('gerar_snapshot', { semana, rows: linhas });
 
       await carregarHistorico();
+      const avisoSegunda = referencia !== agora ? ' Às segundas, o snapshot ainda fecha a semana anterior.' : '';
       setSnapshotMsg({
         tipo: 'ok',
-        texto: `Snapshot da semana de ${formatWeekLabel(semana)} gerado: ${resultado.criadas} escola(s) nova(s), ${resultado.atualizadas} atualizada(s).`,
+        texto: `Snapshot da semana de ${formatWeekLabel(semana)} gerado: ${resultado.criadas} escola(s) nova(s), ${resultado.atualizadas} atualizada(s).${avisoSegunda}`,
       });
     } catch (err: any) {
       console.error('Erro ao gerar snapshot semanal:', err);
