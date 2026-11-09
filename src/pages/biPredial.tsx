@@ -1,460 +1,527 @@
-import React, { useState, useEffect } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { UploadCloud, Calendar, Building, AlertCircle, Info, TrendingUp, AlertTriangle, CheckCircle } from 'lucide-react';
-import * as xlsx from 'xlsx';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Inicialização do Supabase
-// ─────────────────────────────────────────────────────────────────────────────
-// ADICIONE ISSO (ajuste o caminho conforme sua pasta):
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+} from 'recharts';
+import {
+  AlertCircle, ArrowLeft, ArrowDownRight, ArrowUpRight, Building, ExternalLink, Loader2, RefreshCw, Search,
+} from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { resolveViewRole } from '../lib/roles';
+import { normalizarCie, normalizarTexto } from '../lib/fdeEnvios';
+import {
+  apontamentos,
+  carregarVistorias,
+  CONCEITO_NOME,
+  CONCEITOS,
+  desempenhoPorItem,
+  distribuicaoPorAmbiente,
+  escolasDisponiveis,
+  evolucaoMensal,
+  formatarData,
+  inicioDoPeriodo,
+  notaMedia,
+  PLANILHA_VISTORIAS_URL,
+  resumoPorEscola,
+  type BaseVistorias,
+  type Conceito,
+  type LinhaAmbiente,
+  type PontoMensal,
+  type ResumoEscola,
+} from '../lib/vistoriasFde';
 
-// --- Tipagens ---
-interface ChartData {
-  date: string;
-  sortKey?: number;
-  [element: string]: any;
+interface Perfil {
+  role: string;
+  cie: string | null;
 }
-interface School { id: string; name: string; cie_code: number | string }
-interface User { role: string; schoolId?: string | null; }
 
-const SCORE_MAP: Record<string, number> = { 'MB': 5, 'B': 4, 'R': 2, 'MR': 1 };
-const META_COLUMNS = new Set(['Data', 'date', 'Data_Vistoria', 'created_at', 'Unidade Regional de Ensino', 'Unidade de Ensino', 'Escola', 'name', 'CIE', 'Cie', 'cie_code', 'CIE_ESCOLA', 'Nota', 'PN Pont', 'PN Texto', 'PP Pont', 'PP Texto', 'id', 'email', 'phone', 'address', 'zip_code', 'director_name']);
+type Ordenacao = 'nota' | 'escola' | 'data' | 'variacao';
 
-function extractCieFromName(schoolName: string | number): number | null {
-  if (!schoolName) return null;
-  const str = String(schoolName).trim();
-  const match = str.match(/(\d+)\D*$/);
-  return match ? parseInt(match[1], 10) : null;
+// Escala divergente: azul = adequado, vermelho = crítico. Separação validada para daltonismo.
+const COR_CONCEITO: Record<Conceito, string> = {
+  MB: '#256abf',
+  B: '#86b6ef',
+  R: '#f0a19c',
+  MR: '#c93636',
+};
+const COR_LINHA = '#2a78d6';
+const COR_GRADE = '#e5e7eb';
+const COR_EIXO = '#6b7280';
+
+const PERIODOS = [
+  { valor: '0', rotulo: 'Todo o histórico' },
+  { valor: '12', rotulo: 'Últimos 12 meses' },
+  { valor: '6', rotulo: 'Últimos 6 meses' },
+  { valor: '3', rotulo: 'Últimos 3 meses' },
+];
+
+const LIMITE_LISTA = 10;
+
+const CARTAO = 'bg-white rounded-lg shadow-sm border border-gray-200';
+const CAMPO = 'w-full p-2 border border-gray-300 rounded bg-white text-sm outline-none focus:ring-2 focus:ring-blue-500';
+
+function nota(valor: number | null): string {
+  return valor === null ? '-' : valor.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+}
+
+function Indicador({ titulo, valor, detalhe }: { titulo: string; valor: ReactNode; detalhe?: ReactNode }) {
+  return (
+    <div className={`${CARTAO} p-4`}>
+      <p className="text-xs font-semibold text-gray-500 uppercase">{titulo}</p>
+      <p className="text-2xl font-bold text-gray-900 mt-1">{valor}</p>
+      {detalhe && <p className="text-xs text-gray-500 mt-1">{detalhe}</p>}
+    </div>
+  );
+}
+
+function Variacao({ valor }: { valor: number | null }) {
+  if (valor === null) return <span className="text-gray-400">-</span>;
+  if (valor === 0) return <span className="text-gray-500">Igual</span>;
+  const subiu = valor > 0;
+  const Icone = subiu ? ArrowUpRight : ArrowDownRight;
+  return (
+    <span className={`inline-flex items-center gap-0.5 font-semibold ${subiu ? 'text-green-700' : 'text-red-700'}`}>
+      <Icone className="w-4 h-4" aria-hidden="true" />
+      {subiu ? '+' : ''}{nota(valor)}
+    </span>
+  );
+}
+
+function Secao({ titulo, descricao, acoes, children }: { titulo: string; descricao?: string; acoes?: ReactNode; children: ReactNode }) {
+  return (
+    <section className={`${CARTAO} p-4 md:p-5`}>
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-4">
+        <div>
+          <h2 className="text-base font-bold text-gray-800">{titulo}</h2>
+          {descricao && <p className="text-sm text-gray-500 mt-0.5">{descricao}</p>}
+        </div>
+        {acoes}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function BotaoMostrarTodos({ total, expandido, onAlternar }: { total: number; expandido: boolean; onAlternar: () => void }) {
+  if (total <= LIMITE_LISTA) return null;
+  return (
+    <button type="button" onClick={onAlternar} className="mt-3 text-sm font-semibold text-blue-700 hover:underline">
+      {expandido ? 'Mostrar menos' : `Mostrar todos (${total})`}
+    </button>
+  );
+}
+
+function DicaEvolucao({ active, payload }: { active?: boolean; payload?: readonly { payload?: PontoMensal }[] }) {
+  const ponto = payload?.[0]?.payload;
+  if (!active || !ponto) return null;
+  return (
+    <div className="bg-white border border-gray-200 rounded-md shadow-md px-3 py-2 text-sm">
+      <p className="font-semibold text-gray-800">{ponto.rotulo}</p>
+      <p className="text-gray-600">
+        {ponto.nota === null ? 'Sem vistoria' : `Nota média: ${nota(ponto.nota)} · ${ponto.vistorias} vistoria(s)`}
+      </p>
+    </div>
+  );
+}
+
+function DicaAmbiente({ active, payload }: { active?: boolean; payload?: readonly { payload?: LinhaAmbiente }[] }) {
+  const linha = payload?.[0]?.payload;
+  if (!active || !linha) return null;
+  return (
+    <div className="bg-white border border-gray-200 rounded-md shadow-md px-3 py-2 text-sm">
+      <p className="font-semibold text-gray-800 mb-1">{linha.nome}</p>
+      {CONCEITOS.map(c => (
+        <p key={c} className="text-gray-600 flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: COR_CONCEITO[c] }} aria-hidden="true" />
+          {CONCEITO_NOME[c]}: {linha.contagem[c]} ({nota(linha[c])}%)
+        </p>
+      ))}
+    </div>
+  );
 }
 
 export default function VistoriasPrediaisDashboard() {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [metrics, setMetrics] = useState<ChartData[]>([]);
-  const [lastUpdate, setLastUpdate] = useState<string | null>(null);
-  const [selectedSchool, setSelectedSchool] = useState<string>('all');
-  const [selectedEnv, setSelectedEnv] = useState<string>('all');
-  const [schoolsList, setSchoolsList] = useState<School[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  const [perfil, setPerfil] = useState<Perfil | null>(null);
+  const [base, setBase] = useState<BaseVistorias | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const [atualizando, setAtualizando] = useState(false);
 
-  useEffect(() => {
-    async function loadUserProfile() {
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) return; 
+  const [escolaFiltro, setEscolaFiltro] = useState('');
+  const [periodo, setPeriodo] = useState('0');
+  const [ambienteFiltro, setAmbienteFiltro] = useState('');
+  const [busca, setBusca] = useState('');
+  const [ordenacao, setOrdenacao] = useState<Ordenacao>('nota');
+  const [todasEscolas, setTodasEscolas] = useState(false);
+  const [todosItens, setTodosItens] = useState(false);
 
-      const { data: profile, error: profError } = await supabase
-        .from('profiles')
-        .select('role, school_id')
-        .eq('id', user.id)
-        .single();
-
-      if (profError) {
-        console.error("Erro ao carregar perfil:", profError.message);
-        return;
-      }
-
-      if (profile) {
-        setCurrentUser({ role: profile.role, schoolId: profile.school_id });
-      }
+  const carregar = useCallback(async (forcar: boolean) => {
+    setAtualizando(true);
+    setErro(null);
+    try {
+      setBase(await carregarVistorias(forcar));
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Falha ao carregar as vistorias.');
+    } finally {
+      setAtualizando(false);
     }
-    loadUserProfile();
   }, []);
 
   useEffect(() => {
-    if (!currentUser) return;
-    fetchLastUpdate();
-    if (currentUser.role !== 'school_manager') fetchSchoolsList();
-    fetchMetrics(selectedSchool, currentUser);
-  }, [currentUser, selectedSchool]);
+    let ativo = true;
 
-  const fetchLastUpdate = async () => {
-    const { data, error } = await supabase.from('system_metadata').select('updated_at').eq('key', 'last_predial_inspection_update').maybeSingle();
-    if (error) console.error("Erro metadata:", error.message);
-    if (data) setLastUpdate(new Date(data.updated_at).toLocaleDateString('pt-BR'));
-  };
-
-  const fetchSchoolsList = async () => {
-    const { data, error } = await supabase.from('schools').select('id, name, cie_code').order('name', { ascending: true }).limit(1000);
-    if (error) console.error("Erro escolas:", error.message);
-    if (data) setSchoolsList(data);
-  };
-
-  const fetchMetrics = async (schoolIdFilter: string, loggedUser: User) => {
-    const PAGE_SIZE = 1000;
-    let allData: any[] = [];
-    let from = 0;
-
-    while (true) {
-      let query = supabase
-        .from('building_inspections')
-        .select('inspection_date, element_evaluated, score')
-        .range(from, from + PAGE_SIZE - 1);
-
-      if (loggedUser.role === 'school_manager') {
-        if (!loggedUser.schoolId) { setMetrics([]); return; }
-        query = query.eq('school_id', loggedUser.schoolId);
-      } else if (schoolIdFilter !== 'all') {
-        query = query.eq('school_id', schoolIdFilter);
-      }
-
-      const { data, error } = await query;
-      if (error) { console.error("Erro métricas:", error.message); return; }
-      if (!data || data.length === 0) break;
-      allData = allData.concat(data);
-      if (data.length < PAGE_SIZE) break;
-      from += PAGE_SIZE;
-    }
-
-    const data = allData;
-    if (!data) return;
-
-    const MONTH_NAMES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-    const groupedData: Record<string, any> = {};
-    data.forEach(item => {
-      const dateObj = new Date(item.inspection_date);
-      const monthYear = `${MONTH_NAMES[dateObj.getUTCMonth()]}/${dateObj.getUTCFullYear()}`;
-      if (!groupedData[monthYear]) groupedData[monthYear] = { date: monthYear, sortKey: new Date(dateObj.getUTCFullYear(), dateObj.getUTCMonth(), 1).getTime(), count: {} };
-      const el = item.element_evaluated;
-      if (!groupedData[monthYear][el]) { groupedData[monthYear][el] = 0; groupedData[monthYear].count[el] = 0; }
-      groupedData[monthYear][el] += item.score;
-      groupedData[monthYear].count[el] += 1;
-    });
-
-    const chartData: ChartData[] = Object.values(groupedData).sort((a: any, b: any) => a.sortKey - b.sortKey).map((group: any) => {
-      const formattedGroup: ChartData = { date: group.date };
-      Object.keys(group).forEach(key => {
-        if (key !== 'date' && key !== 'count' && key !== 'sortKey') formattedGroup[key] = Number((group[key] / group.count[key]).toFixed(2));
-      });
-      return formattedGroup;
-    });
-    setMetrics(chartData);
-  };
-
-  const calculateRanking = () => {
-    if (metrics.length === 0) return { top: [], bottom: [] };
-    const totals: Record<string, { sum: number, count: number }> = {};
-    metrics.forEach(month => {
-      Object.keys(month).forEach(key => {
-        if (key !== 'date' && key !== 'sortKey') {
-          if (!totals[key]) totals[key] = { sum: 0, count: 0 };
-          totals[key].sum += month[key];
-          totals[key].count += 1;
-        }
-      });
-    });
-    const result = Object.keys(totals).map(key => ({ name: key, score: Number((totals[key].sum / totals[key].count).toFixed(2)) })).sort((a, b) => b.score - a.score);
-    return { top: result.slice(0, 5), bottom: [...result].reverse().slice(0, 5) };
-  };
-
-  const { top, bottom } = calculateRanking();
-
-  const getScoreColor = (score: number) => {
-    if (score >= 4.5) return 'text-green-600 bg-green-50';
-    if (score >= 3.5) return 'text-blue-600 bg-blue-50';
-    if (score >= 2.5) return 'text-yellow-600 bg-yellow-50';
-    return 'text-red-600 bg-red-50';
-  };
-
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !currentUser) return;
-    setIsUploading(true);
-    setUploadError(null);
-    setUploadSuccess(null);
-    const reader = new FileReader();
-    reader.onload = async (e) => {
+    (async () => {
       try {
-        const arrayBuffer = e.target?.result as ArrayBuffer;
-        const workbook = xlsx.read(arrayBuffer, { type: 'array', codepage: 65001, cellDates: true });
-        const jsonSheet: any[] = xlsx.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-        const normalizedSheet = jsonSheet.map(row => {
-          const cleanRow: any = {};
-          Object.keys(row).forEach(key => { cleanRow[key.replace(/^\uFEFF/, '').trim()] = row[key]; });
-          return cleanRow;
-        });
-        const allCieCodes = normalizedSheet.map(row => extractCieFromName(row['Unidade de Ensino'])).filter(c => c !== null) as number[];
-        
-        const { data: schoolsData, error: schoolErr } = await supabase.from('schools').select('id, cie_code').in('cie_code', allCieCodes.map(String));
-        if (schoolErr) throw schoolErr;
+        const { data: { user }, error: erroAuth } = await supabase.auth.getUser();
+        if (erroAuth || !user) throw new Error('Sessão expirada. Entre novamente.');
 
-        const schoolMap = new Map((schoolsData || []).map(s => [Number(s.cie_code), s.id]));
+        const { data: dadosPerfil, error: erroPerfil } = await supabase
+          .from('profiles')
+          .select('role, school_id')
+          .eq('id', user.id)
+          .single();
+        if (erroPerfil || !dadosPerfil) throw new Error('Não foi possível carregar seu perfil.');
 
-        const payloadToInsert: any[] = [];
-        normalizedSheet.forEach(row => {
-          const cieCode = extractCieFromName(row['Unidade de Ensino']);
-          if (!cieCode || !schoolMap.has(cieCode)) return;
-          const dateVal = row['Data'];
-          let inspectionDate: string;
-          if (dateVal instanceof Date) {
-            const y = dateVal.getFullYear();
-            const m = String(dateVal.getMonth() + 1).padStart(2, '0');
-            const d = String(dateVal.getDate()).padStart(2, '0');
-            inspectionDate = `${y}-${m}-${d}`;
-          } else if (typeof dateVal === 'number') {
-            // Excel serial date fallback
-            const jsDate = new Date(Math.round((dateVal - 25569) * 86400 * 1000));
-            const y = jsDate.getUTCFullYear();
-            const m = String(jsDate.getUTCMonth() + 1).padStart(2, '0');
-            const d = String(jsDate.getUTCDate()).padStart(2, '0');
-            inspectionDate = `${y}-${m}-${d}`;
-          } else {
-            const parts = String(dateVal).split(' ')[0].split('/');
-            inspectionDate = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : String(dateVal);
-          }
-          Object.keys(row).forEach(col => {
-            if (META_COLUMNS.has(col)) return;
-            const numericScore = SCORE_MAP[String(row[col]).trim().toUpperCase()];
-            if (numericScore !== undefined) payloadToInsert.push({ school_id: schoolMap.get(cieCode), inspection_date: inspectionDate, element_evaluated: col, score: numericScore });
-          });
-        });
-
-        if (payloadToInsert.length > 0) {
-          // Identifica o intervalo de datas e escolas do arquivo para substituição limpa
-          const schoolIdsInFile = [...new Set(payloadToInsert.map(r => r.school_id))];
-          const datesInFile = payloadToInsert.map(r => r.inspection_date).sort();
-          const minDate = datesInFile[0];
-          const maxDate = datesInFile[datesInFile.length - 1];
-
-          // Deleta registros antigos (inclusive incorretos) dessas escolas nesse intervalo de datas
-          const { error: cleanErr } = await supabase
-            .from('building_inspections')
-            .delete()
-            .in('school_id', schoolIdsInFile)
-            .gte('inspection_date', minDate)
-            .lte('inspection_date', maxDate);
-          if (cleanErr) throw cleanErr;
-
-          // Insere os dados corretos do arquivo
-          const { error: insertErr } = await supabase.from('building_inspections').insert(payloadToInsert);
-          if (insertErr) throw insertErr;
-
-          // Remove registros com mais de 1 ano para economizar espaço no banco
-          const cutoffDate = new Date();
-          cutoffDate.setFullYear(cutoffDate.getFullYear() - 1);
-          await supabase
-            .from('building_inspections')
-            .delete()
-            .lt('inspection_date', cutoffDate.toISOString().split('T')[0]);
-
-          await supabase.from('system_metadata').upsert({ key: 'last_predial_inspection_update', updated_at: new Date().toISOString() });
-          setUploadSuccess(`${payloadToInsert.length} registros salvos. Dados incorretos do período substituídos automaticamente.`);
-          fetchMetrics(selectedSchool, currentUser);
-        } else {
-          setUploadError('Nenhum dado válido encontrado no arquivo.');
+        const role = resolveViewRole(dadosPerfil.role);
+        let cie: string | null = null;
+        if (role === 'school_manager' && dadosPerfil.school_id) {
+          const { data: escola, error: erroEscola } = await supabase
+            .from('schools')
+            .select('cie_code')
+            .eq('id', dadosPerfil.school_id)
+            .single();
+          if (erroEscola) throw new Error('Não foi possível identificar sua escola.');
+          cie = normalizarCie(escola?.cie_code) || null;
         }
-      } catch (err: any) { 
-        setUploadError(err.message); 
-      } finally { 
-        setIsUploading(false); 
+        if (ativo) setPerfil({ role, cie });
+      } catch (e) {
+        if (ativo) setErro(e instanceof Error ? e.message : 'Não foi possível carregar seu perfil.');
       }
+    })();
+    void carregar(false);
+
+    return () => {
+      ativo = false;
     };
-    reader.readAsArrayBuffer(file);
-    event.target.value = '';
-  };
+  }, [carregar]);
 
-  const allElements = metrics.length > 0 ? Object.keys(metrics[0]).filter(k => k !== 'date' && k !== 'count' && k !== 'sortKey') : [];
-  const chartElements = selectedEnv === 'all' ? allElements : allElements.filter(el => el.startsWith(selectedEnv));
+  const eEscola = perfil?.role === 'school_manager';
+  const cieAtivo = eEscola ? perfil?.cie ?? '' : escolaFiltro;
+  const vendoUmaEscola = !!cieAtivo;
 
-  if (!currentUser) return <div className="p-6 flex items-center justify-center min-h-screen bg-gray-50 text-gray-500">Carregando permissões...</div>;
+  const escolas = useMemo(() => (base ? escolasDisponiveis(base.vistorias) : []), [base]);
+
+  // O perfil de escola nunca recebe dados antes de o CIE dela ser conhecido.
+  const filtradas = useMemo(() => {
+    if (!base || !perfil || (eEscola && !perfil.cie)) return [];
+    const desde = Number(periodo) ? inicioDoPeriodo(Number(periodo)) : '';
+    return base.vistorias.filter(v => (!cieAtivo || v.cie === cieAtivo) && v.data >= desde);
+  }, [base, perfil, eEscola, cieAtivo, periodo]);
+
+  const evolucao = useMemo(() => evolucaoMensal(filtradas), [filtradas]);
+  const ambientes = useMemo(() => distribuicaoPorAmbiente(filtradas, base?.itens ?? []), [filtradas, base]);
+  const resumoEscolas = useMemo(() => resumoPorEscola(filtradas), [filtradas]);
+  const itens = useMemo(() => desempenhoPorItem(filtradas, base?.itens ?? []), [filtradas, base]);
+
+  const itensVisiveis = ambienteFiltro ? itens.filter(l => l.item.ambiente === ambienteFiltro) : itens;
+
+  const escolasVisiveis = useMemo(() => {
+    const termo = normalizarTexto(busca);
+    const lista = resumoEscolas.filter(e => !termo || normalizarTexto(e.escola).includes(termo) || e.cie.includes(termo));
+    const comparar: Record<Ordenacao, (a: ResumoEscola, b: ResumoEscola) => number> = {
+      nota: (a, b) => a.ultimaNota - b.ultimaNota,
+      escola: (a, b) => a.escola.localeCompare(b.escola, 'pt-BR'),
+      data: (a, b) => b.ultimaData.localeCompare(a.ultimaData),
+      // Maiores quedas primeiro; escola com uma só vistoria não tem comparação.
+      variacao: (a, b) => (a.variacao ?? Infinity) - (b.variacao ?? Infinity),
+    };
+    return [...lista].sort(comparar[ordenacao]);
+  }, [resumoEscolas, busca, ordenacao]);
+
+  const ultimaVistoriaGeral = base?.vistorias[base.vistorias.length - 1]?.data;
+  const historicoEscola = vendoUmaEscola ? [...filtradas].reverse() : [];
+  const ultimaDaEscola = historicoEscola[0];
+  const quedas = resumoEscolas.filter(e => (e.variacao ?? 0) < 0).length;
+  const nomeEscola = escolas.find(e => e.cie === cieAtivo)?.escola;
+
+  if (erro && (!base || !perfil)) {
+    return (
+      <div className="p-4 md:p-6">
+        <div className={`${CARTAO} p-8 text-center max-w-lg mx-auto`}>
+          <AlertCircle className="w-8 h-8 text-red-600 mx-auto mb-3" aria-hidden="true" />
+          <p className="text-gray-800 font-medium">{erro}</p>
+          <button type="button" onClick={() => window.location.reload()} className="mt-4 px-4 py-2 rounded-md bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">
+            Tentar novamente
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!base || !perfil) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[50vh] text-gray-500 gap-2">
+        <Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" /> Carregando vistorias da FDE...
+      </div>
+    );
+  }
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen font-sans">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 bg-white p-5 rounded-lg shadow-sm border border-gray-200">
+    <div className="p-4 md:p-6 space-y-4 font-sans">
+      <header className={`${CARTAO} p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4`}>
         <div>
-          <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Building className="w-7 h-7 text-blue-600" />Vistorias de Manutenção Predial</h1>
-          <h3>Fonte de Dados: Bi Educação - Manutenção Predial</h3>
-          <p className="text-sm text-gray-500 mt-2 flex items-center gap-1"><Calendar className="w-4 h-4" />Última sincronização: <span className="font-semibold text-gray-700">{lastUpdate || 'Carregando...'}</span></p>
+          <h1 className="text-xl md:text-2xl font-bold text-gray-800 flex items-center gap-2">
+            <Building className="w-6 h-6 text-blue-600" aria-hidden="true" /> Vistorias Prediais
+          </h1>
+          <p className="text-sm text-gray-600 mt-1">Resultado das vistorias realizadas pela FDE.</p>
+          <p className="text-xs text-gray-500 mt-1">
+            {ultimaVistoriaGeral && <>Vistoria mais recente: {formatarData(ultimaVistoriaGeral)} · </>}
+            Dados lidos às {base.lidoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+          </p>
         </div>
-        {currentUser.role === 'regional_admin' && (
-          <label className={`flex items-center gap-2 text-white px-5 py-2.5 rounded-md shadow-sm transition-all ${isUploading ? 'bg-blue-400 cursor-wait' : 'bg-blue-600 hover:bg-blue-700 cursor-pointer'}`}>
-            <UploadCloud className="w-5 h-5" />{isUploading ? 'Processando...' : 'Importar Relatório'}
-            <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} disabled={isUploading}/>
-          </label>
-        )}
-      </div>
+        <div className="flex flex-wrap gap-2">
+          {perfil.role === 'regional_admin' && (
+            <a href={PLANILHA_VISTORIAS_URL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+              <ExternalLink className="w-4 h-4" aria-hidden="true" /> Abrir planilha
+            </a>
+          )}
+          <button type="button" onClick={() => void carregar(true)} disabled={atualizando} className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-60">
+            <RefreshCw className={`w-4 h-4 ${atualizando ? 'animate-spin' : ''}`} aria-hidden="true" /> Atualizar
+          </button>
+        </div>
+      </header>
 
-      {/* FEEDBACK DE UPLOAD */}
-      {uploadError && (
-        <div className="mb-4 flex items-start gap-3 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg text-sm">
-          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-          <span>{uploadError}</span>
+      {erro && (
+        <div role="alert" className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg text-sm">
+          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" aria-hidden="true" /> {erro} Exibindo a última leitura.
         </div>
       )}
-      {uploadSuccess && (
-        <div className="mb-4 bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg text-sm font-medium">
-          ✓ {uploadSuccess}
-        </div>
-      )}
-
-      {/* ─────────────────────────────────────────────────────────────
-          LEGENDA DE SIGLAS (Adicionado logo abaixo do Header principal)
-          ───────────────────────────────────────────────────────────── */}
-      <div className="mb-6 bg-slate-50 p-5 rounded-lg shadow-sm border border-slate-200 text-sm text-slate-700">
-        <div className="flex items-center gap-2 mb-3 text-slate-800 font-semibold border-b border-slate-200 pb-2">
-          <Info className="w-5 h-5 text-blue-600" />
-          Guia de Referência das Avaliações
-        </div>
-        
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Notas */}
-          <div>
-            <h3 className="font-semibold text-slate-800 mb-1">Conceitos (Notas)</h3>
-            <ul className="space-y-1">
-              <li><span className="font-medium text-blue-700">MB</span> - Muito Bom (5)</li>
-              <li><span className="font-medium text-blue-700">B</span> - Bom (4)</li>
-              <li><span className="font-medium text-blue-700">R</span> - Ruim (2)</li>
-              <li><span className="font-medium text-blue-700">MR</span> - Muito Ruim (1)</li>
-            </ul>
-          </div>
-
-          {/* Ambientes */}
-          <div>
-            <h3 className="font-semibold text-slate-800 mb-1">Cabeçalho (Ambientes)</h3>
-            <ul className="space-y-1 grid grid-cols-2 gap-x-2">
-              <li><span className="font-medium text-blue-700">A1</span> - Amb. Sala</li>
-              <li><span className="font-medium text-blue-700">A2</span> - Amb. Pedagógico</li>
-              <li><span className="font-medium text-blue-700">A3F</span> - Banh. Feminino</li>
-              <li><span className="font-medium text-blue-700">A3M</span> - Banh. Masculino</li>
-              <li><span className="font-medium text-blue-700">A4</span> - Amb. Tecnologias</li>
-              <li><span className="font-medium text-blue-700">A5</span> - Amb. Administrativos</li>
-              <li><span className="font-medium text-blue-700">A6</span> - Cozinhas e Refeitórios</li>
-              <li><span className="font-medium text-blue-700">A7</span> - Áreas Gerais</li>
-              <li><span className="font-medium text-blue-700">PN</span> - Pontuação Negativa</li>
-              <li><span className="font-medium text-blue-700">PP</span> - Pontuação Positiva</li>
-            </ul>
-          </div>
-
-          {/* Fatores */}
-          <div>
-            <h3 className="font-semibold text-slate-800 mb-1">Fatores Avaliados</h3>
-            <ul className="space-y-1 grid grid-cols-2 gap-x-2">
-              <li><span className="font-medium text-blue-700">Cons</span> - Conservação</li>
-              <li><span className="font-medium text-blue-700">Limp</span> - Limpeza</li>
-              <li><span className="font-medium text-blue-700">Mob</span> - Mobiliário</li>
-              <li><span className="font-medium text-blue-700">Armz</span> - Armazenagem</li>
-              <li><span className="font-medium text-blue-700">Equip</span> - Equip. Tecnológicos</li>
-              <li><span className="font-medium text-blue-700">Prepa</span> - Prep. Alimentação</li>
-              <li><span className="font-medium text-blue-700">Repo</span> - Reposição Produtos</li>
-              <li><span className="font-medium text-blue-700">Acessos</span> - Áreas Externas</li>
-              <li><span className="font-medium text-blue-700">Manu</span> - Manutenções</li>
-              <li><span className="font-medium text-blue-700">Dedet</span> - Dedetizações</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-
-      {/* RANKINGS */}
-      {metrics.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <div className="bg-white p-5 rounded-lg shadow-sm border border-green-100">
-            <h3 className="text-sm font-bold text-green-800 uppercase mb-4 flex items-center gap-2"><CheckCircle className="w-5 h-5 text-green-500" /> Destaques Positivos (Top 5)</h3>
-            <div className="space-y-3">
-              {top.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-700">{item.name}</span>
-                  <div className="flex items-center gap-3 w-2/3">
-                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-green-500 rounded-full" style={{ width: `${(item.score / 5) * 100}%` }}></div></div>
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${getScoreColor(item.score)}`}>{item.score}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="bg-white p-5 rounded-lg shadow-sm border border-orange-100">
-            <h3 className="text-sm font-bold text-orange-800 uppercase mb-4 flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-orange-500" /> Oportunidades de Melhoria</h3>
-            <div className="space-y-3">
-              {bottom.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-700">{item.name}</span>
-                  <div className="flex items-center gap-3 w-2/3">
-                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-orange-400 rounded-full" style={{ width: `${(item.score / 5) * 100}%` }}></div></div>
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${getScoreColor(item.score)}`}>{item.score}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+      {base.linhasIgnoradas > 0 && perfil.role === 'regional_admin' && (
+        <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-lg text-sm">
+          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" aria-hidden="true" />
+          {base.linhasIgnoradas} linha(s) da planilha foram ignoradas por não terem data, código da escola ou nota válidos.
         </div>
       )}
 
-      {/* FILTROS */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        {currentUser.role !== 'school_manager' && (
-          <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-            <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Unidade Escolar</label>
-            <select className="w-full p-2 border rounded bg-white text-sm outline-none focus:ring-2 focus:ring-blue-500" value={selectedSchool} onChange={(e) => setSelectedSchool(e.target.value)}>
-              <option value="all">Média de Todas as Escolas</option>
-              {schoolsList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+      <div className={`grid grid-cols-1 ${eEscola ? '' : 'md:grid-cols-2'} gap-4`}>
+        {!eEscola && (
+          <div className={`${CARTAO} p-4`}>
+            <label htmlFor="bi-escola" className="text-xs font-bold text-gray-500 uppercase block mb-1">Escola</label>
+            <select id="bi-escola" className={CAMPO} value={escolaFiltro} onChange={e => setEscolaFiltro(e.target.value)}>
+              <option value="">Todas as escolas</option>
+              {escolas.map(e => <option key={e.cie} value={e.cie}>{e.escola}</option>)}
             </select>
           </div>
         )}
-        <div className={`bg-white p-4 rounded-lg shadow-sm border border-gray-200 ${currentUser.role === 'school_manager' ? 'md:col-span-2' : ''}`}>
-          <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Ambiente Específico</label>
-          <select className="w-full p-2 border rounded bg-white text-sm outline-none focus:ring-2 focus:ring-blue-500" value={selectedEnv} onChange={(e) => setSelectedEnv(e.target.value)}>
-            <option value="all">Todos os Ambientes</option>
-            <option value="A1">A1 - Ambiente Sala</option>
-            <option value="A2">A2 - Ambiente Pedagógico</option>
-            <option value="A3F">A3F - Banheiro Feminino</option>
-            <option value="A3M">A3M - Banheiro Masculino</option>
-            <option value="A4">A4 - Ambiente Tecnologias</option>
-            <option value="A5">A5 - Ambiente Administrativo</option>
-            <option value="A6">A6 - Cozinhas e Refeitórios</option>
-            <option value="A7">A7 - Áreas Gerais</option>
+        <div className={`${CARTAO} p-4`}>
+          <label htmlFor="bi-periodo" className="text-xs font-bold text-gray-500 uppercase block mb-1">Período</label>
+          <select id="bi-periodo" className={CAMPO} value={periodo} onChange={e => setPeriodo(e.target.value)}>
+            {PERIODOS.map(p => <option key={p.valor} value={p.valor}>{p.rotulo}</option>)}
           </select>
         </div>
       </div>
 
-      {/* GRÁFICO */}
-      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-        <h2 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-blue-500" /> Evolução Histórica Anual</h2>
-        {metrics.length > 0 ? (
-          <div className="h-[450px]">
-            <ResponsiveContainer width="100%" height="100%" debounce={50}>
-              <LineChart data={metrics}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                <XAxis dataKey="date" tick={{fontSize: 12, fill: '#6b7280'}} axisLine={false} tickLine={false} />
-                <YAxis 
-                  domain={[0, 5]} 
-                  ticks={[1, 2, 4, 5]} 
-                  axisLine={false} 
-                  tickLine={false}
-                  tickFormatter={(v: number) => {
-                    const labels = { 1: 'MR', 2: 'R', 4: 'B', 5: 'MB' };
-                    return labels[v as keyof typeof labels] || '';
-                  }} 
-                />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                  formatter={(value: any) => {
-                    const labels = { 1: 'MR', 2: 'R', 4: 'B', 5: 'MB' };
-                    const roundedValue = Math.round(value);
-                    return [labels[roundedValue as keyof typeof labels] || value, "Avaliação"];
-                  }}
-                />
-                <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} />
-                {chartElements.map((el, i) => (
-                  <Line
-                    key={el}
-                    type="monotone"
-                    dataKey={el}
-                    stroke={['#2563eb', '#16a34a', '#dc2626', '#ca8a04', '#9333ea', '#0891b2', '#ea580c', '#4f46e5', '#db2777'][i % 9]}
-                    strokeWidth={3}
-                    dot={{r: 4, strokeWidth: 2, fill: '#fff'}}
-                    activeDot={{r: 6, strokeWidth: 0}}
-                    isAnimationActive={false}
-                  />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
+      {eEscola && !perfil.cie ? (
+        <div className={`${CARTAO} p-10 text-center text-gray-500`}>
+          <AlertCircle className="w-8 h-8 mx-auto mb-2" aria-hidden="true" />
+          Seu usuário não está vinculado a uma escola com código CIE cadastrado.
+        </div>
+      ) : filtradas.length === 0 ? (
+        <div className={`${CARTAO} p-10 text-center text-gray-500`}>
+          <AlertCircle className="w-8 h-8 mx-auto mb-2" aria-hidden="true" />
+          Nenhuma vistoria da FDE encontrada para esta seleção.
+        </div>
+      ) : (
+        <>
+          {vendoUmaEscola && !eEscola && (
+            <button type="button" onClick={() => setEscolaFiltro('')} className="inline-flex items-center gap-1 text-sm font-semibold text-blue-700 hover:underline">
+              <ArrowLeft className="w-4 h-4" aria-hidden="true" /> Voltar para todas as escolas
+            </button>
+          )}
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <Indicador titulo="Nota média" valor={nota(notaMedia(filtradas))} detalhe="Escala de 0 a 100" />
+            <Indicador titulo="Vistorias" valor={filtradas.length.toLocaleString('pt-BR')} detalhe={vendoUmaEscola ? nomeEscola : 'No período selecionado'} />
+            {vendoUmaEscola && ultimaDaEscola ? (
+              <>
+                <Indicador titulo="Última nota" valor={nota(ultimaDaEscola.nota)} detalhe={formatarData(ultimaDaEscola.data)} />
+                <Indicador titulo="Itens críticos" valor={apontamentos(ultimaDaEscola, base.itens).length} detalhe="Ruim ou muito ruim na última vistoria" />
+              </>
+            ) : (
+              <>
+                <Indicador titulo="Escolas vistoriadas" valor={resumoEscolas.length} detalhe="No período selecionado" />
+                <Indicador titulo="Escolas em queda" valor={quedas} detalhe="Última nota menor que a anterior" />
+              </>
+            )}
           </div>
-        ) : (
-          <div className="h-60 flex flex-col items-center justify-center text-gray-400 bg-gray-50 border-2 border-dashed rounded-lg border-gray-200">
-            <AlertCircle className="w-8 h-8 mb-2" /><p className="font-medium">Nenhum dado carregado para esta seleção.</p>
-          </div>
-        )}
-      </div>
+
+          <Secao titulo="Evolução da nota" descricao="Média das vistorias realizadas em cada mês.">
+            <div className="h-64 md:h-72">
+              <ResponsiveContainer width="100%" height="100%" debounce={50}>
+                <LineChart data={evolucao} margin={{ top: 8, right: 12, bottom: 0, left: -20 }}>
+                  <CartesianGrid vertical={false} stroke={COR_GRADE} />
+                  <XAxis dataKey="rotulo" tick={{ fontSize: 12, fill: COR_EIXO }} axisLine={{ stroke: COR_GRADE }} tickLine={false} minTickGap={24} />
+                  <YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tick={{ fontSize: 12, fill: COR_EIXO }} axisLine={false} tickLine={false} />
+                  <Tooltip content={<DicaEvolucao />} />
+                  <Line type="linear" dataKey="nota" name="Nota média" stroke={COR_LINHA} strokeWidth={2} connectNulls dot={{ r: 4, strokeWidth: 2, stroke: '#fff', fill: COR_LINHA }} activeDot={{ r: 6, strokeWidth: 2, stroke: '#fff' }} isAnimationActive={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </Secao>
+
+          <Secao titulo="Resultado por ambiente" descricao="Percentual de avaliações em cada conceito.">
+            <div style={{ height: ambientes.length * 38 + 64 }}>
+              <ResponsiveContainer width="100%" height="100%" debounce={50}>
+                <BarChart data={ambientes} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 0 }} barCategoryGap="28%">
+                  <CartesianGrid horizontal={false} stroke={COR_GRADE} />
+                  <XAxis type="number" domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 12, fill: COR_EIXO }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="nome" width={150} tick={{ fontSize: 12, fill: '#374151' }} axisLine={false} tickLine={false} interval={0} />
+                  <Tooltip content={<DicaAmbiente />} cursor={{ fill: '#f3f4f6' }} />
+                  <Legend itemSorter={null} iconType="square" iconSize={10} wrapperStyle={{ fontSize: 13, paddingTop: 8 }} formatter={value => <span className="text-gray-700">{value}</span>} />
+                  {CONCEITOS.map(c => (
+                    <Bar key={c} dataKey={c} name={CONCEITO_NOME[c]} stackId="conceitos" fill={COR_CONCEITO[c]} stroke="#fff" strokeWidth={2} isAnimationActive={false} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </Secao>
+
+          <Secao
+            titulo="Itens que mais precisam de atenção"
+            descricao="Ordenados pelo percentual de avaliações Ruim ou Muito ruim."
+            acoes={(
+              <div className="sm:w-60">
+                <label htmlFor="bi-ambiente" className="sr-only">Ambiente</label>
+                <select id="bi-ambiente" className={CAMPO} value={ambienteFiltro} onChange={e => setAmbienteFiltro(e.target.value)}>
+                  <option value="">Todos os ambientes</option>
+                  {ambientes.map(a => <option key={a.codigo} value={a.codigo}>{a.nome}</option>)}
+                </select>
+              </div>
+            )}
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[560px]">
+                <thead>
+                  <tr className="text-left text-xs uppercase text-gray-500 border-b border-gray-200">
+                    <th className="py-2 pr-3 font-semibold">Item</th>
+                    <th className="py-2 px-2 font-semibold text-right">Ruim + Muito ruim</th>
+                    {CONCEITOS.map(c => <th key={c} className="py-2 pl-2 font-semibold text-right" title={CONCEITO_NOME[c]}>{c}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(todosItens ? itensVisiveis : itensVisiveis.slice(0, LIMITE_LISTA)).map(l => (
+                    <tr key={l.item.coluna} className="border-b border-gray-100">
+                      <td className="py-2 pr-3">
+                        <span className="text-gray-900 font-medium">{l.item.fator}</span>
+                        <span className="block text-xs text-gray-500">{l.item.ambienteNome}</span>
+                      </td>
+                      <td className="py-2 px-2 text-right tabular-nums font-semibold text-gray-900">{nota(l.percentualCritico)}%</td>
+                      {CONCEITOS.map(c => <td key={c} className="py-2 pl-2 text-right tabular-nums text-gray-700">{l.contagem[c]}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <BotaoMostrarTodos total={itensVisiveis.length} expandido={todosItens} onAlternar={() => setTodosItens(v => !v)} />
+          </Secao>
+
+          {vendoUmaEscola ? (
+            <Secao titulo="Histórico de vistorias" descricao="Da mais recente para a mais antiga.">
+              <ol className="space-y-3">
+                {historicoEscola.map((v, i) => {
+                  const anterior = historicoEscola[i + 1];
+                  const criticos = apontamentos(v, base.itens);
+                  return (
+                    <li key={v.id} className="border border-gray-200 rounded-lg p-3 md:p-4">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <span className="font-semibold text-gray-800">{formatarData(v.data)}</span>
+                        <span className="text-sm text-gray-600">
+                          Nota <strong className="text-lg text-gray-900">{nota(v.nota)}</strong>
+                          {anterior && <span className="ml-2"><Variacao valor={v.nota - anterior.nota} /></span>}
+                        </span>
+                      </div>
+                      {criticos.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-xs font-semibold uppercase text-gray-500 mb-1">Itens críticos</p>
+                          <ul className="flex flex-wrap gap-1.5">
+                            {criticos.map(({ item, conceito }) => (
+                              <li key={item.coluna} className="text-xs bg-gray-100 text-gray-800 rounded px-2 py-1">
+                                {item.ambienteNome}: {item.fator} <strong>({conceito})</strong>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {(v.pontosNegativos > 0 || v.textoNegativo) && (
+                        <p className="text-sm text-gray-700 mt-2 whitespace-pre-line break-words">
+                          <strong>Pontuação negativa ({v.pontosNegativos}):</strong> {v.textoNegativo || 'Sem observação'}
+                        </p>
+                      )}
+                      {(v.pontosPositivos > 0 || v.textoPositivo) && (
+                        <p className="text-sm text-gray-700 mt-2 whitespace-pre-line break-words">
+                          <strong>Pontuação positiva ({v.pontosPositivos}):</strong> {v.textoPositivo || 'Sem observação'}
+                        </p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            </Secao>
+          ) : (
+            <Secao
+              titulo="Situação por escola"
+              descricao="Clique em uma escola para ver o histórico de vistorias."
+              acoes={(
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <div className="relative sm:w-56">
+                    <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-gray-400" aria-hidden="true" />
+                    <label htmlFor="bi-busca" className="sr-only">Buscar escola</label>
+                    <input id="bi-busca" type="search" placeholder="Buscar escola ou CIE" className={`${CAMPO} pl-8`} value={busca} onChange={e => setBusca(e.target.value)} />
+                  </div>
+                  <div className="sm:w-52">
+                    <label htmlFor="bi-ordem" className="sr-only">Ordenar escolas</label>
+                    <select id="bi-ordem" className={CAMPO} value={ordenacao} onChange={e => setOrdenacao(e.target.value as Ordenacao)}>
+                      <option value="nota">Menor última nota</option>
+                      <option value="variacao">Maior queda</option>
+                      <option value="data">Vistoria mais recente</option>
+                      <option value="escola">Nome da escola</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+            >
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[640px]">
+                  <thead>
+                    <tr className="text-left text-xs uppercase text-gray-500 border-b border-gray-200">
+                      <th className="py-2 pr-3 font-semibold">Escola</th>
+                      <th className="py-2 px-2 font-semibold text-right">Última nota</th>
+                      <th className="py-2 px-2 font-semibold text-right">Variação</th>
+                      <th className="py-2 px-2 font-semibold">Última vistoria</th>
+                      <th className="py-2 px-2 font-semibold text-right">Média</th>
+                      <th className="py-2 pl-2 font-semibold text-right">Vistorias</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(todasEscolas ? escolasVisiveis : escolasVisiveis.slice(0, LIMITE_LISTA)).map(e => (
+                      <tr key={e.cie} className="border-b border-gray-100 hover:bg-blue-50">
+                        <td className="py-2 pr-3">
+                          <button type="button" onClick={() => setEscolaFiltro(e.cie)} className="text-left font-medium text-blue-700 hover:underline">{e.escola}</button>
+                        </td>
+                        <td className="py-2 px-2 text-right tabular-nums font-semibold text-gray-900">{nota(e.ultimaNota)}</td>
+                        <td className="py-2 px-2 text-right tabular-nums"><Variacao valor={e.variacao} /></td>
+                        <td className="py-2 px-2 tabular-nums text-gray-700">{formatarData(e.ultimaData)}</td>
+                        <td className="py-2 px-2 text-right tabular-nums text-gray-700">{nota(e.media)}</td>
+                        <td className="py-2 pl-2 text-right tabular-nums text-gray-700">{e.vistorias}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {escolasVisiveis.length === 0 && <p className="text-sm text-gray-500 py-4 text-center">Nenhuma escola encontrada.</p>}
+              <BotaoMostrarTodos total={escolasVisiveis.length} expandido={todasEscolas} onAlternar={() => setTodasEscolas(v => !v)} />
+            </Secao>
+          )}
+        </>
+      )}
     </div>
   );
 }
