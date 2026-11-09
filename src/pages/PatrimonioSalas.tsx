@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useDeferredValue, type ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole, isReadOnlyRole } from '../lib/roles';
 import { DefesoEleitoralBanner } from '../components/DefesoEleitoralBanner';
@@ -15,6 +15,15 @@ import { addTimbradoAllPages, TIMBRADO_HEADER_H, TIMBRADO_FOOTER_H } from '../li
 const SHEET_URL = import.meta.env.VITE_VISITAS_SHEET_URL as string;
 const SALAS_FOTOS_BUCKET = 'salas-fotos';
 const MAX_FOTOS_SALA = 4;
+const ITENS_POR_PAGINA = 100;
+
+type PerfilSalas = { role?: string; salas_trabalho?: string[] | null; full_name?: string | null };
+
+// Ficam fora do componente porque o roteamento por estado o desmonta ao trocar de
+// página: o cache reabre a tela na hora e a fila termina de gravar mesmo fora dela.
+let cachePagina: { userId: string; perfil: PerfilSalas | null; itens: ItemPatrimonio[]; salas: Sala[] } | null = null;
+let filaEscritas: Promise<void> = Promise.resolve();
+let versaoEscritas = 0;
 
 // Baixa uma imagem (URL pública do storage) e devolve data URL + dimensões,
 // para embutir no PDF. Retorna null se falhar (não trava a geração do PDF).
@@ -98,6 +107,7 @@ const COMODATO_FORM_VAZIO = { descricao: '', empresa: '', patrimonio_empresa: ''
 export default function PatrimonioSalas() {
   const [userRole, setUserRole] = useState('');
   const [userSalasTrabalho, setUserSalasTrabalho] = useState<string[]>([]);
+  const [userNome, setUserNome] = useState('');
 
   const [itens, setItens] = useState<ItemPatrimonio[]>([]);
   const [salas, setSalas] = useState<Sala[]>([]);
@@ -106,10 +116,13 @@ export default function PatrimonioSalas() {
 
   const [loading, setLoading] = useState(true);
   const [historicoLoading, setHistoricoLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [escritasPendentes, setEscritasPendentes] = useState(0);
 
   const [activeTab, setActiveTab] = useState<TabId>('minha-sala');
   const [searchTerm, setSearchTerm] = useState('');
+  const buscaAdiada = useDeferredValue(searchTerm);
+  const [limiteVisiveis, setLimiteVisiveis] = useState(ITENS_POR_PAGINA);
   const [salaFiltro, setSalaFiltro] = useState('');
   const [salaDestinoPorChapa, setSalaDestinoPorChapa] = useState<Record<string, string>>({});
 
@@ -136,27 +149,75 @@ export default function PatrimonioSalas() {
     init();
   }, []);
 
+  // Mantém o cache em dia com as alocações/edições feitas na tela.
+  useEffect(() => {
+    if (cachePagina && !loading) {
+      cachePagina.itens = itens;
+      cachePagina.salas = salas;
+    }
+  }, [itens, salas, loading]);
+
+  useEffect(() => {
+    if (escritasPendentes === 0) return;
+    const avisar = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', avisar);
+    return () => window.removeEventListener('beforeunload', avisar);
+  }, [escritasPendentes]);
+
+  function aplicarPerfil(perfil: PerfilSalas | null) {
+    setUserRole(resolveViewRole(perfil?.role || ''));
+    setUserSalasTrabalho(perfil?.salas_trabalho || []);
+    setUserNome(perfil?.full_name || '');
+    setReadOnly(isReadOnlyRole(perfil?.role || ''));
+  }
+
   async function init() {
-    setLoading(true);
     setLoadError(null);
+    setRefreshing(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: profile } = await (supabase as any)
-          .from('profiles')
-          .select('role, salas_trabalho')
-          .eq('id', user.id)
-          .single();
-        setUserRole(resolveViewRole(profile?.role || ''));
-        setUserSalasTrabalho(profile?.salas_trabalho || []);
-        setReadOnly(isReadOnlyRole(profile?.role || ''));
+      // getSession é local; quem valida permissão de verdade é a edge function.
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user.id;
+      if (userId && cachePagina?.userId === userId) {
+        aplicarPerfil(cachePagina.perfil);
+        setItens(cachePagina.itens);
+        setSalas(cachePagina.salas);
+        setLoading(false);
+      } else {
+        cachePagina = null;
+        setLoading(true);
       }
-      await Promise.all([fetchItens(), fetchSalas()]);
+
+      // Espera as gravações em andamento para não ler a planilha antes delas.
+      await filaEscritas;
+      const versao = versaoEscritas;
+      const [perfilRes, dados] = await Promise.all([
+        userId
+          ? (supabase as any).from('profiles').select('role, salas_trabalho, full_name').eq('id', userId).single()
+          : Promise.resolve({ data: null }),
+        invoke('carregar_inicial'),
+      ]);
+
+      const perfil: PerfilSalas | null = perfilRes.data;
+      aplicarPerfil(perfil);
+      setSalas(dados.salas || []);
+      // Se o usuário alocou algo durante a leitura, a resposta já nasceu velha.
+      const respostaAtual = versao === versaoEscritas;
+      if (respostaAtual) setItens(dados.itens || []);
+      if (userId) {
+        cachePagina = {
+          userId,
+          perfil,
+          itens: respostaAtual ? (dados.itens || []) : (cachePagina?.itens ?? []),
+          salas: dados.salas || [],
+        };
+      }
     } catch (e) {
       console.error(e);
       setLoadError(e instanceof Error ? e.message : 'Erro ao carregar dados.');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }
 
@@ -181,6 +242,30 @@ export default function PatrimonioSalas() {
     return data;
   }
 
+  // Grava uma ação por vez: cliques seguidos não disputam a cota do Google entre si.
+  function enfileirarEscrita(tarefa: () => Promise<void>) {
+    versaoEscritas += 1;
+    setEscritasPendentes(n => n + 1);
+    filaEscritas = filaEscritas
+      .then(tarefa)
+      .catch(console.error)
+      .finally(() => setEscritasPendentes(n => n - 1));
+  }
+
+  // O servidor só devolve "Muitas ações" quando a cota por minuto estourou antes de
+  // gravar a alocação/devolução, então repetir é seguro.
+  async function invokeComEspera(action: string, payload: Record<string, unknown>) {
+    for (const espera of [5000, 20000]) {
+      try {
+        return await invoke(action, payload);
+      } catch (e) {
+        if (!(e instanceof Error) || !e.message.includes('Muitas ações')) throw e;
+        await new Promise(resolve => setTimeout(resolve, espera));
+      }
+    }
+    return invoke(action, payload);
+  }
+
   async function fetchItens() {
     const data = await invoke('listar_itens');
     setItens(data.itens || []);
@@ -194,6 +279,7 @@ export default function PatrimonioSalas() {
   async function fetchHistorico(salaId?: string) {
     setHistoricoLoading(true);
     try {
+      await filaEscritas;
       const data = await invoke('listar_historico', salaId ? { sala_id: salaId } : {});
       setHistorico(data.historico || []);
     } catch (e) {
@@ -206,6 +292,7 @@ export default function PatrimonioSalas() {
   async function fetchComodato() {
     setComodatoLoading(true);
     try {
+      await filaEscritas;
       const data = await invoke('listar_comodato');
       setComodatoItens(data.itens || []);
     } catch (e) {
@@ -240,13 +327,13 @@ export default function PatrimonioSalas() {
   );
 
   const itensDisponiveis = useMemo(() => {
-    const q = searchTerm.toLowerCase();
+    const q = buscaAdiada.toLowerCase();
     return itens.filter(i => !i.alocado && (
       !q || i.chapa.toLowerCase().includes(q) || i.descricao.toLowerCase().includes(q)
     ));
-  }, [itens, searchTerm]);
+  }, [itens, buscaAdiada]);
 
-  async function handleAlocar(chapa: string) {
+  function handleAlocar(chapa: string) {
     if (allowedSalas.length === 0) {
       alert(isAdmin
         ? 'Cadastre uma sala antes de alocar itens.'
@@ -258,36 +345,43 @@ export default function PatrimonioSalas() {
       alert('Selecione a sala de destino antes de alocar.');
       return;
     }
-    setActionLoading(chapa);
-    try {
-      // A resposta já traz o item atualizado — evita reconsultar "listar_itens"
-      // na planilha inteira e economiza chamadas de leitura na cota do Google.
-      const data = await invoke('alocar_item', { chapa, sala_id: salaId });
-      if (data?.item) {
-        setItens(prev => prev.map(i => (i.chapa === chapa ? { ...i, ...data.item } : i)));
-      } else {
-        await fetchItens();
+    const anterior = itens.find(i => i.chapa === chapa);
+    if (!anterior || anterior.alocado) return;
+
+    // A tela muda na hora; a gravação segue na fila e desfaz só se o servidor recusar.
+    const salaNome = salas.find(s => s.id === salaId)?.nome ?? null;
+    setItens(prev => prev.map(i => (i.chapa === chapa
+      ? { ...i, alocado: true, salaId, salaNome, alocadoPorNome: userNome || 'Você', alocadoEm: new Date().toISOString() }
+      : i)));
+
+    enfileirarEscrita(async () => {
+      try {
+        const data = await invokeComEspera('alocar_item', { chapa, sala_id: salaId });
+        if (data?.item) setItens(prev => prev.map(i => (i.chapa === chapa ? { ...i, ...data.item } : i)));
+      } catch (e: any) {
+        setItens(prev => prev.map(i => (i.chapa === chapa ? anterior : i)));
+        alert(`Item ${chapa} não foi alocado: ${e.message || 'erro desconhecido.'}`);
       }
-    } catch (e: any) {
-      alert(e.message || 'Erro ao alocar item.');
-    } finally {
-      setActionLoading(null);
-    }
+    });
   }
 
-  async function handleDevolver(chapa: string) {
+  function handleDevolver(chapa: string) {
     if (!confirm('Devolver este item para a lista geral?')) return;
-    setActionLoading(chapa);
-    try {
-      await invoke('devolver_item', { chapa });
-      setItens(prev => prev.map(i => (i.chapa === chapa
-        ? { ...i, alocado: false, salaId: null, salaNome: null, alocadoPorNome: null, alocadoEm: null }
-        : i)));
-    } catch (e: any) {
-      alert(e.message || 'Erro ao devolver item.');
-    } finally {
-      setActionLoading(null);
-    }
+    const anterior = itens.find(i => i.chapa === chapa);
+    if (!anterior) return;
+
+    setItens(prev => prev.map(i => (i.chapa === chapa
+      ? { ...i, alocado: false, salaId: null, salaNome: null, alocadoPorNome: null, alocadoEm: null }
+      : i)));
+
+    enfileirarEscrita(async () => {
+      try {
+        await invokeComEspera('devolver_item', { chapa });
+      } catch (e: any) {
+        setItens(prev => prev.map(i => (i.chapa === chapa ? anterior : i)));
+        alert(`Item ${chapa} não foi devolvido: ${e.message || 'erro desconhecido.'}`);
+      }
+    });
   }
 
   async function handleCriarSala(e: React.FormEvent) {
@@ -535,6 +629,13 @@ export default function PatrimonioSalas() {
     <div className="p-4 md:p-6 space-y-6 max-w-6xl mx-auto">
       <DefesoEleitoralBanner />
 
+      {escritasPendentes > 0 && (
+        <div className="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-4 py-2.5 bg-slate-900 text-white rounded-xl shadow-lg text-xs font-medium">
+          <Loader2 size={14} className="animate-spin" />
+          Salvando {escritasPendentes} {escritasPendentes === 1 ? 'alteração' : 'alterações'}...
+        </div>
+      )}
+
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -554,9 +655,10 @@ export default function PatrimonioSalas() {
           </button>
           <button
             onClick={init}
-            className="flex items-center justify-center gap-2 px-3 py-2.5 flex-1 sm:flex-none text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-sm"
+            disabled={refreshing}
+            className="flex items-center justify-center gap-2 px-3 py-2.5 flex-1 sm:flex-none text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-sm disabled:opacity-60"
           >
-            <RefreshCw size={16} /> Atualizar
+            <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /> Atualizar
           </button>
           {isAdmin && SHEET_URL && (
             <a
@@ -737,10 +839,9 @@ export default function PatrimonioSalas() {
                     </div>
                     <button
                       onClick={() => handleDevolver(item.chapa)}
-                      disabled={actionLoading === item.chapa}
                       className="flex items-center justify-center gap-2 px-4 py-3 sm:py-2.5 w-full sm:w-auto bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-600 rounded-xl font-bold text-[11px] uppercase transition-colors shrink-0"
                     >
-                      {actionLoading === item.chapa ? <Loader2 size={14} className="animate-spin" /> : <Undo2 size={14} />}
+                      <Undo2 size={14} />
                       Devolver
                     </button>
                   </div>
@@ -761,7 +862,7 @@ export default function PatrimonioSalas() {
                 type="text"
                 placeholder="Buscar por chapa ou descrição..."
                 value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
+                onChange={e => { setSearchTerm(e.target.value); setLimiteVisiveis(ITENS_POR_PAGINA); }}
                 className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -774,7 +875,7 @@ export default function PatrimonioSalas() {
             </div>
           ) : (
             <div className="divide-y divide-slate-50 max-h-[600px] overflow-y-auto">
-              {itensDisponiveis.map(item => (
+              {itensDisponiveis.slice(0, limiteVisiveis).map(item => (
                 <div key={item.chapa} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -805,15 +906,23 @@ export default function PatrimonioSalas() {
                     )}
                     <button
                       onClick={() => handleAlocar(item.chapa)}
-                      disabled={actionLoading === item.chapa || allowedSalas.length === 0}
+                      disabled={allowedSalas.length === 0}
                       className="flex items-center justify-center gap-2 px-4 py-3 sm:py-2.5 w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-[11px] uppercase transition-colors disabled:opacity-50"
                     >
-                      {actionLoading === item.chapa ? <Loader2 size={14} className="animate-spin" /> : <ArrowRightLeft size={14} />}
+                      <ArrowRightLeft size={14} />
                       Alocar
                     </button>
                   </div>
                 </div>
               ))}
+              {itensDisponiveis.length > limiteVisiveis && (
+                <button
+                  onClick={() => setLimiteVisiveis(n => n + ITENS_POR_PAGINA)}
+                  className="w-full p-4 text-sm font-bold text-blue-600 hover:bg-blue-50 transition-colors"
+                >
+                  Mostrar mais ({itensDisponiveis.length - limiteVisiveis} restantes)
+                </button>
+              )}
             </div>
           )}
         </div>

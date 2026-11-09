@@ -71,10 +71,13 @@ let itensRowsCache: { rows: any[]; loadedAt: number } | null = null
 let salasRowsCache: { rows: any[]; loadedAt: number } | null = null
 let comodatoRowsCache: { rows: any[]; loadedAt: number } | null = null
 const ROWS_CACHE_TTL_MS = 20_000
+// O inventário é a leitura mais pesada e quase não muda: com 20s, cliques espaçados
+// relíam a planilha inteira a cada alocação.
+const ITENS_CACHE_TTL_MS = 5 * 60 * 1000
 
 async function getItensRows(itensSheet: any) {
   const now = Date.now()
-  if (itensRowsCache && (now - itensRowsCache.loadedAt) < ROWS_CACHE_TTL_MS) return itensRowsCache.rows
+  if (itensRowsCache && (now - itensRowsCache.loadedAt) < ITENS_CACHE_TTL_MS) return itensRowsCache.rows
   const rows = await itensSheet.getRows()
   itensRowsCache = { rows, loadedAt: now }
   return rows
@@ -133,97 +136,30 @@ Deno.serve(async (req) => {
     // ── Conecta na planilha (doc cacheado entre invocações — ver getDoc) ──
     const doc = await getDoc()
 
-    const salasSheet = await getOrCreateSheet(doc, SALAS_SHEET, SALAS_COLUMNS)
-    const alocacoesSheet = await getOrCreateSheet(doc, ALOCACOES_SHEET, ALOCACOES_COLUMNS)
-    const historicoSheet = await getOrCreateSheet(doc, HISTORICO_SHEET, HISTORICO_COLUMNS)
-    const comodatoSheet = await getOrCreateSheet(doc, COMODATO_SHEET, COMODATO_COLUMNS)
+    const [salasSheet, alocacoesSheet, historicoSheet, comodatoSheet] = await Promise.all([
+      getOrCreateSheet(doc, SALAS_SHEET, SALAS_COLUMNS),
+      getOrCreateSheet(doc, ALOCACOES_SHEET, ALOCACOES_COLUMNS),
+      getOrCreateSheet(doc, HISTORICO_SHEET, HISTORICO_COLUMNS),
+      getOrCreateSheet(doc, COMODATO_SHEET, COMODATO_COLUMNS),
+    ])
 
     switch (action) {
+      // Abertura da página: itens + salas numa única invocação, para pagar uma vez só
+      // a autenticação e a conexão com a planilha.
+      case 'carregar_inicial': {
+        const [itens, salasRows] = await Promise.all([
+          montarItens(doc, alocacoesSheet, comodatoSheet),
+          getSalasRows(salasSheet),
+        ])
+        return ok(corsHeaders, { itens, salas: montarSalas(salasRows) })
+      }
+
       case 'listar_itens': {
-        const itensSheet = doc.sheetsByTitle[ITENS_SHEET]
-        if (!itensSheet) {
-          const abasDisponiveis = Object.keys(doc.sheetsByTitle).join(', ') || '(nenhuma)'
-          throw new Error(`Aba "${ITENS_SHEET}" não encontrada na planilha (ID ${SHEET_ID}). Abas encontradas: ${abasDisponiveis}.`)
-        }
-
-        const [itemRows, alocRows] = await Promise.all([getItensRows(itensSheet), alocacoesSheet.getRows()])
-        const alocMap = new Map(alocRows.map((r: any) => [String(r.get('chapa') ?? '').trim(), r]))
-
-        const itens = itemRows
-          .filter((r: any) => String(r.get('Chapa') ?? '').trim() !== '')
-          .map((r: any) => {
-            const chapa = String(r.get('Chapa')).trim()
-            const aloc = alocMap.get(chapa)
-            return {
-              chapa,
-              descricao: r.get('Descrição do Item') || '-',
-              grupo: r.get('Grupo do Material') || '',
-              estadoConservacao: r.get('Estado de Conservacao') || '',
-              alocado: !!aloc,
-              salaId: aloc?.get('sala_id') || null,
-              salaNome: aloc?.get('sala_nome') || null,
-              alocadoPorNome: aloc?.get('alocado_por_nome') || null,
-              alocadoEm: aloc?.get('alocado_em') || null,
-            }
-          })
-
-        // Itens em comodato (empresas terceirizadas sob nossa guarda) — não estão no
-        // inventário oficial, mas alocam em sala como qualquer outro item. A "chapa"
-        // usada como chave em todo o fluxo é o código gerado no cadastro (COM-0001).
-        const comodatoRows = await getComodatoRows(comodatoSheet)
-        for (const r of comodatoRows as any[]) {
-          const codigo = String(r.get('codigo') ?? '').trim()
-          if (!codigo || r.get('ativo') === 'FALSE') continue
-          const aloc = alocMap.get(codigo)
-          const empresa = r.get('empresa') || ''
-          itens.push({
-            chapa: codigo,
-            descricao: r.get('descricao') || '-',
-            grupo: empresa ? `Comodato — ${empresa}` : 'Comodato',
-            estadoConservacao: '',
-            alocado: !!aloc,
-            salaId: aloc?.get('sala_id') || null,
-            salaNome: aloc?.get('sala_nome') || null,
-            alocadoPorNome: aloc?.get('alocado_por_nome') || null,
-            alocadoEm: aloc?.get('alocado_em') || null,
-            comodato: true,
-            empresa,
-            patrimonioEmpresa: r.get('patrimonio_empresa') || '',
-          } as any)
-        }
-
-        const chapasConhecidas = new Set(itens.map((i) => i.chapa))
-        for (const r of alocRows as any[]) {
-          const chapa = String(r.get('chapa') ?? '').trim()
-          if (chapa && !chapasConhecidas.has(chapa)) {
-            itens.push({
-              chapa,
-              descricao: r.get('descricao_item') || '(item não encontrado no inventário atual)',
-              grupo: '',
-              estadoConservacao: '',
-              alocado: true,
-              salaId: r.get('sala_id') || null,
-              salaNome: r.get('sala_nome') || null,
-              alocadoPorNome: r.get('alocado_por_nome') || null,
-              alocadoEm: r.get('alocado_em') || null,
-              naoEncontrado: true,
-            } as any)
-          }
-        }
-
-        return ok(corsHeaders, { itens })
+        return ok(corsHeaders, { itens: await montarItens(doc, alocacoesSheet, comodatoSheet) })
       }
 
       case 'listar_salas': {
-        const rows = await getSalasRows(salasSheet)
-        const salas = rows.map((r: any) => ({
-          id: r.get('id'),
-          nome: r.get('nome'),
-          descricao: r.get('descricao') || '',
-          ativa: r.get('ativa') === 'TRUE',
-          fotos: parseFotos(r.get('fotos')),
-        }))
-        return ok(corsHeaders, { salas })
+        return ok(corsHeaders, { salas: montarSalas(await getSalasRows(salasSheet)) })
       }
 
       case 'atualizar_fotos_sala': {
@@ -427,16 +363,17 @@ Deno.serve(async (req) => {
           salaId = String(body.sala_id)
         }
 
-        const salasRows = await getSalasRows(salasSheet)
+        const [salasRows, itemRows, alocRows] = await Promise.all([
+          getSalasRows(salasSheet),
+          getItensRows(getItensSheet(doc)),
+          alocacoesSheet.getRows(),
+        ])
         const salaRow = salasRows.find((r: any) => r.get('id') === salaId && r.get('ativa') === 'TRUE')
         if (!salaRow) throw new Error('Sala inválida ou inativa.')
 
-        const itensSheet = doc.sheetsByTitle[ITENS_SHEET]
-        if (!itensSheet) {
-          const abasDisponiveis = Object.keys(doc.sheetsByTitle).join(', ') || '(nenhuma)'
-          throw new Error(`Aba "${ITENS_SHEET}" não encontrada na planilha (ID ${SHEET_ID}). Abas encontradas: ${abasDisponiveis}.`)
-        }
-        const itemRows = await getItensRows(itensSheet)
+        const jaAlocado = alocRows.find((r: any) => String(r.get('chapa') ?? '').trim() === chapa)
+        if (jaAlocado) throw new Error(`Item já alocado na sala "${jaAlocado.get('sala_nome')}".`)
+
         const itemRow = itemRows.find((r: any) => String(r.get('Chapa') ?? '').trim() === chapa)
 
         let descricaoItem: string
@@ -452,9 +389,6 @@ Deno.serve(async (req) => {
           descricaoItem = comodatoRow.get('descricao') || '-'
         }
 
-        const alocRows = await alocacoesSheet.getRows()
-        const jaAlocado = alocRows.find((r: any) => String(r.get('chapa') ?? '').trim() === chapa)
-        if (jaAlocado) throw new Error(`Item já alocado na sala "${jaAlocado.get('sala_nome')}".`)
         const agora = new Date().toISOString()
 
         await alocacoesSheet.addRow({
@@ -466,7 +400,7 @@ Deno.serve(async (req) => {
           alocado_por_nome: usuarioNome,
           alocado_em: agora,
         })
-        await historicoSheet.addRow({
+        await registrarHistorico(historicoSheet, {
           id: crypto.randomUUID(),
           chapa,
           descricao_item: descricaoItem,
@@ -512,7 +446,7 @@ Deno.serve(async (req) => {
         const descricaoItem = row.get('descricao_item')
 
         await row.delete()
-        await historicoSheet.addRow({
+        await registrarHistorico(historicoSheet, {
           id: crypto.randomUUID(),
           chapa,
           descricao_item: descricaoItem,
@@ -579,6 +513,114 @@ Deno.serve(async (req) => {
     })
   }
 })
+
+function getItensSheet(doc: any) {
+  const itensSheet = doc.sheetsByTitle[ITENS_SHEET]
+  if (!itensSheet) {
+    const abasDisponiveis = Object.keys(doc.sheetsByTitle).join(', ') || '(nenhuma)'
+    throw new Error(`Aba "${ITENS_SHEET}" não encontrada na planilha (ID ${SHEET_ID}). Abas encontradas: ${abasDisponiveis}.`)
+  }
+  return itensSheet
+}
+
+async function montarItens(doc: any, alocacoesSheet: any, comodatoSheet: any) {
+  const [itemRows, alocRows, comodatoRows] = await Promise.all([
+    getItensRows(getItensSheet(doc)),
+    alocacoesSheet.getRows(),
+    getComodatoRows(comodatoSheet),
+  ])
+  const alocMap = new Map(alocRows.map((r: any) => [String(r.get('chapa') ?? '').trim(), r]))
+
+  const itens = itemRows
+    .filter((r: any) => String(r.get('Chapa') ?? '').trim() !== '')
+    .map((r: any) => {
+      const chapa = String(r.get('Chapa')).trim()
+      const aloc = alocMap.get(chapa)
+      return {
+        chapa,
+        descricao: r.get('Descrição do Item') || '-',
+        grupo: r.get('Grupo do Material') || '',
+        estadoConservacao: r.get('Estado de Conservacao') || '',
+        alocado: !!aloc,
+        salaId: aloc?.get('sala_id') || null,
+        salaNome: aloc?.get('sala_nome') || null,
+        alocadoPorNome: aloc?.get('alocado_por_nome') || null,
+        alocadoEm: aloc?.get('alocado_em') || null,
+      }
+    })
+
+  // Itens em comodato (empresas terceirizadas sob nossa guarda) — não estão no
+  // inventário oficial, mas alocam em sala como qualquer outro item. A "chapa"
+  // usada como chave em todo o fluxo é o código gerado no cadastro (COM-0001).
+  for (const r of comodatoRows as any[]) {
+    const codigo = String(r.get('codigo') ?? '').trim()
+    if (!codigo || r.get('ativo') === 'FALSE') continue
+    const aloc = alocMap.get(codigo)
+    const empresa = r.get('empresa') || ''
+    itens.push({
+      chapa: codigo,
+      descricao: r.get('descricao') || '-',
+      grupo: empresa ? `Comodato — ${empresa}` : 'Comodato',
+      estadoConservacao: '',
+      alocado: !!aloc,
+      salaId: aloc?.get('sala_id') || null,
+      salaNome: aloc?.get('sala_nome') || null,
+      alocadoPorNome: aloc?.get('alocado_por_nome') || null,
+      alocadoEm: aloc?.get('alocado_em') || null,
+      comodato: true,
+      empresa,
+      patrimonioEmpresa: r.get('patrimonio_empresa') || '',
+    } as any)
+  }
+
+  const chapasConhecidas = new Set(itens.map((i) => i.chapa))
+  for (const r of alocRows as any[]) {
+    const chapa = String(r.get('chapa') ?? '').trim()
+    if (chapa && !chapasConhecidas.has(chapa)) {
+      itens.push({
+        chapa,
+        descricao: r.get('descricao_item') || '(item não encontrado no inventário atual)',
+        grupo: '',
+        estadoConservacao: '',
+        alocado: true,
+        salaId: r.get('sala_id') || null,
+        salaNome: r.get('sala_nome') || null,
+        alocadoPorNome: r.get('alocado_por_nome') || null,
+        alocadoEm: r.get('alocado_em') || null,
+        naoEncontrado: true,
+      } as any)
+    }
+  }
+
+  return itens
+}
+
+function montarSalas(rows: any[]) {
+  return rows.map((r: any) => ({
+    id: r.get('id'),
+    nome: r.get('nome'),
+    descricao: r.get('descricao') || '',
+    ativa: r.get('ativa') === 'TRUE',
+    fotos: parseFotos(r.get('fotos')),
+  }))
+}
+
+// A alocação/devolução já foi gravada quando isto roda: uma falha aqui não pode virar
+// erro para o usuário (ele tentaria de novo uma ação que já aconteceu).
+async function registrarHistorico(historicoSheet: any, evento: Record<string, unknown>) {
+  for (const espera of [2000, 5000, 0]) {
+    try {
+      await historicoSheet.addRow(evento)
+      return
+    } catch (e) {
+      if (!espera) {
+        console.error('[patrimonio-salas] histórico não registrado', evento, e)
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, espera))
+    }
+  }
+}
 
 function parseFotos(raw: unknown): string[] {
   if (!raw) return []
