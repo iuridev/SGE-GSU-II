@@ -2,12 +2,14 @@ import { useState, useEffect, useMemo, useDeferredValue, type ReactNode } from '
 import { supabase } from '../lib/supabase';
 import { resolveViewRole, isReadOnlyRole } from '../lib/roles';
 import { invokePatrimonioSalas as invoke } from '../lib/patrimonioSalasApi';
+import { LocalizarItem } from '../components/patrimonio/LocalizarItem';
+import { SemIdentificacao } from '../components/patrimonio/SemIdentificacao';
 import { DefesoEleitoralBanner } from '../components/DefesoEleitoralBanner';
 import {
   Package, Search, DoorOpen, ArrowRightLeft, History, Plus, X,
   Loader2, RefreshCw, ExternalLink, CheckCircle2, Undo2, AlertCircle,
   Building2, Trash2, HelpCircle, Info, FileDown, Handshake, Pencil,
-  Camera, ImagePlus,
+  Camera, ImagePlus, Tag,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -51,7 +53,7 @@ async function carregarImagemParaPdf(url: string): Promise<{ data: string; w: nu
   }
 }
 
-interface ItemPatrimonio {
+export interface ItemPatrimonio {
   chapa: string;
   descricao: string;
   grupo: string;
@@ -84,7 +86,7 @@ interface ItemComodato {
   salaNome: string | null;
 }
 
-interface Sala {
+export interface Sala {
   id: string;
   nome: string;
   descricao?: string;
@@ -104,7 +106,7 @@ interface HistoricoEntry {
   observacao?: string;
 }
 
-type TabId = 'minha-sala' | 'disponiveis' | 'salas' | 'comodato' | 'historico';
+type TabId = 'minha-sala' | 'disponiveis' | 'localizar' | 'sem-identificacao' | 'salas' | 'comodato' | 'historico';
 
 const COMODATO_FORM_VAZIO = { descricao: '', empresa: '', patrimonio_empresa: '', observacao: '' };
 
@@ -609,6 +611,8 @@ export default function PatrimonioSalas() {
   const tabs: { id: TabId; label: string; icon: ReactNode }[] = [
     { id: 'minha-sala', label: isAdmin ? 'Sala Selecionada' : (allowedSalas.length > 1 ? 'Minhas Salas' : 'Minha Sala'), icon: <DoorOpen size={15} /> },
     { id: 'disponiveis', label: 'Itens Disponíveis', icon: <Package size={15} /> },
+    { id: 'localizar', label: 'Localizar Item', icon: <Search size={15} /> },
+    { id: 'sem-identificacao', label: 'Sem Identificação', icon: <Tag size={15} /> },
     ...(isAdmin ? [
       { id: 'salas' as TabId, label: 'Salas', icon: <Building2 size={15} /> },
       { id: 'comodato' as TabId, label: 'Comodato', icon: <Handshake size={15} /> },
@@ -904,7 +908,7 @@ export default function PatrimonioSalas() {
               <p className="text-sm">Nenhum item encontrado com os filtros aplicados.</p>
             </div>
           ) : (
-            <div className="divide-y divide-slate-50 max-h-[600px] overflow-y-auto">
+            <div className="divide-y divide-slate-50 sm:max-h-[600px] sm:overflow-y-auto">
               {itensDisponiveis.slice(0, limiteVisiveis).map(item => (
                 <div key={item.chapa} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors">
                   <div className="min-w-0">
@@ -956,6 +960,17 @@ export default function PatrimonioSalas() {
             </div>
           )}
         </div>
+      )}
+
+      {activeTab === 'localizar' && <LocalizarItem itens={itens} />}
+
+      {activeTab === 'sem-identificacao' && (
+        <SemIdentificacao
+          itens={itens}
+          allowedSalas={allowedSalas}
+          readOnly={readOnly}
+          onItemAlocado={item => setItens(prev => prev.map(i => (i.chapa === item.chapa ? { ...i, ...item } : i)))}
+        />
       )}
 
       {activeTab === 'salas' && isAdmin && (

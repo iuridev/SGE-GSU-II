@@ -868,7 +868,7 @@ export default function App() {
     .filter((item): item is MenuItem => !!item);
 
   return (
-    <div className={`h-screen overflow-hidden bg-[#f8fafc] flex font-sans text-slate-900 print:bg-white print:block print:h-auto print:overflow-visible ${isHomolog ? 'pt-7' : ''}`}>
+    <div className={`altura-tela overflow-hidden bg-[#f8fafc] flex font-sans text-slate-900 print:bg-white print:block print:h-auto print:overflow-visible ${isHomolog ? 'pt-7' : ''}`}>
       {isHomolog && <HomologBanner />}
       <Toaster position="top-right" toastOptions={{ style: { zIndex: 99999 } }} />
       <FunapReminderModal currentPage={currentPage} onNavigate={setCurrentPage} />
@@ -1020,7 +1020,7 @@ export default function App() {
 
       {isSidebarOpen && <div className="fixed inset-0 bg-slate-900/50 z-40 lg:hidden backdrop-blur-sm print:hidden" onClick={() => setIsSidebarOpen(false)} />}
 
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden h-screen print:h-auto print:overflow-visible print:w-full print:block">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden altura-tela print:h-auto print:overflow-visible print:w-full print:block">
         <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-6 lg:px-8 shrink-0 relative z-40 print:hidden shadow-sm">
 
           <div className="flex items-center gap-4">
@@ -1191,7 +1191,7 @@ export default function App() {
           </div>
         </header>
 
-        <div className={`flex-1 overflow-y-auto p-4 md:p-8 ${currentPage === 'visitas-escolares' ? 'visible-scrollbar' : 'custom-scrollbar'} bg-[#f8fafc] print:p-0 print:bg-white print:overflow-visible print:w-full`}>
+        <div className={`flex-1 overflow-y-auto p-4 md:p-8 ${['visitas-escolares', 'patrimonio-salas', 'inserviveis-ure'].includes(currentPage) ? 'visible-scrollbar' : 'custom-scrollbar'} bg-[#f8fafc] print:p-0 print:bg-white print:overflow-visible print:w-full`}>
           <div className="max-w-7xl mx-auto print:max-w-none print:w-full">
             {renderContent()}
           </div>
