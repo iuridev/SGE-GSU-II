@@ -21,7 +21,7 @@ const SALAS_COLUMNS = ['id', 'nome', 'descricao', 'ativa', 'criado_por', 'criado
 // Itens de empresas terceirizadas sob nossa guarda — não constam no inventário
 // oficial (aba "Itens"). "codigo" é a identificação autoincremental (COM-0001...).
 const COMODATO_COLUMNS = ['id', 'seq', 'codigo', 'descricao', 'empresa', 'patrimonio_empresa', 'observacao', 'ativo', 'criado_por_id', 'criado_por_nome', 'criado_em']
-const ALOCACOES_COLUMNS = ['chapa', 'descricao_item', 'sala_id', 'sala_nome', 'alocado_por_id', 'alocado_por_nome', 'alocado_em']
+const ALOCACOES_COLUMNS = ['chapa', 'descricao_item', 'sala_id', 'sala_nome', 'alocado_por_id', 'alocado_por_nome', 'alocado_em', 'conferido_em', 'conferido_por_id', 'conferido_por_nome']
 const HISTORICO_COLUMNS = ['id', 'chapa', 'descricao_item', 'tipo_evento', 'sala_id', 'sala_nome', 'usuario_id', 'usuario_nome', 'data_evento', 'observacao']
 
 type Profile = { role: string; salas_trabalho: string[] | null; full_name: string | null }
@@ -462,6 +462,36 @@ Deno.serve(async (req) => {
         return ok(corsHeaders, { success: true })
       }
 
+      // Conferência física: alguém confirmou que o item está mesmo na sala. Fica na linha
+      // da alocação, então devolver o item apaga a conferência junto.
+      case 'conferir_item': {
+        const chapa = String(body.chapa || '').trim()
+        if (!chapa) throw new Error('Item não informado.')
+        const conferido = body.conferido !== false
+
+        const alocRows = await alocacoesSheet.getRows()
+        const row = alocRows.find((r: any) => String(r.get('chapa') ?? '').trim() === chapa)
+        if (!row) throw new Error('Item não está alocado em nenhuma sala.')
+
+        const role = (profile as Profile).role
+        if (role !== 'regional_admin') {
+          if (role !== 'ure_servico' || !((profile as Profile).salas_trabalho || []).includes(row.get('sala_id'))) {
+            throw new Error('Você só pode conferir itens de uma das suas salas.')
+          }
+        }
+
+        const conferidoEm = conferido ? new Date().toISOString() : ''
+        row.set('conferido_em', conferidoEm)
+        row.set('conferido_por_id', conferido ? user.id : '')
+        row.set('conferido_por_nome', conferido ? usuarioNome : '')
+        await row.save()
+
+        return ok(corsHeaders, {
+          success: true,
+          item: { chapa, conferidoEm: conferidoEm || null, conferidoPorNome: conferido ? usuarioNome : null },
+        })
+      }
+
       case 'listar_historico': {
         const rows = await historicoSheet.getRows()
         let historico = rows.map((r: any) => ({
@@ -546,6 +576,8 @@ async function montarItens(doc: any, alocacoesSheet: any, comodatoSheet: any) {
         salaNome: aloc?.get('sala_nome') || null,
         alocadoPorNome: aloc?.get('alocado_por_nome') || null,
         alocadoEm: aloc?.get('alocado_em') || null,
+        conferidoEm: aloc?.get('conferido_em') || null,
+        conferidoPorNome: aloc?.get('conferido_por_nome') || null,
       }
     })
 
@@ -567,6 +599,8 @@ async function montarItens(doc: any, alocacoesSheet: any, comodatoSheet: any) {
       salaNome: aloc?.get('sala_nome') || null,
       alocadoPorNome: aloc?.get('alocado_por_nome') || null,
       alocadoEm: aloc?.get('alocado_em') || null,
+      conferidoEm: aloc?.get('conferido_em') || null,
+      conferidoPorNome: aloc?.get('conferido_por_nome') || null,
       comodato: true,
       empresa,
       patrimonioEmpresa: r.get('patrimonio_empresa') || '',
@@ -587,6 +621,8 @@ async function montarItens(doc: any, alocacoesSheet: any, comodatoSheet: any) {
         salaNome: r.get('sala_nome') || null,
         alocadoPorNome: r.get('alocado_por_nome') || null,
         alocadoEm: r.get('alocado_em') || null,
+        conferidoEm: r.get('conferido_em') || null,
+        conferidoPorNome: r.get('conferido_por_nome') || null,
         naoEncontrado: true,
       } as any)
     }

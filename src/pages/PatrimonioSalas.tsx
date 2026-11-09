@@ -60,6 +60,8 @@ interface ItemPatrimonio {
   salaNome: string | null;
   alocadoPorNome: string | null;
   alocadoEm: string | null;
+  conferidoEm?: string | null;
+  conferidoPorNome?: string | null;
   naoEncontrado?: boolean;
   comodato?: boolean;
   empresa?: string;
@@ -371,7 +373,7 @@ export default function PatrimonioSalas() {
     if (!anterior) return;
 
     setItens(prev => prev.map(i => (i.chapa === chapa
-      ? { ...i, alocado: false, salaId: null, salaNome: null, alocadoPorNome: null, alocadoEm: null }
+      ? { ...i, alocado: false, salaId: null, salaNome: null, alocadoPorNome: null, alocadoEm: null, conferidoEm: null, conferidoPorNome: null }
       : i)));
 
     enfileirarEscrita(async () => {
@@ -380,6 +382,23 @@ export default function PatrimonioSalas() {
       } catch (e: any) {
         setItens(prev => prev.map(i => (i.chapa === chapa ? anterior : i)));
         alert(`Item ${chapa} não foi devolvido: ${e.message || 'erro desconhecido.'}`);
+      }
+    });
+  }
+
+  function handleConferir(item: ItemPatrimonio, conferido: boolean) {
+    const { chapa } = item;
+    setItens(prev => prev.map(i => (i.chapa === chapa
+      ? { ...i, conferidoEm: conferido ? new Date().toISOString() : null, conferidoPorNome: conferido ? (userNome || 'Você') : null }
+      : i)));
+
+    enfileirarEscrita(async () => {
+      try {
+        const data = await invokeComEspera('conferir_item', { chapa, conferido });
+        if (data?.item) setItens(prev => prev.map(i => (i.chapa === chapa ? { ...i, ...data.item } : i)));
+      } catch (e: any) {
+        setItens(prev => prev.map(i => (i.chapa === chapa ? item : i)));
+        alert(`Conferência do item ${chapa} não foi salva: ${e.message || 'erro desconhecido.'}`);
       }
     });
   }
@@ -797,7 +816,10 @@ export default function PatrimonioSalas() {
 
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-100 flex items-center justify-between gap-3">
-              <span className="text-sm font-bold text-slate-700">{itensDaSala.length} item(ns) nesta sala</span>
+              <span className="text-sm font-bold text-slate-700">
+                {itensDaSala.length} item(ns) nesta sala
+                <span className="font-medium text-emerald-700"> · {itensDaSala.filter(i => i.conferidoEm).length} conferido(s)</span>
+              </span>
               <button
                 onClick={handleGerarPdf}
                 disabled={gerandoPdf || itensDaSala.length === 0}
@@ -836,14 +858,41 @@ export default function PatrimonioSalas() {
                       <p className="text-[11px] text-slate-400 mt-0.5">
                         Alocado por {item.alocadoPorNome} em {formatDate(item.alocadoEm)}
                       </p>
+                      {item.conferidoEm && (
+                        <p className="text-[11px] font-bold text-emerald-700 mt-0.5 flex items-center gap-1">
+                          <CheckCircle2 size={12} className="shrink-0" />
+                          Conferido em {formatDate(item.conferidoEm)} por {item.conferidoPorNome}
+                        </p>
+                      )}
                     </div>
-                    <button
-                      onClick={() => handleDevolver(item.chapa)}
-                      className="flex items-center justify-center gap-2 px-4 py-3 sm:py-2.5 w-full sm:w-auto bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-600 rounded-xl font-bold text-[11px] uppercase transition-colors shrink-0"
-                    >
-                      <Undo2 size={14} />
-                      Devolver
-                    </button>
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto shrink-0">
+                      {!readOnly && (
+                        item.conferidoEm ? (
+                          <button
+                            onClick={() => handleConferir(item, false)}
+                            className="flex items-center justify-center gap-2 px-4 py-3 sm:py-2.5 w-full sm:w-auto bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-[11px] uppercase transition-colors"
+                          >
+                            <X size={14} />
+                            Desfazer
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleConferir(item, true)}
+                            className="flex items-center justify-center gap-2 px-4 py-3 sm:py-2.5 w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-[11px] uppercase transition-colors"
+                          >
+                            <CheckCircle2 size={14} />
+                            Conferido
+                          </button>
+                        )
+                      )}
+                      <button
+                        onClick={() => handleDevolver(item.chapa)}
+                        className="flex items-center justify-center gap-2 px-4 py-3 sm:py-2.5 w-full sm:w-auto bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-600 rounded-xl font-bold text-[11px] uppercase transition-colors"
+                      >
+                        <Undo2 size={14} />
+                        Devolver
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
