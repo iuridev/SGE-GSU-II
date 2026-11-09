@@ -14,6 +14,7 @@ const SALAS_SHEET = 'Salas'
 const ALOCACOES_SHEET = 'Alocacoes'
 const HISTORICO_SHEET = 'Historico'
 const COMODATO_SHEET = 'Comodato'
+const INSERVIVEIS_SHEET = 'Inserviveis'
 
 // "fotos": JSON array (máx. 4) de URLs públicas do bucket "salas-fotos" — ajudam
 // a identificar a sala e saem no PDF da lista de itens.
@@ -22,6 +23,7 @@ const SALAS_COLUMNS = ['id', 'nome', 'descricao', 'ativa', 'criado_por', 'criado
 // oficial (aba "Itens"). "codigo" é a identificação autoincremental (COM-0001...).
 const COMODATO_COLUMNS = ['id', 'seq', 'codigo', 'descricao', 'empresa', 'patrimonio_empresa', 'observacao', 'ativo', 'criado_por_id', 'criado_por_nome', 'criado_em']
 const ALOCACOES_COLUMNS = ['chapa', 'descricao_item', 'sala_id', 'sala_nome', 'alocado_por_id', 'alocado_por_nome', 'alocado_em', 'conferido_em', 'conferido_por_id', 'conferido_por_nome']
+const INSERVIVEIS_COLUMNS = ['chapa', 'descricao_item', 'foto_url', 'observacao', 'registrado_por_id', 'registrado_por_nome', 'registrado_em']
 const HISTORICO_COLUMNS = ['id', 'chapa', 'descricao_item', 'tipo_evento', 'sala_id', 'sala_nome', 'usuario_id', 'usuario_nome', 'data_evento', 'observacao']
 
 type Profile = { role: string; salas_trabalho: string[] | null; full_name: string | null }
@@ -59,6 +61,7 @@ async function getDoc() {
   itensRowsCache = null
   salasRowsCache = null
   comodatoRowsCache = null
+  inserviveisRowsCache = null
   return doc
 }
 
@@ -70,6 +73,7 @@ async function getDoc() {
 let itensRowsCache: { rows: any[]; loadedAt: number } | null = null
 let salasRowsCache: { rows: any[]; loadedAt: number } | null = null
 let comodatoRowsCache: { rows: any[]; loadedAt: number } | null = null
+let inserviveisRowsCache: { rows: any[]; loadedAt: number } | null = null
 const ROWS_CACHE_TTL_MS = 20_000
 // O inventário é a leitura mais pesada e quase não muda: com 20s, cliques espaçados
 // relíam a planilha inteira a cada alocação.
@@ -96,6 +100,14 @@ async function getComodatoRows(comodatoSheet: any) {
   if (comodatoRowsCache && (now - comodatoRowsCache.loadedAt) < ROWS_CACHE_TTL_MS) return comodatoRowsCache.rows
   const rows = await comodatoSheet.getRows()
   comodatoRowsCache = { rows, loadedAt: now }
+  return rows
+}
+
+async function getInserviveisRows(inserviveisSheet: any) {
+  const now = Date.now()
+  if (inserviveisRowsCache && (now - inserviveisRowsCache.loadedAt) < ROWS_CACHE_TTL_MS) return inserviveisRowsCache.rows
+  const rows = await inserviveisSheet.getRows()
+  inserviveisRowsCache = { rows, loadedAt: now }
   return rows
 }
 
@@ -136,11 +148,12 @@ Deno.serve(async (req) => {
     // ── Conecta na planilha (doc cacheado entre invocações — ver getDoc) ──
     const doc = await getDoc()
 
-    const [salasSheet, alocacoesSheet, historicoSheet, comodatoSheet] = await Promise.all([
+    const [salasSheet, alocacoesSheet, historicoSheet, comodatoSheet, inserviveisSheet] = await Promise.all([
       getOrCreateSheet(doc, SALAS_SHEET, SALAS_COLUMNS),
       getOrCreateSheet(doc, ALOCACOES_SHEET, ALOCACOES_COLUMNS),
       getOrCreateSheet(doc, HISTORICO_SHEET, HISTORICO_COLUMNS),
       getOrCreateSheet(doc, COMODATO_SHEET, COMODATO_COLUMNS),
+      getOrCreateSheet(doc, INSERVIVEIS_SHEET, INSERVIVEIS_COLUMNS),
     ])
 
     switch (action) {
@@ -148,14 +161,14 @@ Deno.serve(async (req) => {
       // a autenticação e a conexão com a planilha.
       case 'carregar_inicial': {
         const [itens, salasRows] = await Promise.all([
-          montarItens(doc, alocacoesSheet, comodatoSheet),
+          montarItens(doc, alocacoesSheet, comodatoSheet, inserviveisSheet),
           getSalasRows(salasSheet),
         ])
         return ok(corsHeaders, { itens, salas: montarSalas(salasRows) })
       }
 
       case 'listar_itens': {
-        return ok(corsHeaders, { itens: await montarItens(doc, alocacoesSheet, comodatoSheet) })
+        return ok(corsHeaders, { itens: await montarItens(doc, alocacoesSheet, comodatoSheet, inserviveisSheet) })
       }
 
       case 'listar_salas': {
@@ -363,16 +376,20 @@ Deno.serve(async (req) => {
           salaId = String(body.sala_id)
         }
 
-        const [salasRows, itemRows, alocRows] = await Promise.all([
+        const [salasRows, itemRows, alocRows, inservRows] = await Promise.all([
           getSalasRows(salasSheet),
           getItensRows(getItensSheet(doc)),
           alocacoesSheet.getRows(),
+          getInserviveisRows(inserviveisSheet),
         ])
         const salaRow = salasRows.find((r: any) => r.get('id') === salaId && r.get('ativa') === 'TRUE')
         if (!salaRow) throw new Error('Sala inválida ou inativa.')
 
         const jaAlocado = alocRows.find((r: any) => String(r.get('chapa') ?? '').trim() === chapa)
         if (jaAlocado) throw new Error(`Item já alocado na sala "${jaAlocado.get('sala_nome')}".`)
+        if (inservRows.some((r: any) => String(r.get('chapa') ?? '').trim() === chapa)) {
+          throw new Error('Este item está na lista de inservíveis da URE.')
+        }
 
         const itemRow = itemRows.find((r: any) => String(r.get('Chapa') ?? '').trim() === chapa)
 
@@ -492,6 +509,67 @@ Deno.serve(async (req) => {
         })
       }
 
+      case 'marcar_inservivel': {
+        exigirEdicaoInserviveis(profile as Profile)
+        const chapa = String(body.chapa || '').trim()
+        if (!chapa) throw new Error('Item não informado.')
+        const fotoUrl = String(body.foto_url || '').trim()
+        if (!fotoUrl) throw new Error('A foto do item é obrigatória.')
+        const observacao = String(body.observacao || '').trim()
+
+        const [itemRows, alocRows, inservRows] = await Promise.all([
+          getItensRows(getItensSheet(doc)),
+          alocacoesSheet.getRows(),
+          inserviveisSheet.getRows(),
+        ])
+        const itemRow = itemRows.find((r: any) => String(r.get('Chapa') ?? '').trim() === chapa)
+        if (!itemRow) throw new Error('Item não encontrado no inventário oficial.')
+
+        const alocado = alocRows.find((r: any) => String(r.get('chapa') ?? '').trim() === chapa)
+        if (alocado) throw new Error(`Item alocado na sala "${alocado.get('sala_nome')}". Devolva-o antes de marcar como inservível.`)
+        if (inservRows.some((r: any) => String(r.get('chapa') ?? '').trim() === chapa)) {
+          throw new Error('Este item já está na lista de inservíveis.')
+        }
+
+        const agora = new Date().toISOString()
+        await inserviveisSheet.addRow({
+          chapa,
+          descricao_item: itemRow.get('Descrição do Item') || '-',
+          foto_url: fotoUrl,
+          observacao,
+          registrado_por_id: user.id,
+          registrado_por_nome: usuarioNome,
+          registrado_em: agora,
+        })
+        inserviveisRowsCache = null
+
+        return ok(corsHeaders, {
+          success: true,
+          item: {
+            chapa,
+            inservivel: true,
+            inservivelFotoUrl: fotoUrl,
+            inservivelObservacao: observacao || null,
+            inservivelPorNome: usuarioNome,
+            inservivelEm: agora,
+          },
+        })
+      }
+
+      case 'desmarcar_inservivel': {
+        exigirEdicaoInserviveis(profile as Profile)
+        const chapa = String(body.chapa || '').trim()
+        if (!chapa) throw new Error('Item não informado.')
+
+        const rows = await inserviveisSheet.getRows()
+        const row = rows.find((r: any) => String(r.get('chapa') ?? '').trim() === chapa)
+        if (!row) throw new Error('Item não está na lista de inservíveis.')
+
+        await row.delete()
+        inserviveisRowsCache = null
+        return ok(corsHeaders, { success: true })
+      }
+
       case 'listar_historico': {
         const rows = await historicoSheet.getRows()
         let historico = rows.map((r: any) => ({
@@ -553,12 +631,14 @@ function getItensSheet(doc: any) {
   return itensSheet
 }
 
-async function montarItens(doc: any, alocacoesSheet: any, comodatoSheet: any) {
-  const [itemRows, alocRows, comodatoRows] = await Promise.all([
+async function montarItens(doc: any, alocacoesSheet: any, comodatoSheet: any, inserviveisSheet: any) {
+  const [itemRows, alocRows, comodatoRows, inservRows] = await Promise.all([
     getItensRows(getItensSheet(doc)),
     alocacoesSheet.getRows(),
     getComodatoRows(comodatoSheet),
+    inserviveisSheet.getRows(),
   ])
+  const inservMap = new Map<string, any>(inservRows.map((r: any) => [String(r.get('chapa') ?? '').trim(), r]))
   const alocMap = new Map(alocRows.map((r: any) => [String(r.get('chapa') ?? '').trim(), r]))
 
   const itens = itemRows
@@ -566,6 +646,7 @@ async function montarItens(doc: any, alocacoesSheet: any, comodatoSheet: any) {
     .map((r: any) => {
       const chapa = String(r.get('Chapa')).trim()
       const aloc = alocMap.get(chapa)
+      const inserv = inservMap.get(chapa)
       return {
         chapa,
         descricao: r.get('Descrição do Item') || '-',
@@ -578,6 +659,11 @@ async function montarItens(doc: any, alocacoesSheet: any, comodatoSheet: any) {
         alocadoEm: aloc?.get('alocado_em') || null,
         conferidoEm: aloc?.get('conferido_em') || null,
         conferidoPorNome: aloc?.get('conferido_por_nome') || null,
+        inservivel: !!inserv,
+        inservivelFotoUrl: inserv?.get('foto_url') || null,
+        inservivelObservacao: inserv?.get('observacao') || null,
+        inservivelPorNome: inserv?.get('registrado_por_nome') || null,
+        inservivelEm: inserv?.get('registrado_em') || null,
       }
     })
 
@@ -665,6 +751,12 @@ function parseFotos(raw: unknown): string[] {
     return Array.isArray(arr) ? arr.map((f) => String(f)).filter(Boolean).slice(0, 4) : []
   } catch {
     return []
+  }
+}
+
+function exigirEdicaoInserviveis(profile: Profile) {
+  if (!['regional_admin', 'ure_servico'].includes(profile.role)) {
+    throw new Error('Seu perfil não pode alterar a lista de inservíveis.')
   }
 }
 

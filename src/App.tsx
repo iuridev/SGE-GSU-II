@@ -74,6 +74,7 @@ import DuvidasEscolas from './pages/DuvidasEscolas';
 import VisitasEscolares from './pages/VisitasEscolares';
 import CronogramaSetor from './pages/CronogramaSetor';
 import PatrimonioSalas from './pages/PatrimonioSalas';
+import InserviveisUre from './pages/InserviveisUre';
 import GuiaDoacaoPatrimonio from './pages/GuiaDoacaoPatrimonio';
 import GuiaDoacaoInservivel from './pages/GuiaDoacaoInservivel';
 import AtendimentoPatrimonio from './pages/AtendimentoPatrimonio';
@@ -212,6 +213,7 @@ const MENU_GROUPS: MenuGroup[] = [
       { id: 'remanejamento', label: 'Remanejamento', icon: <ArrowRightLeft size={20} />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
       { id: 'furtos', label: 'Cadastro de Furtos', icon: <ShieldAlert size={20} className="text-red-500" />, roles: ['regional_admin', 'supervisor', 'dirigente'] },
       { id: 'patrimonio-salas', label: 'Salas de Trabalho', icon: <DoorOpen size={20} className="text-teal-500" />, roles: ['regional_admin', 'ure_servico'] },
+      { id: 'inserviveis-ure', label: 'Inservíveis da URE', icon: <Recycle size={20} className="text-red-500" />, roles: ['regional_admin', 'ure_servico'] },
       //{ id: 'listchapa', label: 'Listar Patrimônio', icon: <Package size={20} className="text-red-500" />, roles: ['regional_admin', 'school_manager', 'supervisor', 'dirigente'] },
     ]
   },
@@ -819,6 +821,7 @@ export default function App() {
       case 'regularizacao-imoveis': return <RegularizacaoImoveis />;
       case 'acompanhamento-obras': return <AcompanhamentoObras />;
       case 'patrimonio-salas': return <PatrimonioSalas />;
+      case 'inserviveis-ure': return <InserviveisUre />;
       case 'guia-doacao-patrimonio': return <GuiaDoacaoPatrimonio />;
       case 'guia-doacao-inservivel': return <GuiaDoacaoInservivel />;
       case 'atendimento-patrimonio': return <AtendimentoPatrimonio onNavigate={setCurrentPage} />;
