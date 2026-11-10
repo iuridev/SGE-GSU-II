@@ -86,6 +86,38 @@ function mondayOnOrBefore(date: Date): Date {
   return d;
 }
 
+// Segunda-feira ainda é tolerância da semana anterior: o snapshot gerado nesse
+// dia usa o domingo como data de referência, então atualiza a semana que acabou
+// já com os lançamentos atrasados feitos na segunda e não cobra a própria
+// segunda. A semana nova só começa a ser medida na terça.
+function dataReferenciaSnapshot(agora: Date): Date {
+  if (agora.getDay() !== 1) return agora;
+  const domingo = new Date(agora);
+  domingo.setDate(domingo.getDate() - 1);
+  return domingo;
+}
+
+function parseYMD(ymd: string): Date {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+// Semana (segunda-feira, YYYY-MM-DD) que um snapshot gerado agora atualiza.
+function semanaCorrenteYMD(agora: Date): string {
+  return formatDateToYMD(mondayOnOrBefore(dataReferenciaSnapshot(agora)));
+}
+
+// Até que dia os lançamentos contam para a semana `semana`: na semana corrente,
+// até hoje (ou domingo, se hoje é segunda); numa semana passada, até o domingo
+// dela. Assim, recalcular uma semana antiga mede só os dias daquela semana (e
+// anteriores), mas já com os lançamentos que a escola fez depois.
+function referenciaDaSemana(semana: string, agora: Date): Date {
+  if (semana === semanaCorrenteYMD(agora)) return dataReferenciaSnapshot(agora);
+  const domingo = parseYMD(semana);
+  domingo.setDate(domingo.getDate() + 6);
+  return domingo;
+}
+
 function formatWeekLabel(ymd: string): string {
   const [, m, d] = ymd.split('-');
   return `${d}/${m}`;
@@ -117,6 +149,8 @@ export default function PendenciasSemanais() {
   const [buscaOfensora, setBuscaOfensora] = useState('');
 
   const [snapshotting, setSnapshotting] = useState(false);
+  const [semanaAlvo, setSemanaAlvo] = useState<string>(''); // '' = semana corrente; 'todas' = histórico inteiro; ou YYYY-MM-DD
+  const [snapshotProgresso, setSnapshotProgresso] = useState<string | null>(null);
   const [snapshotMsg, setSnapshotMsg] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -197,31 +231,78 @@ export default function PendenciasSemanais() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Calcula as linhas do snapshot com os lançamentos de água atuais, contando
+  // os dias pendentes até `referencia` (inclusive).
+  async function calcularLinhasSnapshot(referencia: Date, sheetMap: Map<string, ManejoSheetRow>) {
+    // ── Água: reaproveita a mesma RPC e janela do Dashboard ──────────────
+    // Janela de 3 meses (mês atual + 2 anteriores): lacunas mais antigas que isso
+    // não entram no índice.
+    const tresMesesAtras = new Date(referencia.getFullYear(), referencia.getMonth() - 2, 1);
+    const windowStart = tresMesesAtras > WATER_REPORTING_HARD_START ? tresMesesAtras : WATER_REPORTING_HARD_START;
+    const { data: pendenciasAgua, error: aguaError } = await supabase.rpc('get_pending_water_schools', {
+      p_window_start: formatDateToYMD(windowStart),
+      p_today: formatDateToYMD(referencia),
+    });
+    if (aguaError) throw aguaError;
+
+    const diasPendentesPorEscola: Record<string, number> = {};
+    (pendenciasAgua || []).forEach((row: any) => {
+      diasPendentesPorEscola[row.school_id] = (diasPendentesPorEscola[row.school_id] || 0) + row.missing_days;
+    });
+
+    return schools.map((escola) => {
+      const diasAgua = diasPendentesPorEscola[escola.id] || 0;
+
+      let statusManejo = '';
+      let temManejo = false;
+      if (MOSTRAR_MANEJO) {
+        const supNorm = normalizeName(escola.name);
+        let sheetRow: ManejoSheetRow | undefined;
+        for (const [sheetNorm, row] of sheetMap) {
+          if (matchNames(supNorm, sheetNorm)) { sheetRow = row; break; }
+        }
+        const status: StatusManejo = determinarStatus({
+          naoSeAplica: sheetRow?.naoSeAplica ?? false,
+          validadeAutorizacao: sheetRow ? (sheetRow.naoSeAplica ? null : sheetRow.validadeISO) : null,
+          daPlanilha: !!sheetRow,
+        });
+        statusManejo = status;
+        temManejo = temPendenciaManejo(status);
+      }
+
+      return {
+        escola_id: escola.id,
+        escola_nome: escola.name,
+        tem_pendencia_agua: diasAgua > TOLERANCIA_DIAS_AGUA,
+        dias_agua_pendentes: diasAgua,
+        agua_dispensada: !!escola.water_exempt,
+        status_manejo: statusManejo,
+        tem_pendencia_manejo: temManejo,
+      };
+    });
+  }
+
   async function gerarSnapshot() {
+    const agora = new Date();
+    const semanaCorrente = semanaCorrenteYMD(agora);
+    const alvo = semanaAlvo || semanaCorrente;
+    const semanas = alvo === 'todas' ? semanasSelecionaveis : [alvo];
+    const recalculaPassado = semanas.some(s => s !== semanaCorrente);
+
+    if (recalculaPassado && !window.confirm(
+      alvo === 'todas'
+        ? `Recalcular as ${semanas.length} semanas do histórico com os lançamentos atuais? As escolas que já regularizaram deixam de aparecer como pendentes nessas semanas.`
+        : `Recalcular a semana de ${formatWeekLabel(alvo)} com os lançamentos atuais? As escolas que já regularizaram deixam de aparecer como pendentes nessa semana.`,
+    )) return;
+
     setSnapshotting(true);
     setSnapshotMsg(null);
+    setSnapshotProgresso(null);
     try {
-      const hoje = new Date();
-
-      // ── Água: reaproveita a mesma RPC e janela do Dashboard ──────────────
-      // Janela de 3 meses (mês atual + 2 anteriores): lacunas mais antigas que isso
-      // não entram no índice.
-      const tresMesesAtras = new Date(hoje.getFullYear(), hoje.getMonth() - 2, 1);
-      const windowStart = tresMesesAtras > WATER_REPORTING_HARD_START ? tresMesesAtras : WATER_REPORTING_HARD_START;
-      const { data: pendenciasAgua, error: aguaError } = await supabase.rpc('get_pending_water_schools', {
-        p_window_start: formatDateToYMD(windowStart),
-        p_today: formatDateToYMD(hoje),
-      });
-      if (aguaError) throw aguaError;
-
-      const diasPendentesPorEscola: Record<string, number> = {};
-      (pendenciasAgua || []).forEach((row: any) => {
-        diasPendentesPorEscola[row.school_id] = (diasPendentesPorEscola[row.school_id] || 0) + row.missing_days;
-      });
-
       // ── Manejo arbóreo: só é calculado quando MOSTRAR_MANEJO está ativo.
       // Enquanto a página acompanha apenas água, o snapshot grava os campos de
-      // manejo vazios (mesma lógica/planilha de src/pages/ManejoArboreo.tsx). ─
+      // manejo vazios (mesma lógica/planilha de src/pages/ManejoArboreo.tsx).
+      // Ao recalcular semanas passadas, usa a situação atual da planilha. ─
       const sheetMap = MOSTRAR_MANEJO
         ? await fetchManejoFromSheet().catch((err) => {
             console.warn('Planilha de manejo indisponível ao gerar snapshot:', err);
@@ -229,52 +310,45 @@ export default function PendenciasSemanais() {
           })
         : new Map<string, ManejoSheetRow>();
 
-      const linhas = schools.map((escola) => {
-        const diasAgua = diasPendentesPorEscola[escola.id] || 0;
-
-        let statusManejo = '';
-        let temManejo = false;
-        if (MOSTRAR_MANEJO) {
-          const supNorm = normalizeName(escola.name);
-          let sheetRow: ManejoSheetRow | undefined;
-          for (const [sheetNorm, row] of sheetMap) {
-            if (matchNames(supNorm, sheetNorm)) { sheetRow = row; break; }
-          }
-          const status: StatusManejo = determinarStatus({
-            naoSeAplica: sheetRow?.naoSeAplica ?? false,
-            validadeAutorizacao: sheetRow ? (sheetRow.naoSeAplica ? null : sheetRow.validadeISO) : null,
-            daPlanilha: !!sheetRow,
-          });
-          statusManejo = status;
-          temManejo = temPendenciaManejo(status);
-        }
-
-        return {
-          escola_id: escola.id,
-          escola_nome: escola.name,
-          tem_pendencia_agua: diasAgua > TOLERANCIA_DIAS_AGUA,
-          dias_agua_pendentes: diasAgua,
-          agua_dispensada: !!escola.water_exempt,
-          status_manejo: statusManejo,
-          tem_pendencia_manejo: temManejo,
-        };
-      });
-
-      const semana = formatDateToYMD(mondayOnOrBefore(hoje));
-      const resultado = await invoke('gerar_snapshot', { semana, rows: linhas });
+      let criadas = 0;
+      let atualizadas = 0;
+      for (let i = 0; i < semanas.length; i++) {
+        const semana = semanas[i];
+        if (semanas.length > 1) setSnapshotProgresso(`${i + 1}/${semanas.length}`);
+        const linhas = await calcularLinhasSnapshot(referenciaDaSemana(semana, agora), sheetMap);
+        const resultado = await invoke('gerar_snapshot', { semana, rows: linhas });
+        criadas += resultado.criadas || 0;
+        atualizadas += resultado.atualizadas || 0;
+      }
 
       await carregarHistorico();
-      setSnapshotMsg({
-        tipo: 'ok',
-        texto: `Snapshot da semana de ${formatWeekLabel(semana)} gerado: ${resultado.criadas} escola(s) nova(s), ${resultado.atualizadas} atualizada(s).`,
-      });
+      let texto: string;
+      if (alvo === 'todas') {
+        texto = `${semanas.length} semana(s) recalculada(s) com os lançamentos atuais: ${criadas} linha(s) nova(s), ${atualizadas} atualizada(s).`;
+      } else if (recalculaPassado) {
+        texto = `Semana de ${formatWeekLabel(alvo)} recalculada com os lançamentos atuais (dias contados até o domingo): ${criadas} escola(s) nova(s), ${atualizadas} atualizada(s).`;
+      } else {
+        const avisoSegunda = agora.getDay() === 1 ? ' Às segundas, o snapshot ainda fecha a semana anterior.' : '';
+        texto = `Snapshot da semana de ${formatWeekLabel(alvo)} gerado: ${criadas} escola(s) nova(s), ${atualizadas} atualizada(s).${avisoSegunda}`;
+      }
+      setSnapshotMsg({ tipo: 'ok', texto });
+      setSemanaAlvo('');
     } catch (err: any) {
       console.error('Erro ao gerar snapshot semanal:', err);
       setSnapshotMsg({ tipo: 'erro', texto: err?.message || 'Erro ao gerar snapshot semanal.' });
     } finally {
       setSnapshotting(false);
+      setSnapshotProgresso(null);
     }
   }
+
+  // Semanas que o admin pode (re)gerar: a corrente + todas que já têm snapshot,
+  // da mais recente para a mais antiga.
+  const semanasSelecionaveis = useMemo(() => {
+    const set = new Set(snapshots.map(s => s.semana));
+    set.add(semanaCorrenteYMD(new Date()));
+    return Array.from(set).sort().reverse();
+  }, [snapshots]);
 
   const escolasVisiveisPicker = useMemo(() => {
     if (userRole === 'supervisor') return schools.filter(s => supervisorSchoolIds.includes(s.id));
@@ -481,14 +555,32 @@ export default function PendenciasSemanais() {
             </div>
 
             {podeGerarSnapshot && (
-              <button
-                onClick={gerarSnapshot}
-                disabled={snapshotting}
-                className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold text-white bg-rose-500 hover:bg-rose-400 disabled:opacity-60 shadow-lg shadow-rose-500/30 transition-all"
-              >
-                {snapshotting ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                Gerar snapshot da semana
-              </button>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <select
+                  value={semanaAlvo}
+                  onChange={(e) => setSemanaAlvo(e.target.value)}
+                  disabled={snapshotting}
+                  title="Semanas passadas são recalculadas com os lançamentos atuais, contando os dias até o domingo de cada semana."
+                  className="px-3 py-3 rounded-xl text-sm font-bold text-white bg-white/10 border border-white/20 focus:outline-none focus:border-rose-300 disabled:opacity-60"
+                >
+                  {semanasSelecionaveis.map((s, i) => (
+                    <option key={s} value={i === 0 ? '' : s} className="text-slate-800">
+                      {i === 0 ? `Semana atual (${formatWeekLabel(s)})` : `Recalcular semana de ${formatWeekLabel(s)}`}
+                    </option>
+                  ))}
+                  {semanasSelecionaveis.length > 1 && (
+                    <option value="todas" className="text-slate-800">Recalcular todo o histórico</option>
+                  )}
+                </select>
+                <button
+                  onClick={gerarSnapshot}
+                  disabled={snapshotting}
+                  className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold text-white bg-rose-500 hover:bg-rose-400 disabled:opacity-60 shadow-lg shadow-rose-500/30 transition-all"
+                >
+                  {snapshotting ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                  {snapshotting && snapshotProgresso ? `Recalculando ${snapshotProgresso}…` : semanaAlvo ? 'Recalcular' : 'Gerar snapshot da semana'}
+                </button>
+              </div>
             )}
           </div>
         </div>
