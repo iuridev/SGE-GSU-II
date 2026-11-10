@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { Fragment, useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { resolveViewRole } from '../lib/roles';
 import { WATER_REPORTING_HARD_START } from './Dashboard';
@@ -15,6 +15,7 @@ import {
 import {
   Lock, Loader2, RefreshCw, FileDown, TrendingDown, TrendingUp, Minus,
   Droplets, TreeDeciduous, AlertTriangle, CheckCircle2, ClipboardCheck, Table as TableIcon, Target, Search,
+  ChevronDown, ChevronRight, CalendarX2,
 } from 'lucide-react';
 
 const ALLOWED_ROLES = ['regional_admin', 'school_manager', 'supervisor', 'dirigente'];
@@ -118,6 +119,21 @@ function referenciaDaSemana(semana: string, agora: Date): Date {
   return domingo;
 }
 
+const DIAS_SEMANA_PT = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+
+// "qua 04/11"
+function formatDayLabel(ymd: string): string {
+  const [, m, d] = ymd.split('-');
+  return `${DIAS_SEMANA_PT[parseYMD(ymd).getDay()]} ${d}/${m}`;
+}
+
+// Início da janela de cobrança de água para uma data de referência: mês dela
+// + 2 anteriores, nunca antes do início obrigatório do registro.
+function inicioJanelaAgua(referencia: Date): Date {
+  const tresMesesAtras = new Date(referencia.getFullYear(), referencia.getMonth() - 2, 1);
+  return tresMesesAtras > WATER_REPORTING_HARD_START ? tresMesesAtras : WATER_REPORTING_HARD_START;
+}
+
 function formatWeekLabel(ymd: string): string {
   const [, m, d] = ymd.split('-');
   return `${d}/${m}`;
@@ -151,6 +167,12 @@ export default function PendenciasSemanais() {
   const [snapshotting, setSnapshotting] = useState(false);
   const [semanaAlvo, setSemanaAlvo] = useState<string>(''); // '' = semana corrente; 'todas' = histórico inteiro; ou YYYY-MM-DD
   const [snapshotProgresso, setSnapshotProgresso] = useState<string | null>(null);
+
+  // Detalhamento da tabela "Dados por semana": semana aberta → escolas pendentes;
+  // escola aberta → dias úteis ainda sem lançamento.
+  const [semanaDetalhe, setSemanaDetalhe] = useState<string | null>(null);
+  const [escolaDetalheId, setEscolaDetalheId] = useState<string | null>(null);
+  const [diasDetalhe, setDiasDetalhe] = useState<{ loading: boolean; erro: string | null; dias: string[]; ate: string }>({ loading: false, erro: null, dias: [], ate: '' });
   const [snapshotMsg, setSnapshotMsg] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -237,8 +259,7 @@ export default function PendenciasSemanais() {
     // ── Água: reaproveita a mesma RPC e janela do Dashboard ──────────────
     // Janela de 3 meses (mês atual + 2 anteriores): lacunas mais antigas que isso
     // não entram no índice.
-    const tresMesesAtras = new Date(referencia.getFullYear(), referencia.getMonth() - 2, 1);
-    const windowStart = tresMesesAtras > WATER_REPORTING_HARD_START ? tresMesesAtras : WATER_REPORTING_HARD_START;
+    const windowStart = inicioJanelaAgua(referencia);
     const { data: pendenciasAgua, error: aguaError } = await supabase.rpc('get_pending_water_schools', {
       p_window_start: formatDateToYMD(windowStart),
       p_today: formatDateToYMD(referencia),
@@ -349,6 +370,47 @@ export default function PendenciasSemanais() {
     set.add(semanaCorrenteYMD(new Date()));
     return Array.from(set).sort().reverse();
   }, [snapshots]);
+
+  // Escolas pendentes de água na semana aberta no detalhamento (mesmo critério
+  // do % Água: tolerância aplicada, dispensadas fora, supervisor só as suas).
+  const pendentesDaSemana = useMemo(() => {
+    if (!semanaDetalhe) return [] as SnapshotRow[];
+    return snapshots
+      .filter(r => r.semana === semanaDetalhe)
+      .filter(r => userRole !== 'supervisor' || supervisorSchoolIds.includes(r.escola_id))
+      .filter(r => !isTrue(r.agua_dispensada) && aguaPendente(r))
+      .sort((a, b) => (Number(b.dias_agua_pendentes) || 0) - (Number(a.dias_agua_pendentes) || 0) || a.escola_nome.localeCompare(b.escola_nome));
+  }, [snapshots, semanaDetalhe, userRole, supervisorSchoolIds]);
+
+  const detalheReqRef = useRef(0);
+
+  function abrirSemanaDetalhe(semana: string) {
+    setSemanaDetalhe(atual => (atual === semana ? null : semana));
+    setEscolaDetalheId(null);
+  }
+
+  // Dias úteis ainda sem lançamento da escola, contados até o fim da semana
+  // (domingo; na semana corrente, até hoje) com os lançamentos atuais.
+  async function abrirEscolaDetalhe(escolaId: string, semana: string) {
+    if (escolaDetalheId === escolaId) { setEscolaDetalheId(null); return; }
+    setEscolaDetalheId(escolaId);
+    const req = ++detalheReqRef.current;
+    const referencia = referenciaDaSemana(semana, new Date());
+    const ate = formatDateToYMD(referencia);
+    setDiasDetalhe({ loading: true, erro: null, dias: [], ate });
+    const { data, error } = await (supabase as any).rpc('get_pending_water_days', {
+      p_school_id: escolaId,
+      p_window_start: formatDateToYMD(inicioJanelaAgua(referencia)),
+      p_today: ate,
+    });
+    if (req !== detalheReqRef.current) return; // usuário já abriu outra escola
+    if (error) {
+      console.error('Erro ao buscar dias pendentes de água:', error);
+      setDiasDetalhe({ loading: false, erro: 'Não foi possível carregar os dias pendentes.', dias: [], ate });
+      return;
+    }
+    setDiasDetalhe({ loading: false, erro: null, dias: (data || []).map((r: any) => String(r.day)), ate });
+  }
 
   const escolasVisiveisPicker = useMemo(() => {
     if (userRole === 'supervisor') return schools.filter(s => supervisorSchoolIds.includes(s.id));
@@ -481,6 +543,8 @@ export default function PendenciasSemanais() {
 
   const podeGerarSnapshot = userRoleRaw === 'regional_admin';
   const podeFiltrarEscola = userRole === 'regional_admin' || userRole === 'dirigente';
+  // A escola (school_manager) vê o % da rede, mas não a lista de outras escolas.
+  const podeDetalhar = userRole !== 'school_manager';
 
   async function handleExportPDF() {
     if (!printRef.current) return;
@@ -865,15 +929,88 @@ export default function PendenciasSemanais() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {weeklyData.slice().reverse().map(w => (
-                      <tr key={w.semana}>
-                        <td className="py-2.5 px-4 font-bold text-slate-700">{w.semanaLabel}</td>
-                        {MOSTRAR_MANEJO && <td className="py-2.5 px-4 text-center font-black" style={{ color: COR_TOTAL }}>{w.pctQualquer}%</td>}
-                        <td className="py-2.5 px-4 text-center" style={{ color: COR_AGUA }}>{w.pctAgua}%</td>
-                        {MOSTRAR_MANEJO && <td className="py-2.5 px-4 text-center" style={{ color: COR_MANEJO }}>{w.pctManejo}%</td>}
-                        <td className="py-2.5 px-4 text-center text-slate-400">{w.total}</td>
-                      </tr>
-                    ))}
+                    {weeklyData.slice().reverse().map(w => {
+                      const aberta = semanaDetalhe === w.semana;
+                      const clicavel = podeDetalhar && w.comAgua > 0;
+                      return (
+                        <Fragment key={w.semana}>
+                          <tr className={aberta ? 'bg-blue-50/40' : ''}>
+                            <td className="py-2.5 px-4 font-bold text-slate-700">{w.semanaLabel}</td>
+                            {MOSTRAR_MANEJO && <td className="py-2.5 px-4 text-center font-black" style={{ color: COR_TOTAL }}>{w.pctQualquer}%</td>}
+                            <td className="py-2.5 px-4 text-center" style={{ color: COR_AGUA }}>
+                              {clicavel ? (
+                                <button
+                                  onClick={() => abrirSemanaDetalhe(w.semana)}
+                                  title="Ver escolas pendentes nesta semana"
+                                  className="inline-flex items-center gap-1 font-bold underline decoration-dotted underline-offset-4 hover:decoration-solid"
+                                >
+                                  {aberta ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                                  {w.pctAgua}% <span className="text-slate-400 font-semibold no-underline">({w.comAgua})</span>
+                                </button>
+                              ) : (
+                                <>{w.pctAgua}%</>
+                              )}
+                            </td>
+                            {MOSTRAR_MANEJO && <td className="py-2.5 px-4 text-center" style={{ color: COR_MANEJO }}>{w.pctManejo}%</td>}
+                            <td className="py-2.5 px-4 text-center text-slate-400">{w.total}</td>
+                          </tr>
+                          {aberta && (
+                            <tr>
+                              <td colSpan={MOSTRAR_MANEJO ? 5 : 3} className="px-4 pb-4 pt-1 bg-blue-50/40">
+                                <p className="text-[11px] text-slate-500 mb-2">
+                                  {pendentesDaSemana.length} escola(s) pendente(s) na semana de {w.semanaLabel}. Clique na escola para ver os dias em aberto.
+                                </p>
+                                <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100 max-h-[420px] overflow-y-auto">
+                                  {pendentesDaSemana.map(r => {
+                                    const escolaAberta = escolaDetalheId === r.escola_id;
+                                    return (
+                                      <div key={r.escola_id}>
+                                        <button
+                                          onClick={() => abrirEscolaDetalhe(r.escola_id, w.semana)}
+                                          className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-slate-50"
+                                        >
+                                          <span className="flex items-center gap-1.5 font-bold text-slate-700">
+                                            {escolaAberta ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
+                                            {r.escola_nome}
+                                          </span>
+                                          <span className="text-xs font-black text-red-600 whitespace-nowrap">{Number(r.dias_agua_pendentes) || 0} dia(s)</span>
+                                        </button>
+                                        {escolaAberta && (
+                                          <div className="px-9 pb-3">
+                                            {diasDetalhe.loading ? (
+                                              <p className="text-xs text-slate-400 flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Buscando dias em aberto…</p>
+                                            ) : diasDetalhe.erro ? (
+                                              <p className="text-xs text-red-600">{diasDetalhe.erro}</p>
+                                            ) : (
+                                              <>
+                                                <p className="text-[11px] text-slate-500 mb-1.5">
+                                                  No snapshot: {Number(r.dias_agua_pendentes) || 0} dia(s).
+                                                  {' '}Com os lançamentos de hoje, faltam <strong>{diasDetalhe.dias.length}</strong> dia(s) até {formatDayLabel(diasDetalhe.ate)}.
+                                                  {diasDetalhe.dias.length <= TOLERANCIA_DIAS_AGUA && ' A escola já regularizou: recalcule a semana para atualizar o índice.'}
+                                                </p>
+                                                {diasDetalhe.dias.length > 0 && (
+                                                  <div className="flex flex-wrap gap-1.5">
+                                                    {diasDetalhe.dias.map(d => (
+                                                      <span key={d} className="text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 rounded-md px-1.5 py-0.5 flex items-center gap-1">
+                                                        <CalendarX2 size={11} /> {formatDayLabel(d)}
+                                                      </span>
+                                                    ))}
+                                                  </div>
+                                                )}
+                                              </>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
