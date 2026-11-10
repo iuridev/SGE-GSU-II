@@ -22,7 +22,8 @@ const ALLOWED_ROLES = ['regional_admin', 'school_manager', 'supervisor', 'dirige
 
 const COR_TOTAL = '#e11d48';   // rose-600 — % da rede com qualquer pendência
 const COR_AGUA = '#2563eb';    // blue-600 — mesma cor usada em Consumo de Água
-const COR_MANEJO = '#059669';  // emerald-600 — mesma cor usada em Manejo Arbóreo
+const COR_MANEJO = '#059669';
+const COR_MES = '#7c3aed';     // violet-600 — % pendentes no mês (com tolerância)  // emerald-600 — mesma cor usada em Manejo Arbóreo
 
 // Manejo arbóreo entra numa fase posterior — por ora a página acompanha apenas
 // a água. Com `false`, todos os elementos de manejo somem (KPIs, gráfico, tabela,
@@ -44,27 +45,35 @@ interface SnapshotRow {
   tem_pendencia_manejo: string; // 'TRUE' | 'FALSE'
   gerado_em: string;
   gerado_por_nome: string;
+  // Dias úteis sem lançamento só da semana / só do mês da semana. Vazios em
+  // snapshots gerados antes dessas colunas existirem (até serem recalculados).
+  dias_agua_semana?: string;
+  dias_agua_mes?: string;
 }
+
+type ModoPendencia = 'semana' | 'mes';
 
 // Registro administrativo da própria URE, não uma escola — nunca deve entrar
 // nas contagens/percentuais desta página (mesmo padrão de exclusão usado em
 // src/pages/VisitasEscolares.tsx e src/pages/Remanejamento.tsx).
 const NOME_URE = 'UNIDADE REGIONAL DE ENSINO';
 
-// Tolerância de atraso no registro de água: uma escola com até 2 dias úteis sem
-// lançamento ainda está dentro do prazo e NÃO conta como pendência. Só vira
-// pendência a partir do 3º dia. Aplicada tanto ao gerar o snapshot quanto na
-// leitura do histórico (para que snapshots antigos também respeitem a regra).
+// Duas medidas de pendência de água por snapshot:
+// - SEMANA: só os dias úteis daquela semana (segunda até o domingo; na semana
+//   corrente, até hoje). Sem tolerância: faltou 1 dia, a escola está pendente.
+//   A segunda-feira seguinte já é o prazo para lançar (dataReferenciaSnapshot).
+// - MÊS: os dias úteis do mês da semana (o mês da segunda-feira) até o fim da
+//   semana. Com tolerância: até 2 dias sem lançamento não contam como pendência.
 const TOLERANCIA_DIAS_AGUA = 2;
 
-// Escola pendente de água na última semana + contexto de recorrência.
+// Escola pendente de água na semana mais recente + contexto de recorrência.
 interface OfensoraAgua {
   escolaId: string;
   nome: string;
-  dias: number;
-  diasAnterior: number | null;
-  sequencia: number;              // semanas seguidas com pendência aberta (incluindo a atual)
-  acumulando: boolean;            // true = os dias em aberto cresceram desde o início da sequência (continua deixando de lançar); false = lacuna antiga não regularizada
+  dias: number;                   // dias úteis sem lançamento na semana
+  diasAnterior: number | null;    // idem, na semana anterior
+  diasMes: number | null;         // dias úteis sem lançamento no mês da semana
+  sequencia: number;              // semanas seguidas pendente (incluindo a atual)
   historico: (boolean | null)[];  // últimas semanas: true=pendente, false=ok, null=sem dado/dispensada
 }
 
@@ -134,6 +143,19 @@ function inicioJanelaAgua(referencia: Date): Date {
   return tresMesesAtras > WATER_REPORTING_HARD_START ? tresMesesAtras : WATER_REPORTING_HARD_START;
 }
 
+// Período de dias cobrados de uma semana, em cada modo (ver TOLERANCIA_DIAS_AGUA).
+function periodoPendencia(semana: string, modo: ModoPendencia, agora: Date): { inicio: Date; fim: Date } {
+  const referencia = referenciaDaSemana(semana, agora);
+  const segunda = parseYMD(semana);
+  if (modo === 'semana') return { inicio: segunda, fim: referencia };
+  const primeiroDoMes = new Date(segunda.getFullYear(), segunda.getMonth(), 1);
+  const ultimoDoMes = new Date(segunda.getFullYear(), segunda.getMonth() + 1, 0);
+  return {
+    inicio: primeiroDoMes > WATER_REPORTING_HARD_START ? primeiroDoMes : WATER_REPORTING_HARD_START,
+    fim: referencia < ultimoDoMes ? referencia : ultimoDoMes,
+  };
+}
+
 function formatWeekLabel(ymd: string): string {
   const [, m, d] = ymd.split('-');
   return `${d}/${m}`;
@@ -143,11 +165,19 @@ function isTrue(v: string): boolean {
   return v === 'TRUE' || v === 'true';
 }
 
-// Pendência de água considerando a tolerância: releva o booleano gravado e
-// recalcula a partir dos dias pendentes, para que snapshots antigos (gerados
-// antes da tolerância) também deixem de acusar escolas com ≤ 2 dias de atraso.
-function aguaPendente(r: SnapshotRow): boolean {
-  return (Number(r.dias_agua_pendentes) || 0) > TOLERANCIA_DIAS_AGUA;
+// Dias sem lançamento gravados no snapshot para o modo; null = snapshot antigo,
+// gerado antes das colunas de semana/mês (precisa ser recalculado).
+function diasPendentes(r: SnapshotRow, modo: ModoPendencia): number | null {
+  const v = modo === 'semana' ? r.dias_agua_semana : r.dias_agua_mes;
+  if (v === undefined || v === null || String(v).trim() === '') return null;
+  return Number(v) || 0;
+}
+
+// Pendente no modo? null = sem dado. Semana: qualquer dia; mês: > tolerância.
+function aguaPendente(r: SnapshotRow, modo: ModoPendencia): boolean | null {
+  const dias = diasPendentes(r, modo);
+  if (dias === null) return null;
+  return modo === 'semana' ? dias > 0 : dias > TOLERANCIA_DIAS_AGUA;
 }
 
 export default function PendenciasSemanais() {
@@ -170,9 +200,9 @@ export default function PendenciasSemanais() {
 
   // Detalhamento da tabela "Dados por semana": semana aberta → escolas pendentes;
   // escola aberta → dias úteis ainda sem lançamento.
-  const [semanaDetalhe, setSemanaDetalhe] = useState<string | null>(null);
+  const [semanaDetalhe, setSemanaDetalhe] = useState<{ semana: string; modo: ModoPendencia } | null>(null);
   const [escolaDetalheId, setEscolaDetalheId] = useState<string | null>(null);
-  const [diasDetalhe, setDiasDetalhe] = useState<{ loading: boolean; erro: string | null; dias: string[]; ate: string }>({ loading: false, erro: null, dias: [], ate: '' });
+  const [diasDetalhe, setDiasDetalhe] = useState<{ loading: boolean; erro: string | null; dias: string[]; de: string; ate: string }>({ loading: false, erro: null, dias: [], de: '', ate: '' });
   const [snapshotMsg, setSnapshotMsg] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -253,26 +283,36 @@ export default function PendenciasSemanais() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Calcula as linhas do snapshot com os lançamentos de água atuais, contando
-  // os dias pendentes até `referencia` (inclusive).
-  async function calcularLinhasSnapshot(referencia: Date, sheetMap: Map<string, ManejoSheetRow>) {
-    // ── Água: reaproveita a mesma RPC e janela do Dashboard ──────────────
-    // Janela de 3 meses (mês atual + 2 anteriores): lacunas mais antigas que isso
-    // não entram no índice.
-    const windowStart = inicioJanelaAgua(referencia);
-    const { data: pendenciasAgua, error: aguaError } = await supabase.rpc('get_pending_water_schools', {
-      p_window_start: formatDateToYMD(windowStart),
-      p_today: formatDateToYMD(referencia),
+  // Dias úteis sem lançamento por escola no período (mesma RPC do Dashboard).
+  async function diasSemLancamentoPorEscola(inicio: Date, fim: Date): Promise<Record<string, number>> {
+    const { data, error } = await supabase.rpc('get_pending_water_schools', {
+      p_window_start: formatDateToYMD(inicio),
+      p_today: formatDateToYMD(fim),
     });
-    if (aguaError) throw aguaError;
+    if (error) throw error;
+    const porEscola: Record<string, number> = {};
+    (data || []).forEach((row: any) => {
+      porEscola[row.school_id] = (porEscola[row.school_id] || 0) + row.missing_days;
+    });
+    return porEscola;
+  }
 
-    const diasPendentesPorEscola: Record<string, number> = {};
-    (pendenciasAgua || []).forEach((row: any) => {
-      diasPendentesPorEscola[row.school_id] = (diasPendentesPorEscola[row.school_id] || 0) + row.missing_days;
-    });
+  // Calcula as linhas do snapshot da `semana` com os lançamentos de água atuais.
+  async function calcularLinhasSnapshot(semana: string, agora: Date, sheetMap: Map<string, ManejoSheetRow>) {
+    const referencia = referenciaDaSemana(semana, agora);
+    const pSemana = periodoPendencia(semana, 'semana', agora);
+    const pMes = periodoPendencia(semana, 'mes', agora);
+    const [acumulado, daSemana, doMes] = await Promise.all([
+      // Acumulado da janela de 3 meses: não entra mais no índice, fica gravado
+      // como referência de lacunas antigas.
+      diasSemLancamentoPorEscola(inicioJanelaAgua(referencia), referencia),
+      diasSemLancamentoPorEscola(pSemana.inicio, pSemana.fim),
+      diasSemLancamentoPorEscola(pMes.inicio, pMes.fim),
+    ]);
 
     return schools.map((escola) => {
-      const diasAgua = diasPendentesPorEscola[escola.id] || 0;
+      const diasAgua = acumulado[escola.id] || 0;
+      const diasSemana = daSemana[escola.id] || 0;
 
       let statusManejo = '';
       let temManejo = false;
@@ -294,8 +334,10 @@ export default function PendenciasSemanais() {
       return {
         escola_id: escola.id,
         escola_nome: escola.name,
-        tem_pendencia_agua: diasAgua > TOLERANCIA_DIAS_AGUA,
+        tem_pendencia_agua: diasSemana > 0,
         dias_agua_pendentes: diasAgua,
+        dias_agua_semana: diasSemana,
+        dias_agua_mes: doMes[escola.id] || 0,
         agua_dispensada: !!escola.water_exempt,
         status_manejo: statusManejo,
         tem_pendencia_manejo: temManejo,
@@ -336,7 +378,7 @@ export default function PendenciasSemanais() {
       for (let i = 0; i < semanas.length; i++) {
         const semana = semanas[i];
         if (semanas.length > 1) setSnapshotProgresso(`${i + 1}/${semanas.length}`);
-        const linhas = await calcularLinhasSnapshot(referenciaDaSemana(semana, agora), sheetMap);
+        const linhas = await calcularLinhasSnapshot(semana, agora, sheetMap);
         const resultado = await invoke('gerar_snapshot', { semana, rows: linhas });
         criadas += resultado.criadas || 0;
         atualizadas += resultado.atualizadas || 0;
@@ -371,45 +413,47 @@ export default function PendenciasSemanais() {
     return Array.from(set).sort().reverse();
   }, [snapshots]);
 
-  // Escolas pendentes de água na semana aberta no detalhamento (mesmo critério
-  // do % Água: tolerância aplicada, dispensadas fora, supervisor só as suas).
+  // Escolas pendentes de água na semana/modo aberto no detalhamento (mesmo
+  // critério do percentual: dispensadas fora, supervisor só as suas).
   const pendentesDaSemana = useMemo(() => {
     if (!semanaDetalhe) return [] as SnapshotRow[];
+    const { semana, modo } = semanaDetalhe;
     return snapshots
-      .filter(r => r.semana === semanaDetalhe)
+      .filter(r => r.semana === semana)
       .filter(r => userRole !== 'supervisor' || supervisorSchoolIds.includes(r.escola_id))
-      .filter(r => !isTrue(r.agua_dispensada) && aguaPendente(r))
-      .sort((a, b) => (Number(b.dias_agua_pendentes) || 0) - (Number(a.dias_agua_pendentes) || 0) || a.escola_nome.localeCompare(b.escola_nome));
+      .filter(r => !isTrue(r.agua_dispensada) && aguaPendente(r, modo) === true)
+      .sort((x, y) => (diasPendentes(y, modo) || 0) - (diasPendentes(x, modo) || 0) || x.escola_nome.localeCompare(y.escola_nome));
   }, [snapshots, semanaDetalhe, userRole, supervisorSchoolIds]);
 
   const detalheReqRef = useRef(0);
 
-  function abrirSemanaDetalhe(semana: string) {
-    setSemanaDetalhe(atual => (atual === semana ? null : semana));
+  function abrirSemanaDetalhe(semana: string, modo: ModoPendencia) {
+    setSemanaDetalhe(atual => (atual?.semana === semana && atual.modo === modo ? null : { semana, modo }));
     setEscolaDetalheId(null);
   }
 
-  // Dias úteis ainda sem lançamento da escola, contados até o fim da semana
-  // (domingo; na semana corrente, até hoje) com os lançamentos atuais.
-  async function abrirEscolaDetalhe(escolaId: string, semana: string) {
+  // Dias úteis ainda sem lançamento da escola no período do modo (só a semana,
+  // ou o mês da semana), com os lançamentos atuais.
+  async function abrirEscolaDetalhe(escolaId: string, semana: string, modo: ModoPendencia) {
     if (escolaDetalheId === escolaId) { setEscolaDetalheId(null); return; }
     setEscolaDetalheId(escolaId);
     const req = ++detalheReqRef.current;
-    const referencia = referenciaDaSemana(semana, new Date());
-    const ate = formatDateToYMD(referencia);
-    setDiasDetalhe({ loading: true, erro: null, dias: [], ate });
+    const { inicio, fim } = periodoPendencia(semana, modo, new Date());
+    const de = formatDateToYMD(inicio);
+    const ate = formatDateToYMD(fim);
+    setDiasDetalhe({ loading: true, erro: null, dias: [], de, ate });
     const { data, error } = await (supabase as any).rpc('get_pending_water_days', {
       p_school_id: escolaId,
-      p_window_start: formatDateToYMD(inicioJanelaAgua(referencia)),
+      p_window_start: de,
       p_today: ate,
     });
     if (req !== detalheReqRef.current) return; // usuário já abriu outra escola
     if (error) {
       console.error('Erro ao buscar dias pendentes de água:', error);
-      setDiasDetalhe({ loading: false, erro: 'Não foi possível carregar os dias pendentes.', dias: [], ate });
+      setDiasDetalhe({ loading: false, erro: 'Não foi possível carregar os dias pendentes.', dias: [], de, ate });
       return;
     }
-    setDiasDetalhe({ loading: false, erro: null, dias: (data || []).map((r: any) => String(r.day)), ate });
+    setDiasDetalhe({ loading: false, erro: null, dias: (data || []).map((r: any) => String(r.day)), de, ate });
   }
 
   const escolasVisiveisPicker = useMemo(() => {
@@ -433,22 +477,32 @@ export default function PendenciasSemanais() {
       // então saem do denominador de cada percentual, não só do numerador.
       const elegiveisAgua = rows.filter(r => !isTrue(r.agua_dispensada));
       const elegiveisManejo = rows.filter(r => r.status_manejo !== 'NAO_SE_APLICA');
-      const comAgua = elegiveisAgua.filter(r => aguaPendente(r)).length;
       const comManejo = elegiveisManejo.filter(r => isTrue(r.tem_pendencia_manejo)).length;
       const pct = (n: number, base: number) => (base > 0 ? Math.round((n / base) * 1000) / 10 : 0);
-      const pctAgua = pct(comAgua, elegiveisAgua.length);
+      // Snapshots antigos (sem dias da semana/mês) ficam fora da base; se a
+      // semana inteira é antiga, o percentual é null ("—", recalcular).
+      const medir = (modo: ModoPendencia) => {
+        const comDado = elegiveisAgua.filter(r => aguaPendente(r, modo) !== null);
+        const pendentes = comDado.filter(r => aguaPendente(r, modo) === true).length;
+        return { pendentes, pct: comDado.length > 0 ? pct(pendentes, comDado.length) : null };
+      };
+      const semanaM = medir('semana');
+      const mesM = medir('mes');
       const pctManejo = pct(comManejo, elegiveisManejo.length);
       return {
         semana,
         semanaLabel: formatWeekLabel(semana),
-        total, comAgua, comManejo,
-        pctAgua, pctManejo,
-        // Com manejo ativo, Total = média simples entre % Água e % Manejo (não é
-        // a % de escolas com pelo menos uma das duas pendências). Enquanto só a
-        // água é acompanhada, Total = % Água.
-        pctQualquer: MOSTRAR_MANEJO
-          ? Math.round(((pctAgua + pctManejo) / 2) * 10) / 10
-          : pctAgua,
+        total, comManejo,
+        comSemana: semanaM.pendentes, pctSemana: semanaM.pct,
+        comMes: mesM.pendentes, pctMes: mesM.pct,
+        pctManejo,
+        // Índice principal = % de escolas pendentes na semana. Com manejo ativo,
+        // Total = média simples entre % Água (semana) e % Manejo.
+        pctQualquer: semanaM.pct === null
+          ? null
+          : MOSTRAR_MANEJO
+            ? Math.round(((semanaM.pct + pctManejo) / 2) * 10) / 10
+            : semanaM.pct,
       };
     });
   }, [snapshots, userRole, supervisorSchoolIds]);
@@ -464,7 +518,7 @@ export default function PendenciasSemanais() {
       .map(s => ({
         semana: s.semana,
         semanaLabel: formatWeekLabel(s.semana),
-        agua: aguaPendente(s),
+        agua: isTrue(s.agua_dispensada) ? null : aguaPendente(s, 'semana'),
         manejo: isTrue(s.tem_pendencia_manejo),
         statusManejo: s.status_manejo,
       }));
@@ -491,35 +545,28 @@ export default function PendenciasSemanais() {
     const lista: OfensoraAgua[] = [];
     for (const [escolaId, mapa] of porEscola) {
       const atual = mapa.get(ultima);
-      if (!atual || isTrue(atual.agua_dispensada)) continue;
+      if (!atual || isTrue(atual.agua_dispensada) || aguaPendente(atual, 'semana') === null) continue;
       base++;
-      if (!aguaPendente(atual)) continue;
+      if (!aguaPendente(atual, 'semana')) continue;
 
-      // Os dias pendentes são o acumulado da janela (não da semana). Por isso a
-      // sequência sozinha engana: 3 dias antigos em aberto ficam "pendentes"
-      // todas as semanas. Compara com o início da sequência para distinguir
-      // quem segue faltando (dias crescendo) de uma lacuna antiga parada.
+      // Semanas seguidas em que a escola deixou de lançar algum dia da própria semana.
       let sequencia = 0;
-      let diasInicio = 0;
       for (let i = semanas.length - 1; i >= 0; i--) {
         const r = mapa.get(semanas[i]);
-        if (r && !isTrue(r.agua_dispensada) && aguaPendente(r)) {
-          sequencia++;
-          diasInicio = Number(r.dias_agua_pendentes) || 0;
-        } else break;
+        if (r && !isTrue(r.agua_dispensada) && aguaPendente(r, 'semana')) sequencia++;
+        else break;
       }
-      const diasAtual = Number(atual.dias_agua_pendentes) || 0;
       const anterior = mapa.get(semanas[semanas.length - 2]);
       lista.push({
         escolaId,
         nome: atual.escola_nome,
-        dias: Number(atual.dias_agua_pendentes) || 0,
-        diasAnterior: anterior ? (Number(anterior.dias_agua_pendentes) || 0) : null,
+        dias: diasPendentes(atual, 'semana') || 0,
+        diasAnterior: anterior ? diasPendentes(anterior, 'semana') : null,
+        diasMes: diasPendentes(atual, 'mes'),
         sequencia,
-        acumulando: sequencia > 1 && diasAtual > diasInicio,
         historico: semanasHist.map(sem => {
           const r = mapa.get(sem);
-          return !r || isTrue(r.agua_dispensada) ? null : aguaPendente(r);
+          return !r || isTrue(r.agua_dispensada) ? null : aguaPendente(r, 'semana');
         }),
       });
     }
@@ -539,7 +586,9 @@ export default function PendenciasSemanais() {
 
   const semanaAtual = weeklyData[weeklyData.length - 1];
   const semanaAnterior = weeklyData[weeklyData.length - 2];
-  const delta = semanaAtual && semanaAnterior ? Math.round((semanaAtual.pctQualquer - semanaAnterior.pctQualquer) * 10) / 10 : null;
+  const delta = semanaAtual?.pctQualquer != null && semanaAnterior?.pctQualquer != null
+    ? Math.round((semanaAtual.pctQualquer - semanaAnterior.pctQualquer) * 10) / 10
+    : null;
 
   const podeGerarSnapshot = userRoleRaw === 'regional_admin';
   const podeFiltrarEscola = userRole === 'regional_admin' || userRole === 'dirigente';
@@ -686,8 +735,9 @@ export default function PendenciasSemanais() {
               <p className="text-2xl font-black text-slate-700">{semanaAtual ? formatWeekLabel(semanaAtual.semana) : '—'}</p>
             </div>
             <div className={`bg-white rounded-2xl p-5 border shadow-sm ${semanaAtual?.pctQualquer === 0 ? 'border-emerald-200' : 'border-rose-200'}`}>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">% Escolas com Pendência</p>
-              <p className={`text-3xl font-black ${semanaAtual?.pctQualquer === 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{semanaAtual ? `${semanaAtual.pctQualquer}%` : '—'}</p>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">% Pendentes na Semana</p>
+              <p className={`text-3xl font-black ${semanaAtual?.pctQualquer === 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{semanaAtual?.pctQualquer != null ? `${semanaAtual.pctQualquer}%` : '—'}</p>
+              <p className="text-xs font-bold text-slate-400 mt-1">No mês: {semanaAtual?.pctMes != null ? `${semanaAtual.pctMes}%` : '—'}</p>
             </div>
             <div className={`bg-white rounded-2xl p-5 border shadow-sm ${deltaCor}`}>
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Variação vs. Semana Anterior</p>
@@ -696,7 +746,7 @@ export default function PendenciasSemanais() {
             <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">{MOSTRAR_MANEJO ? 'Água / Manejo Pendentes' : 'Escolas com Água Pendente'}</p>
               <p className="text-2xl font-black text-slate-700 flex items-center gap-3">
-                <span className="flex items-center gap-1.5"><Droplets size={18} style={{ color: COR_AGUA }} />{semanaAtual?.comAgua ?? '—'}</span>
+                <span className="flex items-center gap-1.5"><Droplets size={18} style={{ color: COR_AGUA }} />{semanaAtual?.pctSemana != null ? semanaAtual.comSemana : '—'}</span>
                 {MOSTRAR_MANEJO && (
                   <span className="flex items-center gap-1.5"><TreeDeciduous size={18} style={{ color: COR_MANEJO }} />{semanaAtual?.comManejo ?? '—'}</span>
                 )}
@@ -721,7 +771,7 @@ export default function PendenciasSemanais() {
                         <Target size={18} className="text-rose-500" /> Escolas que seguram o índice
                       </h2>
                       <p className="text-xs text-slate-500 mt-1">
-                        Pendências de água na semana de {semanaAtual ? formatWeekLabel(semanaAtual.semana) : '—'}, das mais antigas para as mais recentes.
+                        Escolas que deixaram de lançar algum dia útil da semana de {semanaAtual ? formatWeekLabel(semanaAtual.semana) : '—'}, das com mais semanas seguidas para as mais recentes.
                         Cada escola pesa <strong>{pctPorEscola.toFixed(1).replace('.', ',')} p.p.</strong> no índice.
                       </p>
                     </div>
@@ -784,7 +834,8 @@ export default function PendenciasSemanais() {
                           <th className="text-left py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest w-10">#</th>
                           <th className="text-left py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Escola</th>
                           <th className="text-left py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Situação</th>
-                          <th className="text-center py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Dias sem lançar</th>
+                          <th className="text-center py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Dias na semana</th>
+                          <th className="text-center py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Dias no mês</th>
                           <th className="text-left py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Últimas {semanasHist.length} semanas</th>
                         </tr>
                       </thead>
@@ -803,10 +854,10 @@ export default function PendenciasSemanais() {
                               <td className="py-2.5 px-4">
                                 <div className="flex items-center gap-2">
                                   <span
-                                    title={o.sequencia === 1 ? 'Pendência surgiu nesta semana' : o.acumulando ? `Segue deixando de lançar: pendente há ${o.sequencia} semanas e os dias em aberto aumentaram` : `Lacuna antiga: ${o.dias} dia(s) em aberto que ainda não foram regularizados (pendente há ${o.sequencia} semanas, sem novas faltas)`}
-                                    className={`text-[11px] font-black px-2 py-0.5 rounded-full border whitespace-nowrap ${o.sequencia === 1 ? 'bg-amber-50 text-amber-600 border-amber-200' : o.acumulando ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}
+                                    title={o.sequencia === 1 ? 'Pendência surgiu nesta semana' : `Deixou de lançar dias em ${o.sequencia} semanas seguidas`}
+                                    className={`text-[11px] font-black px-2 py-0.5 rounded-full border whitespace-nowrap ${o.sequencia === 1 ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-rose-50 text-rose-600 border-rose-200'}`}
                                   >
-                                    {o.sequencia === 1 ? 'Nova' : o.acumulando ? `Acumulando · ${o.sequencia} sem.` : `Lacuna de ${o.dias} dia${o.dias === 1 ? '' : 's'}`}
+                                    {o.sequencia === 1 ? 'Nova' : `${o.sequencia} semanas seguidas`}
                                   </span>
                                   <div className="hidden md:block w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                                     <div className="h-full rounded-full" style={{ width: `${(o.sequencia / maxSeq) * 100}%`, background: cronica ? '#e11d48' : '#f59e0b' }} />
@@ -820,6 +871,9 @@ export default function PendenciasSemanais() {
                                     {variacao > 0 ? '▲' : '▼'}{Math.abs(variacao)}
                                   </span>
                                 )}
+                              </td>
+                              <td className={`py-2.5 px-4 text-center font-bold ${o.diasMes !== null && o.diasMes > TOLERANCIA_DIAS_AGUA ? 'text-red-600' : 'text-slate-400'}`}>
+                                {o.diasMes ?? '—'}
                               </td>
                               <td className="py-2.5 px-4">
                                 <div className="flex items-center gap-1">
@@ -844,7 +898,7 @@ export default function PendenciasSemanais() {
                   <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-red-500" /> pendente</span>
                   <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /> em dia</span>
                   <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-slate-200" /> sem dado</span>
-                  <span>Pendência = mais de {TOLERANCIA_DIAS_AGUA} dias úteis sem lançamento. Escolas dispensadas não entram.</span>
+                  <span>Semana: pendente se faltou qualquer dia útil da semana (a segunda seguinte ainda é prazo). Mês: pendente com mais de {TOLERANCIA_DIAS_AGUA} dias úteis do mês sem lançamento. Escolas dispensadas não entram.</span>
                   {podeFiltrarEscola && <span className="sm:ml-auto">Clique na escola para ver a evolução dela.</span>}
                 </div>
               </div>
@@ -880,9 +934,9 @@ export default function PendenciasSemanais() {
                     {schoolWeeklyData.map((w) => (
                       <div key={w.semana} className="flex flex-col items-center gap-1.5 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 min-w-[64px]">
                         <span className="text-[10px] font-black text-slate-400">{w.semanaLabel}</span>
-                        <div className="flex items-center gap-1" title={`Água: ${w.agua ? 'pendente' : 'ok'}`}>
+                        <div className="flex items-center gap-1" title={`Água na semana: ${w.agua === null ? 'sem dado' : w.agua ? 'pendente' : 'ok'}`}>
                           <Droplets size={13} style={{ color: w.agua ? COR_AGUA : '#cbd5e1' }} />
-                          <div className="w-2 h-2 rounded-full" style={{ background: w.agua ? '#ef4444' : '#10b981' }} />
+                          <div className="w-2 h-2 rounded-full" style={{ background: w.agua === null ? '#e2e8f0' : w.agua ? '#ef4444' : '#10b981' }} />
                         </div>
                         {MOSTRAR_MANEJO && (
                           <div className="flex items-center gap-1" title={`Manejo: ${w.statusManejo}`}>
@@ -907,7 +961,8 @@ export default function PendenciasSemanais() {
                     <Tooltip formatter={(value: any, name: any) => [`${value}%`, name]} contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 12 }} />
                     <Legend wrapperStyle={{ fontSize: 12, fontWeight: 700 }} />
                     {MOSTRAR_MANEJO && <Line type="monotone" dataKey="pctQualquer" name="Total com pendência" stroke={COR_TOTAL} strokeWidth={2.5} dot={{ r: 4 }} activeDot={{ r: 6 }} />}
-                    <Line type="monotone" dataKey="pctAgua" name="Água" stroke={COR_AGUA} strokeWidth={MOSTRAR_MANEJO ? 2 : 2.5} dot={{ r: MOSTRAR_MANEJO ? 3 : 4 }} activeDot={{ r: 6 }} />
+                    <Line type="monotone" dataKey="pctSemana" name="Água — semana" stroke={COR_AGUA} strokeWidth={MOSTRAR_MANEJO ? 2 : 2.5} dot={{ r: MOSTRAR_MANEJO ? 3 : 4 }} activeDot={{ r: 6 }} />
+                    <Line type="monotone" dataKey="pctMes" name="Água — mês" stroke={COR_MES} strokeWidth={2} strokeDasharray="5 4" dot={{ r: 3 }} activeDot={{ r: 5 }} />
                     {MOSTRAR_MANEJO && <Line type="monotone" dataKey="pctManejo" name="Manejo Arbóreo" stroke={COR_MANEJO} strokeWidth={2} dot={{ r: 3 }} />}
                   </LineChart>
                 </ResponsiveContainer>
@@ -923,42 +978,58 @@ export default function PendenciasSemanais() {
                     <tr className="bg-slate-50 border-b border-slate-100">
                       <th className="text-left py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Semana</th>
                       {MOSTRAR_MANEJO && <th className="text-center py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">% Total</th>}
-                      <th className="text-center py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">% Água</th>
+                      <th className="text-center py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest" title="Escolas que deixaram de lançar algum dia útil da semana">% Pendentes na semana</th>
+                      <th className="text-center py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest" title={`Escolas com mais de ${TOLERANCIA_DIAS_AGUA} dias úteis do mês sem lançamento`}>% Pendentes no mês</th>
                       {MOSTRAR_MANEJO && <th className="text-center py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">% Manejo</th>}
                       <th className="text-center py-2.5 px-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Escolas</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {weeklyData.slice().reverse().map(w => {
-                      const aberta = semanaDetalhe === w.semana;
-                      const clicavel = podeDetalhar && w.comAgua > 0;
+                      const modoAberto = semanaDetalhe?.semana === w.semana ? semanaDetalhe.modo : null;
+                      const aberta = modoAberto !== null;
+                      const celula = (modo: ModoPendencia) => {
+                        const pctModo = modo === 'semana' ? w.pctSemana : w.pctMes;
+                        const qtd = modo === 'semana' ? w.comSemana : w.comMes;
+                        const cor = modo === 'semana' ? COR_AGUA : COR_MES;
+                        if (pctModo === null) {
+                          return <td className="py-2.5 px-4 text-center text-slate-300" title="Snapshot antigo: recalcule a semana">—</td>;
+                        }
+                        return (
+                          <td className="py-2.5 px-4 text-center" style={{ color: cor }}>
+                            {podeDetalhar && qtd > 0 ? (
+                              <button
+                                onClick={() => abrirSemanaDetalhe(w.semana, modo)}
+                                title={modo === 'semana' ? 'Ver escolas pendentes na semana' : 'Ver escolas pendentes no mês'}
+                                className="inline-flex items-center gap-1 font-bold underline decoration-dotted underline-offset-4 hover:decoration-solid"
+                              >
+                                {modoAberto === modo ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                                {pctModo}% <span className="text-slate-400 font-semibold no-underline">({qtd})</span>
+                              </button>
+                            ) : (
+                              <>{pctModo}%</>
+                            )}
+                          </td>
+                        );
+                      };
                       return (
                         <Fragment key={w.semana}>
                           <tr className={aberta ? 'bg-blue-50/40' : ''}>
                             <td className="py-2.5 px-4 font-bold text-slate-700">{w.semanaLabel}</td>
-                            {MOSTRAR_MANEJO && <td className="py-2.5 px-4 text-center font-black" style={{ color: COR_TOTAL }}>{w.pctQualquer}%</td>}
-                            <td className="py-2.5 px-4 text-center" style={{ color: COR_AGUA }}>
-                              {clicavel ? (
-                                <button
-                                  onClick={() => abrirSemanaDetalhe(w.semana)}
-                                  title="Ver escolas pendentes nesta semana"
-                                  className="inline-flex items-center gap-1 font-bold underline decoration-dotted underline-offset-4 hover:decoration-solid"
-                                >
-                                  {aberta ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                                  {w.pctAgua}% <span className="text-slate-400 font-semibold no-underline">({w.comAgua})</span>
-                                </button>
-                              ) : (
-                                <>{w.pctAgua}%</>
-                              )}
-                            </td>
+                            {MOSTRAR_MANEJO && <td className="py-2.5 px-4 text-center font-black" style={{ color: COR_TOTAL }}>{w.pctQualquer ?? '—'}{w.pctQualquer != null && '%'}</td>}
+                            {celula('semana')}
+                            {celula('mes')}
                             {MOSTRAR_MANEJO && <td className="py-2.5 px-4 text-center" style={{ color: COR_MANEJO }}>{w.pctManejo}%</td>}
                             <td className="py-2.5 px-4 text-center text-slate-400">{w.total}</td>
                           </tr>
-                          {aberta && (
+                          {modoAberto && (
                             <tr>
-                              <td colSpan={MOSTRAR_MANEJO ? 5 : 3} className="px-4 pb-4 pt-1 bg-blue-50/40">
+                              <td colSpan={MOSTRAR_MANEJO ? 6 : 4} className="px-4 pb-4 pt-1 bg-blue-50/40">
                                 <p className="text-[11px] text-slate-500 mb-2">
-                                  {pendentesDaSemana.length} escola(s) pendente(s) na semana de {w.semanaLabel}. Clique na escola para ver os dias em aberto.
+                                  {modoAberto === 'semana'
+                                    ? `${pendentesDaSemana.length} escola(s) deixaram de lançar algum dia da semana de ${w.semanaLabel}.`
+                                    : `${pendentesDaSemana.length} escola(s) com mais de ${TOLERANCIA_DIAS_AGUA} dias do mês sem lançamento até a semana de ${w.semanaLabel}.`}
+                                  {' '}Clique na escola para ver os dias em aberto.
                                 </p>
                                 <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100 max-h-[420px] overflow-y-auto">
                                   {pendentesDaSemana.map(r => {
@@ -966,14 +1037,14 @@ export default function PendenciasSemanais() {
                                     return (
                                       <div key={r.escola_id}>
                                         <button
-                                          onClick={() => abrirEscolaDetalhe(r.escola_id, w.semana)}
+                                          onClick={() => abrirEscolaDetalhe(r.escola_id, w.semana, modoAberto)}
                                           className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-slate-50"
                                         >
                                           <span className="flex items-center gap-1.5 font-bold text-slate-700">
                                             {escolaAberta ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
                                             {r.escola_nome}
                                           </span>
-                                          <span className="text-xs font-black text-red-600 whitespace-nowrap">{Number(r.dias_agua_pendentes) || 0} dia(s)</span>
+                                          <span className="text-xs font-black text-red-600 whitespace-nowrap">{diasPendentes(r, modoAberto) ?? 0} dia(s)</span>
                                         </button>
                                         {escolaAberta && (
                                           <div className="px-9 pb-3">
@@ -984,9 +1055,9 @@ export default function PendenciasSemanais() {
                                             ) : (
                                               <>
                                                 <p className="text-[11px] text-slate-500 mb-1.5">
-                                                  No snapshot: {Number(r.dias_agua_pendentes) || 0} dia(s).
-                                                  {' '}Com os lançamentos de hoje, faltam <strong>{diasDetalhe.dias.length}</strong> dia(s) até {formatDayLabel(diasDetalhe.ate)}.
-                                                  {diasDetalhe.dias.length <= TOLERANCIA_DIAS_AGUA && ' A escola já regularizou: recalcule a semana para atualizar o índice.'}
+                                                  No snapshot: {diasPendentes(r, modoAberto) ?? 0} dia(s).
+                                                  {' '}Com os lançamentos de hoje, faltam <strong>{diasDetalhe.dias.length}</strong> dia(s) entre {formatDayLabel(diasDetalhe.de)} e {formatDayLabel(diasDetalhe.ate)}.
+                                                  {(modoAberto === 'semana' ? diasDetalhe.dias.length === 0 : diasDetalhe.dias.length <= TOLERANCIA_DIAS_AGUA) && ' A escola já regularizou: recalcule a semana para atualizar o índice.'}
                                                 </p>
                                                 {diasDetalhe.dias.length > 0 && (
                                                   <div className="flex flex-wrap gap-1.5">

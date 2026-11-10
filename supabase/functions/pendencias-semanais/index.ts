@@ -18,6 +18,9 @@ const COLUMNS = [
   'tem_pendencia_agua', 'dias_agua_pendentes', 'agua_dispensada',
   'status_manejo', 'tem_pendencia_manejo',
   'gerado_em', 'gerado_por_nome',
+  // Dias úteis sem lançamento só da semana do snapshot e só do mês dela
+  // (o dias_agua_pendentes acima é o acumulado da janela de 3 meses).
+  'dias_agua_semana', 'dias_agua_mes',
 ]
 
 // Roles que podem ver o histórico (mesmas da página, ver src/App.tsx e
@@ -81,7 +84,12 @@ async function getOrCreateSheet(doc: any, title: string, columns: string[]) {
 
   const missing = columns.filter(c => !headers.includes(c))
   if (missing.length > 0) {
-    await sheet.setHeaderRow([...headers, ...missing])
+    const novoHeader = [...headers, ...missing]
+    // setHeaderRow falha se o cabeçalho passa do número de colunas da aba.
+    if (sheet.columnCount < novoHeader.length) {
+      await sheet.resize({ rowCount: sheet.rowCount, columnCount: novoHeader.length })
+    }
+    await sheet.setHeaderRow(novoHeader)
   }
   return sheet
 }
@@ -204,6 +212,8 @@ Deno.serve(async (req) => {
             tem_pendencia_manejo: linha.tem_pendencia_manejo ? 'TRUE' : 'FALSE',
             gerado_em: geradoEm,
             gerado_por_nome: autorNome,
+            dias_agua_semana: linha.dias_agua_semana == null ? '' : String(linha.dias_agua_semana),
+            dias_agua_mes: linha.dias_agua_mes == null ? '' : String(linha.dias_agua_mes),
           }
 
           const existente = porChave.get(chave)
