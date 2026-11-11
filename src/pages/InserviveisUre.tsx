@@ -287,13 +287,24 @@ export default function InserviveisUre() {
             Registre com foto os itens sem condição de uso que ainda não foram alocados em uma sala
           </p>
         </div>
-        <button
-          onClick={carregar}
-          disabled={refreshing}
-          className="flex items-center justify-center gap-2 px-3 py-2.5 w-full sm:w-auto text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-sm disabled:opacity-60"
-        >
-          <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /> Atualizar
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <button
+            onClick={handleGerarPdf}
+            disabled={gerandoPdf || todosInserviveis.length === 0}
+            title={todosInserviveis.length === 0 ? 'Nenhum item na lista de inservíveis' : undefined}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-sm transition-colors disabled:opacity-40"
+          >
+            {gerandoPdf ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
+            {gerandoPdf ? 'Gerando PDF...' : `Gerar PDF dos inservíveis (${todosInserviveis.length})`}
+          </button>
+          <button
+            onClick={carregar}
+            disabled={refreshing}
+            className="flex items-center justify-center gap-2 px-3 py-2.5 w-full sm:w-auto text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-sm disabled:opacity-60"
+          >
+            <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /> Atualizar
+          </button>
+        </div>
       </div>
 
       {loadError && (
@@ -335,14 +346,7 @@ export default function InserviveisUre() {
           {aba === 'disponiveis' ? (
             <span className="text-xs text-slate-400">{disponiveis.length} item(ns) disponível(is)</span>
           ) : (
-            <button
-              onClick={handleGerarPdf}
-              disabled={gerandoPdf || todosInserviveis.length === 0}
-              className="flex items-center justify-center gap-2 px-3 py-2 w-full sm:w-auto bg-slate-900 hover:bg-black text-white rounded-lg font-bold text-[11px] uppercase transition-colors disabled:opacity-40"
-            >
-              {gerandoPdf ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />}
-              {gerandoPdf ? 'Gerando...' : 'Gerar PDF da lista'}
-            </button>
+            <span className="text-xs text-slate-400">{inserviveis.length} item(ns) inservível(is)</span>
           )}
         </div>
 
